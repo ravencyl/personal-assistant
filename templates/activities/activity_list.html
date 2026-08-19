@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}活动记录 - Personal AI Assistant{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">活动记录</h1>
+    <a href="/admin/activities/activity/add/" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+        + 新建活动
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="flex gap-2 mb-4">
+    <a href="{% url 'activities:activity_list' %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
+    {% for value, label in status_choices %}
+    <a href="?status={{ value }}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
+    {% endfor %}
+</div>
+
+<!-- Activity table -->
+{% if activities %}
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">活动名称</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期范围</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">自身费用</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">子活动费用</th>
+                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">子活动</th>
+                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">任务</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for activity in activities %}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3">
+                    <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-gray-900 hover:text-indigo-600">
+                        {{ activity.name }}
+                    </a>
+                    {% if activity.parent %}
+                    <span class="ml-1 text-xs text-gray-400">└ {{ activity.parent.name }}</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3">
+                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
+                        {% if activity.status == 'planned' %}bg-gray-100 text-gray-600
+                        {% elif activity.status == 'in_progress' %}bg-indigo-100 text-indigo-700
+                        {% elif activity.status == 'done' %}bg-green-100 text-green-700
+                        {% else %}bg-red-100 text-red-600{% endif %}">
+                        {{ activity.get_status_display }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ activity.date_range }}</td>
+                <td class="px-4 py-3 text-right text-gray-700">¥{{ activity.cost }}</td>
+                <td class="px-4 py-3 text-right text-gray-500">
+                    {% if activity.children_cost_sum %}¥{{ activity.children_cost_sum }}{% else %}-{% endif %}
+                </td>
+                <td class="px-4 py-3 text-center text-gray-500">{{ activity.sub_count }}</td>
+                <td class="px-4 py-3 text-center text-gray-500">{{ activity.task_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="text-center py-12">
+    <p class="text-gray-500">暂无活动</p>
+    <p class="mt-2 text-sm text-gray-400">通过后台管理添加活动记录</p>
+</div>
+{% endif %}
+{% endblock %}

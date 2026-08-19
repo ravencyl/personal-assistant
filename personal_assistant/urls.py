@@ -19,6 +19,7 @@ urlpatterns = [
     path('chat/', include('chat.urls')),
     path('knowledge/', include('knowledge.urls')),
     path('tasks/', include('tasks.urls')),
+    path('activities/', include('activities.urls')),
     path('content/', include('content.urls')),
 
     # Agents API (internal)

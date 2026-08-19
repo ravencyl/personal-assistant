@@ -42,6 +42,14 @@ class Task(models.Model):
     )
     ai_generated = models.BooleanField(default=False, help_text='是否由 AI 生成')
     project = models.CharField(max_length=100, blank=True)
+    activity = models.ForeignKey(
+        'activities.Activity',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='tasks',
+        verbose_name='所属活动'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

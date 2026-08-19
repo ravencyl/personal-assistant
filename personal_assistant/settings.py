@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'chat',
     'knowledge',
     'tasks',
+    'activities',
     'content',
     'cms_pages',
 ]
