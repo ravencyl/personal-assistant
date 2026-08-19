@@ -37,10 +37,15 @@
             {% for activity in activities %}
             <tr class="hover:bg-gray-50">
                 <td class="px-4 py-3">
-                    <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-gray-900 hover:text-indigo-600">
-                        {{ activity.name }}
-                    </a>
-                    {% if activity.parent %}
+                    <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
+                        {% if activity.depth %}
+                        <span class="text-gray-300 select-none">└</span>
+                        {% endif %}
+                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-gray-700{% else %}text-gray-900{% endif %} hover:text-indigo-600">
+                            {{ activity.name }}
+                        </a>
+                    </div>
+                    {% if not tree_mode and activity.parent %}
                     <span class="ml-1 text-xs text-gray-400">└ {{ activity.parent.name }}</span>
                     {% endif %}
                 </td>

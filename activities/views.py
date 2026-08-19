@@ -10,24 +10,42 @@ from .models import Activity
 
 @login_required
 def activity_list(request):
-    """活动列表"""
-    activities = Activity.objects.filter(user=request.user)
-
+    """活动列表（默认树形结构，状态筛选时为平铺列表）"""
     status_filter = request.GET.get('status', '')
-    if status_filter:
-        activities = activities.filter(status=status_filter)
 
     # 一次性聚合子活动数量、费用合计、关联任务数，避免 N+1
-    activities = activities.annotate(
+    activities = Activity.objects.filter(user=request.user).annotate(
         sub_count=Count('children', distinct=True),
         task_count=Count('tasks', distinct=True),
         children_cost_sum=Sum('children__cost'),
     )
 
+    if status_filter:
+        # 筛选时按状态平铺展示
+        rows = activities.filter(status=status_filter)
+        tree_mode = False
+    else:
+        # 深度优先遍历构建活动树，为每行附加 depth 层级
+        children_map = {}
+        for a in activities:
+            children_map.setdefault(a.parent_id, []).append(a)
+
+        rows = []
+
+        def walk(parent_id, depth):
+            for a in children_map.get(parent_id, []):
+                a.depth = depth
+                rows.append(a)
+                walk(a.id, depth + 1)
+
+        walk(None, 0)
+        tree_mode = True
+
     return render(request, 'activities/activity_list.html', {
-        'activities': activities,
+        'activities': rows,
         'status_filter': status_filter,
         'status_choices': Activity.STATUS_CHOICES,
+        'tree_mode': tree_mode,
     })
 
 
