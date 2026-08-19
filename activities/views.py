@@ -7,7 +7,7 @@ from django.views.decorators.http import require_POST
 from datetime import timedelta
 
 from .forms import ActivityForm
-from .models import Activity
+from .models import Activity, Participant
 
 
 @login_required
@@ -109,6 +109,7 @@ def activity_create(request):
     return render(request, 'activities/activity_form.html', {
         'form': form,
         'title': '新建活动',
+        'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
     })
 
 
@@ -131,6 +132,7 @@ def activity_edit(request, activity_id):
         'form': form,
         'title': '编辑活动',
         'activity': activity,
+        'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
     })
 
 
