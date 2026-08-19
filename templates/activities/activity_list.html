@@ -19,11 +19,12 @@
         <span class="text-sm text-gray-400">至</span>
         <input type="date" name="date_to" value="{{ date_to }}"
                class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
-        {% if status_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if status_filter or tag_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
         <button type="submit" class="px-3 py-1 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">筛选</button>
         {% if date_from or date_to %}
-        <a href="{% url 'activities:activity_list' %}?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}"
+        <a href="{% url 'activities:activity_list' %}?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if tag_filter %}tag={{ tag_filter|urlencode }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}"
            class="px-3 py-1 text-sm rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200">清除日期</a>
         {% endif %}
         <span class="mx-1 text-gray-300">|</span>
@@ -38,9 +39,22 @@
 <div class="flex gap-2 mb-4">
     <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
     {% for value, label in status_choices %}
-    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
+    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
     {% endfor %}
 </div>
+
+<!-- Tag filter -->
+{% if all_tags %}
+<div class="flex flex-wrap items-center gap-2 mb-4">
+    <span class="text-sm text-gray-500">标签筛选</span>
+    <a href="{% url 'activities:activity_list' %}{% if tag_link_qs %}?{{ tag_link_qs }}{% endif %}"
+       class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
+    {% for tag_name in all_tags %}
+    <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
+       class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}"># {{ tag_name }}</a>
+    {% endfor %}
+</div>
+{% endif %}
 
 <!-- Activity table -->
 {% if activities %}
@@ -58,6 +72,7 @@
                         状态{% if sort == 'status' %} ▲{% elif sort == '-status' %} ▼{% endif %}
                     </a>
                 </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标签</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-indigo-600 {% if sort == 'start_date' or sort == '-start_date' %}text-indigo-600{% endif %}">
                         日期范围{% if sort == 'start_date' %} ▲{% elif sort == '-start_date' %} ▼{% endif %}
@@ -94,13 +109,15 @@
                     {% if not tree_mode and activity.parent %}
                     <span class="ml-1 text-xs text-gray-400">└ {{ activity.parent.name }}</span>
                     {% endif %}
-                    {% if activity.tags.all %}
-                    <div class="mt-1 flex flex-wrap gap-1" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
+                </td>
+                <td class="px-4 py-3">
+                    <div class="flex flex-wrap gap-1">
                         {% for tag in activity.tags.all %}
-                        <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs text-amber-700"># {{ tag.name }}</span>
+                        <a href="?tag={{ tag.name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
+                           title="筛选标签「{{ tag.name }}」"
+                           class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs text-amber-700 hover:bg-amber-100"># {{ tag.name }}</a>
                         {% endfor %}
                     </div>
-                    {% endif %}
                 </td>
                 <td class="px-4 py-3">
                     <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
