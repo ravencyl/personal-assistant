@@ -1,7 +1,7 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Sum, F
+from django.db.models import Count, F
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from datetime import timedelta
@@ -25,14 +25,12 @@ def activity_list(request):
         'status': 'status',
         'start_date': 'start_date',
         'cost': 'cost',
-        'children_cost': 'children_cost_sum',
         'sub_count': 'sub_count',
     }
 
-    # 一次性聚合子活动数量、费用合计，避免 N+1
+    # 一次性聚合子活动数量，避免 N+1
     activities = Activity.objects.filter(user=request.user).annotate(
         sub_count=Count('children', distinct=True),
-        children_cost_sum=Sum('children__cost'),
     )
 
     if status_filter:
@@ -51,7 +49,7 @@ def activity_list(request):
     if sort_key in sort_fields:
         desc = sort.startswith('-')
         field = sort_fields[sort_key]
-        if field in ('start_date', 'children_cost_sum', 'cost'):
+        if field in ('start_date', 'cost'):
             order_expr = F(field).desc(nulls_last=True) if desc else F(field).asc(nulls_last=True)
         else:
             order_expr = ('-' + field) if desc else field
@@ -60,8 +58,11 @@ def activity_list(request):
 
     if has_filter or sort:
         # 筛选/排序时平铺展示（避免树被截断或打乱层级）
-        rows = activities.order_by(order_expr) if order_expr else activities
+        rows = list(activities.order_by(order_expr)) if order_expr else list(activities)
         tree_mode = False
+        # 展示累计费用（自身 + 所有后代），个人数据量小，递归查询可接受
+        for a in rows:
+            a.show_cost = a.total_cost
     else:
         # 深度优先遍历构建活动树，为每行附加 depth 层级
         children_map = {}
@@ -79,6 +80,19 @@ def activity_list(request):
 
         walk(None, 0)
         tree_mode = True
+
+        # 树形模式下用内存中的 children_map 递归计算累计费用，避免重复查库
+        cost_cache = {}
+
+        def compute_cost(a):
+            if a.id not in cost_cache:
+                cost_cache[a.id] = (a.cost or 0) + sum(
+                    compute_cost(c) for c in children_map.get(a.id, [])
+                )
+            return cost_cache[a.id]
+
+        for a in rows:
+            a.show_cost = compute_cost(a)
 
     # 快捷筛选高亮判断
     today = timezone.localdate()

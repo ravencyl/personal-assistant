@@ -65,12 +65,7 @@
                 </th>
                 <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-indigo-600 {% if sort == 'cost' or sort == '-cost' %}text-indigo-600{% endif %}">
-                        自身费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
-                    </a>
-                </th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'children_cost' %}-children_cost{% else %}children_cost{% endif %}" class="hover:text-indigo-600 {% if sort == 'children_cost' or sort == '-children_cost' %}text-indigo-600{% endif %}">
-                        子活动费用{% if sort == 'children_cost' %} ▲{% elif sort == '-children_cost' %} ▼{% endif %}
+                        费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
                     </a>
                 </th>
                 <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
@@ -110,9 +105,9 @@
                     </span>
                 </td>
                 <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ activity.date_range }}</td>
-                <td class="px-4 py-3 text-right text-gray-700">¥{{ activity.cost }}</td>
-                <td class="px-4 py-3 text-right text-gray-500">
-                    {% if activity.children_cost_sum %}¥{{ activity.children_cost_sum }}{% else %}-{% endif %}
+                <td class="px-4 py-3 text-right text-gray-700 whitespace-nowrap">
+                    ¥{{ activity.show_cost }}
+                    {% if activity.sub_count %}<span class="text-xs text-gray-400">含子活动</span>{% endif %}
                 </td>
                 <td class="px-4 py-3 text-center text-gray-500">{{ activity.sub_count }}</td>
             </tr>
