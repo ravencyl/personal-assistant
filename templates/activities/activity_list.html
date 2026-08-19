@@ -10,7 +10,30 @@
     </a>
 </div>
 
-<!-- Filters -->
+<!-- Date filter -->
+<div class="bg-white rounded-lg border border-gray-200 p-3 mb-4">
+    <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
+        <span class="text-sm text-gray-500">日期筛选</span>
+        <input type="date" name="date_from" value="{{ date_from }}"
+               class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
+        <span class="text-sm text-gray-400">至</span>
+        <input type="date" name="date_to" value="{{ date_to }}"
+               class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
+        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        <button type="submit" class="px-3 py-1 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">筛选</button>
+        {% if date_from or date_to %}
+        <a href="{% url 'activities:activity_list' %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
+           class="px-3 py-1 text-sm rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200">清除</a>
+        {% endif %}
+        <span class="mx-1 text-gray-300">|</span>
+        <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}"
+           class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">近 7 天</a>
+        <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}"
+           class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">近一个月</a>
+    </form>
+</div>
+
+<!-- Status filter -->
 <div class="flex gap-2 mb-4">
     <a href="{% url 'activities:activity_list' %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
     {% for value, label in status_choices %}
@@ -34,11 +57,15 @@
         </thead>
         <tbody class="divide-y divide-gray-100">
             {% for activity in activities %}
-            <tr class="hover:bg-gray-50">
+            <tr class="hover:bg-gray-50 tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+                {% if tree_mode and activity.depth %}style="display:none"{% endif %}>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
-                        {% if activity.depth %}
-                        <span class="text-gray-300 select-none">└</span>
+                        {% if tree_mode and activity.has_children %}
+                        <button type="button" class="tree-toggle w-5 h-5 flex items-center justify-center text-gray-400 hover:text-indigo-600 select-none"
+                                data-target="{{ activity.id }}" aria-expanded="false">&#9654;</button>
+                        {% elif activity.depth %}
+                        <span class="text-gray-300 select-none">&#9492;</span>
                         {% endif %}
                         <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-gray-700{% else %}text-gray-900{% endif %} hover:text-indigo-600">
                             {{ activity.name }}
@@ -73,5 +100,53 @@
     <p class="text-gray-500">暂无活动</p>
     <p class="mt-2 text-sm text-gray-400">点击右上角「新建活动」添加记录</p>
 </div>
+{% endif %}
+
+{% if tree_mode %}
+<script>
+(function () {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.tree-row'));
+
+    function childrenOf(parentId) {
+        return rows.filter(function (r) { return r.dataset.parent === String(parentId); });
+    }
+
+    // 递归收集某节点的所有后代行
+    function descendantsOf(parentId) {
+        var result = [];
+        childrenOf(parentId).forEach(function (child) {
+            result.push(child);
+            result = result.concat(descendantsOf(child.dataset.id));
+        });
+        return result;
+    }
+
+    document.querySelectorAll('.tree-toggle').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var expanded = btn.getAttribute('aria-expanded') === 'true';
+            var targetId = btn.dataset.target;
+            if (expanded) {
+                // 折叠：隐藏所有后代，并把后代的箭头也重置为折叠态
+                var descendants = descendantsOf(targetId);
+                descendants.forEach(function (r) {
+                    r.style.display = 'none';
+                    var b = r.querySelector('.tree-toggle');
+                    if (b) {
+                        b.setAttribute('aria-expanded', 'false');
+                        b.innerHTML = '&#9654;';
+                    }
+                });
+                btn.setAttribute('aria-expanded', 'false');
+                btn.innerHTML = '&#9654;';
+            } else {
+                // 展开：只显示直接子级（孙级保持折叠状态）
+                childrenOf(targetId).forEach(function (r) { r.style.display = ''; });
+                btn.setAttribute('aria-expanded', 'true');
+                btn.innerHTML = '&#9660;';
+            }
+        });
+    });
+})();
+</script>
 {% endif %}
 {% endblock %}
