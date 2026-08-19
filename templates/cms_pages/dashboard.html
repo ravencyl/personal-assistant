@@ -5,89 +5,89 @@
 {% block content %}
 <!-- Welcome -->
 <div class="mb-8">
-    <h1 class="text-2xl font-bold text-gray-900">欢迎回来，{{ user.username }}</h1>
-    <p class="text-sm text-gray-500 mt-1">这是你的个人 AI 助手仪表盘</p>
+    <h1 class="text-2xl font-bold text-zinc-900">欢迎回来，{{ user.username }}</h1>
+    <p class="text-sm text-zinc-500 mt-1">这是你的个人 AI 助手仪表盘</p>
 </div>
 
 <!-- Stats -->
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-lg border border-gray-200 p-4">
-        <p class="text-sm text-gray-500">AI 对话</p>
-        <p class="text-2xl font-bold text-indigo-600">{{ stats.total_conversations }}</p>
+    <div class="bg-white rounded-lg border border-zinc-200 p-4">
+        <p class="text-sm text-zinc-500">AI 对话</p>
+        <p class="text-2xl font-bold text-zinc-900">{{ stats.total_conversations }}</p>
     </div>
-    <div class="bg-white rounded-lg border border-gray-200 p-4">
-        <p class="text-sm text-gray-500">活动记录</p>
-        <p class="text-2xl font-bold text-yellow-600">{{ stats.total_activities }}</p>
+    <div class="bg-white rounded-lg border border-zinc-200 p-4">
+        <p class="text-sm text-zinc-500">活动记录</p>
+        <p class="text-2xl font-bold text-zinc-900">{{ stats.total_activities }}</p>
     </div>
-    <div class="bg-white rounded-lg border border-gray-200 p-4">
-        <p class="text-sm text-gray-500">进行中活动</p>
-        <p class="text-2xl font-bold text-red-600">{{ stats.ongoing_count }}</p>
+    <div class="bg-white rounded-lg border border-zinc-200 p-4">
+        <p class="text-sm text-zinc-500">进行中活动</p>
+        <p class="text-2xl font-bold text-zinc-900">{{ stats.ongoing_count }}</p>
     </div>
-    <div class="bg-white rounded-lg border border-gray-200 p-4">
-        <p class="text-sm text-gray-500">内容收藏</p>
-        <p class="text-2xl font-bold text-green-600">{{ stats.total_bookmarks }}</p>
+    <div class="bg-white rounded-lg border border-zinc-200 p-4">
+        <p class="text-sm text-zinc-500">内容收藏</p>
+        <p class="text-2xl font-bold text-zinc-900">{{ stats.total_bookmarks }}</p>
     </div>
 </div>
 
 <div class="grid md:grid-cols-2 gap-6">
     <!-- Recent activities -->
-    <div class="bg-white rounded-lg border border-gray-200 p-5">
+    <div class="bg-white rounded-lg border border-zinc-200 p-5">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-gray-900">最近活动</h2>
-            <a href="{% url 'activities:activity_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">查看全部</a>
+            <h2 class="text-lg font-medium text-zinc-900">最近活动</h2>
+            <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">查看全部</a>
         </div>
         {% if recent_activities %}
         <div class="space-y-2">
             {% for activity in recent_activities %}
             <div class="flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full {% if activity.status == 'in_progress' %}bg-indigo-500{% elif activity.status == 'done' %}bg-green-500{% elif activity.status == 'cancelled' %}bg-red-400{% else %}bg-gray-300{% endif %}"></span>
-                <a href="{% url 'activities:activity_detail' activity.id %}" class="text-sm text-gray-700 hover:text-indigo-600 truncate">{{ activity.name }}</a>
-                <span class="text-xs text-gray-400 ml-auto whitespace-nowrap">{{ activity.date_range }}</span>
+                <span class="h-2 w-2 rounded-full {% if activity.status == 'in_progress' %}bg-zinc-500{% elif activity.status == 'done' %}bg-green-500{% elif activity.status == 'cancelled' %}bg-red-400{% else %}bg-zinc-300{% endif %}"></span>
+                <a href="{% url 'activities:activity_detail' activity.id %}" class="text-sm text-zinc-700 hover:text-zinc-600 truncate">{{ activity.name }}</a>
+                <span class="text-xs text-zinc-400 ml-auto whitespace-nowrap">{{ activity.date_range }}</span>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">暂无活动记录</p>
+        <p class="text-sm text-zinc-400">暂无活动记录</p>
         {% endif %}
     </div>
 
     <!-- Recent conversations -->
-    <div class="bg-white rounded-lg border border-gray-200 p-5">
+    <div class="bg-white rounded-lg border border-zinc-200 p-5">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-gray-900">最近对话</h2>
-            <a href="{% url 'chat:conversation_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">查看全部</a>
+            <h2 class="text-lg font-medium text-zinc-900">最近对话</h2>
+            <a href="{% url 'chat:conversation_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">查看全部</a>
         </div>
         {% if recent_conversations %}
         <div class="space-y-2">
             {% for conv in recent_conversations %}
-            <a href="{% url 'chat:conversation_detail' conv.id %}" class="block text-sm text-gray-700 hover:text-indigo-600 truncate">
+            <a href="{% url 'chat:conversation_detail' conv.id %}" class="block text-sm text-zinc-700 hover:text-zinc-600 truncate">
                 {{ conv.title }}
-                <span class="text-xs text-gray-400 ml-2">{{ conv.updated_at|timesince }} 前</span>
+                <span class="text-xs text-zinc-400 ml-2">{{ conv.updated_at|timesince }} 前</span>
             </a>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">暂无对话记录</p>
+        <p class="text-sm text-zinc-400">暂无对话记录</p>
         {% endif %}
     </div>
 
     <!-- Recent bookmarks -->
-    <div class="bg-white rounded-lg border border-gray-200 p-5 md:col-span-2">
+    <div class="bg-white rounded-lg border border-zinc-200 p-5 md:col-span-2">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-gray-900">最近收藏</h2>
-            <a href="{% url 'content:bookmark_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">查看全部</a>
+            <h2 class="text-lg font-medium text-zinc-900">最近收藏</h2>
+            <a href="{% url 'content:bookmark_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">查看全部</a>
         </div>
         {% if recent_bookmarks %}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {% for bookmark in recent_bookmarks %}
-            <a href="{{ bookmark.url }}" target="_blank" class="block rounded border border-gray-100 p-3 hover:border-indigo-200 transition">
-                <p class="text-sm font-medium text-gray-900 truncate">{{ bookmark.title }}</p>
-                <p class="text-xs text-gray-500 truncate">{{ bookmark.url }}</p>
+            <a href="{{ bookmark.url }}" target="_blank" class="block rounded border border-zinc-100 p-3 hover:border-zinc-200 transition">
+                <p class="text-sm font-medium text-zinc-900 truncate">{{ bookmark.title }}</p>
+                <p class="text-xs text-zinc-500 truncate">{{ bookmark.url }}</p>
             </a>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">暂无收藏</p>
+        <p class="text-sm text-zinc-400">暂无收藏</p>
         {% endif %}
     </div>
 </div>

@@ -5,12 +5,12 @@
 {% block content %}
 <div class="flex justify-between items-center mb-4">
     <div>
-        <a href="{% url 'chat:conversation_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; 返回列表</a>
-        <h1 class="text-xl font-bold text-gray-900 mt-1">{{ conversation.title }}</h1>
+        <a href="{% url 'chat:conversation_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回列表</a>
+        <h1 class="text-xl font-bold text-zinc-900 mt-1">{{ conversation.title }}</h1>
     </div>
     <form method="post" action="{% url 'chat:archive_conversation' conversation.id %}">
         {% csrf_token %}
-        <button type="submit" class="text-sm text-gray-500 hover:text-red-600">归档对话</button>
+        <button type="submit" class="text-sm text-zinc-500 hover:text-red-600">归档对话</button>
     </form>
 </div>
 
@@ -18,18 +18,18 @@
 <div id="messages" class="space-y-4 mb-6">
     {% for msg in messages %}
     <div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
-        <div class="rounded-lg p-4 {% if msg.role == 'user' %}bg-indigo-50 border border-indigo-100{% else %}bg-white border border-gray-200{% endif %}">
+        <div class="rounded-lg p-4 {% if msg.role == 'user' %}bg-zinc-50 border border-zinc-100{% else %}bg-white border border-zinc-200{% endif %}">
             <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs font-medium {% if msg.role == 'user' %}text-indigo-600{% else %}text-gray-600{% endif %}">
+                <span class="text-xs font-medium {% if msg.role == 'user' %}text-zinc-600{% else %}text-zinc-600{% endif %}">
                     {% if msg.role == 'user' %}你{% else %}AI 助手{% endif %}
                 </span>
-                <span class="text-xs text-gray-400">{{ msg.created_at|timesince }} 前</span>
+                <span class="text-xs text-zinc-400">{{ msg.created_at|timesince }} 前</span>
             </div>
-            <div class="markdown-content text-sm text-gray-800 whitespace-pre-wrap">{{ msg.content }}</div>
+            <div class="markdown-content text-sm text-zinc-800 whitespace-pre-wrap">{{ msg.content }}</div>
         </div>
     </div>
     {% empty %}
-    <div class="text-center py-8 text-gray-400">
+    <div class="text-center py-8 text-zinc-400">
         <p>发送消息开始对话</p>
     </div>
     {% endfor %}
@@ -38,14 +38,14 @@
 <!-- Loading indicator -->
 <div id="loading" class="hidden mb-4">
     <div class="chat-message assistant">
-        <div class="rounded-lg p-4 bg-white border border-gray-200">
+        <div class="rounded-lg p-4 bg-white border border-zinc-200">
             <div class="flex items-center gap-2">
                 <div class="animate-pulse flex space-x-1">
-                    <div class="h-2 w-2 bg-gray-400 rounded-full"></div>
-                    <div class="h-2 w-2 bg-gray-400 rounded-full"></div>
-                    <div class="h-2 w-2 bg-gray-400 rounded-full"></div>
+                    <div class="h-2 w-2 bg-zinc-400 rounded-full"></div>
+                    <div class="h-2 w-2 bg-zinc-400 rounded-full"></div>
+                    <div class="h-2 w-2 bg-zinc-400 rounded-full"></div>
                 </div>
-                <span class="text-sm text-gray-500">AI 正在思考...</span>
+                <span class="text-sm text-zinc-500">AI 正在思考...</span>
             </div>
         </div>
     </div>
@@ -62,10 +62,10 @@
     <div class="flex gap-3">
         <input type="text" name="content" id="message-input"
             placeholder="输入消息..."
-            class="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            class="flex-1 rounded-lg border border-zinc-300 px-4 py-3 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             autocomplete="off" autofocus>
         <button type="submit"
-            class="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+            class="rounded-lg bg-zinc-900 px-4 py-3 sm:px-6 text-sm font-medium text-white hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2">
             发送
         </button>
     </div>

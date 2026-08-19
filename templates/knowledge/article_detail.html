@@ -6,24 +6,24 @@
 {% block content %}
 <div class="max-w-3xl mx-auto">
     <div class="mb-4">
-        <a href="{% url 'knowledge:index' %}" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; 返回知识库</a>
+        <a href="{% url 'knowledge:index' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回知识库</a>
     </div>
 
-    <article class="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+    <article class="bg-white rounded-lg shadow-sm border border-zinc-200 p-8">
         <header class="mb-6">
-            <h1 class="text-2xl font-bold text-gray-900">{{ article.title }}</h1>
-            <div class="mt-2 flex items-center gap-3 text-sm text-gray-500">
+            <h1 class="text-2xl font-bold text-zinc-900">{{ article.title }}</h1>
+            <div class="mt-2 flex items-center gap-3 text-sm text-zinc-500">
                 <span>{{ article.published_at|date:"Y年m月d日" }}</span>
                 {% for tag in article.tags.all %}
-                <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{{ tag.name }}</span>
+                <span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">{{ tag.name }}</span>
                 {% endfor %}
             </div>
         </header>
 
         {% if article.ai_summary %}
-        <div class="mb-6 rounded-lg bg-indigo-50 border border-indigo-100 p-4">
-            <h3 class="text-sm font-medium text-indigo-800 mb-1">AI 摘要</h3>
-            <p class="text-sm text-indigo-700">{{ article.ai_summary }}</p>
+        <div class="mb-6 rounded-lg bg-zinc-50 border border-zinc-100 p-4">
+            <h3 class="text-sm font-medium text-zinc-800 mb-1">AI 摘要</h3>
+            <p class="text-sm text-zinc-700">{{ article.ai_summary }}</p>
         </div>
         {% endif %}
 
@@ -32,16 +32,16 @@
         </div>
 
         {% if article.source_file %}
-        <div class="mt-6 pt-4 border-t border-gray-200">
-            <a href="{{ article.source_file.url }}" class="text-sm text-indigo-600 hover:text-indigo-800">
+        <div class="mt-6 pt-4 border-t border-zinc-200">
+            <a href="{{ article.source_file.url }}" class="text-sm text-zinc-500 hover:text-zinc-900">
                 下载附件: {{ article.source_file.name }}
             </a>
         </div>
         {% endif %}
 
         <!-- Actions -->
-        <div class="flex gap-2 mt-6 pt-4 border-t border-gray-200">
-            <a href="{% url 'knowledge:article_edit' article.pk %}" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+        <div class="flex gap-2 mt-6 pt-4 border-t border-zinc-200">
+            <a href="{% url 'knowledge:article_edit' article.pk %}" class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">
                 编辑
             </a>
             <form method="post" action="{% url 'knowledge:article_delete' article.pk %}" onsubmit="return confirm('确定删除这篇文章？')">

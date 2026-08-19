@@ -5,43 +5,43 @@
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
     <div>
-        <a href="{% url 'activities:activity_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; 返回列表</a>
+        <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回列表</a>
     </div>
 
     <!-- 头部卡片：标题 + 进度条 + 快捷状态 -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="h-1.5 {% if activity.status == 'done' %}bg-green-500{% elif activity.status == 'in_progress' %}bg-indigo-500{% elif activity.status == 'cancelled' %}bg-gray-400{% else %}bg-gray-300{% endif %}"></div>
+    <div class="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
+        <div class="h-1.5 {% if activity.status == 'done' %}bg-green-500{% elif activity.status == 'in_progress' %}bg-zinc-900{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-300{% endif %}"></div>
         <div class="p-6">
-            <div class="flex justify-between items-start gap-4">
+            <div class="flex flex-wrap justify-between items-start gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-3 flex-wrap">
-                        <h1 class="text-2xl font-bold text-gray-900">{{ activity.name }}</h1>
+                        <h1 class="text-2xl font-bold text-zinc-900">{{ activity.name }}</h1>
                         <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
-                            {% if activity.status == 'planned' %}bg-gray-100 text-gray-600
-                            {% elif activity.status == 'in_progress' %}bg-indigo-100 text-indigo-700
+                            {% if activity.status == 'planned' %}bg-zinc-100 text-zinc-600
+                            {% elif activity.status == 'in_progress' %}bg-zinc-900 text-white
                             {% elif activity.status == 'done' %}bg-green-100 text-green-700
                             {% else %}bg-red-100 text-red-600{% endif %}">
                             {{ activity.get_status_display }}
                         </span>
                     </div>
-                    <p class="mt-1.5 text-sm text-gray-500">
+                    <p class="mt-1.5 text-sm text-zinc-500">
                         {{ activity.date_range }}
                         {% if activity.parent %}
                         · 所属
-                        <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-indigo-600 hover:text-indigo-800">{{ activity.parent.name }}</a>
+                        <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-zinc-500 hover:text-zinc-900">{{ activity.parent.name }}</a>
                         {% endif %}
                     </p>
                     {% if activity.tags.all %}
                     <div class="mt-2 flex flex-wrap gap-1.5">
                         {% for tag in activity.tags.all %}
-                        <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs text-amber-700"># {{ tag.name }}</span>
+                        <span class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2.5 py-0.5 text-xs text-zinc-600"># {{ tag.name }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}
                 </div>
                 <div class="flex gap-2 shrink-0">
                     <a href="{% url 'activities:activity_edit' activity.id %}"
-                       class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">编辑</a>
+                       class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">编辑</a>
                     <form method="post" action="{% url 'activities:activity_delete' activity.id %}"
                           onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空。')">
                         {% csrf_token %}
@@ -52,36 +52,36 @@
 
             <!-- 进度条 -->
             {% if activity.status == 'cancelled' %}
-            <div class="mt-6 flex items-center gap-3 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
-                <span class="text-gray-400 text-lg">&#8856;</span>
-                <p class="text-sm text-gray-500">该活动已取消，进度不再推进</p>
+            <div class="mt-6 flex items-center gap-3 rounded-lg bg-zinc-50 border border-zinc-200 px-4 py-3">
+                <span class="text-zinc-400 text-lg">&#8856;</span>
+                <p class="text-sm text-zinc-500">该活动已取消，进度不再推进</p>
             </div>
             {% else %}
             <div class="mt-6">
                 <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs font-medium text-gray-500">活动进度</span>
-                    <span class="text-xs font-medium {% if activity.status == 'done' %}text-green-600{% elif activity.status == 'in_progress' %}text-indigo-600{% else %}text-gray-400{% endif %}">
+                    <span class="text-xs font-medium text-zinc-500">活动进度</span>
+                    <span class="text-xs font-medium {% if activity.status == 'done' %}text-green-600{% elif activity.status == 'in_progress' %}text-zinc-600{% else %}text-zinc-400{% endif %}">
                         {% if activity.status == 'done' %}100%{% elif activity.status == 'in_progress' %}50%{% else %}0%{% endif %}
                     </span>
                 </div>
-                <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-2 bg-zinc-100 rounded-full overflow-hidden">
                     <div class="h-full rounded-full transition-all duration-500
                          {% if activity.status == 'done' %}bg-green-500 w-full
-                         {% elif activity.status == 'in_progress' %}bg-indigo-500 w-1/2
-                         {% else %}bg-gray-300{% endif %}"
+                         {% elif activity.status == 'in_progress' %}bg-zinc-900 w-1/2
+                         {% else %}bg-zinc-300{% endif %}"
                          {% if activity.status == 'planned' %}style="width: 4%"{% endif %}></div>
                 </div>
                 <div class="flex justify-between mt-2">
-                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'planned' %}text-gray-800 font-medium{% else %}text-gray-400{% endif %}">
-                        <span class="w-2 h-2 rounded-full {% if activity.status == 'planned' %}bg-gray-500{% elif activity.status == 'in_progress' or activity.status == 'done' %}bg-green-400{% else %}bg-gray-300{% endif %}"></span>
+                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'planned' %}text-zinc-800 font-medium{% else %}text-zinc-400{% endif %}">
+                        <span class="w-2 h-2 rounded-full {% if activity.status == 'planned' %}bg-zinc-900{% elif activity.status == 'in_progress' or activity.status == 'done' %}bg-green-400{% else %}bg-zinc-300{% endif %}"></span>
                         计划
                     </span>
-                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'in_progress' %}text-gray-800 font-medium{% else %}text-gray-400{% endif %}">
-                        <span class="w-2 h-2 rounded-full {% if activity.status == 'in_progress' %}bg-indigo-500{% elif activity.status == 'done' %}bg-green-400{% else %}bg-gray-300{% endif %}"></span>
+                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'in_progress' %}text-zinc-800 font-medium{% else %}text-zinc-400{% endif %}">
+                        <span class="w-2 h-2 rounded-full {% if activity.status == 'in_progress' %}bg-zinc-900{% elif activity.status == 'done' %}bg-green-400{% else %}bg-zinc-300{% endif %}"></span>
                         进行中
                     </span>
-                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'done' %}text-gray-800 font-medium{% else %}text-gray-400{% endif %}">
-                        <span class="w-2 h-2 rounded-full {% if activity.status == 'done' %}bg-green-500{% else %}bg-gray-300{% endif %}"></span>
+                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'done' %}text-zinc-800 font-medium{% else %}text-zinc-400{% endif %}">
+                        <span class="w-2 h-2 rounded-full {% if activity.status == 'done' %}bg-green-500{% else %}bg-zinc-300{% endif %}"></span>
                         完成
                     </span>
                 </div>
@@ -89,8 +89,8 @@
             {% endif %}
 
             <!-- 快捷状态按钮 -->
-            <div class="mt-6 pt-4 border-t border-gray-100">
-                <p class="text-xs text-gray-400 mb-2">快捷修改状态</p>
+            <div class="mt-6 pt-4 border-t border-zinc-100">
+                <p class="text-xs text-zinc-400 mb-2">快捷修改状态</p>
                 <div class="flex flex-wrap gap-2">
                     {% for value, label in status_choices %}
                     <form method="post" action="{% url 'activities:activity_set_status' activity.id %}">
@@ -99,15 +99,13 @@
                         <button type="submit" {% if activity.status == value %}disabled{% endif %}
                             class="rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors
                             {% if activity.status == value %}
-                                {% if value == 'planned' %}bg-gray-700 text-white cursor-default
-                                {% elif value == 'in_progress' %}bg-indigo-600 text-white cursor-default
-                                {% elif value == 'done' %}bg-green-600 text-white cursor-default
-                                {% else %}bg-red-600 text-white cursor-default{% endif %}
+                                {% if value == 'done' %}bg-green-600 text-white cursor-default
+                                {% elif value == 'cancelled' %}bg-red-600 text-white cursor-default
+                                {% else %}bg-zinc-900 text-white cursor-default{% endif %}
                             {% else %}
-                                {% if value == 'planned' %}bg-gray-100 text-gray-600 hover:bg-gray-200
-                                {% elif value == 'in_progress' %}bg-indigo-50 text-indigo-600 hover:bg-indigo-100
-                                {% elif value == 'done' %}bg-green-50 text-green-600 hover:bg-green-100
-                                {% else %}bg-red-50 text-red-600 hover:bg-red-100{% endif %}
+                                {% if value == 'done' %}bg-green-50 text-green-600 hover:bg-green-100
+                                {% elif value == 'cancelled' %}bg-red-50 text-red-600 hover:bg-red-100
+                                {% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}
                             {% endif %}">
                             {% if activity.status == value %}&#10003; {% endif %}{{ label }}
                         </button>
@@ -120,41 +118,41 @@
 
     <!-- 统计卡片 -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">累计费用</p>
-            <p class="mt-1 text-xl font-bold text-indigo-600">&#165;{{ activity.total_cost }}</p>
+        <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-4">
+            <p class="text-xs text-zinc-500">累计费用</p>
+            <p class="mt-1 text-xl font-bold text-zinc-900">&#165;{{ activity.total_cost }}</p>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">自身费用</p>
-            <p class="mt-1 text-xl font-bold text-gray-800">&#165;{{ activity.cost }}</p>
+        <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-4">
+            <p class="text-xs text-zinc-500">自身费用</p>
+            <p class="mt-1 text-xl font-bold text-zinc-800">&#165;{{ activity.cost }}</p>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">子任务</p>
-            <p class="mt-1 text-xl font-bold text-gray-800">{{ children|length }} <span class="text-sm font-normal text-gray-400">个</span></p>
+        <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-4">
+            <p class="text-xs text-zinc-500">子任务</p>
+            <p class="mt-1 text-xl font-bold text-zinc-800">{{ children|length }} <span class="text-sm font-normal text-zinc-400">个</span></p>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <p class="text-xs text-gray-500">参与者</p>
-            <p class="mt-1 text-xl font-bold text-gray-800">{{ participants|length }} <span class="text-sm font-normal text-gray-400">人</span></p>
+        <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-4">
+            <p class="text-xs text-zinc-500">参与者</p>
+            <p class="mt-1 text-xl font-bold text-zinc-800">{{ participants|length }} <span class="text-sm font-normal text-zinc-400">人</span></p>
         </div>
     </div>
 
     <!-- 描述 -->
     {% if activity.description %}
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 class="text-sm font-medium text-gray-900 mb-3">活动描述</h2>
-        <p class="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
+    <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-6">
+        <h2 class="text-sm font-medium text-zinc-900 mb-3">活动描述</h2>
+        <p class="text-sm text-zinc-600 whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
     </div>
     {% endif %}
 
     <!-- 参与者 -->
     {% if participants %}
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 class="text-sm font-medium text-gray-900 mb-3">参与者（{{ participants|length }}）</h2>
+    <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-6">
+        <h2 class="text-sm font-medium text-zinc-900 mb-3">参与者（{{ participants|length }}）</h2>
         <div class="flex flex-wrap gap-2">
             {% for p in participants %}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-sm text-indigo-700"
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-50 px-3 py-1 text-sm text-zinc-700"
                   {% if p.note %}title="{{ p.note }}"{% endif %}>
-                <span class="w-5 h-5 rounded-full bg-indigo-200 text-indigo-700 text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
+                <span class="w-5 h-5 rounded-full bg-zinc-200 text-zinc-700 text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
                 {{ p.name }}
             </span>
             {% endfor %}
@@ -163,58 +161,60 @@
     {% endif %}
 
     <!-- 子任务 -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 class="text-sm font-medium text-gray-900 mb-3">子任务（{{ children|length }}）</h2>
+    <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-6">
+        <h2 class="text-sm font-medium text-zinc-900 mb-3">子任务（{{ children|length }}）</h2>
         <form method="post" action="{% url 'activities:add_subactivity' activity.id %}" class="flex gap-2 mb-4">
             {% csrf_token %}
             <input type="text" name="name" placeholder="输入子任务名称，回车添加"
                    autocomplete="off"
-                   class="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none">
-            <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">+ 添加</button>
+                   class="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+            <button type="submit" class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">+ 添加</button>
         </form>
         {% if children %}
-        <div class="rounded-lg border border-gray-200 overflow-hidden">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-                <thead class="bg-gray-50">
+        <div class="rounded-lg border border-zinc-200 overflow-hidden">
+            <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 text-sm">
+                <thead class="bg-zinc-50">
                     <tr>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">名称</th>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">日期范围</th>
-                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">费用</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-zinc-500 uppercase">名称</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-zinc-500 uppercase">状态</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-zinc-500 uppercase">日期范围</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-zinc-500 uppercase">费用</th>
                         <th class="px-4 py-2"></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-zinc-100">
                     {% for child in children %}
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-zinc-50">
                         <td class="px-4 py-2">
-                            <a href="{% url 'activities:activity_detail' child.id %}" class="text-gray-900 hover:text-indigo-600">{{ child.name }}</a>
+                            <a href="{% url 'activities:activity_detail' child.id %}" class="text-zinc-900 hover:text-zinc-600">{{ child.name }}</a>
                         </td>
                         <td class="px-4 py-2">
-                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-                                {% if child.status == 'planned' %}bg-gray-100 text-gray-600
-                                {% elif child.status == 'in_progress' %}bg-indigo-100 text-indigo-700
+                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap
+                                {% if child.status == 'planned' %}bg-zinc-100 text-zinc-600
+                                {% elif child.status == 'in_progress' %}bg-zinc-900 text-white
                                 {% elif child.status == 'done' %}bg-green-100 text-green-700
                                 {% else %}bg-red-100 text-red-600{% endif %}">
                                 {{ child.get_status_display }}
                             </span>
                         </td>
-                        <td class="px-4 py-2 text-gray-600 whitespace-nowrap">{{ child.date_range }}</td>
-                        <td class="px-4 py-2 text-right text-gray-700">&#165;{{ child.cost }}</td>
+                        <td class="px-4 py-2 text-zinc-600 whitespace-nowrap">{{ child.date_range }}</td>
+                        <td class="px-4 py-2 text-right text-zinc-700">&#165;{{ child.cost }}</td>
                         <td class="px-4 py-2 text-right">
-                            <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-indigo-600 hover:text-indigo-800">编辑</a>
+                            <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-zinc-500 hover:text-zinc-900">编辑</a>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">暂无子任务，可在上方输入名称快速添加</p>
+        <p class="text-sm text-zinc-400">暂无子任务，可在上方输入名称快速添加</p>
         {% endif %}
     </div>
 
     <!-- 元信息 -->
-    <p class="text-xs text-gray-400 text-center">创建于 {{ activity.created_at|date:"Y-m-d H:i" }} · 最近更新 {{ activity.updated_at|date:"Y-m-d H:i" }}</p>
+    <p class="text-xs text-zinc-400 text-center">创建于 {{ activity.created_at|date:"Y-m-d H:i" }} · 最近更新 {{ activity.updated_at|date:"Y-m-d H:i" }}</p>
 </div>
 {% endblock %}

@@ -4,67 +4,67 @@
 
 {% block content %}
 <div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold text-gray-900">活动记录</h1>
-    <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+    <h1 class="text-2xl font-bold text-zinc-900">活动记录</h1>
+    <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">
         + 新建活动
     </a>
 </div>
 
 <!-- Filter panel（可折叠：URL 带筛选/排序参数时自动展开，否则默认折叠） -->
-<div class="bg-white rounded-lg border border-gray-200 mb-4">
+<div class="bg-white rounded-lg border border-zinc-200 mb-4">
     <button type="button" id="filter-toggle"
             aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
-            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg">
+            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 rounded-lg">
         <span class="flex items-center gap-2">
             筛选
             {% if active_filter_count %}
-            <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700">{{ active_filter_count }} 项生效</span>
+            <span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{{ active_filter_count }} 项生效</span>
             {% endif %}
         </span>
-        <span id="filter-arrow" class="text-gray-400">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
+        <span id="filter-arrow" class="text-zinc-400">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
     </button>
 
-    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-gray-100 px-3 py-3 space-y-3">
+    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-zinc-100 px-3 py-3 space-y-3">
         <!-- Date filter -->
         <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-gray-500">日期筛选</span>
+        <span class="text-sm text-zinc-500">日期筛选</span>
         <input type="date" name="date_from" value="{{ date_from }}"
-               class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
-        <span class="text-sm text-gray-400">至</span>
+               class="rounded-md border-zinc-300 text-sm px-2 py-1 border focus:ring-zinc-500 focus:border-zinc-500">
+        <span class="text-sm text-zinc-400">至</span>
         <input type="date" name="date_to" value="{{ date_to }}"
-               class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
+               class="rounded-md border-zinc-300 text-sm px-2 py-1 border focus:ring-zinc-500 focus:border-zinc-500">
         {% if status_filter or tag_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
-        <button type="submit" class="px-3 py-1 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">筛选</button>
+        <button type="submit" class="px-3 py-1 text-sm rounded-md bg-zinc-900 text-white hover:bg-zinc-700">筛选</button>
         {% if date_from or date_to %}
         <a href="{% url 'activities:activity_list' %}?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if tag_filter %}tag={{ tag_filter|urlencode }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200">清除日期</a>
+           class="px-3 py-1 text-sm rounded-md bg-zinc-100 text-zinc-600 hover:bg-zinc-200">清除日期</a>
         {% endif %}
-        <span class="mx-1 text-gray-300">|</span>
+        <span class="mx-1 text-zinc-300">|</span>
         <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}"
-           class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">近 7 天</a>
+           class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">近 7 天</a>
         <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}"
-           class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">近一个月</a>
+           class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">近一个月</a>
         </form>
 
         <!-- Status filter -->
         <div class="flex flex-wrap gap-2">
-    <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
+    <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">全部</a>
     {% for value, label in status_choices %}
-    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
+    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">{{ label }}</a>
     {% endfor %}
         </div>
 
         <!-- Tag filter -->
         {% if all_tags %}
         <div class="flex flex-wrap items-center gap-2">
-    <span class="text-sm text-gray-500">标签筛选</span>
+    <span class="text-sm text-zinc-500">标签筛选</span>
     <a href="{% url 'activities:activity_list' %}{% if tag_link_qs %}?{{ tag_link_qs }}{% endif %}"
-       class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
+       class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">全部</a>
     {% for tag_name in all_tags %}
     <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
-       class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}"># {{ tag_name }}</a>
+       class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}"># {{ tag_name }}</a>
     {% endfor %}
         </div>
         {% endif %}
@@ -87,56 +87,57 @@
 
 <!-- Activity table -->
 {% if activities %}
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
-        <thead class="bg-gray-50">
+<div class="bg-white rounded-lg shadow-sm border border-zinc-200 overflow-hidden">
+    <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-zinc-200 text-sm">
+        <thead class="bg-zinc-50">
             <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-indigo-600 {% if sort == 'name' or sort == '-name' %}text-indigo-600{% endif %}">
+                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-zinc-600 {% if sort == 'name' or sort == '-name' %}text-zinc-600{% endif %}">
                         活动名称{% if sort == 'name' %} ▲{% elif sort == '-name' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'status' %}-status{% else %}status{% endif %}" class="hover:text-indigo-600 {% if sort == 'status' or sort == '-status' %}text-indigo-600{% endif %}">
+                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'status' %}-status{% else %}status{% endif %}" class="hover:text-zinc-600 {% if sort == 'status' or sort == '-status' %}text-zinc-600{% endif %}">
                         状态{% if sort == 'status' %} ▲{% elif sort == '-status' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标签</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-indigo-600 {% if sort == 'start_date' or sort == '-start_date' %}text-indigo-600{% endif %}">
+                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">标签</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-zinc-600 {% if sort == 'start_date' or sort == '-start_date' %}text-zinc-600{% endif %}">
                         日期范围{% if sort == 'start_date' %} ▲{% elif sort == '-start_date' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-indigo-600 {% if sort == 'cost' or sort == '-cost' %}text-indigo-600{% endif %}">
+                <th class="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-zinc-600 {% if sort == 'cost' or sort == '-cost' %}text-zinc-600{% endif %}">
                         费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-indigo-600 {% if sort == 'sub_count' or sort == '-sub_count' %}text-indigo-600{% endif %}">
+                <th class="px-4 py-3 text-center text-xs font-medium text-zinc-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-zinc-600 {% if sort == 'sub_count' or sort == '-sub_count' %}text-zinc-600{% endif %}">
                         子活动{% if sort == 'sub_count' %} ▲{% elif sort == '-sub_count' %} ▼{% endif %}
                     </a>
                 </th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100">
+        <tbody class="divide-y divide-zinc-100">
             {% for activity in activities %}
-            <tr class="hover:bg-gray-50 tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+            <tr class="hover:bg-zinc-50 tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
                 {% if tree_mode and activity.depth %}style="display:none"{% endif %}>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
                         {% if tree_mode and activity.has_children %}
-                        <button type="button" class="tree-toggle w-5 h-5 flex items-center justify-center text-gray-400 hover:text-indigo-600 select-none"
+                        <button type="button" class="tree-toggle w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-zinc-600 select-none"
                                 data-target="{{ activity.id }}" aria-expanded="false">&#9654;</button>
                         {% elif activity.depth %}
-                        <span class="text-gray-300 select-none">&#9492;</span>
+                        <span class="text-zinc-300 select-none">&#9492;</span>
                         {% endif %}
-                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-gray-700{% else %}text-gray-900{% endif %} hover:text-indigo-600">
+                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-zinc-700{% else %}text-zinc-900{% endif %} hover:text-zinc-600">
                             {{ activity.name }}
                         </a>
                     </div>
                     {% if not tree_mode and activity.parent %}
-                    <span class="ml-1 text-xs text-gray-400">└ {{ activity.parent.name }}</span>
+                    <span class="ml-1 text-xs text-zinc-400">└ {{ activity.parent.name }}</span>
                     {% endif %}
                 </td>
                 <td class="px-4 py-3">
@@ -144,34 +145,35 @@
                         {% for tag in activity.tags.all %}
                         <a href="?tag={{ tag.name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
                            title="筛选标签「{{ tag.name }}」"
-                           class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs text-amber-700 hover:bg-amber-100"># {{ tag.name }}</a>
+                           class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 whitespace-nowrap"># {{ tag.name }}</a>
                         {% endfor %}
                     </div>
                 </td>
                 <td class="px-4 py-3">
-                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-                        {% if activity.status == 'planned' %}bg-gray-100 text-gray-600
-                        {% elif activity.status == 'in_progress' %}bg-indigo-100 text-indigo-700
+                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap
+                        {% if activity.status == 'planned' %}bg-zinc-100 text-zinc-600
+                        {% elif activity.status == 'in_progress' %}bg-zinc-900 text-white
                         {% elif activity.status == 'done' %}bg-green-100 text-green-700
                         {% else %}bg-red-100 text-red-600{% endif %}">
                         {{ activity.get_status_display }}
                     </span>
                 </td>
-                <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ activity.date_range }}</td>
-                <td class="px-4 py-3 text-right text-gray-700 whitespace-nowrap">
+                <td class="px-4 py-3 text-zinc-600 whitespace-nowrap">{{ activity.date_range }}</td>
+                <td class="px-4 py-3 text-right text-zinc-700 whitespace-nowrap">
                     ¥{{ activity.show_cost }}
-                    {% if activity.sub_count %}<span class="text-xs text-gray-400">含子活动</span>{% endif %}
+                    {% if activity.sub_count %}<span class="text-xs text-zinc-400">含子活动</span>{% endif %}
                 </td>
-                <td class="px-4 py-3 text-center text-gray-500">{{ activity.sub_count }}</td>
+                <td class="px-4 py-3 text-center text-zinc-500">{{ activity.sub_count }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% else %}
 <div class="text-center py-12">
-    <p class="text-gray-500">暂无活动</p>
-    <p class="mt-2 text-sm text-gray-400">点击右上角「新建活动」添加记录</p>
+    <p class="text-zinc-500">暂无活动</p>
+    <p class="mt-2 text-sm text-zinc-400">点击右上角「新建活动」添加记录</p>
 </div>
 {% endif %}
 

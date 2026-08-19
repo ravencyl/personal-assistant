@@ -4,16 +4,16 @@
 
 {% block content %}
 <div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold text-gray-900">内容收藏</h1>
+    <h1 class="text-2xl font-bold text-zinc-900">内容收藏</h1>
     <div class="flex gap-2">
-        <a href="{% url 'content:feed_list' %}" class="inline-flex items-center rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">
+        <a href="{% url 'content:feed_list' %}" class="inline-flex items-center rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-200">
             RSS 订阅
         </a>
     </div>
 </div>
 
 <!-- Add bookmark form -->
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+<div class="bg-white rounded-lg shadow-sm border border-zinc-200 p-4 mb-6">
     <form method="post" action="{% url 'content:create_bookmark' %}" class="space-y-3">
         {% csrf_token %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -25,7 +25,7 @@
             </div>
             <div class="flex gap-2">
                 {{ form.category }}
-                <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 whitespace-nowrap">
+                <button type="submit" class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 whitespace-nowrap">
                     收藏
                 </button>
             </div>
@@ -35,10 +35,10 @@
 
 <!-- Category filter -->
 {% if categories %}
-<div class="flex gap-2 mb-4">
-    <a href="{% url 'content:bookmark_list' %}" class="px-3 py-1 text-sm rounded-full {% if not category_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
+<div class="flex flex-wrap gap-2 mb-4">
+    <a href="{% url 'content:bookmark_list' %}" class="px-3 py-1 text-sm rounded-full {% if not category_filter %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">全部</a>
     {% for cat in categories %}
-    <a href="?category={{ cat.slug }}" class="px-3 py-1 text-sm rounded-full {% if category_filter == cat.slug %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ cat.name }}</a>
+    <a href="?category={{ cat.slug }}" class="px-3 py-1 text-sm rounded-full {% if category_filter == cat.slug %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">{{ cat.name }}</a>
     {% endfor %}
 </div>
 {% endif %}
@@ -47,37 +47,37 @@
 {% if bookmarks %}
 <div class="grid gap-3">
     {% for bookmark in bookmarks %}
-    <div class="flex items-start gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-indigo-200 transition">
+    <div class="flex items-start gap-3 bg-white rounded-lg border border-zinc-200 p-4 hover:border-zinc-200 transition">
         <div class="flex-1 min-w-0">
-            <a href="{{ bookmark.url }}" target="_blank" class="text-sm font-medium text-gray-900 hover:text-indigo-600">
+            <a href="{{ bookmark.url }}" target="_blank" class="text-sm font-medium text-zinc-900 hover:text-zinc-600">
                 {{ bookmark.title }}
             </a>
-            <p class="text-xs text-gray-500 mt-0.5 truncate">{{ bookmark.url }}</p>
+            <p class="text-xs text-zinc-500 mt-0.5 truncate">{{ bookmark.url }}</p>
             {% if bookmark.description %}
-            <p class="text-sm text-gray-600 mt-1">{{ bookmark.description|truncatechars:100 }}</p>
+            <p class="text-sm text-zinc-600 mt-1">{{ bookmark.description|truncatechars:100 }}</p>
             {% endif %}
             {% if bookmark.ai_summary %}
-            <div class="mt-2 rounded bg-indigo-50 p-2">
-                <p class="text-xs text-indigo-700">{{ bookmark.ai_summary|truncatechars:150 }}</p>
+            <div class="mt-2 rounded bg-zinc-50 p-2">
+                <p class="text-xs text-zinc-700">{{ bookmark.ai_summary|truncatechars:150 }}</p>
             </div>
             {% endif %}
             <div class="flex items-center gap-2 mt-2">
                 {% if bookmark.category %}
-                <span class="text-xs text-gray-400">{{ bookmark.category.name }}</span>
+                <span class="text-xs text-zinc-400">{{ bookmark.category.name }}</span>
                 {% endif %}
-                <span class="text-xs text-gray-400">{{ bookmark.created_at|date:"m/d" }}</span>
+                <span class="text-xs text-zinc-400">{{ bookmark.created_at|date:"m/d" }}</span>
             </div>
         </div>
         <div class="flex gap-1">
-            <a href="{% url 'content:bookmark_detail' bookmark.pk %}" class="text-xs text-gray-400 hover:text-indigo-600 p-1">详情</a>
+            <a href="{% url 'content:bookmark_detail' bookmark.pk %}" class="text-xs text-zinc-400 hover:text-zinc-600 p-1">详情</a>
         </div>
     </div>
     {% endfor %}
 </div>
 {% else %}
 <div class="text-center py-12">
-    <p class="text-gray-500">暂无收藏</p>
-    <p class="mt-2 text-sm text-gray-400">在上方添加 URL 开始收藏内容</p>
+    <p class="text-zinc-500">暂无收藏</p>
+    <p class="mt-2 text-sm text-zinc-400">在上方添加 URL 开始收藏内容</p>
 </div>
 {% endif %}
 {% endblock %}
