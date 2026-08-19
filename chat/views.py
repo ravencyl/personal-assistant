@@ -1,11 +1,9 @@
-import json
 import logging
 
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import StreamingHttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
-from django.conf import settings
 from django.db import models
 
 from .models import Conversation, Message
@@ -33,6 +31,15 @@ def conversation_list(request):
         conversations = conversations.filter(
             models.Q(id__in=matching_conv_ids) | models.Q(title__icontains=query)
         )
+
+    # 预取每个对话的最后一条消息，避免模板中 N+1 查询
+    conversations = conversations.prefetch_related(
+        models.Prefetch(
+            'messages',
+            queryset=Message.objects.order_by('-created_at')[:1],
+            to_attr='last_message_list',
+        )
+    )
 
     return render(request, 'chat/conversation_list.html', {
         'conversations': conversations,
@@ -113,7 +120,7 @@ def send_message(request, conversation_id):
         return JsonResponse({'error': '消息内容不能为空'}, status=400)
 
     # 保存用户消息
-    Message.objects.create(
+    user_msg = Message.objects.create(
         conversation=conversation,
         role='user',
         content=content,
@@ -127,22 +134,19 @@ def send_message(request, conversation_id):
         conversation.status = 'processing'
         conversation.save(update_fields=['status', 'updated_at'])
 
-        # 收集 assistant 响应
-        assistant_content = _collect_response(service, conversation)
+        # 收集 assistant 响应（返回本轮创建的 Message，超时/无响应为 None）
+        assistant_msg = _collect_response(service, conversation)
 
         # HTMX 请求返回 HTML 片段（含用户消息 + AI 回复），普通请求返回 JSON
         if request.htmx:
-            pair = [m for m in [
-                conversation.messages.filter(role='user').last(),
-                conversation.messages.filter(role='assistant').last(),
-            ] if m]
+            pair = [m for m in [user_msg, assistant_msg] if m]
             return render(request, 'chat/partials/message_pair.html', {
                 'messages_pair': pair,
             })
 
         return JsonResponse({
             'success': True,
-            'response': assistant_content,
+            'response': assistant_msg.content if assistant_msg else '(无响应)',
         })
     except Exception as e:
         logger.error(f'Failed to send message: {e}')
@@ -152,61 +156,29 @@ def send_message(request, conversation_id):
 
 
 def _collect_response(service, conversation):
-    """轮询收集 AI 响应"""
-    import time
-    max_wait = 120  # 最多等待 120 秒
-    start_time = time.time()
+    """等待并落库 AI 响应，返回本轮创建的 Message（超时/无响应返回 None）"""
+    assistant_text = service.wait_for_response(conversation.session_id, timeout=120)
 
-    while time.time() - start_time < max_wait:
-        session_data = service.get_session(conversation.session_id)
-        status = session_data.get('status', '')
+    assistant_msg = None
+    if assistant_text:
+        assistant_msg = Message.objects.create(
+            conversation=conversation,
+            role='assistant',
+            content=assistant_text,
+            event_type='assistant.message'
+        )
 
-        if status == 'idle':
-            # 处理完成，获取最新消息
-            events = service.get_session_events(conversation.session_id, limit=50)
-            assistant_text = _extract_assistant_message(events)
-
-            if assistant_text:
-                Message.objects.create(
-                    conversation=conversation,
-                    role='assistant',
-                    content=assistant_text,
-                    event_type='assistant.message'
-                )
-
-            conversation.status = 'idle'
-            conversation.save(update_fields=['status', 'updated_at'])
-
-            # 更新标题（如果是第一条消息）
-            if conversation.title == '新对话':
-                first_user_msg = conversation.messages.filter(role='user').first()
-                if first_user_msg:
-                    conversation.title = first_user_msg.content[:50]
-                    conversation.save(update_fields=['title'])
-
-            return assistant_text or '(无响应)'
-
-        time.sleep(1)
-
-    # 超时
     conversation.status = 'idle'
     conversation.save(update_fields=['status', 'updated_at'])
-    return '(响应超时，请稍后重试)'
 
+    # 更新标题（如果是第一条消息）
+    if conversation.title == '新对话':
+        first_user_msg = conversation.messages.filter(role='user').first()
+        if first_user_msg:
+            conversation.title = first_user_msg.content[:50]
+            conversation.save(update_fields=['title'])
 
-def _extract_assistant_message(events):
-    """从事件列表中提取 assistant 消息"""
-    messages = []
-    if isinstance(events, list):
-        for event in events:
-            if isinstance(event, dict):
-                event_type = event.get('type', '')
-                if 'assistant' in event_type or event_type == 'agent.message':
-                    content_list = event.get('content', [])
-                    for c in content_list:
-                        if isinstance(c, dict) and c.get('type') == 'text':
-                            messages.append(c.get('text', ''))
-    return '\n'.join(messages) if messages else ''
+    return assistant_msg
 
 
 @login_required
@@ -229,26 +201,3 @@ def archive_conversation(request, conversation_id):
         pass
 
     return redirect('chat:conversation_list')
-
-
-@login_required
-def message_stream(request, conversation_id):
-    """SSE 消息流（用于实时推送）"""
-    conversation = get_object_or_404(
-        Conversation,
-        id=conversation_id,
-        user=request.user
-    )
-
-    def event_stream():
-        service = get_service()
-        try:
-            for event in service.stream_events(conversation.session_id):
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    return StreamingHttpResponse(
-        event_stream(),
-        content_type='text/event-stream'
-    )

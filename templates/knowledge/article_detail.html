@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load knowledge_filters %}
 
 {% block title %}{{ article.title }} - 知识库{% endblock %}
 
@@ -12,28 +13,28 @@
         <header class="mb-6">
             <h1 class="text-2xl font-bold text-gray-900">{{ article.title }}</h1>
             <div class="mt-2 flex items-center gap-3 text-sm text-gray-500">
-                <span>{{ article.first_published_at|date:"Y年m月d日" }}</span>
-                {% for tag in article.specific.tags.all %}
+                <span>{{ article.published_at|date:"Y年m月d日" }}</span>
+                {% for tag in article.tags.all %}
                 <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{{ tag.name }}</span>
                 {% endfor %}
             </div>
         </header>
 
-        {% if article.specific.ai_summary %}
+        {% if article.ai_summary %}
         <div class="mb-6 rounded-lg bg-indigo-50 border border-indigo-100 p-4">
             <h3 class="text-sm font-medium text-indigo-800 mb-1">AI 摘要</h3>
-            <p class="text-sm text-indigo-700">{{ article.specific.ai_summary }}</p>
+            <p class="text-sm text-indigo-700">{{ article.ai_summary }}</p>
         </div>
         {% endif %}
 
         <div class="prose prose-sm max-w-none">
-            {{ article.specific.body|safe }}
+            {{ article.body|markdown }}
         </div>
 
-        {% if article.specific.source_file %}
+        {% if article.source_file %}
         <div class="mt-6 pt-4 border-t border-gray-200">
-            <a href="{{ article.specific.source_file.url }}" class="text-sm text-indigo-600 hover:text-indigo-800">
-                下载附件: {{ article.specific.source_file.name }}
+            <a href="{{ article.source_file.url }}" class="text-sm text-indigo-600 hover:text-indigo-800">
+                下载附件: {{ article.source_file.name }}
             </a>
         </div>
         {% endif %}

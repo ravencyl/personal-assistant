@@ -4,12 +4,7 @@ from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
-from django.db.models import Q
-from django.utils.html import escape
-
-from wagtail.models import Page
-
-from .models import KnowledgeIndexPage, KnowledgeArticle
+from .models import KnowledgeArticle
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +12,11 @@ logger = logging.getLogger(__name__)
 @login_required
 def index(request):
     """知识库首页"""
-    articles = KnowledgeArticle.objects.live().order_by('-first_published_at')[:20]
+    articles = KnowledgeArticle.objects.published()[:20]
 
     query = request.GET.get('q', '')
     if query:
-        articles = KnowledgeArticle.objects.live().search(query)
+        articles = KnowledgeArticle.objects.published().search(query)
 
     return render(request, 'knowledge/index.html', {
         'articles': articles,
@@ -47,7 +42,7 @@ def ai_ask(request):
         return JsonResponse({'error': '请输入问题'}, status=400)
 
     # 1. 先通过全文检索找到相关知识片段
-    related_articles = list(KnowledgeArticle.objects.live().search(question))[:5]
+    related_articles = list(KnowledgeArticle.objects.published().search(question))[:5]
 
     if not related_articles:
         return JsonResponse({
@@ -59,7 +54,7 @@ def ai_ask(request):
     context_parts = []
     sources = []
     for article in related_articles:
-        body_text = article.specific.body if hasattr(article.specific, 'body') else ''
+        body_text = article.body
         # 去除 HTML 标签，保留纯文本
         import re
         clean_text = re.sub(r'<[^>]+>', '', str(body_text))[:1000]
@@ -111,21 +106,15 @@ def ai_ask(request):
             f"---\n\n基于以上知识库内容，请回答以下问题：{question}"
         )
 
-        service.send_message(session_data['id'], full_question)
-
-        # 轮询等待响应
-        import time
-        max_wait = 60
-        start = time.time()
-        answer = ''
-
-        while time.time() - start < max_wait:
-            session_info = service.get_session(session_data['id'])
-            if session_info.get('status') == 'idle':
-                events = service.get_session_events(session_data['id'], limit=50)
-                answer = _extract_answer(events)
-                break
-            time.sleep(1)
+        try:
+            service.send_message(session_data['id'], full_question)
+            answer = service.wait_for_response(session_data['id'], timeout=60)
+        finally:
+            # 回收一次性 Session，避免在 Qoder 平台累积
+            try:
+                service.cancel_session(session_data['id'])
+            except Exception:
+                pass
 
         if not answer:
             answer = 'AI 处理超时，请稍后重试。'
@@ -141,18 +130,3 @@ def ai_ask(request):
             'answer': f'AI 服务暂时不可用，请稍后重试。',
             'sources': sources,
         })
-
-
-def _extract_answer(events):
-    """从事件列表中提取 AI 回答"""
-    messages = []
-    if isinstance(events, list):
-        for event in events:
-            if isinstance(event, dict):
-                event_type = event.get('type', '')
-                if 'assistant' in event_type or event_type == 'agent.message':
-                    content_list = event.get('content', [])
-                    for c in content_list:
-                        if isinstance(c, dict) and c.get('type') == 'text':
-                            messages.append(c.get('text', ''))
-    return '\n'.join(messages)

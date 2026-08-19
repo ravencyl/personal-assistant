@@ -34,6 +34,10 @@ class Conversation(models.Model):
 
     @property
     def last_message(self):
+        # 优先使用列表页预取的 last_message_list，避免 N+1 查询
+        prefetched = getattr(self, 'last_message_list', None)
+        if prefetched is not None:
+            return prefetched[0] if prefetched else None
         return self.messages.order_by('-created_at').first()
 
 

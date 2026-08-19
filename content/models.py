@@ -1,17 +1,6 @@
 from django.db import models
 from django.conf import settings
-from taggit.models import TaggedItemBase
-from modelcluster.fields import ParentalKey
-from modelcluster.contrib.taggit import ClusterTaggableManager
-from modelcluster.models import ClusterableModel
-
-
-class BookmarkTag(TaggedItemBase):
-    content_object = ParentalKey(
-        'content.Bookmark',
-        on_delete=models.CASCADE,
-        related_name='tagged_items'
-    )
+from taggit.managers import TaggableManager
 
 
 class ContentCategory(models.Model):
@@ -29,7 +18,7 @@ class ContentCategory(models.Model):
         return self.name
 
 
-class Bookmark(ClusterableModel):
+class Bookmark(models.Model):
     """书签/收藏"""
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -48,7 +37,7 @@ class Bookmark(ClusterableModel):
         blank=True,
         related_name='bookmarks'
     )
-    tags = ClusterTaggableManager(through=BookmarkTag, blank=True)
+    tags = TaggableManager(blank=True)
     fetched_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

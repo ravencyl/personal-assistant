@@ -6,9 +6,12 @@ from django.utils import timezone
 from django.contrib import messages
 from datetime import timedelta
 import calendar
+import logging
 
 from .models import Task
 from .forms import TaskForm
+
+logger = logging.getLogger(__name__)
 
 
 @login_required
@@ -148,21 +151,15 @@ def ai_parse_task(request):
             f'任务描述：{text}'
         )
 
-        service.send_message(session_data['id'], parse_prompt)
-
-        # 轮询等待响应
-        import time
-        max_wait = 60
-        start = time.time()
-        result_text = ''
-
-        while time.time() - start < max_wait:
-            session_info = service.get_session(session_data['id'])
-            if session_info.get('status') == 'idle':
-                events = service.get_session_events(session_data['id'], limit=50)
-                result_text = _extract_text(events)
-                break
-            time.sleep(1)
+        try:
+            service.send_message(session_data['id'], parse_prompt)
+            result_text = service.wait_for_response(session_data['id'], timeout=60)
+        finally:
+            # 回收一次性 Session，避免在 Qoder 平台累积
+            try:
+                service.cancel_session(session_data['id'])
+            except Exception:
+                pass
 
         # 尝试解析 JSON
         tasks_data = _parse_tasks_json(result_text)
@@ -189,8 +186,7 @@ def ai_parse_task(request):
         })
 
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f'AI task parse failed: {e}')
+        logger.error(f'AI task parse failed: {e}')
         # 降级：直接创建一个简单任务
         task = Task.objects.create(
             user=request.user,
@@ -202,20 +198,6 @@ def ai_parse_task(request):
             'tasks': [{'id': task.id, 'title': task.title, 'priority': 0}],
             'fallback': True,
         })
-
-
-def _extract_text(events):
-    """从事件列表中提取文本"""
-    messages = []
-    if isinstance(events, list):
-        for event in events:
-            if isinstance(event, dict):
-                event_type = event.get('type', '')
-                if 'assistant' in event_type or event_type == 'agent.message':
-                    for c in event.get('content', []):
-                        if isinstance(c, dict) and c.get('type') == 'text':
-                            messages.append(c.get('text', ''))
-    return '\n'.join(messages)
 
 
 def _parse_tasks_json(text):
@@ -256,8 +238,13 @@ def _parse_tasks_json(text):
 def calendar_view(request):
     """任务日历视图 - 按月展示任务"""
     now = timezone.now()
-    year = int(request.GET.get('year', now.year))
-    month = int(request.GET.get('month', now.month))
+    try:
+        year = int(request.GET.get('year', now.year))
+        month = int(request.GET.get('month', now.month))
+        if not 1 <= month <= 12:
+            raise ValueError
+    except (TypeError, ValueError):
+        year, month = now.year, now.month
 
     # 计算当月第一天和最后一天
     first_day = timezone.datetime(year, month, 1, tzinfo=timezone.get_current_timezone())

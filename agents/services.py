@@ -3,9 +3,8 @@ Qoder Cloud Agents API 服务层
 封装所有与 Qoder Cloud Agents 平台的交互
 """
 
-import json
 import logging
-from typing import Generator
+import time
 
 import httpx
 from django.conf import settings
@@ -23,36 +22,31 @@ class QoderAgentService:
             'Authorization': f'Bearer {self.access_token}',
             'Content-Type': 'application/json',
         }
+        # 复用同一个 httpx.Client，避免每次请求都新建 TCP 连接（轮询场景尤其重要）
+        self._client = None
 
-    def _get_client(self, timeout: float = 30.0) -> httpx.Client:
-        return httpx.Client(
-            base_url=self.base_url,
-            headers=self.headers,
-            timeout=timeout,
-        )
-
-    def _get_stream_client(self, timeout: float = 300.0) -> httpx.Client:
-        return httpx.Client(
-            base_url=self.base_url,
-            headers=self.headers,
-            timeout=timeout,
-        )
+    def _get_client(self) -> httpx.Client:
+        if self._client is None:
+            self._client = httpx.Client(
+                base_url=self.base_url,
+                headers=self.headers,
+                timeout=30.0,
+            )
+        return self._client
 
     # ==================== Agent 操作 ====================
 
     def list_agents(self, limit: int = 50) -> list:
         """列出所有 Agent"""
-        with self._get_client() as client:
-            response = client.get('/agents', params={'limit': limit})
-            response.raise_for_status()
-            return response.json().get('data', [])
+        response = self._get_client().get('/agents', params={'limit': limit})
+        response.raise_for_status()
+        return response.json().get('data', [])
 
     def get_agent(self, agent_id: str) -> dict:
         """获取单个 Agent 详情"""
-        with self._get_client() as client:
-            response = client.get(f'/agents/{agent_id}')
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().get(f'/agents/{agent_id}')
+        response.raise_for_status()
+        return response.json()
 
     def create_agent(self, name: str, model: str = 'auto',
                      instructions: str = '', system: str = '',
@@ -71,55 +65,44 @@ class QoderAgentService:
         if metadata:
             payload['metadata'] = metadata
 
-        with self._get_client() as client:
-            response = client.post('/agents', json=payload)
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().post('/agents', json=payload)
+        response.raise_for_status()
+        return response.json()
 
     def update_agent(self, agent_id: str, version: int, **kwargs) -> dict:
         """更新 Agent（必须携带当前 version）"""
         payload = {'version': version}
         payload.update(kwargs)
 
-        with self._get_client() as client:
-            response = client.put(f'/agents/{agent_id}', json=payload)
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().put(f'/agents/{agent_id}', json=payload)
+        response.raise_for_status()
+        return response.json()
 
     def delete_agent(self, agent_id: str) -> None:
         """删除 Agent"""
-        with self._get_client() as client:
-            response = client.delete(f'/agents/{agent_id}')
-            response.raise_for_status()
+        response = self._get_client().delete(f'/agents/{agent_id}')
+        response.raise_for_status()
 
     # ==================== Environment 操作 ====================
 
     def list_environments(self) -> list:
         """列出所有 Environment"""
-        with self._get_client() as client:
-            response = client.get('/environments')
-            response.raise_for_status()
-            return response.json().get('data', [])
+        response = self._get_client().get('/environments')
+        response.raise_for_status()
+        return response.json().get('data', [])
 
     def create_environment(self, name: str, config: dict = None) -> dict:
         """创建 Environment"""
-        payload = {'name': name}
-        if config:
-            payload['config'] = config
-        else:
-            payload['config'] = {'type': 'cloud'}
-
-        with self._get_client() as client:
-            response = client.post('/environments', json=payload)
-            response.raise_for_status()
-            return response.json()
+        payload = {'name': name, 'config': config or {'type': 'cloud'}}
+        response = self._get_client().post('/environments', json=payload)
+        response.raise_for_status()
+        return response.json()
 
     def get_environment(self, env_id: str) -> dict:
         """获取 Environment 详情"""
-        with self._get_client() as client:
-            response = client.get(f'/environments/{env_id}')
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().get(f'/environments/{env_id}')
+        response.raise_for_status()
+        return response.json()
 
     # ==================== Session 操作 ====================
 
@@ -136,24 +119,21 @@ class QoderAgentService:
             'environment_id': environment_id,
         }
 
-        with self._get_client() as client:
-            response = client.post('/sessions', json=payload)
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().post('/sessions', json=payload)
+        response.raise_for_status()
+        return response.json()
 
     def get_session(self, session_id: str) -> dict:
         """获取 Session 详情"""
-        with self._get_client() as client:
-            response = client.get(f'/sessions/{session_id}')
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().get(f'/sessions/{session_id}')
+        response.raise_for_status()
+        return response.json()
 
     def list_sessions(self, limit: int = 50) -> list:
         """列出所有 Session"""
-        with self._get_client() as client:
-            response = client.get('/sessions', params={'limit': limit})
-            response.raise_for_status()
-            return response.json().get('data', [])
+        response = self._get_client().get('/sessions', params={'limit': limit})
+        response.raise_for_status()
+        return response.json().get('data', [])
 
     def send_message(self, session_id: str, text: str) -> dict:
         """向 Session 发送消息"""
@@ -164,56 +144,76 @@ class QoderAgentService:
             }]
         }
 
-        with self._get_client() as client:
-            response = client.post(
-                f'/sessions/{session_id}/events',
-                json=payload
-            )
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().post(
+            f'/sessions/{session_id}/events',
+            json=payload
+        )
+        response.raise_for_status()
+        return response.json()
 
     def cancel_session(self, session_id: str) -> dict:
         """取消正在执行的 Session"""
-        with self._get_client() as client:
-            response = client.post(f'/sessions/{session_id}/cancel')
-            response.raise_for_status()
-            return response.json()
+        response = self._get_client().post(f'/sessions/{session_id}/cancel')
+        response.raise_for_status()
+        return response.json()
 
     def get_session_events(self, session_id: str, limit: int = 100) -> list:
         """获取 Session 的事件历史"""
-        with self._get_client() as client:
-            response = client.get(
-                f'/sessions/{session_id}/events',
-                params={'limit': limit}
-            )
-            response.raise_for_status()
-            return response.json().get('data', [])
+        response = self._get_client().get(
+            f'/sessions/{session_id}/events',
+            params={'limit': limit}
+        )
+        response.raise_for_status()
+        return response.json().get('data', [])
 
-    def stream_events(self, session_id: str) -> Generator:
+    # ==================== 高级方法 ====================
+
+    def wait_for_response(self, session_id: str, timeout: float = 120.0,
+                          poll_interval: float = 1.0) -> str:
+        """发送消息后轮询等待 AI 响应，返回 assistant 文本（超时或无响应返回空串）
+
+        采用「状态 + 事件」双重确认：status 变为 idle 后还需提取到本轮回复才算完成，
+        避免平台状态切换延迟导致首次轮询误判为已完成。
         """
-        SSE 事件流监听
-        生成器，逐条返回 Session 事件
-        """
-        import sseclient
+        start = time.time()
+        idle_hits = 0
+        while time.time() - start < timeout:
+            info = self.get_session(session_id)
+            if info.get('status') == 'idle':
+                events = self.get_session_events(session_id, limit=100)
+                text = self.extract_assistant_text(events)
+                if text:
+                    return text
+                # idle 但尚未提取到回复：状态可能还未同步，连续多次仍无则放弃
+                idle_hits += 1
+                if idle_hits >= 3:
+                    return ''
+            else:
+                idle_hits = 0
+            time.sleep(poll_interval)
+        return ''
 
-        with self._get_stream_client(timeout=300.0) as client:
-            with client.stream(
-                'GET',
-                f'/sessions/{session_id}/events',
-                params={'stream': 'true'},
-                headers={**self.headers, 'Accept': 'text/event-stream'},
-            ) as response:
-                response.raise_for_status()
-                sse = sseclient.SSEClient(response)
-                for event in sse.events():
-                    try:
-                        data = json.loads(event.data)
-                        yield data
-                    except json.JSONDecodeError:
-                        logger.warning(f'Failed to parse SSE event: {event.data}')
-                        continue
+    @staticmethod
+    def extract_assistant_text(events: list) -> str:
+        """从事件列表中提取本轮 assistant 文本（仅取最后一条用户消息之后的内容）"""
+        if not isinstance(events, list):
+            return ''
 
-    # ==================== 工具方法 ====================
+        last_user_idx = -1
+        for i, event in enumerate(events):
+            if isinstance(event, dict) and event.get('type', '') == 'user.message':
+                last_user_idx = i
+
+        texts = []
+        for event in events[last_user_idx + 1:]:
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get('type', '')
+            if 'assistant' in event_type or event_type == 'agent.message':
+                for c in event.get('content', []):
+                    if isinstance(c, dict) and c.get('type') == 'text':
+                        texts.append(c.get('text', ''))
+        return '\n'.join(texts)
 
     def verify_connection(self) -> bool:
         """验证 API 连接是否正常"""
@@ -223,17 +223,6 @@ class QoderAgentService:
         except Exception as e:
             logger.error(f'Connection verification failed: {e}')
             return False
-
-    def get_default_environment_id(self) -> str:
-        """获取默认 Environment ID"""
-        configured = settings.QODER_DEFAULT_ENVIRONMENT_ID
-        if configured:
-            return configured
-        # 如果没有配置，获取第一个可用的
-        envs = self.list_environments()
-        if envs:
-            return envs[0]['id']
-        return ''
 
 
 def get_service() -> QoderAgentService:

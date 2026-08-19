@@ -21,7 +21,7 @@ def dashboard(request):
         status__in=['pending', 'in_progress'],
         due_date__isnull=False,
         due_date__lt=now,
-    )[:5]
+    )
     recent_bookmarks = Bookmark.objects.filter(user=user)[:5]
 
     stats = {

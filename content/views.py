@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
@@ -6,6 +8,8 @@ from django.contrib import messages
 
 from .models import Bookmark, ContentCategory
 from .forms import BookmarkForm
+
+logger = logging.getLogger(__name__)
 
 
 @login_required
@@ -97,20 +101,15 @@ def generate_ai_summary(request, pk):
             f'请抓取并总结以下网页的内容，输出 200 字以内的中文摘要：\n\n{bookmark.url}'
         )
 
-        service.send_message(session_data['id'], summary_prompt)
-
-        import time
-        max_wait = 60
-        start = time.time()
-        summary = ''
-
-        while time.time() - start < max_wait:
-            session_info = service.get_session(session_data['id'])
-            if session_info.get('status') == 'idle':
-                events = service.get_session_events(session_data['id'], limit=50)
-                summary = _extract_text(events)
-                break
-            time.sleep(1)
+        try:
+            service.send_message(session_data['id'], summary_prompt)
+            summary = service.wait_for_response(session_data['id'], timeout=60)
+        finally:
+            # 回收一次性 Session，避免在 Qoder 平台累积
+            try:
+                service.cancel_session(session_data['id'])
+            except Exception:
+                pass
 
         if summary:
             bookmark.ai_summary = summary.strip()
@@ -120,23 +119,8 @@ def generate_ai_summary(request, pk):
             return JsonResponse({'error': '生成摘要超时'}, status=504)
 
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f'AI summary generation failed: {e}')
+        logger.error(f'AI summary generation failed: {e}')
         return JsonResponse({'error': 'AI 服务暂时不可用'}, status=500)
-
-
-def _extract_text(events):
-    """从事件列表中提取文本"""
-    messages = []
-    if isinstance(events, list):
-        for event in events:
-            if isinstance(event, dict):
-                event_type = event.get('type', '')
-                if 'assistant' in event_type or event_type == 'agent.message':
-                    for c in event.get('content', []):
-                        if isinstance(c, dict) and c.get('type') == 'text':
-                            messages.append(c.get('text', ''))
-    return '\n'.join(messages)
 
 
 @login_required
