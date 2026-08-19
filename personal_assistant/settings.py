@@ -171,3 +171,9 @@ QODER_DEFAULT_ENVIRONMENT_ID = env('QODER_DEFAULT_ENVIRONMENT_ID', default='')
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 LOGIN_URL = '/accounts/login/'
+
+# 生产环境在 nginx 反代后识别 HTTPS（nginx 已转发 X-Forwarded-Proto）
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
