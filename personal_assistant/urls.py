@@ -4,10 +4,14 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from cms_pages.views import dashboard
+from activities.views import activity_list
 
 urlpatterns = [
-    # Dashboard (home)
-    path('', dashboard, name='dashboard'),
+    # 首页 = 活动记录列表
+    path('', activity_list, name='home'),
+
+    # Dashboard
+    path('dashboard/', dashboard, name='dashboard'),
 
     # Django admin
     path('admin/', admin.site.urls),

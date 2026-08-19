@@ -66,6 +66,180 @@
         </main>
     </div>
 
+    {% if user.is_authenticated %}
+    <!-- AI 聊天浮窗（左下角） -->
+    <div class="fixed bottom-4 left-4 z-50">
+        <!-- 展开面板 -->
+        <div id="chat-panel" class="hidden mb-3 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-200" style="height: 480px; max-height: calc(100vh - 8rem);">
+            <!-- 视图一：对话选择 -->
+            <div id="chat-view-list" class="flex flex-col h-full">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                    <span class="font-medium text-gray-900">AI 助手</span>
+                    <button type="button" id="chat-new-btn" class="text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-md px-3 py-1.5">+ 新对话</button>
+                </div>
+                <div class="flex-1 overflow-y-auto">
+                    <p class="px-4 pt-3 pb-1 text-xs text-gray-400">继续之前的对话</p>
+                    <div id="chat-conv-list">
+                        {% for conv in widget_conversations %}
+                        <a href="javascript:void(0)" class="chat-conv-item block px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100"
+                           data-id="{{ conv.id }}" data-title="{{ conv.title }}">
+                            <span class="block text-sm text-gray-800 truncate">{{ conv.title }}</span>
+                            <span class="block text-xs text-gray-400 mt-0.5">{{ conv.updated_at|timesince }} 前更新</span>
+                        </a>
+                        {% empty %}
+                        <p class="px-4 py-8 text-center text-sm text-gray-400">暂无对话，点击上方「新对话」开始</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="px-4 py-2 border-t border-gray-100">
+                    <a href="{% url 'chat:conversation_list' %}" class="text-xs text-gray-400 hover:text-indigo-600">查看全部对话 &rarr;</a>
+                </div>
+            </div>
+            <!-- 视图二：聊天窗口 -->
+            <div id="chat-view-chat" class="hidden flex-col h-full">
+                <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-200">
+                    <button type="button" id="chat-back-btn" class="text-indigo-600 hover:text-indigo-800 text-sm" title="返回对话列表">&larr;</button>
+                    <span id="chat-conv-title" class="font-medium text-gray-900 truncate flex-1"></span>
+                    <a id="chat-open-full" href="#" target="_blank" class="text-xs text-gray-400 hover:text-indigo-600" title="在新页面打开">↗</a>
+                </div>
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
+                <div id="chat-loading" class="hidden px-4 pb-1 text-xs text-gray-400 animate-pulse">AI 正在思考...</div>
+                <form id="chat-form" class="flex gap-2 p-3 border-t border-gray-200">
+                    {% csrf_token %}
+                    <input type="text" name="content" id="chat-input" placeholder="输入消息..."
+                           autocomplete="off" class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">发送</button>
+                </form>
+            </div>
+        </div>
+        <!-- 悬浮按钮 -->
+        <button type="button" id="chat-toggle-btn"
+                class="w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 flex items-center justify-center" title="AI 助手">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+        </button>
+    </div>
+
+    <script>
+    (function () {
+        var panel = document.getElementById('chat-panel');
+        var viewList = document.getElementById('chat-view-list');
+        var viewChat = document.getElementById('chat-view-chat');
+        var convList = document.getElementById('chat-conv-list');
+        var messagesEl = document.getElementById('chat-messages');
+        var form = document.getElementById('chat-form');
+        var input = document.getElementById('chat-input');
+        var loading = document.getElementById('chat-loading');
+        var titleEl = document.getElementById('chat-conv-title');
+        var fullLink = document.getElementById('chat-open-full');
+        var newBtn = document.getElementById('chat-new-btn');
+        var csrf = form.querySelector('input[name=csrfmiddlewaretoken]').value;
+
+        function showChatView(show) {
+            viewList.classList.toggle('hidden', show);
+            viewChat.classList.toggle('hidden', !show);
+            viewChat.classList.toggle('flex', show);
+        }
+
+        function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+        function openConversation(id, title) {
+            titleEl.textContent = title || '对话';
+            fullLink.href = '/chat/' + id + '/';
+            form.dataset.action = '/chat/' + id + '/send/';
+            showChatView(true);
+            messagesEl.innerHTML = '<p class="text-center text-sm text-gray-400 py-4">加载中...</p>';
+            fetch('/chat/' + id + '/widget-messages/', { headers: { 'HX-Request': 'true' } })
+                .then(function (r) { if (!r.ok) throw new Error('加载失败'); return r.text(); })
+                .then(function (html) { messagesEl.innerHTML = html; scrollBottom(); input.focus(); })
+                .catch(function () { messagesEl.innerHTML = '<p class="text-center text-sm text-red-500 py-4">消息加载失败，请重试</p>'; });
+        }
+
+        // 展开/收起面板
+        document.getElementById('chat-toggle-btn').addEventListener('click', function () {
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) input.focus();
+        });
+
+        // 选择历史对话（事件委托，兼容动态新增项）
+        convList.addEventListener('click', function (e) {
+            var item = e.target.closest('.chat-conv-item');
+            if (item) openConversation(item.dataset.id, item.dataset.title);
+        });
+
+        // 返回对话列表
+        document.getElementById('chat-back-btn').addEventListener('click', function () {
+            showChatView(false);
+        });
+
+        // 新建对话
+        newBtn.addEventListener('click', function () {
+            newBtn.disabled = true;
+            newBtn.textContent = '创建中...';
+            fetch('/chat/create/', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrf, 'HX-Request': 'true' }
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.conversation_id) {
+                        // 同步更新选择列表
+                        var item = document.createElement('a');
+                        item.href = 'javascript:void(0)';
+                        item.className = 'chat-conv-item block px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100';
+                        item.dataset.id = data.conversation_id;
+                        item.dataset.title = data.title;
+                        item.innerHTML = '<span class="block text-sm text-gray-800 truncate">' + data.title + '</span>' +
+                            '<span class="block text-xs text-gray-400 mt-0.5">刚刚更新</span>';
+                        convList.prepend(item);
+                        openConversation(data.conversation_id, data.title);
+                    } else {
+                        alert(data.error || '创建对话失败');
+                    }
+                })
+                .catch(function () { alert('创建对话失败，请检查网络或 Agent 配置'); })
+                .finally(function () { newBtn.disabled = false; newBtn.textContent = '+ 新对话'; });
+        });
+
+        // 发送消息
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var content = input.value.trim();
+            if (!content || !form.dataset.action) return;
+            loading.classList.remove('hidden');
+            input.disabled = true;
+            fetch(form.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrf,
+                    'HX-Request': 'true',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'content=' + encodeURIComponent(content)
+            })
+                .then(function (r) {
+                    if (!r.ok) {
+                        return r.json().then(function (d) { throw new Error(d.error || '发送失败'); });
+                    }
+                    return r.text();
+                })
+                .then(function (html) {
+                    messagesEl.insertAdjacentHTML('beforeend', html);
+                    input.value = '';
+                    scrollBottom();
+                })
+                .catch(function (err) { alert(err.message); })
+                .finally(function () {
+                    loading.classList.add('hidden');
+                    input.disabled = false;
+                    input.focus();
+                });
+        });
+    })();
+    </script>
+    {% endif %}
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>

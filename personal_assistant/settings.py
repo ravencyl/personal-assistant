@@ -76,6 +76,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.qoder_context',
                 'core.context_processors.app_info',
+                'chat.context_processors.chat_widget',
             ],
         },
     },

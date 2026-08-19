@@ -64,9 +64,22 @@ def conversation_detail(request, conversation_id):
 
 
 @login_required
+def widget_messages(request, conversation_id):
+    """浮窗加载历史消息（返回 HTML 片段）"""
+    conversation = get_object_or_404(
+        Conversation,
+        id=conversation_id,
+        user=request.user
+    )
+    return render(request, 'chat/partials/widget_messages.html', {
+        'widget_messages': conversation.messages.all(),
+    })
+
+
+@login_required
 @require_POST
 def create_conversation(request):
-    """创建新对话"""
+    """创建新对话（HTMX/fetch 请求返回 JSON，普通表单请求重定向到详情页）"""
     agent_id = request.POST.get('agent_id')
     if not agent_id:
         # 使用第一个可用的 agent
@@ -99,6 +112,11 @@ def create_conversation(request):
             status='idle',
         )
 
+        if request.htmx:
+            return JsonResponse({
+                'conversation_id': conversation.id,
+                'title': conversation.title,
+            })
         return redirect('chat:conversation_detail', conversation_id=conversation.id)
     except Exception as e:
         logger.error(f'Failed to create conversation: {e}')

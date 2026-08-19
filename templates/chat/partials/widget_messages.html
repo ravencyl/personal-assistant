@@ -1,0 +1,9 @@
+{% for msg in widget_messages %}
+<div class="flex {% if msg.role == 'user' %}justify-end{% else %}justify-start{% endif %}">
+    <div class="max-w-[85%] rounded-lg px-3 py-2 text-sm text-gray-800 whitespace-pre-wrap {% if msg.role == 'user' %}bg-indigo-50 border border-indigo-100{% else %}bg-gray-50 border border-gray-200{% endif %}">
+        {{ msg.content }}
+    </div>
+</div>
+{% empty %}
+<p class="text-center text-sm text-gray-400 py-6">发送消息开始对话</p>
+{% endfor %}
