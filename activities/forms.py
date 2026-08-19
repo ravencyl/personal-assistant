@@ -12,6 +12,15 @@ class ActivityForm(forms.ModelForm):
         required=False,
         widget=forms.HiddenInput,
     )
+    new_children = forms.CharField(
+        label='子任务',
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': INPUT_CLS,
+            'placeholder': '多个名称用逗号分隔，将随活动一并创建（可选）',
+        }),
+        help_text='输入子任务名称，保存时自动创建为子活动',
+    )
 
     class Meta:
         model = Activity
@@ -61,3 +70,14 @@ class ActivityForm(forms.ModelForm):
             p, _ = Participant.objects.get_or_create(user=self.user, name=name)
             participants.append(p)
         activity.participants.set(participants)
+
+    def save_children(self, activity):
+        """创建页批量创建子活动（逗号分隔）"""
+        raw = self.cleaned_data.get('new_children', '')
+        for name in [n.strip() for n in raw.replace('，', ',').split(',') if n.strip()]:
+            Activity.objects.create(
+                user=self.user,
+                name=name,
+                parent=activity,
+                end_date=timezone.localdate(),
+            )

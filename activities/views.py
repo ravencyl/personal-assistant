@@ -101,6 +101,7 @@ def activity_create(request):
             activity.save()
             form.save_m2m()
             form.save_participants(activity)
+            form.save_children(activity)
             messages.success(request, f'活动「{activity.name}」已创建')
             return redirect('activities:activity_detail', activity.id)
     else:
@@ -132,8 +133,31 @@ def activity_edit(request, activity_id):
         'form': form,
         'title': '编辑活动',
         'activity': activity,
+        'children': activity.children.all(),
         'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
     })
+
+
+@login_required
+@require_POST
+def add_subactivity(request, activity_id):
+    """快捷创建子活动（仅填名称）"""
+    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    name = (request.POST.get('name') or '').strip()
+    if not name:
+        messages.error(request, '子活动名称不能为空')
+    else:
+        Activity.objects.create(
+            user=request.user,
+            name=name,
+            parent=activity,
+            end_date=timezone.localdate(),
+        )
+        messages.success(request, f'子活动「{name}」已创建')
+    referer = request.META.get('HTTP_REFERER')
+    if referer:
+        return redirect(referer)
+    return redirect('activities:activity_detail', activity.id)
 
 
 @login_required

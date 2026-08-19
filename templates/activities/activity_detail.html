@@ -86,9 +86,18 @@
     </div>
 
     <!-- Sub-activities -->
-    {% if children %}
     <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900 mb-3">子活动</h2>
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-medium text-gray-900">子任务（{{ children|length }}）</h2>
+        </div>
+        <form method="post" action="{% url 'activities:add_subactivity' activity.id %}" class="flex gap-2 mb-3">
+            {% csrf_token %}
+            <input type="text" name="name" placeholder="输入子任务名称，回车添加"
+                   autocomplete="off"
+                   class="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none">
+            <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">+ 添加</button>
+        </form>
+        {% if children %}
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
                 <thead class="bg-gray-50">
@@ -97,6 +106,7 @@
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">日期范围</th>
                         <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">费用</th>
+                        <th class="px-4 py-2"></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -108,12 +118,17 @@
                         <td class="px-4 py-2 text-gray-600">{{ child.get_status_display }}</td>
                         <td class="px-4 py-2 text-gray-600 whitespace-nowrap">{{ child.date_range }}</td>
                         <td class="px-4 py-2 text-right text-gray-700">¥{{ child.cost }}</td>
+                        <td class="px-4 py-2 text-right">
+                            <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-indigo-600 hover:text-indigo-800">编辑</a>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% else %}
+        <p class="text-sm text-gray-400">暂无子任务，可在上方输入名称快速添加</p>
+        {% endif %}
     </div>
-    {% endif %}
 </div>
 {% endblock %}
