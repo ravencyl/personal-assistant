@@ -67,6 +67,16 @@
 
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
+                <div class="relative">
+                    <div id="tag-box"
+                         class="flex flex-wrap gap-1.5 items-center rounded-md border border-gray-300 bg-white px-2 py-1.5 focus-within:border-indigo-500">
+                        <input type="text" id="tag-input" placeholder="输入标签，回车添加"
+                               autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
+                    </div>
+                    <div id="tag-suggest"
+                         class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
+                </div>
+                <p class="mt-1 text-xs text-gray-400">可从下方建议中选择（支持拼音），或直接输入新标签回车添加</p>
                 {{ form.tags }}
                 {% if form.tags.errors %}<p class="mt-1 text-xs text-red-600">{{ form.tags.errors.0 }}</p>{% endif %}
             </div>
@@ -137,16 +147,16 @@
 </div>
 
 {{ all_participants|json_script:"participant-options" }}
+{{ all_tags|json_script:"tag-options" }}
 {% endblock %}
 
 {% block extra_js %}
 <script>
 (function () {
-    var OPTIONS = JSON.parse(document.getElementById('participant-options').textContent || '[]');
     var py = window.pinyinPro && window.pinyinPro.pinyin;
     var PINYIN_CACHE = {};
 
-    // 获取姓名的拼音（全拼 + 首字母），带缓存
+    // 获取名称的拼音（全拼 + 首字母），带缓存
     function pinyinOf(name) {
         if (!(name in PINYIN_CACHE)) {
             PINYIN_CACHE[name] = py ? {
@@ -164,81 +174,100 @@
         return (info.full && info.full.indexOf(kw) !== -1) ||
                (info.initials && info.initials.indexOf(kw) !== -1);
     }
-    var box = document.getElementById('participant-box');
-    var input = document.getElementById('participant-input');
-    var suggest = document.getElementById('participant-suggest');
-    var hidden = document.getElementById('id_participants_input');
-    var selected = hidden.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
 
-    function renderTags() {
-        box.querySelectorAll('.participant-chip').forEach(function (el) { el.remove(); });
-        selected.forEach(function (name) {
-            var chip = document.createElement('span');
-            chip.className = 'participant-chip inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-0.5 text-sm';
-            chip.innerHTML = '<span></span><button type="button" class="hover:text-indigo-900" title="移除">&times;</button>';
-            chip.querySelector('span').textContent = name;
-            chip.querySelector('button').addEventListener('click', function () {
-                selected = selected.filter(function (n) { return n !== name; });
-                renderTags();
-                input.focus();
+    // 通用 chips 输入组件：chips + 建议下拉（拼音匹配），同步逗号分隔值到隐藏字段
+    function initChipsInput(opts) {
+        var box = document.getElementById(opts.boxId);
+        var input = document.getElementById(opts.inputId);
+        var suggest = document.getElementById(opts.suggestId);
+        var hidden = document.getElementById(opts.hiddenId);
+        var OPTIONS = JSON.parse(document.getElementById(opts.optionsId).textContent || '[]');
+        var selected = hidden.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+
+        function renderTags() {
+            box.querySelectorAll('.chip-item').forEach(function (el) { el.remove(); });
+            selected.forEach(function (name) {
+                var chip = document.createElement('span');
+                chip.className = 'chip-item inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm ' + opts.chipClass;
+                chip.innerHTML = '<span></span><button type="button" title="移除" class="opacity-70 hover:opacity-100">&times;</button>';
+                chip.querySelector('span').textContent = name;
+                chip.querySelector('button').addEventListener('click', function () {
+                    selected = selected.filter(function (n) { return n !== name; });
+                    renderTags();
+                    input.focus();
+                });
+                box.insertBefore(chip, input);
             });
-            box.insertBefore(chip, input);
-        });
-        hidden.value = selected.join(', ');
-    }
-
-    function addName(name) {
-        name = name.trim().replace(/[,，]/g, '');
-        if (!name || selected.indexOf(name) !== -1) return;
-        selected.push(name);
-        renderTags();
-        input.value = '';
-        hideSuggest();
-    }
-
-    function hideSuggest() { suggest.classList.add('hidden'); }
-
-    function showSuggest() {
-        var kw = input.value.trim().toLowerCase();
-        var matches = OPTIONS.filter(function (n) {
-            return selected.indexOf(n) === -1 && (!kw || matchName(n, kw));
-        });
-        suggest.innerHTML = '';
-        matches.forEach(function (n) {
-            var item = document.createElement('div');
-            item.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 cursor-pointer';
-            item.textContent = n;
-            item.addEventListener('mousedown', function (e) { e.preventDefault(); addName(n); });
-            suggest.appendChild(item);
-        });
-        if (!matches.length && kw) {
-            var tip = document.createElement('div');
-            tip.className = 'px-3 py-2 text-sm text-gray-400 cursor-pointer';
-            tip.innerHTML = '回车添加新参与者：<span class="text-indigo-600"></span>';
-            tip.querySelector('span').textContent = input.value.trim();
-            tip.addEventListener('mousedown', function (e) { e.preventDefault(); addName(input.value); });
-            suggest.appendChild(tip);
+            hidden.value = selected.join(', ');
         }
-        suggest.classList.toggle('hidden', suggest.children.length === 0);
-    }
 
-    input.addEventListener('input', showSuggest);
-    input.addEventListener('focus', showSuggest);
-    input.addEventListener('blur', function () { setTimeout(hideSuggest, 150); });
-    input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
-            e.preventDefault();
-            addName(input.value);
-        } else if (e.key === 'Backspace' && !input.value && selected.length) {
-            selected.pop();
+        function addName(name) {
+            name = name.trim().replace(/[,，]/g, '');
+            if (!name || selected.indexOf(name) !== -1) return;
+            selected.push(name);
             renderTags();
+            input.value = '';
+            hideSuggest();
         }
+
+        function hideSuggest() { suggest.classList.add('hidden'); }
+
+        function showSuggest() {
+            var kw = input.value.trim().toLowerCase();
+            var matches = OPTIONS.filter(function (n) {
+                return selected.indexOf(n) === -1 && (!kw || matchName(n, kw));
+            });
+            suggest.innerHTML = '';
+            matches.forEach(function (n) {
+                var item = document.createElement('div');
+                item.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-indigo-50 cursor-pointer';
+                item.textContent = n;
+                item.addEventListener('mousedown', function (e) { e.preventDefault(); addName(n); });
+                suggest.appendChild(item);
+            });
+            if (!matches.length && kw) {
+                var tip = document.createElement('div');
+                tip.className = 'px-3 py-2 text-sm text-gray-400 cursor-pointer';
+                tip.innerHTML = opts.newTip + '：<span class="text-indigo-600"></span>';
+                tip.querySelector('span').textContent = input.value.trim();
+                tip.addEventListener('mousedown', function (e) { e.preventDefault(); addName(input.value); });
+                suggest.appendChild(tip);
+            }
+            suggest.classList.toggle('hidden', suggest.children.length === 0);
+        }
+
+        input.addEventListener('input', showSuggest);
+        input.addEventListener('focus', showSuggest);
+        input.addEventListener('blur', function () { setTimeout(hideSuggest, 150); });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
+                e.preventDefault();
+                addName(input.value);
+            } else if (e.key === 'Backspace' && !input.value && selected.length) {
+                selected.pop();
+                renderTags();
+            }
+        });
+
+        // 点击容器聚焦输入框
+        box.addEventListener('click', function (e) { if (e.target === box) input.focus(); });
+
+        renderTags();
+    }
+
+    initChipsInput({
+        boxId: 'participant-box', inputId: 'participant-input', suggestId: 'participant-suggest',
+        hiddenId: 'id_participants_input', optionsId: 'participant-options',
+        chipClass: 'bg-indigo-50 text-indigo-700',
+        newTip: '回车添加新参与者',
     });
 
-    // 点击容器聚焦输入框
-    box.addEventListener('click', function (e) { if (e.target === box) input.focus(); });
-
-    renderTags();
+    initChipsInput({
+        boxId: 'tag-box', inputId: 'tag-input', suggestId: 'tag-suggest',
+        hiddenId: 'id_tags', optionsId: 'tag-options',
+        chipClass: 'bg-amber-50 border border-amber-200 text-amber-700',
+        newTip: '回车添加新标签',
+    });
 })();
 </script>
 {% endblock %}

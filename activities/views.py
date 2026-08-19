@@ -1,3 +1,4 @@
+from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -6,9 +7,19 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from datetime import timedelta
 from urllib.parse import urlencode
+from taggit.models import Tag
 
 from .forms import ActivityForm
 from .models import Activity, Participant
+
+
+def _user_tag_names(user):
+    """当前用户活动上使用过的全部标签名（供表单 autocomplete 建议）"""
+    activity_ids = Activity.objects.filter(user=user).values('id')
+    return list(Tag.objects.filter(
+        taggit_taggeditem_items__content_type=ContentType.objects.get_for_model(Activity),
+        taggit_taggeditem_items__object_id__in=activity_ids,
+    ).distinct().values_list('name', flat=True).order_by('name'))
 
 
 @login_required
@@ -186,6 +197,7 @@ def activity_create(request):
         'form': form,
         'title': '新建活动',
         'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
+        'all_tags': _user_tag_names(request.user),
     })
 
 
@@ -210,6 +222,7 @@ def activity_edit(request, activity_id):
         'activity': activity,
         'children': activity.children.all(),
         'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
+        'all_tags': _user_tag_names(request.user),
     })
 
 
