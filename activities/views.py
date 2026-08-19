@@ -130,6 +130,12 @@ def activity_list(request):
         date_params['date_to'] = date_to
     date_qs = urlencode(date_params)
 
+    # 筛选面板默认折叠；URL 带任一筛选/排序参数时自动展开
+    filters_active = bool(status_filter or tag_filter or date_from or date_to or sort)
+    active_filter_count = sum([
+        bool(status_filter), bool(tag_filter), bool(date_from or date_to), bool(sort),
+    ])
+
     # 标签筛选需保留状态/日期/排序参数（不含 tag）
     tag_link_params = {k: v for k, v in date_params.items()}
     if status_filter:
@@ -145,6 +151,8 @@ def activity_list(request):
         'tag_filter': tag_filter,
         'all_tags': _user_tag_names(request.user),
         'tag_link_qs': tag_link_qs,
+        'filters_active': filters_active,
+        'active_filter_count': active_filter_count,
         'tree_mode': tree_mode,
         'date_from': date_from,
         'date_to': date_to,

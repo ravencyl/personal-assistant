@@ -10,9 +10,23 @@
     </a>
 </div>
 
-<!-- Date filter -->
-<div class="bg-white rounded-lg border border-gray-200 p-3 mb-4">
-    <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
+<!-- Filter panel（可折叠：URL 带筛选/排序参数时自动展开，否则默认折叠） -->
+<div class="bg-white rounded-lg border border-gray-200 mb-4">
+    <button type="button" id="filter-toggle"
+            aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
+            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg">
+        <span class="flex items-center gap-2">
+            筛选
+            {% if active_filter_count %}
+            <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700">{{ active_filter_count }} 项生效</span>
+            {% endif %}
+        </span>
+        <span id="filter-arrow" class="text-gray-400">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
+    </button>
+
+    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-gray-100 px-3 py-3 space-y-3">
+        <!-- Date filter -->
+        <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-gray-500">日期筛选</span>
         <input type="date" name="date_from" value="{{ date_from }}"
                class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
@@ -32,20 +46,19 @@
            class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">近 7 天</a>
         <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}"
            class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">近一个月</a>
-    </form>
-</div>
+        </form>
 
-<!-- Status filter -->
-<div class="flex gap-2 mb-4">
+        <!-- Status filter -->
+        <div class="flex flex-wrap gap-2">
     <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
     {% for value, label in status_choices %}
     <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
     {% endfor %}
-</div>
+        </div>
 
-<!-- Tag filter -->
-{% if all_tags %}
-<div class="flex flex-wrap items-center gap-2 mb-4">
+        <!-- Tag filter -->
+        {% if all_tags %}
+        <div class="flex flex-wrap items-center gap-2">
     <span class="text-sm text-gray-500">标签筛选</span>
     <a href="{% url 'activities:activity_list' %}{% if tag_link_qs %}?{{ tag_link_qs }}{% endif %}"
        class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
@@ -53,8 +66,24 @@
     <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
        class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}"># {{ tag_name }}</a>
     {% endfor %}
+        </div>
+        {% endif %}
+    </div>
 </div>
-{% endif %}
+
+<script>
+(function () {
+    var btn = document.getElementById('filter-toggle');
+    var body = document.getElementById('filter-body');
+    var arrow = document.getElementById('filter-arrow');
+    btn.addEventListener('click', function () {
+        var expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', String(!expanded));
+        body.classList.toggle('hidden', expanded);
+        arrow.innerHTML = expanded ? '&#9654;' : '&#9660;';
+    });
+})();
+</script>
 
 <!-- Activity table -->
 {% if activities %}
