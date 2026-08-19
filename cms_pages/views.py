@@ -1,9 +1,8 @@
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from django.utils import timezone
 
 from chat.models import Conversation
-from tasks.models import Task
+from activities.models import Activity
 from content.models import Bookmark
 
 
@@ -11,29 +10,26 @@ from content.models import Bookmark
 def dashboard(request):
     """首页仪表盘"""
     user = request.user
-    now = timezone.now()
 
     # 统计数据
     recent_conversations = Conversation.objects.filter(user=user)[:5]
-    pending_tasks = Task.objects.filter(user=user, status__in=['pending', 'in_progress'])[:5]
-    overdue_tasks = Task.objects.filter(
+    recent_activities = Activity.objects.filter(user=user)[:5]
+    ongoing_activities = Activity.objects.filter(
         user=user,
-        status__in=['pending', 'in_progress'],
-        due_date__isnull=False,
-        due_date__lt=now,
+        status__in=['planned', 'in_progress'],
     )
     recent_bookmarks = Bookmark.objects.filter(user=user)[:5]
 
     stats = {
         'total_conversations': Conversation.objects.filter(user=user).count(),
-        'total_tasks': Task.objects.filter(user=user, status__in=['pending', 'in_progress']).count(),
-        'overdue_count': overdue_tasks.count(),
+        'total_activities': Activity.objects.filter(user=user).count(),
+        'ongoing_count': ongoing_activities.count(),
         'total_bookmarks': Bookmark.objects.filter(user=user).count(),
     }
 
     return render(request, 'cms_pages/dashboard.html', {
         'recent_conversations': recent_conversations,
-        'pending_tasks': pending_tasks,
+        'recent_activities': recent_activities,
         'recent_bookmarks': recent_bookmarks,
         'stats': stats,
     })

@@ -17,7 +17,6 @@ class AgentConfig(models.Model):
         choices=[
             ('general', '通用对话'),
             ('knowledge', '知识库问答'),
-            ('task', '任务管理'),
             ('content', '内容处理'),
             ('code', '代码相关'),
         ],

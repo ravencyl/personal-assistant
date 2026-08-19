@@ -16,12 +16,12 @@
         <p class="text-2xl font-bold text-indigo-600">{{ stats.total_conversations }}</p>
     </div>
     <div class="bg-white rounded-lg border border-gray-200 p-4">
-        <p class="text-sm text-gray-500">待办任务</p>
-        <p class="text-2xl font-bold text-yellow-600">{{ stats.total_tasks }}</p>
+        <p class="text-sm text-gray-500">活动记录</p>
+        <p class="text-2xl font-bold text-yellow-600">{{ stats.total_activities }}</p>
     </div>
     <div class="bg-white rounded-lg border border-gray-200 p-4">
-        <p class="text-sm text-gray-500">已逾期</p>
-        <p class="text-2xl font-bold text-red-600">{{ stats.overdue_count }}</p>
+        <p class="text-sm text-gray-500">进行中活动</p>
+        <p class="text-2xl font-bold text-red-600">{{ stats.ongoing_count }}</p>
     </div>
     <div class="bg-white rounded-lg border border-gray-200 p-4">
         <p class="text-sm text-gray-500">内容收藏</p>
@@ -30,26 +30,24 @@
 </div>
 
 <div class="grid md:grid-cols-2 gap-6">
-    <!-- Recent tasks -->
+    <!-- Recent activities -->
     <div class="bg-white rounded-lg border border-gray-200 p-5">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-gray-900">待办任务</h2>
-            <a href="{% url 'tasks:task_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">查看全部</a>
+            <h2 class="text-lg font-medium text-gray-900">最近活动</h2>
+            <a href="{% url 'activities:activity_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">查看全部</a>
         </div>
-        {% if pending_tasks %}
+        {% if recent_activities %}
         <div class="space-y-2">
-            {% for task in pending_tasks %}
+            {% for activity in recent_activities %}
             <div class="flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full {% if task.priority == 3 %}bg-red-500{% elif task.priority == 2 %}bg-yellow-500{% else %}bg-gray-300{% endif %}"></span>
-                <a href="{% url 'tasks:task_detail' task.id %}" class="text-sm text-gray-700 hover:text-indigo-600 truncate">{{ task.title }}</a>
-                {% if task.due_date %}
-                <span class="text-xs text-gray-400 ml-auto">{{ task.due_date|date:"m/d" }}</span>
-                {% endif %}
+                <span class="h-2 w-2 rounded-full {% if activity.status == 'in_progress' %}bg-indigo-500{% elif activity.status == 'done' %}bg-green-500{% elif activity.status == 'cancelled' %}bg-red-400{% else %}bg-gray-300{% endif %}"></span>
+                <a href="{% url 'activities:activity_detail' activity.id %}" class="text-sm text-gray-700 hover:text-indigo-600 truncate">{{ activity.name }}</a>
+                <span class="text-xs text-gray-400 ml-auto whitespace-nowrap">{{ activity.date_range }}</span>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">暂无待办任务</p>
+        <p class="text-sm text-gray-400">暂无活动记录</p>
         {% endif %}
     </div>
 

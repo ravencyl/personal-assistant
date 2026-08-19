@@ -30,7 +30,6 @@
                 <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">自身费用</th>
                 <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">子活动费用</th>
                 <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">子活动</th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">任务</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -64,7 +63,6 @@
                     {% if activity.children_cost_sum %}¥{{ activity.children_cost_sum }}{% else %}-{% endif %}
                 </td>
                 <td class="px-4 py-3 text-center text-gray-500">{{ activity.sub_count }}</td>
-                <td class="px-4 py-3 text-center text-gray-500">{{ activity.task_count }}</td>
             </tr>
             {% endfor %}
         </tbody>

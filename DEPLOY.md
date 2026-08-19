@@ -63,9 +63,7 @@ celery -A personal_assistant beat -l info
 
 | 任务 | 频率 | 说明 |
 |------|------|------|
-| check_task_reminders | 每 5 分钟 | 检查即将到期的任务 |
 | fetch_rss_feeds | 每 1 小时 | 抓取 RSS 订阅源 |
-| cleanup_old_tasks | 每 24 小时 | 清理已完成的历史任务 |
 
 ## 配置说明（.env）
 

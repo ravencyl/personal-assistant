@@ -43,7 +43,6 @@ INSTALLED_APPS = [
     'agents',
     'chat',
     'knowledge',
-    'tasks',
     'activities',
     'content',
     'cms_pages',
@@ -154,17 +153,9 @@ CELERY_TIMEZONE = TIME_ZONE
 
 # Celery Beat 定时任务调度
 CELERY_BEAT_SCHEDULE = {
-    'check-task-reminders': {
-        'task': 'tasks.tasks.check_task_reminders',
-        'schedule': 300.0,  # 每 5 分钟检查一次
-    },
     'fetch-rss-feeds': {
         'task': 'content.tasks.fetch_rss_feeds',
         'schedule': 3600.0,  # 每 1 小时抓取一次
-    },
-    'cleanup-old-tasks': {
-        'task': 'tasks.tasks.cleanup_old_tasks',
-        'schedule': 86400.0,  # 每 24 小时清理一次
     },
 }
 

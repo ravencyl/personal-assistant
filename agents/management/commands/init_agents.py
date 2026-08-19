@@ -33,17 +33,6 @@ PREDEFINED_AGENTS = [
         'purpose': 'knowledge',
     },
     {
-        'name': 'task-agent',
-        'model': 'auto',
-        'instructions': '你是一个任务管理助手。你可以帮助用户创建、管理和分解任务。当用户描述一个复杂目标时，将其分解为可执行的子任务。请用中文回答，并以结构化格式输出任务列表。',
-        'tools': [{
-            'type': 'agent_toolset_20260401',
-            'enabled_tools': ['Bash', 'Write', 'Read']
-        }],
-        'metadata': {'purpose': 'task'},
-        'purpose': 'task',
-    },
-    {
         'name': 'content-agent',
         'model': 'qmodel',  # Qwen3.7-Plus
         'instructions': '你是一个内容处理助手。你可以帮助用户总结网页内容、生成文章摘要、推荐相关内容。请用中文输出简洁准确的摘要。',

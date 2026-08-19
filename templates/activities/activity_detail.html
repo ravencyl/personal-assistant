@@ -76,7 +76,7 @@
             <a href="{% url 'activities:activity_edit' activity.id %}" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
                 编辑
             </a>
-            <form method="post" action="{% url 'activities:activity_delete' activity.id %}" onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空，关联任务将保留。')">
+            <form method="post" action="{% url 'activities:activity_delete' activity.id %}" onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空。')">
                 {% csrf_token %}
                 <button type="submit" class="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100">
                     删除
@@ -112,29 +112,6 @@
                     {% endfor %}
                 </tbody>
             </table>
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Related tasks -->
-    {% if tasks %}
-    <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900 mb-3">关联任务</h2>
-        <div class="space-y-2">
-            {% for task in tasks %}
-            <div class="flex items-center justify-between bg-white rounded border border-gray-200 p-3">
-                <div class="flex items-center gap-2">
-                    <span class="{% if task.status == 'done' %}text-green-500{% else %}text-gray-400{% endif %}">
-                        {% if task.status == 'done' %}&#10003;{% else %}&#9675;{% endif %}
-                    </span>
-                    <a href="{% url 'tasks:task_detail' task.id %}"
-                       class="text-sm {% if task.status == 'done' %}line-through text-gray-400{% else %}text-gray-800 hover:text-indigo-600{% endif %}">
-                        {{ task.title }}
-                    </a>
-                </div>
-                <span class="text-xs text-gray-400">{{ task.get_status_display }}</span>
-            </div>
-            {% endfor %}
         </div>
     </div>
     {% endif %}
