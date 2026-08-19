@@ -142,7 +142,27 @@ def activity_detail(request, activity_id):
         'activity': activity,
         'children': activity.children.all(),
         'participants': activity.participants.all(),
+        'status_choices': Activity.STATUS_CHOICES,
     })
+
+
+@login_required
+@require_POST
+def activity_set_status(request, activity_id):
+    """快捷修改活动状态"""
+    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    status = request.POST.get('status', '')
+    valid = dict(Activity.STATUS_CHOICES)
+    if status not in valid:
+        messages.error(request, '无效的状态值')
+    elif status != activity.status:
+        activity.status = status
+        activity.save(update_fields=['status', 'updated_at'])
+        messages.success(request, f'状态已更新为「{valid[status]}」')
+    referer = request.META.get('HTTP_REFERER')
+    if referer:
+        return redirect(referer)
+    return redirect('activities:activity_detail', activity.id)
 
 
 @login_required
