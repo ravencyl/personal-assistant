@@ -19,11 +19,12 @@
         <span class="text-sm text-gray-400">至</span>
         <input type="date" name="date_to" value="{{ date_to }}"
                class="rounded-md border-gray-300 text-sm px-2 py-1 border focus:ring-indigo-500 focus:border-indigo-500">
-        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if status_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
         <button type="submit" class="px-3 py-1 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">筛选</button>
         {% if date_from or date_to %}
-        <a href="{% url 'activities:activity_list' %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200">清除</a>
+        <a href="{% url 'activities:activity_list' %}?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}"
+           class="px-3 py-1 text-sm rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200">清除日期</a>
         {% endif %}
         <span class="mx-1 text-gray-300">|</span>
         <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}"
@@ -35,9 +36,9 @@
 
 <!-- Status filter -->
 <div class="flex gap-2 mb-4">
-    <a href="{% url 'activities:activity_list' %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
+    <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">全部</a>
     {% for value, label in status_choices %}
-    <a href="?status={{ value }}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
+    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-indigo-100 text-indigo-800{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">{{ label }}</a>
     {% endfor %}
 </div>
 
@@ -47,12 +48,36 @@
     <table class="min-w-full divide-y divide-gray-200 text-sm">
         <thead class="bg-gray-50">
             <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">活动名称</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期范围</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">自身费用</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">子活动费用</th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">子活动</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-indigo-600 {% if sort == 'name' or sort == '-name' %}text-indigo-600{% endif %}">
+                        活动名称{% if sort == 'name' %} ▲{% elif sort == '-name' %} ▼{% endif %}
+                    </a>
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'status' %}-status{% else %}status{% endif %}" class="hover:text-indigo-600 {% if sort == 'status' or sort == '-status' %}text-indigo-600{% endif %}">
+                        状态{% if sort == 'status' %} ▲{% elif sort == '-status' %} ▼{% endif %}
+                    </a>
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-indigo-600 {% if sort == 'start_date' or sort == '-start_date' %}text-indigo-600{% endif %}">
+                        日期范围{% if sort == 'start_date' %} ▲{% elif sort == '-start_date' %} ▼{% endif %}
+                    </a>
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-indigo-600 {% if sort == 'cost' or sort == '-cost' %}text-indigo-600{% endif %}">
+                        自身费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
+                    </a>
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'children_cost' %}-children_cost{% else %}children_cost{% endif %}" class="hover:text-indigo-600 {% if sort == 'children_cost' or sort == '-children_cost' %}text-indigo-600{% endif %}">
+                        子活动费用{% if sort == 'children_cost' %} ▲{% elif sort == '-children_cost' %} ▼{% endif %}
+                    </a>
+                </th>
+                <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-indigo-600 {% if sort == 'sub_count' or sort == '-sub_count' %}text-indigo-600{% endif %}">
+                        子活动{% if sort == 'sub_count' %} ▲{% elif sort == '-sub_count' %} ▼{% endif %}
+                    </a>
+                </th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">

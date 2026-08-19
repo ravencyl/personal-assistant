@@ -1,10 +1,11 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, F
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from datetime import timedelta
+from urllib.parse import urlencode
 
 from .forms import ActivityForm
 from .models import Activity, Participant
@@ -12,10 +13,21 @@ from .models import Activity, Participant
 
 @login_required
 def activity_list(request):
-    """活动列表（默认树形结构可折叠，筛选时为平铺列表）"""
+    """活动列表（默认树形结构可折叠，筛选/排序时为平铺列表）"""
     status_filter = request.GET.get('status', '')
     date_from = request.GET.get('date_from', '').strip()
     date_to = request.GET.get('date_to', '').strip()
+    sort = request.GET.get('sort', '').strip()
+
+    # 表头排序字段映射（key 为 URL 参数值，value 为模型/注解字段）
+    sort_fields = {
+        'name': 'name',
+        'status': 'status',
+        'start_date': 'start_date',
+        'cost': 'cost',
+        'children_cost': 'children_cost_sum',
+        'sub_count': 'sub_count',
+    }
 
     # 一次性聚合子活动数量、费用合计，避免 N+1
     activities = Activity.objects.filter(user=request.user).annotate(
@@ -33,9 +45,22 @@ def activity_list(request):
 
     has_filter = bool(status_filter or date_from or date_to)
 
-    if has_filter:
-        # 筛选时按状态平铺展示（避免树被截断）
-        rows = activities
+    # 排序：校验字段合法性，日期/费用类字段空值排最后
+    order_expr = None
+    sort_key = sort.lstrip('-')
+    if sort_key in sort_fields:
+        desc = sort.startswith('-')
+        field = sort_fields[sort_key]
+        if field in ('start_date', 'children_cost_sum', 'cost'):
+            order_expr = F(field).desc(nulls_last=True) if desc else F(field).asc(nulls_last=True)
+        else:
+            order_expr = ('-' + field) if desc else field
+    else:
+        sort = ''
+
+    if has_filter or sort:
+        # 筛选/排序时平铺展示（避免树被截断或打乱层级）
+        rows = activities.order_by(order_expr) if order_expr else activities
         tree_mode = False
     else:
         # 深度优先遍历构建活动树，为每行附加 depth 层级
@@ -64,6 +89,19 @@ def activity_list(request):
         elif (date_from, date_to) == (str(today - timedelta(days=29)), str(today)):
             quick = '30d'
 
+    # 表头排序链接需保留现有筛选参数（去掉 sort 本身）
+    filter_params = request.GET.copy()
+    filter_params.pop('sort', None)
+    filter_qs = filter_params.urlencode()
+
+    # 状态筛选需保留日期参数（不含 status/sort）
+    date_params = {}
+    if date_from:
+        date_params['date_from'] = date_from
+    if date_to:
+        date_params['date_to'] = date_to
+    date_qs = urlencode(date_params)
+
     return render(request, 'activities/activity_list.html', {
         'activities': rows,
         'status_filter': status_filter,
@@ -75,6 +113,9 @@ def activity_list(request):
         'quick_7d_from': str(today - timedelta(days=6)),
         'quick_30d_from': str(today - timedelta(days=29)),
         'today_str': str(today),
+        'sort': sort,
+        'filter_qs': filter_qs,
+        'date_qs': date_qs,
     })
 
 
