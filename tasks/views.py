@@ -40,7 +40,7 @@ def task_list(request):
         'status_filter': status_filter,
         'project_filter': project_filter,
         'projects': projects,
-        'form': TaskForm(),
+        'form': TaskForm(user=request.user),
     })
 
 
@@ -57,6 +57,62 @@ def create_task(request):
     else:
         messages.error(request, '创建任务失败，请检查输入')
     return redirect('tasks:task_list')
+
+
+@login_required
+def task_create_page(request):
+    """新建任务页面（完整表单）"""
+    if request.method == 'POST':
+        form = TaskForm(request.POST, user=request.user)
+        if form.is_valid():
+            task = form.save(commit=False)
+            task.user = request.user
+            task.save()
+            messages.success(request, f'任务「{task.title}」已创建')
+            return redirect('tasks:task_edit', task.id)
+    else:
+        form = TaskForm(user=request.user)
+
+    return render(request, 'tasks/task_form.html', {
+        'form': form,
+        'title': '新建任务',
+    })
+
+
+@login_required
+def task_edit(request, task_id):
+    """编辑任务页面（含子任务列表与快捷创建）"""
+    task = get_object_or_404(Task, id=task_id, user=request.user)
+
+    if request.method == 'POST':
+        form = TaskForm(request.POST, instance=task, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, '任务已更新')
+            return redirect('tasks:task_edit', task.id)
+    else:
+        form = TaskForm(instance=task, user=request.user)
+
+    return render(request, 'tasks/task_form.html', {
+        'form': form,
+        'title': '编辑任务',
+        'task': task,
+        'subtasks': task.subtasks.all(),
+    })
+
+
+@login_required
+@require_POST
+def add_subtask(request, task_id):
+    """为当前任务快捷创建子任务"""
+    task = get_object_or_404(Task, id=task_id, user=request.user)
+    title = request.POST.get('title', '').strip()
+    if title:
+        Task.objects.create(user=request.user, title=title, parent=task)
+        messages.success(request, f'子任务「{title}」已创建')
+    else:
+        messages.error(request, '请输入子任务标题')
+    return redirect('tasks:task_edit', task.id)
 
 
 @login_required
@@ -93,6 +149,10 @@ def complete_task(request, task_id):
     task.status = 'done'
     task.save(update_fields=['status', 'updated_at'])
     messages.success(request, f'任务「{task.title}」已完成')
+    # 返回来源页（列表页或编辑页），无 referer 时回列表
+    referer = request.META.get('HTTP_REFERER')
+    if referer:
+        return redirect(referer)
     return redirect('tasks:task_list')
 
 

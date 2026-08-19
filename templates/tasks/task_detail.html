@@ -53,6 +53,9 @@
 
         <!-- Actions -->
         <div class="flex gap-2 pt-4 border-t border-gray-200">
+            <a href="{% url 'tasks:task_edit' task.id %}" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+                编辑
+            </a>
             {% if task.status != 'done' %}
             <form method="post" action="{% url 'tasks:complete_task' task.id %}">
                 {% csrf_token %}

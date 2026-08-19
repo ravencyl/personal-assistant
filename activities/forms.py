@@ -1,4 +1,5 @@
 from django import forms
+from django.utils import timezone
 
 from .models import Activity, Participant
 
@@ -22,8 +23,8 @@ class ActivityForm(forms.ModelForm):
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
-            'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}),
-            'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}),
+            'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
+            'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
             'cost': forms.NumberInput(attrs={'class': INPUT_CLS, 'step': '0.01', 'min': '0'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
@@ -32,6 +33,11 @@ class ActivityForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        # 开始日期非必填；结束日期默认当天
+        self.fields['start_date'].required = False
+        self.fields['end_date'].required = False
+        if self.instance.pk is None:
+            self.fields['end_date'].initial = timezone.localdate()
         # 父活动和参与者只能选自己的数据
         self.fields['parent'].queryset = Activity.objects.filter(user=user)
         if self.instance.pk:

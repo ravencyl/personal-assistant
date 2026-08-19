@@ -39,7 +39,7 @@ class Activity(models.Model):
     )
     name = models.CharField('活动名称', max_length=255)
     description = models.TextField('活动描述', blank=True)
-    start_date = models.DateField('开始日期')
+    start_date = models.DateField('开始日期', null=True, blank=True)
     end_date = models.DateField('结束日期', null=True, blank=True)
     status = models.CharField(
         '状态',
@@ -95,6 +95,10 @@ class Activity(models.Model):
     @property
     def date_range(self):
         """日期范围展示"""
-        if self.end_date:
+        if self.start_date and self.end_date:
             return f'{self.start_date} ~ {self.end_date}'
-        return str(self.start_date)
+        if self.start_date:
+            return str(self.start_date)
+        if self.end_date:
+            return f'~ {self.end_date}'
+        return '未设定'

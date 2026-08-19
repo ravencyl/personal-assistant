@@ -5,9 +5,14 @@
 {% block content %}
 <div class="flex justify-between items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900">任务中心</h1>
-    <a href="{% url 'tasks:calendar' %}" class="inline-flex items-center rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">
-        日历视图
-    </a>
+    <div class="flex gap-2">
+        <a href="{% url 'tasks:task_create_page' %}" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+            + 新建任务
+        </a>
+        <a href="{% url 'tasks:calendar' %}" class="inline-flex items-center rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">
+            日历视图
+        </a>
+    </div>
 </div>
 
 <!-- Create task form -->
