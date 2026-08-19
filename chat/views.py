@@ -1,6 +1,6 @@
 import logging
 
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -9,24 +9,25 @@ from django.db import models
 from .models import Conversation, Message
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
+from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
 
 
 @login_required
 def conversation_list(request):
-    """对话列表（支持搜索）"""
-    conversations = Conversation.objects.filter(user=request.user)
+    """对话列表（支持搜索；超级用户可见全部对话）"""
+    conversations = visible_qs(Conversation, request.user)
     agents = AgentConfig.objects.filter(is_active=True)
 
     # 搜索对话历史
     query = request.GET.get('q', '').strip()
     if query:
         # 搜索消息内容，找到匹配的对话
-        matching_conv_ids = Message.objects.filter(
-            conversation__user=request.user,
-            content__icontains=query,
-        ).values_list('conversation_id', flat=True).distinct()
+        message_qs = Message.objects.filter(content__icontains=query)
+        if not request.user.is_superuser:
+            message_qs = message_qs.filter(conversation__user=request.user)
+        matching_conv_ids = message_qs.values_list('conversation_id', flat=True).distinct()
         # 同时搜索对话标题
         conversations = conversations.filter(
             models.Q(id__in=matching_conv_ids) | models.Q(title__icontains=query)
@@ -51,11 +52,7 @@ def conversation_list(request):
 @login_required
 def conversation_detail(request, conversation_id):
     """对话详情"""
-    conversation = get_object_or_404(
-        Conversation,
-        id=conversation_id,
-        user=request.user
-    )
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
     messages = conversation.messages.all()
     return render(request, 'chat/conversation_detail.html', {
         'conversation': conversation,
@@ -66,11 +63,7 @@ def conversation_detail(request, conversation_id):
 @login_required
 def widget_messages(request, conversation_id):
     """浮窗加载历史消息（返回 HTML 片段）"""
-    conversation = get_object_or_404(
-        Conversation,
-        id=conversation_id,
-        user=request.user
-    )
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
     return render(request, 'chat/partials/widget_messages.html', {
         'widget_messages': conversation.messages.all(),
     })
@@ -127,11 +120,7 @@ def create_conversation(request):
 @require_POST
 def send_message(request, conversation_id):
     """发送消息"""
-    conversation = get_object_or_404(
-        Conversation,
-        id=conversation_id,
-        user=request.user
-    )
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
 
     content = request.POST.get('content', '').strip()
     if not content:
@@ -203,11 +192,7 @@ def _collect_response(service, conversation):
 @require_POST
 def archive_conversation(request, conversation_id):
     """归档对话"""
-    conversation = get_object_or_404(
-        Conversation,
-        id=conversation_id,
-        user=request.user
-    )
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
     conversation.status = 'archived'
     conversation.save(update_fields=['status', 'updated_at'])
 

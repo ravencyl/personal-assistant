@@ -1,5 +1,5 @@
 from django.contrib.contenttypes.models import ContentType
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F
@@ -11,11 +11,12 @@ from taggit.models import Tag
 
 from .forms import ActivityForm
 from .models import Activity, Participant
+from core.utils import visible_qs, get_visible
 
 
 def _user_tag_names(user):
-    """当前用户活动上使用过的全部标签名（供表单 autocomplete 建议）"""
-    activity_ids = Activity.objects.filter(user=user).values('id')
+    """可见范围内活动上使用过的全部标签名（供表单 autocomplete 建议）"""
+    activity_ids = visible_qs(Activity, user).values('id')
     return list(Tag.objects.filter(
         taggit_taggeditem_items__content_type=ContentType.objects.get_for_model(Activity),
         taggit_taggeditem_items__object_id__in=activity_ids,
@@ -40,8 +41,8 @@ def activity_list(request):
         'sub_count': 'sub_count',
     }
 
-    # 一次性聚合子活动数量，避免 N+1；预取标签
-    activities = Activity.objects.filter(user=request.user).prefetch_related('tags').annotate(
+    # 一次性聚合子活动数量，避免 N+1；预取标签（超级用户可见全部数据）
+    activities = visible_qs(Activity, request.user).prefetch_related('tags').annotate(
         sub_count=Count('children', distinct=True),
     )
 
@@ -169,7 +170,7 @@ def activity_list(request):
 @login_required
 def activity_detail(request, activity_id):
     """活动详情（含子活动）"""
-    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    activity = get_visible(Activity, request.user, id=activity_id)
 
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
@@ -183,7 +184,7 @@ def activity_detail(request, activity_id):
 @require_POST
 def activity_set_status(request, activity_id):
     """快捷修改活动状态"""
-    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    activity = get_visible(Activity, request.user, id=activity_id)
     status = request.POST.get('status', '')
     valid = dict(Activity.STATUS_CHOICES)
     if status not in valid:
@@ -225,40 +226,41 @@ def activity_create(request):
 
 @login_required
 def activity_edit(request, activity_id):
-    """编辑活动"""
-    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    """编辑活动（超级用户编辑他人活动时保持原属主）"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+    owner = activity.user
 
     if request.method == 'POST':
-        form = ActivityForm(request.POST, instance=activity, user=request.user)
+        form = ActivityForm(request.POST, instance=activity, user=owner)
         if form.is_valid():
             form.save()
             form.save_participants(activity)
             messages.success(request, f'活动「{activity.name}」已更新')
             return redirect('activities:activity_detail', activity.id)
     else:
-        form = ActivityForm(instance=activity, user=request.user)
+        form = ActivityForm(instance=activity, user=owner)
 
     return render(request, 'activities/activity_form.html', {
         'form': form,
         'title': '编辑活动',
         'activity': activity,
         'children': activity.children.all(),
-        'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
-        'all_tags': _user_tag_names(request.user),
+        'all_participants': list(Participant.objects.filter(user=owner).values_list('name', flat=True)),
+        'all_tags': _user_tag_names(owner),
     })
 
 
 @login_required
 @require_POST
 def add_subactivity(request, activity_id):
-    """快捷创建子活动（仅填名称）"""
-    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    """快捷创建子活动（仅填名称；归属与父活动一致）"""
+    activity = get_visible(Activity, request.user, id=activity_id)
     name = (request.POST.get('name') or '').strip()
     if not name:
         messages.error(request, '子活动名称不能为空')
     else:
         Activity.objects.create(
-            user=request.user,
+            user=activity.user,
             name=name,
             parent=activity,
             end_date=timezone.localdate(),
@@ -274,7 +276,7 @@ def add_subactivity(request, activity_id):
 @require_POST
 def activity_delete(request, activity_id):
     """删除活动"""
-    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    activity = get_visible(Activity, request.user, id=activity_id)
     name = activity.name
     activity.delete()
     messages.success(request, f'活动「{name}」已删除')

@@ -1,6 +1,6 @@
 import logging
 
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
@@ -8,14 +8,15 @@ from django.contrib import messages
 
 from .models import Bookmark, ContentCategory
 from .forms import BookmarkForm
+from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
 
 
 @login_required
 def bookmark_list(request):
-    """书签列表"""
-    bookmarks = Bookmark.objects.filter(user=request.user)
+    """书签列表（超级用户可见全部）"""
+    bookmarks = visible_qs(Bookmark, request.user)
 
     category_filter = request.GET.get('category', '')
     if category_filter:
@@ -50,7 +51,7 @@ def create_bookmark(request):
 @login_required
 def bookmark_detail(request, pk):
     """书签详情"""
-    bookmark = get_object_or_404(Bookmark, pk=pk, user=request.user)
+    bookmark = get_visible(Bookmark, request.user, pk=pk)
     return render(request, 'content/bookmark_detail.html', {
         'bookmark': bookmark,
     })
@@ -60,7 +61,7 @@ def bookmark_detail(request, pk):
 @require_POST
 def delete_bookmark(request, pk):
     """删除书签"""
-    bookmark = get_object_or_404(Bookmark, pk=pk, user=request.user)
+    bookmark = get_visible(Bookmark, request.user, pk=pk)
     bookmark.delete()
     messages.success(request, '已删除收藏')
     return redirect('content:bookmark_list')
@@ -70,7 +71,7 @@ def delete_bookmark(request, pk):
 @require_POST
 def generate_ai_summary(request, pk):
     """为书签生成 AI 摘要"""
-    bookmark = get_object_or_404(Bookmark, pk=pk, user=request.user)
+    bookmark = get_visible(Bookmark, request.user, pk=pk)
 
     try:
         from agents.services import get_service
