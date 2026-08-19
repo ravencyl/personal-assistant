@@ -2,6 +2,10 @@
 
 {% block title %}{{ title }} - 活动记录{% endblock %}
 
+{% block extra_head %}
+<script src="https://unpkg.com/pinyin-pro@3.26.0/dist/index.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="max-w-2xl mx-auto">
     <div class="mb-4">
@@ -133,6 +137,27 @@
 <script>
 (function () {
     var OPTIONS = JSON.parse(document.getElementById('participant-options').textContent || '[]');
+    var py = window.pinyinPro && window.pinyinPro.pinyin;
+    var PINYIN_CACHE = {};
+
+    // 获取姓名的拼音（全拼 + 首字母），带缓存
+    function pinyinOf(name) {
+        if (!(name in PINYIN_CACHE)) {
+            PINYIN_CACHE[name] = py ? {
+                full: py(name, { toneType: 'none', type: 'array', nonZh: 'consecutive' }).join('').toLowerCase(),
+                initials: py(name, { pattern: 'first', toneType: 'none', type: 'array', nonZh: 'consecutive' }).join('').toLowerCase(),
+            } : { full: '', initials: '' };
+        }
+        return PINYIN_CACHE[name];
+    }
+
+    // 匹配规则：原文包含、拼音全拼包含、拼音首字母包含
+    function matchName(name, kw) {
+        if (name.toLowerCase().indexOf(kw) !== -1) return true;
+        var info = pinyinOf(name);
+        return (info.full && info.full.indexOf(kw) !== -1) ||
+               (info.initials && info.initials.indexOf(kw) !== -1);
+    }
     var box = document.getElementById('participant-box');
     var input = document.getElementById('participant-input');
     var suggest = document.getElementById('participant-suggest');
@@ -170,7 +195,7 @@
     function showSuggest() {
         var kw = input.value.trim().toLowerCase();
         var matches = OPTIONS.filter(function (n) {
-            return selected.indexOf(n) === -1 && (!kw || n.toLowerCase().indexOf(kw) !== -1);
+            return selected.indexOf(n) === -1 && (!kw || matchName(n, kw));
         });
         suggest.innerHTML = '';
         matches.forEach(function (n) {
