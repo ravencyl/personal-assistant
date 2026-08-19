@@ -5,7 +5,7 @@
 {% block content %}
 <div class="flex justify-between items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900">知识库</h1>
-    <a href="/admin/knowledge/knowledgearticle/add/" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+    <a href="{% url 'knowledge:article_create' %}" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
         + 新建文章
     </a>
 </div>
@@ -48,7 +48,7 @@
     <p class="text-gray-500">
         {% if query %}没有找到匹配的文章{% else %}知识库暂无文章{% endif %}
     </p>
-    <p class="mt-2 text-sm text-gray-400">通过后台管理添加知识文章</p>
+    <p class="mt-2 text-sm text-gray-400">点击右上角「新建文章」开始记录</p>
 </div>
 {% endif %}
 {% endblock %}

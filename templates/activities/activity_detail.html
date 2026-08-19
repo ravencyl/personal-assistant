@@ -70,6 +70,19 @@
             </div>
         </div>
         {% endif %}
+
+        <!-- Actions -->
+        <div class="flex gap-2 pt-4 mt-4 border-t border-gray-200">
+            <a href="{% url 'activities:activity_edit' activity.id %}" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+                编辑
+            </a>
+            <form method="post" action="{% url 'activities:activity_delete' activity.id %}" onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空，关联任务将保留。')">
+                {% csrf_token %}
+                <button type="submit" class="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100">
+                    删除
+                </button>
+            </form>
+        </div>
     </div>
 
     <!-- Sub-activities -->

@@ -1,9 +1,12 @@
 import logging
 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+
+from .forms import ArticleForm
 from .models import KnowledgeArticle
 
 logger = logging.getLogger(__name__)
@@ -31,6 +34,56 @@ def article_detail(request, pk):
     return render(request, 'knowledge/article_detail.html', {
         'article': article,
     })
+
+
+@login_required
+def article_create(request):
+    """新建文章"""
+    if request.method == 'POST':
+        form = ArticleForm(request.POST)
+        if form.is_valid():
+            article = form.save()
+            messages.success(request, f'文章「{article.title}」已创建')
+            return redirect('knowledge:article_detail', article.pk)
+    else:
+        form = ArticleForm()
+
+    return render(request, 'knowledge/article_form.html', {
+        'form': form,
+        'title': '新建文章',
+    })
+
+
+@login_required
+def article_edit(request, pk):
+    """编辑文章"""
+    article = get_object_or_404(KnowledgeArticle, pk=pk)
+
+    if request.method == 'POST':
+        form = ArticleForm(request.POST, instance=article)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'文章「{article.title}」已更新')
+            return redirect('knowledge:article_detail', article.pk)
+    else:
+        form = ArticleForm(instance=article)
+
+    return render(request, 'knowledge/article_form.html', {
+        'form': form,
+        'title': '编辑文章',
+        'article': article,
+    })
+
+
+@login_required
+@require_POST
+def article_delete(request, pk):
+    """删除文章"""
+    article = get_object_or_404(KnowledgeArticle, pk=pk)
+    title = article.title
+    article.delete()
+    messages.success(request, f'文章「{title}」已删除')
+    return redirect('knowledge:index')
 
 
 @login_required
