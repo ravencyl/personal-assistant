@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import Sum
 from django.conf import settings
+from taggit.managers import TaggableManager
 
 
 class Participant(models.Model):
@@ -53,6 +54,7 @@ class Activity(models.Model):
         related_name='activities',
         verbose_name='参与者'
     )
+    tags = TaggableManager(blank=True, verbose_name='标签')
     cost = models.DecimalField(
         '费用金额',
         max_digits=10,

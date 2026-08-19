@@ -28,8 +28,8 @@ def activity_list(request):
         'sub_count': 'sub_count',
     }
 
-    # 一次性聚合子活动数量，避免 N+1
-    activities = Activity.objects.filter(user=request.user).annotate(
+    # 一次性聚合子活动数量，避免 N+1；预取标签
+    activities = Activity.objects.filter(user=request.user).prefetch_related('tags').annotate(
         sub_count=Count('children', distinct=True),
     )
 

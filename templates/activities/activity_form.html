@@ -66,6 +66,12 @@
             </div>
 
             <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
+                {{ form.tags }}
+                {% if form.tags.errors %}<p class="mt-1 text-xs text-red-600">{{ form.tags.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">参与者</label>
                 <div class="relative">
                     <div id="participant-box"

@@ -1,6 +1,8 @@
 from django import forms
 from django.utils.text import slugify
 
+from core.forms import PlainTagField
+
 from .models import KnowledgeArticle, KnowledgeCategory
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
@@ -35,6 +37,12 @@ class ArticleForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['category'].required = False
         self.fields['category'].empty_label = '未分类'
+        # 标签用自定义字段，确保编辑页回显为逗号分隔文本
+        self.fields['tags'] = PlainTagField(
+            label='标签',
+            required=False,
+            widget=forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '多个标签用逗号分隔，如：django,笔记'}),
+        )
 
     def clean(self):
         cleaned = super().clean()

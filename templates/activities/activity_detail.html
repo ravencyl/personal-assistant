@@ -31,6 +31,13 @@
                         <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-indigo-600 hover:text-indigo-800">{{ activity.parent.name }}</a>
                         {% endif %}
                     </p>
+                    {% if activity.tags.all %}
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                        {% for tag in activity.tags.all %}
+                        <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs text-amber-700"># {{ tag.name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="flex gap-2 shrink-0">
                     <a href="{% url 'activities:activity_edit' activity.id %}"
