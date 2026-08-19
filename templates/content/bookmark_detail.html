@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}{{ bookmark.title }} - 收藏{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="mb-4">
+        <a href="{% url 'content:bookmark_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; 返回列表</a>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h1 class="text-xl font-bold text-gray-900 mb-2">{{ bookmark.title }}</h1>
+        <a href="{{ bookmark.url }}" target="_blank" class="text-sm text-indigo-600 hover:text-indigo-800 break-all">{{ bookmark.url }}</a>
+
+        {% if bookmark.category %}
+        <div class="mt-2">
+            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{{ bookmark.category.name }}</span>
+        </div>
+        {% endif %}
+
+        {% if bookmark.description %}
+        <p class="mt-4 text-sm text-gray-700">{{ bookmark.description }}</p>
+        {% endif %}
+
+        {% if bookmark.ai_summary %}
+        <div class="mt-4 rounded-lg bg-indigo-50 border border-indigo-100 p-4">
+            <h3 class="text-sm font-medium text-indigo-800 mb-1">AI 摘要</h3>
+            <p class="text-sm text-indigo-700">{{ bookmark.ai_summary }}</p>
+        </div>
+        {% endif %}
+
+        <div class="mt-4 text-xs text-gray-400">收藏于 {{ bookmark.created_at|date:"Y-m-d H:i" }}</div>
+
+        <div class="mt-4 pt-4 border-t border-gray-200">
+            <form method="post" action="{% url 'content:delete_bookmark' bookmark.pk %}" onsubmit="return confirm('确定删除此收藏？')">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-red-600 hover:text-red-800">删除收藏</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full bg-gray-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Personal AI Assistant{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link rel="stylesheet" href="{% static 'css/custom.css' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="h-full">
+    <div class="min-h-full">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-sm border-b border-gray-200">
+            <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div class="flex h-16 justify-between">
+                    <div class="flex">
+                        <div class="flex flex-shrink-0 items-center">
+                            <a href="/" class="text-xl font-bold text-indigo-600">AI Assistant</a>
+                        </div>
+                        {% if user.is_authenticated %}
+                        <div class="hidden sm:ml-8 sm:flex sm:space-x-4">
+                            <a href="{% url 'chat:conversation_list' %}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-indigo-600 rounded-md hover:bg-gray-100">
+                                AI 对话
+                            </a>
+                            <a href="{% url 'knowledge:index' %}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-indigo-600 rounded-md hover:bg-gray-100">
+                                知识库
+                            </a>
+                            <a href="{% url 'tasks:task_list' %}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-indigo-600 rounded-md hover:bg-gray-100">
+                                任务中心
+                            </a>
+                            <a href="{% url 'content:bookmark_list' %}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-indigo-600 rounded-md hover:bg-gray-100">
+                                内容收藏
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        {% if user.is_authenticated %}
+                            <span class="text-sm text-gray-500">{{ user.username }}</span>
+                            <a href="{% url 'logout' %}" class="text-sm text-gray-500 hover:text-gray-700">退出</a>
+                        {% else %}
+                            <a href="{% url 'login' %}" class="text-sm text-indigo-600 hover:text-indigo-800">登录</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Messages -->
+        {% if messages %}
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-4">
+            {% for message in messages %}
+            <div class="rounded-md p-4 mb-2 {% if message.tags == 'success' %}bg-green-50 text-green-800{% elif message.tags == 'error' %}bg-red-50 text-red-800{% else %}bg-blue-50 text-blue-800{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Main content -->
+        <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

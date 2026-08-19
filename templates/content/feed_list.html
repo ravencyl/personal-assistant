@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}RSS 订阅 - Personal AI Assistant{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">RSS 订阅</h1>
+    <a href="{% url 'content:bookmark_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; 返回收藏</a>
+</div>
+
+<!-- Feeds -->
+{% if feeds %}
+<div class="mb-6">
+    <h2 class="text-lg font-medium text-gray-900 mb-3">订阅源</h2>
+    <div class="grid gap-2 md:grid-cols-2">
+        {% for feed in feeds %}
+        <div class="bg-white rounded-lg border border-gray-200 p-3">
+            <h3 class="text-sm font-medium text-gray-900">{{ feed.name }}</h3>
+            <p class="text-xs text-gray-500 truncate">{{ feed.url }}</p>
+            <div class="flex items-center gap-2 mt-1">
+                {% if feed.category %}
+                <span class="text-xs text-gray-400">{{ feed.category.name }}</span>
+                {% endif %}
+                {% if feed.last_fetched %}
+                <span class="text-xs text-gray-400">上次更新: {{ feed.last_fetched|timesince }} 前</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Feed items -->
+{% if items %}
+<h2 class="text-lg font-medium text-gray-900 mb-3">最新内容</h2>
+<div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-start gap-3 bg-white rounded-lg border border-gray-200 p-3">
+        <div class="flex-1 min-w-0">
+            <a href="{{ item.url }}" target="_blank" class="text-sm font-medium text-gray-900 hover:text-indigo-600">{{ item.title }}</a>
+            {% if item.description %}
+            <p class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ item.description|striptags|truncatechars:150 }}</p>
+            {% endif %}
+            <div class="flex items-center gap-2 mt-1">
+                <span class="text-xs text-gray-400">{{ item.feed.name }}</span>
+                {% if item.published_at %}
+                <span class="text-xs text-gray-400">{{ item.published_at|date:"m/d H:i" }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-12">
+    <p class="text-gray-500">暂无订阅内容</p>
+    <p class="mt-2 text-sm text-gray-400">通过 Admin 添加 RSS 订阅源</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 2,
+  "summary": {
+    "evidenceMode": "session-limited",
+    "evidenceBoundary": {
+      "manifest": {
+        "schemaVersion": 2,
+        "sourceFingerprint": "2dc64829c1ca1f6c",
+        "adapterVersion": "qoder-task-loop-source-v2",
+        "platform": "qoder",
+        "selection": {
+          "strategy": "all-eligible",
+          "eligibleCount": 0,
+          "analyzedCount": 0,
+          "confidence": "Low"
+        }
+      },
+      "episodeCoverage": {
+        "episodeCount": 0,
+        "editedEpisodeCount": 0,
+        "closedEpisodeCount": 0,
+        "recoveredEpisodeCount": 0
+      },
+      "deliveryEvidenceLevels": [],
+      "sourceGaps": []
+    },
+    "semanticFacets": {
+      "schemaVersion": 1,
+      "status": "supplementary",
+      "entries": [
+        {
+          "id": "session-insight:source-coverage",
+          "kind": "redacted-summary",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "source-coverage",
+            "Low"
+          ],
+          "summary": "Analyzed 0 of 0 sessions; 0/6 enabled source roots exist. Use this as the current workspace evidence boundary for final insight cards.",
+          "evidenceRefs": [],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:validation-behavior",
+          "kind": "redacted-summary",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "validation-behavior",
+            "Low"
+          ],
+          "summary": "No validation command category was observed in the analyzed session sample. Inspect more sessions or add explicit validation guidance before claiming validation-after-edit behavior.",
+          "evidenceRefs": [],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:post-edit-validation",
+          "kind": "rework-correction",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "post-edit-validation",
+            "Low"
+          ],
+          "summary": "No edit event was observed in the analyzed sample. Inspect more sessions before making claims about edit or validation habits.",
+          "evidenceRefs": [],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:execution-friction",
+          "kind": "friction-taxonomy",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "execution-friction",
+            "Low"
+          ],
+          "summary": "No strong execution friction signal in the analyzed sample. Keep friction claims narrow unless additional failed commands, rejected actions, or warnings are inspected.",
+          "evidenceRefs": [],
+          "modelVersion": "session-insights-v1"
+        }
+      ]
+    },
+    "learningCapture": {
+      "schemaVersion": 1,
+      "state": "N/A",
+      "summary": "暂不适用——需要两个可比的观察窗口和一次改进对比。",
+      "interventions": []
+    },
+    "aiAgentPractice": {
+      "inspectedSurfaces": [],
+      "coverageRows": [
+        {
+          "surface": "Skills",
+          "scopes": [
+            "Global",
+            "Plugin"
+          ],
+          "count": 3,
+          "paths": [
+            "~/.qoder/skills/deploy-personal-website/SKILL.md",
+            "~/.qoder/plugins/cache/qoder-bundler/better-loop/skills/better-loop/SKILL.md",
+            "~/.qoder/plugins/cache/qoder-bundler/qoder-create-plugin/skills/create-plugin/SKILL.md"
+          ]
+        },
+        {
+          "surface": "MCP",
+          "scopes": [
+            "Plugin"
+          ],
+          "count": 1,
+          "paths": [
+            "~/.qoder/plugins/cache/qoder-bundler/qoder-computer-use/mcp.json"
+          ]
+        },
+        {
+          "surface": "Plugins",
+          "scopes": [
+            "Plugin"
+          ],
+          "count": 3,
+          "paths": [
+            "~/.qoder/plugins/cache/qoder-bundler/better-loop/.qoder-plugin/plugin.json",
+            "~/.qoder/plugins/cache/qoder-bundler/qoder-computer-use/.qoder-plugin/plugin.json",
+            "~/.qoder/plugins/cache/qoder-bundler/qoder-create-plugin"
+          ]
+        },
+        {
+          "surface": "Rules",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        },
+        {
+          "surface": "Hooks",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        },
+        {
+          "surface": "Commands",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        },
+        {
+          "surface": "Custom Agents",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        },
+        {
+          "surface": "Workflows",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        },
+        {
+          "surface": "Memories",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        }
+      ],
+      "repositorySourceRows": [],
+      "memoryDetails": {
+        "contentPolicy": "metadata-only",
+        "scanState": "scanned-empty",
+        "scopeCounts": [],
+        "integrity": {
+          "status": "reviewed",
+          "titleCount": 0,
+          "reviewedTitleCount": 0,
+          "truncated": false,
+          "exactCollisionGroups": 0,
+          "similarityCandidates": 0
+        }
+      }
+    },
+    "projectName": "个人助手",
+    "locale": "zh-CN",
+    "modelId": "agent-work-loop-v4",
+    "reportContractVersion": 26,
+    "overview": "项目具备完整的 Docker 多服务部署定义和模块化 Django 架构，但缺少自动化验证手段、项目级 Agent 指令，且存在部署配置断裂问题。",
+    "dimensions": [
+      {
+        "id": "task-understanding",
+        "label": "任务理解",
+        "score": 48,
+        "summary": "DEPLOY.md 覆盖了运维流程，但缺少系统架构和模块职责说明，Agent 缺乏系统级上下文入口。",
+        "findingRefs": [
+          "missing-project-context-entry"
+        ]
+      },
+      {
+        "id": "controlled-execution",
+        "label": "可控执行",
+        "score": 52,
+        "summary": "Docker 和依赖定义完整，但 .env.example 缺失导致启动流程断裂，DATABASE_URL 未接入 settings.py。",
+        "findingRefs": [
+          "docker-database-mismatch",
+          "missing-env-example"
+        ]
+      },
+      {
+        "id": "change-validation",
+        "label": "改动验证",
+        "score": 35,
+        "summary": "7 个 Django app 的测试文件全部为空，无 lint、CI 或 pre-commit 配置，Agent 变更无任何自动化验证手段。",
+        "findingRefs": [
+          "zero-test-coverage",
+          "gitignore-excludes-source-static"
+        ]
+      },
+      {
+        "id": "reliable-delivery",
+        "label": "可靠交付",
+        "score": 55,
+        "summary": "Docker Compose 定义了完整的多服务拓扑，但数据库配置硬编码为 SQLite，Docker 部署行为与声明的拓扑不一致。",
+        "findingRefs": [
+          "docker-database-mismatch"
+        ]
+      },
+      {
+        "id": "learning-capture",
+        "label": "经验沉淀",
+        "score": 35,
+        "summary": "无可比较的后续任务片段，无法评估可重复改进。项目级无 Rules、Skills、Hooks 或 Memories 配置。",
+        "findingRefs": []
+      }
+    ],
+    "assignmentSummaries": []
+  },
+  "findings": [
+    {
+      "id": "docker-database-mismatch",
+      "title": "Docker 部署使用 SQLite 而非声明的 PostgreSQL",
+      "severity": "Medium",
+      "reason": "docker-compose.yml 为 web、celery、celery-beat 三个服务设置了 DATABASE_URL 环境变量指向 PostgreSQL 容器，但 settings.py 的 DATABASES 配置硬编码为 sqlite3，未通过 environ 解析 DATABASE_URL。项目已引入 django-environ 并用于其他配置项，但数据库配置未接入。结果是 Docker 部署时 PostgreSQL 容器启动但未被使用，web/celery 服务实际读写容器内的 db.sqlite3 文件，数据不持久且与声明的部署拓扑不一致。",
+      "dimensionRefs": [
+        "reliable-delivery",
+        "controlled-execution"
+      ],
+      "aiFixPrompt": "在 settings.py 中使用已引入的 django-environ 解析 DATABASE_URL，当环境变量存在时优先使用它，否则回退到当前的 SQLite 配置。\n\n## 验证\n\n- 本地运行 `python manage.py shell -c \"from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])\"` 确认仍为 sqlite3\n- Docker 环境启动后确认 ENGINE 为 postgresql",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "Update the existing Config owner identified by the reviewed evidence and retain a focused validation result."
+      ]
+    },
+    {
+      "id": "zero-test-coverage",
+      "title": "代码变更无任何自动化验证手段",
+      "severity": "Medium",
+      "reason": "7 个 Django app（agents、chat、cms_pages、content、core、knowledge、tasks）的 tests.py 全部为空脚手架文件（仅含 `from django.test import TestCase` 和注释）。无 pytest 配置、无 lint 工具、无 CI 配置、无 pre-commit 钩子。Agent 做任何代码变更后唯一可用的验证方式是手动运行 runserver 加浏览器检查，无法通过机器检查确认变更的正确性，大幅增加了引入回归的风险。",
+      "dimensionRefs": [
+        "change-validation"
+      ],
+      "aiFixPrompt": "为核心业务路径添加最小可行的测试覆盖。建议从以下优先级开始：\n1. 配置 pytest-django 和至少一个 lint 工具（如 ruff）\n2. 为 models.py 中的关键模型添加单元测试（创建、验证约束、字符串表示）\n3. 为 views.py 中的核心视图添加 smoke 测试（状态码、权限检查）\n\n## 验证\n\n- 运行 `python -m pytest` 或 `python manage.py test` 确认测试可执行并通过\n- 运行 lint 工具确认无配置错误",
+      "expectedArtifact": "Test",
+      "expectedOutput": [
+        "Update the existing Test owner identified by the reviewed evidence and retain a focused validation result."
+      ]
+    },
+    {
+      "id": "missing-env-example",
+      "title": "部署文档引用的环境配置文件缺失",
+      "severity": "Low",
+      "reason": "DEPLOY.md 在本地开发（第 20 行）和 Docker 部署（第 44 行）的快速启动步骤中均引用 `cp .env.example .env`，但项目中不存在 .env.example 文件。新开发者按照文档操作会在第三步遇到 file-not-found 错误，无法继续启动流程。现有 .env 文件包含占位值但未作为模板分发。",
+      "dimensionRefs": [
+        "controlled-execution"
+      ],
+      "aiFixPrompt": "基于现有 .env 文件创建 .env.example，包含所有必要的环境变量键和占位值（不含真实密钥），并确保 DEPLOY.md 中引用的启动流程可以顺利完成。\n\n## 验证\n\n- 确认 .env.example 包含 DEPLOY.md 中列出的所有变量\n- 按 DEPLOY.md 步骤执行 `cp .env.example .env` 确认成功",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "Update the existing Config owner identified by the reviewed evidence and retain a focused validation result."
+      ]
+    },
+    {
+      "id": "missing-project-context-entry",
+      "title": "项目缺少系统级上下文入口，Agent 无法获取架构和模块职责说明",
+      "severity": "Low",
+      "reason": "项目不存在 AGENTS.md 或 README.md。DEPLOY.md 覆盖了部署运维流程（Docker 启动、环境变量、定时任务、管理命令），但缺少系统架构概览、7 个 Django app 的职责边界、数据流说明、技术栈选择理由。Agent 在面对跨模块变更时缺乏系统级理解入口，难以判断变更的影响范围和模块边界。",
+      "dimensionRefs": [
+        "task-understanding"
+      ],
+      "aiFixPrompt": "创建 AGENTS.md 作为项目级 Agent 指令入口，包含：\n1. 技术栈概要（Django + Wagtail + HTMX + Celery）\n2. 模块职责映射（app 名称 → 职责描述）\n3. 关键约定（如环境变量通过 django-environ 管理、静态文件目录结构）\n4. 变更时的验证步骤\n\n## 验证\n\n- 确认 AGENTS.md 中列出的 app 与 settings.py INSTALLED_APPS 一致\n- 确认描述与实际代码结构匹配",
+      "expectedArtifact": "Document",
+      "expectedOutput": [
+        "Update the existing Document owner identified by the reviewed evidence and retain a focused validation result."
+      ]
+    },
+    {
+      "id": "gitignore-excludes-source-static",
+      "title": ".gitignore 排除了源码级静态文件目录",
+      "severity": "Low",
+      "reason": ".gitignore 第 7 行排除了 `static/` 目录。settings.py 中 STATICFILES_DIRS 指向 `BASE_DIR / 'static'` 作为源文件目录（包含 css/custom.css 等自定义静态资源），而 STATIC_ROOT 指向 `BASE_DIR / 'staticfiles'` 作为 collectstatic 的目标目录。当前 .gitignore 规则会导致自定义 CSS/JS 源文件不被版本控制追踪。如果这些文件当前已被 git 追踪（添加 .gitignore 前已提交），则暂不影响；但新建的静态文件将不会被追踪。",
+      "dimensionRefs": [
+        "change-validation"
+      ],
+      "aiFixPrompt": "将 .gitignore 中的 `static/` 改为 `staticfiles/`（collectstatic 的目标目录），保留源码级 `static/` 目录的版本控制追踪。\n\n## 验证\n\n- 确认 `static/` 目录下的文件（如 css/custom.css）被 git 追踪\n- 确认 `staticfiles/` 仍被排除",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "Update the existing Config owner identified by the reviewed evidence and retain a focused validation result."
+      ]
+    }
+  ]
+}

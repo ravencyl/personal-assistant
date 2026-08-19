@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}{{ task.title }} - 任务{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="mb-4">
+        <a href="{% url 'tasks:task_list' %}" class="text-sm text-indigo-600 hover:text-indigo-800">&larr; 返回列表</a>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div class="flex justify-between items-start mb-4">
+            <h1 class="text-xl font-bold text-gray-900">{{ task.title }}</h1>
+            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
+                {% if task.status == 'done' %}bg-green-100 text-green-800
+                {% elif task.status == 'in_progress' %}bg-blue-100 text-blue-800
+                {% elif task.status == 'cancelled' %}bg-gray-100 text-gray-600
+                {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                {{ task.get_status_display }}
+            </span>
+        </div>
+
+        {% if task.description %}
+        <p class="text-sm text-gray-600 mb-4">{{ task.description }}</p>
+        {% endif %}
+
+        <div class="grid grid-cols-2 gap-4 text-sm mb-6">
+            <div>
+                <span class="text-gray-500">优先级：</span>
+                <span class="{% if task.priority == 3 %}text-red-600{% elif task.priority == 2 %}text-yellow-600{% else %}text-gray-700{% endif %}">
+                    {{ task.get_priority_display }}
+                </span>
+            </div>
+            {% if task.due_date %}
+            <div>
+                <span class="text-gray-500">截止日期：</span>
+                <span class="{% if task.is_overdue %}text-red-600 font-medium{% else %}text-gray-700{% endif %}">
+                    {{ task.due_date|date:"Y-m-d H:i" }}
+                </span>
+            </div>
+            {% endif %}
+            {% if task.project %}
+            <div>
+                <span class="text-gray-500">项目：</span>
+                <span class="text-gray-700">{{ task.project }}</span>
+            </div>
+            {% endif %}
+            <div>
+                <span class="text-gray-500">创建时间：</span>
+                <span class="text-gray-700">{{ task.created_at|date:"Y-m-d H:i" }}</span>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-2 pt-4 border-t border-gray-200">
+            {% if task.status != 'done' %}
+            <form method="post" action="{% url 'tasks:complete_task' task.id %}">
+                {% csrf_token %}
+                <button type="submit" class="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">
+                    标记完成
+                </button>
+            </form>
+            {% endif %}
+            <form method="post" action="{% url 'tasks:delete_task' task.id %}" onsubmit="return confirm('确定删除此任务？')">
+                {% csrf_token %}
+                <button type="submit" class="rounded-md bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100">
+                    删除
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Subtasks -->
+    {% if subtasks %}
+    <div class="mt-6">
+        <h2 class="text-lg font-medium text-gray-900 mb-3">子任务</h2>
+        <div class="space-y-2">
+            {% for subtask in subtasks %}
+            <div class="flex items-center gap-2 bg-white rounded border border-gray-200 p-3">
+                <span class="{% if subtask.status == 'done' %}text-green-500{% else %}text-gray-400{% endif %}">
+                    {% if subtask.status == 'done' %}&#10003;{% else %}&#9675;{% endif %}
+                </span>
+                <span class="text-sm {% if subtask.status == 'done' %}line-through text-gray-400{% endif %}">
+                    {{ subtask.title }}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

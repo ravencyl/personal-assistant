@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DEBUG=${DEBUG:-False}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/personal_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - QODER_ACCESS_TOKEN=${QODER_ACCESS_TOKEN}
+      - QODER_API_BASE_URL=${QODER_API_BASE_URL:-https://api.qoder.com.cn/api/v1/cloud}
+      - QODER_DEFAULT_ENVIRONMENT_ID=${QODER_DEFAULT_ENVIRONMENT_ID}
+    volumes:
+      - static_data:/app/staticfiles
+      - media_data:/app/media
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=personal_assistant
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  celery:
+    build: .
+    command: celery -A personal_assistant worker -l info
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/personal_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - QODER_ACCESS_TOKEN=${QODER_ACCESS_TOKEN}
+      - QODER_API_BASE_URL=${QODER_API_BASE_URL:-https://api.qoder.com.cn/api/v1/cloud}
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  celery-beat:
+    build: .
+    command: celery -A personal_assistant beat -l info
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/personal_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - QODER_ACCESS_TOKEN=${QODER_ACCESS_TOKEN}
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  static_data:
+  media_data:
