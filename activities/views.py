@@ -2,7 +2,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, F
+from django.db.models import Count
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from datetime import timedelta
@@ -42,72 +42,93 @@ def activity_list(request):
     }
 
     # 一次性聚合子活动数量，避免 N+1；预取标签（超级用户可见全部数据）
-    activities = visible_qs(Activity, request.user).prefetch_related('tags').annotate(
+    all_activities = list(visible_qs(Activity, request.user).prefetch_related('tags').annotate(
         sub_count=Count('children', distinct=True),
-    )
+    ))
 
+    # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
+    matched = Activity.objects.filter(id__in=[a.id for a in all_activities])
     if status_filter:
-        activities = activities.filter(status=status_filter)
+        matched = matched.filter(status=status_filter)
     if tag_filter:
-        activities = activities.filter(tags__name=tag_filter)
+        matched = matched.filter(tags__name=tag_filter)
     # 日期筛选：按活动开始日期是否落在区间内
     if date_from:
-        activities = activities.filter(start_date__gte=date_from)
+        matched = matched.filter(start_date__gte=date_from)
     if date_to:
-        activities = activities.filter(start_date__lte=date_to)
+        matched = matched.filter(start_date__lte=date_to)
 
     has_filter = bool(status_filter or tag_filter or date_from or date_to)
 
-    # 排序：校验字段合法性，日期/费用类字段空值排最后
-    order_expr = None
+    # 排序：校验字段合法性（排序作用于树内同级节点，不打乱层级）
     sort_key = sort.lstrip('-')
     if sort_key in sort_fields:
         desc = sort.startswith('-')
-        field = sort_fields[sort_key]
-        if field in ('start_date', 'cost'):
-            order_expr = F(field).desc(nulls_last=True) if desc else F(field).asc(nulls_last=True)
-        else:
-            order_expr = ('-' + field) if desc else field
+        sort_field = sort_fields[sort_key]
     else:
         sort = ''
+        sort_field = None
 
-    if has_filter or sort:
-        # 筛选/排序时平铺展示（避免树被截断或打乱层级）
-        rows = list(activities.order_by(order_expr)) if order_expr else list(activities)
-        tree_mode = False
-        # 展示累计费用（自身 + 所有后代），个人数据量小，递归查询可接受
+    # 深度优先遍历构建活动树，为每行附加 depth 层级
+    children_map = {}
+    for a in all_activities:
+        children_map.setdefault(a.parent_id, []).append(a)
+
+    # 用内存中的 children_map 递归计算累计费用（自身 + 所有后代）
+    cost_cache = {}
+
+    def compute_cost(a):
+        if a.id not in cost_cache:
+            cost_cache[a.id] = (a.cost or 0) + sum(
+                compute_cost(c) for c in children_map.get(a.id, [])
+            )
+        return cost_cache[a.id]
+
+    for a in all_activities:
+        a.show_cost = compute_cost(a)
+
+    # 同级排序：空日期始终排最后，费用按累计值排序
+    if sort_field:
+        for siblings in children_map.values():
+            if sort_field == 'start_date':
+                with_val = [a for a in siblings if a.start_date is not None]
+                nulls = [a for a in siblings if a.start_date is None]
+                with_val.sort(key=lambda a: a.start_date, reverse=desc)
+                siblings[:] = with_val + nulls
+            elif sort_field == 'cost':
+                siblings.sort(key=lambda a: a.show_cost or 0, reverse=desc)
+            else:
+                siblings.sort(key=lambda a: getattr(a, sort_field) or '', reverse=desc)
+
+    rows = []
+
+    def walk(parent_id, depth):
+        for a in children_map.get(parent_id, []):
+            a.depth = depth
+            a.has_children = bool(children_map.get(a.id))
+            rows.append(a)
+            walk(a.id, depth + 1)
+
+    walk(None, 0)
+
+    # 筛选时保留命中活动及其祖先链（维持树形），并自动展开全部
+    if has_filter:
+        matched_ids = set(matched.values_list('id', flat=True))
+        by_id = {a.id: a for a in all_activities}
+        keep = set(matched_ids)
+        for a_id in matched_ids:
+            parent_id = by_id[a_id].parent_id
+            while parent_id and parent_id not in keep:
+                keep.add(parent_id)
+                parent_id = by_id[parent_id].parent_id
+        rows = [a for a in rows if a.id in keep]
+        # 折叠箭头只在实际可见子节点存在时显示
+        present_parents = {a.parent_id for a in rows if a.parent_id}
         for a in rows:
-            a.show_cost = a.total_cost
+            a.has_children = a.id in present_parents
+        expand_all = True
     else:
-        # 深度优先遍历构建活动树，为每行附加 depth 层级
-        children_map = {}
-        for a in activities:
-            children_map.setdefault(a.parent_id, []).append(a)
-
-        rows = []
-
-        def walk(parent_id, depth):
-            for a in children_map.get(parent_id, []):
-                a.depth = depth
-                a.has_children = bool(children_map.get(a.id))
-                rows.append(a)
-                walk(a.id, depth + 1)
-
-        walk(None, 0)
-        tree_mode = True
-
-        # 树形模式下用内存中的 children_map 递归计算累计费用，避免重复查库
-        cost_cache = {}
-
-        def compute_cost(a):
-            if a.id not in cost_cache:
-                cost_cache[a.id] = (a.cost or 0) + sum(
-                    compute_cost(c) for c in children_map.get(a.id, [])
-                )
-            return cost_cache[a.id]
-
-        for a in rows:
-            a.show_cost = compute_cost(a)
+        expand_all = False
 
     # 快捷筛选高亮判断
     today = timezone.localdate()
@@ -154,7 +175,8 @@ def activity_list(request):
         'tag_link_qs': tag_link_qs,
         'filters_active': filters_active,
         'active_filter_count': active_filter_count,
-        'tree_mode': tree_mode,
+        'tree_mode': True,
+        'expand_all': expand_all,
         'date_from': date_from,
         'date_to': date_to,
         'quick': quick,

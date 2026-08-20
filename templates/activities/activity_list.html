@@ -123,12 +123,12 @@
         <tbody class="divide-y divide-zinc-100">
             {% for activity in activities %}
             <tr class="hover:bg-zinc-50 tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
-                {% if tree_mode and activity.depth %}style="display:none"{% endif %}>
+                {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
                         {% if tree_mode and activity.has_children %}
                         <button type="button" class="tree-toggle w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-zinc-600 select-none"
-                                data-target="{{ activity.id }}" aria-expanded="false">&#9654;</button>
+                                data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                         {% elif activity.depth %}
                         <span class="text-zinc-300 select-none">&#9492;</span>
                         {% endif %}
@@ -175,12 +175,12 @@
 <div class="md:hidden space-y-2">
     {% for activity in activities %}
     <div class="tree-row bg-white rounded-lg border border-zinc-200 p-4" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
-         {% if tree_mode and activity.depth %}style="display:none"{% endif %}>
+         {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <div class="flex items-center justify-between gap-3 mb-1.5">
             <div class="flex items-center gap-1.5 min-w-0" style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">
                 {% if tree_mode and activity.has_children %}
                 <button type="button" class="tree-toggle shrink-0 w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-zinc-600 select-none"
-                        data-target="{{ activity.id }}" aria-expanded="false">&#9654;</button>
+                        data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                 {% elif activity.depth %}
                 <span class="shrink-0 text-zinc-300 select-none">&#9492;</span>
                 {% endif %}
