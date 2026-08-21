@@ -80,12 +80,14 @@ class ActivityForm(forms.ModelForm):
         activity.participants.set(participants)
 
     def save_children(self, activity):
-        """创建页批量创建子活动（逗号分隔）"""
+        """创建页批量创建子活动（逗号分隔），返回新建子活动列表"""
         raw = self.cleaned_data.get('new_children', '')
+        children = []
         for name in [n.strip() for n in raw.replace('，', ',').split(',') if n.strip()]:
-            Activity.objects.create(
+            children.append(Activity.objects.create(
                 user=self.user,
                 name=name,
                 parent=activity,
                 end_date=timezone.localdate(),
-            )
+            ))
+        return children

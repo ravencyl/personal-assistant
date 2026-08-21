@@ -18,11 +18,92 @@ from django.views.decorators.http import require_POST
 from taggit.models import Tag
 
 from .forms import ActivityForm
-from .models import Activity, Participant
+from .models import Activity, Participant, ActivityLog
 from .parsing import parse_quick_input
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
+
+
+def log_activity(user, activity, action, summary=''):
+    """写入活动操作日志（失败仅告警，不影响主流程）"""
+    try:
+        ActivityLog.objects.create(
+            user=user,
+            activity=activity,
+            activity_name=activity.name,
+            action=action,
+            summary=summary,
+        )
+    except Exception as e:
+        logger.warning(f'活动日志写入失败: {e}')
+
+
+def _snapshot(activity):
+    """编辑前字段快照，用于生成变更摘要"""
+    return {
+        'name': activity.name,
+        'description': activity.description,
+        'start_date': activity.start_date,
+        'end_date': activity.end_date,
+        'status': activity.status,
+        'cost': activity.cost,
+        'parent': activity.parent,
+        'tags': set(activity.tags.names()),
+        'participants': set(activity.participants.values_list('name', flat=True)),
+    }
+
+
+_EDIT_FIELDS = [
+    ('name', '名称'), ('description', '描述'),
+    ('start_date', '开始日期'), ('end_date', '结束日期'),
+    ('status', '状态'), ('cost', '费用'),
+]
+
+
+def _fmt(field, value):
+    if value in (None, ''):
+        return '空'
+    if field == 'status':
+        return dict(Activity.STATUS_CHOICES).get(value, str(value))
+    if field == 'cost':
+        s = str(value)
+        if '.' in s:
+            s = s.rstrip('0').rstrip('.')
+        return f'{s}元'
+    return str(value)
+
+
+def _diff_part(label, old_set, new_set):
+    added = sorted(new_set - old_set)
+    removed = sorted(old_set - new_set)
+    parts = []
+    if added:
+        parts.append('+' + '、'.join(added))
+    if removed:
+        parts.append('-' + '、'.join(removed))
+    return f'{label}{" ".join(parts)}' if parts else ''
+
+
+def _edit_summary(old, activity):
+    """对比编辑前后快照，生成变更摘要"""
+    changes = []
+    for field, label in _EDIT_FIELDS:
+        new_v = getattr(activity, field)
+        if old[field] != new_v:
+            changes.append(f'{label} {_fmt(field, old[field])} → {_fmt(field, new_v)}')
+    if old['parent'] != activity.parent:
+        old_p = old['parent'].name if old['parent'] else '无'
+        new_p = activity.parent.name if activity.parent else '无'
+        changes.append(f'父活动 {old_p} → {new_p}')
+    tag_diff = _diff_part('标签 ', old['tags'], set(activity.tags.names()))
+    if tag_diff:
+        changes.append(tag_diff)
+    p_diff = _diff_part('参与者 ', old['participants'],
+                        set(activity.participants.values_list('name', flat=True)))
+    if p_diff:
+        changes.append(p_diff)
+    return '；'.join(changes)[:500]
 
 
 def _user_tag_names(user):
@@ -86,6 +167,7 @@ def activity_quick_create(request):
             for name in data['participants']
         ]
         activity.participants.set(participants)
+    log_activity(request.user, activity, 'created', '通过快速输入创建')
 
     return JsonResponse({
         'id': activity.id,
@@ -351,6 +433,7 @@ def activity_detail(request, activity_id):
         'children': activity.children.all(),
         'participants': activity.participants.all(),
         'status_choices': Activity.STATUS_CHOICES,
+        'logs': activity.logs.select_related('user')[:50],
     })
 
 
@@ -364,8 +447,11 @@ def activity_set_status(request, activity_id):
     if status not in valid:
         messages.error(request, '无效的状态值')
     elif status != activity.status:
+        old_label = valid.get(activity.status, activity.status)
         activity.status = status
         activity.save(update_fields=['status', 'updated_at'])
+        log_activity(request.user, activity, 'status_changed',
+                     f'状态「{old_label}」→「{valid[status]}」')
         messages.success(request, f'状态已更新为「{valid[status]}」')
     referer = request.META.get('HTTP_REFERER')
     if referer:
@@ -384,7 +470,10 @@ def activity_create(request):
             activity.save()
             form.save_m2m()
             form.save_participants(activity)
-            form.save_children(activity)
+            children = form.save_children(activity)
+            log_activity(request.user, activity, 'created')
+            for child in children:
+                log_activity(request.user, child, 'created', f'随父活动「{activity.name}」一并创建')
             messages.success(request, f'活动「{activity.name}」已创建')
             return redirect('activities:activity_detail', activity.id)
     else:
@@ -405,10 +494,12 @@ def activity_edit(request, activity_id):
     owner = activity.user
 
     if request.method == 'POST':
+        old = _snapshot(activity)
         form = ActivityForm(request.POST, instance=activity, user=owner)
         if form.is_valid():
             form.save()
             form.save_participants(activity)
+            log_activity(request.user, activity, 'edited', _edit_summary(old, activity))
             messages.success(request, f'活动「{activity.name}」已更新')
             return redirect('activities:activity_detail', activity.id)
     else:
@@ -433,12 +524,14 @@ def add_subactivity(request, activity_id):
     if not name:
         messages.error(request, '子活动名称不能为空')
     else:
-        Activity.objects.create(
+        child = Activity.objects.create(
             user=activity.user,
             name=name,
             parent=activity,
             end_date=timezone.localdate(),
         )
+        log_activity(request.user, activity, 'sub_created', f'创建子任务「{name}」')
+        log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
         messages.success(request, f'子活动「{name}」已创建')
     referer = request.META.get('HTTP_REFERER')
     if referer:
@@ -452,6 +545,7 @@ def activity_delete(request, activity_id):
     """删除活动"""
     activity = get_visible(Activity, request.user, id=activity_id)
     name = activity.name
+    log_activity(request.user, activity, 'deleted')
     activity.delete()
     messages.success(request, f'活动「{name}」已删除')
     return redirect('activities:activity_list')

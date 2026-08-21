@@ -214,6 +214,23 @@
         {% endif %}
     </div>
 
+    <!-- 操作历史（辅助信息，低调展示；默认展开，可折叠） -->
+    {% if logs %}
+    <details open class="bg-white rounded-xl shadow-sm border border-zinc-200">
+        <summary class="px-6 py-3 text-xs font-medium text-zinc-500 cursor-pointer select-none hover:bg-zinc-50 list-none flex items-center justify-between">
+            <span>操作历史（{{ logs|length }}）</span>
+            <span class="text-zinc-300">&#9660;</span>
+        </summary>
+        <div class="px-6 pb-4 space-y-1.5 border-t border-zinc-100 pt-3">
+            {% for log in logs %}
+            <p class="text-xs text-zinc-400">
+                {{ log.created_at|date:"Y-m-d H:i" }} · {{ log.user.username }} · {{ log.get_action_display }}{% if log.summary %} · <span class="text-zinc-400/80">{{ log.summary }}</span>{% endif %}
+            </p>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
     <!-- 元信息 -->
     <p class="text-xs text-zinc-400 text-center">创建于 {{ activity.created_at|date:"Y-m-d H:i" }} · 最近更新 {{ activity.updated_at|date:"Y-m-d H:i" }}</p>
 </div>

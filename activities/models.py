@@ -104,3 +104,41 @@ class Activity(models.Model):
         if self.end_date:
             return f'~ {self.end_date}'
         return '未设定'
+
+
+class ActivityLog(models.Model):
+    """活动操作日志（创建/编辑/删除/子任务/状态变更）"""
+    ACTION_CHOICES = [
+        ('created', '创建了活动'),
+        ('edited', '编辑了活动'),
+        ('deleted', '删除了活动'),
+        ('sub_created', '创建了子任务'),
+        ('status_changed', '修改了状态'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='activity_logs',
+        verbose_name='操作人'
+    )
+    activity = models.ForeignKey(
+        Activity,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='logs',
+        verbose_name='关联活动'
+    )
+    activity_name = models.CharField('活动名称', max_length=255)
+    action = models.CharField('操作类型', max_length=20, choices=ACTION_CHOICES)
+    summary = models.TextField('变更摘要', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '活动日志'
+        verbose_name_plural = '活动日志'
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} {self.user.username} {self.get_action_display()} {self.activity_name}'
