@@ -425,12 +425,21 @@ def activity_list(request):
 
 @login_required
 def activity_detail(request, activity_id):
-    """活动详情（含子活动）"""
+    """活动详情（含子任务时间轴与操作日志）"""
     activity = get_visible(Activity, request.user, id=activity_id)
+
+    # 子任务按时间轴排序：可用日期（开始优先，其次结束）从早到晚，无日期排最后
+    children = list(activity.children.all())
+    children.sort(key=lambda c: ((c.start_date or c.end_date) is None,
+                                 c.start_date or c.end_date or date.min))
+    for child in children:
+        d = child.start_date or child.end_date
+        child.timeline_label = d.strftime('%m-%d') if d else '未设定'
+        child.timeline_year = d.strftime('%Y') if d else ''
 
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
-        'children': activity.children.all(),
+        'children': children,
         'participants': activity.participants.all(),
         'status_choices': Activity.STATUS_CHOICES,
         'logs': activity.logs.select_related('user')[:50],

@@ -171,43 +171,43 @@
             <button type="submit" class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">+ 添加</button>
         </form>
         {% if children %}
-        <div class="rounded-lg border border-zinc-200 overflow-hidden">
-            <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-zinc-200 text-sm">
-                <thead class="bg-zinc-50">
-                    <tr>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-zinc-500 uppercase">名称</th>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-zinc-500 uppercase">状态</th>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-zinc-500 uppercase">日期范围</th>
-                        <th class="px-4 py-2 text-right text-xs font-medium text-zinc-500 uppercase">费用</th>
-                        <th class="px-4 py-2"></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-zinc-100">
-                    {% for child in children %}
-                    <tr class="hover:bg-zinc-50">
-                        <td class="px-4 py-2">
-                            <a href="{% url 'activities:activity_detail' child.id %}" class="text-zinc-900 hover:text-zinc-600">{{ child.name }}</a>
-                        </td>
-                        <td class="px-4 py-2">
-                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap
-                                {% if child.status == 'planned' %}bg-zinc-100 text-zinc-600
-                                {% elif child.status == 'in_progress' %}bg-zinc-900 text-white
-                                {% elif child.status == 'done' %}bg-green-100 text-green-700
-                                {% else %}bg-red-100 text-red-600{% endif %}">
-                                {{ child.get_status_display }}
-                            </span>
-                        </td>
-                        <td class="px-4 py-2 text-zinc-600 whitespace-nowrap">{{ child.date_range }}</td>
-                        <td class="px-4 py-2 text-right text-zinc-700">&#165;{{ child.cost }}</td>
-                        <td class="px-4 py-2 text-right">
-                            <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-zinc-500 hover:text-zinc-900">编辑</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
+        <!-- 时间轴展示：按可用日期从早到晚，无日期排最后 -->
+        <div class="relative mt-1">
+            <!-- 时间轴竖线 -->
+            <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-zinc-200"></div>
+            <ol>
+                {% for child in children %}
+                <li class="relative pl-6 {% if not forloop.last %}pb-5{% endif %}">
+                    <!-- 节点圆点（随状态着色） -->
+                    <span class="absolute left-0 top-[5px] w-2 h-2 rounded-full
+                        {% if child.status == 'in_progress' %}bg-zinc-900
+                        {% elif child.status == 'done' %}bg-green-500
+                        {% elif child.status == 'cancelled' %}bg-red-400
+                        {% else %}bg-zinc-300{% endif %}"></span>
+                    <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
+                    <div class="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-4">
+                        <span class="text-xs {% if child.timeline_year %}text-zinc-400{% else %}text-zinc-300{% endif %} sm:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-zinc-900 hover:text-zinc-600 break-words">{{ child.name }}</a>
+                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap
+                                    {% if child.status == 'planned' %}bg-zinc-100 text-zinc-600
+                                    {% elif child.status == 'in_progress' %}bg-zinc-900 text-white
+                                    {% elif child.status == 'done' %}bg-green-100 text-green-700
+                                    {% else %}bg-red-100 text-red-600{% endif %}">
+                                    {{ child.get_status_display }}
+                                </span>
+                                {% if child.cost %}<span class="text-xs text-zinc-400">&#165;{{ child.cost }}</span>{% endif %}
+                                <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-zinc-400 hover:text-zinc-900">编辑</a>
+                            </div>
+                            {% if child.start_date and child.end_date and child.start_date != child.end_date %}
+                            <p class="mt-0.5 text-xs text-zinc-400">{{ child.start_date|date:"m-d" }} ~ {{ child.end_date|date:"m-d" }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ol>
         </div>
         {% else %}
         <p class="text-sm text-zinc-400">暂无子任务，可在上方输入名称快速添加</p>
