@@ -1,17 +1,28 @@
+import json
+import logging
+import re
+from datetime import date, timedelta
+from urllib.parse import urlencode
+
+from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count
+from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
-from datetime import timedelta
-from urllib.parse import urlencode
 from taggit.models import Tag
 
 from .forms import ActivityForm
 from .models import Activity, Participant
+from .parsing import parse_quick_input
 from core.utils import visible_qs, get_visible
+
+logger = logging.getLogger(__name__)
 
 
 def _user_tag_names(user):
@@ -24,6 +35,147 @@ def _user_tag_names(user):
 
 
 @login_required
+@ensure_csrf_cookie
+@require_POST
+def parse_quick_input_view(request):
+    """快速输入解析：AI 优先（Qoder general agent），失败/未配置时降级规则解析"""
+    text = (request.POST.get('text') or '').strip()
+    if not text:
+        return JsonResponse({'error': '请输入内容'}, status=400)
+    if len(text) > 500:
+        return JsonResponse({'error': '输入过长，请控制在 500 字以内'}, status=400)
+
+    today = timezone.localdate()
+    data = _normalize(_ai_parse(text, today) or {}, today)
+    source = 'ai' if data.get('name') else 'rule'
+    if source == 'rule':
+        data = _normalize(parse_quick_input(text, today), today)
+    if not data.get('name'):
+        return JsonResponse({
+            'error': '未能识别出活动名称，请写得更具体些，例如「8月25到28日去上海出差 预算3000」',
+        }, status=400)
+    data['source'] = source
+    return JsonResponse(data)
+
+
+@login_required
+@require_POST
+def activity_quick_create(request):
+    """列表页快速创建（快速输入预览卡片确认；一律创建为顶级活动）"""
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+    data = _normalize(data, timezone.localdate())
+    if not data.get('name'):
+        return JsonResponse({'error': '活动名称不能为空'}, status=400)
+
+    activity = Activity.objects.create(
+        user=request.user,
+        name=data['name'],
+        start_date=data.get('start_date'),
+        end_date=data.get('end_date'),
+        status=data.get('status', 'planned'),
+        cost=data.get('cost', 0),
+    )
+    if data.get('tags'):
+        activity.tags.add(*data['tags'])
+    if data.get('participants'):
+        participants = [
+            Participant.objects.get_or_create(user=request.user, name=name)[0]
+            for name in data['participants']
+        ]
+        activity.participants.set(participants)
+
+    return JsonResponse({
+        'id': activity.id,
+        'name': activity.name,
+        'url': reverse('activities:activity_detail', args=[activity.id]),
+    })
+
+
+def _ai_parse(text, today):
+    """调用 Qoder general agent 解析快速输入；未配置/超时/异常时返回 None（由调用方降级）"""
+    if not settings.QODER_ACCESS_TOKEN:
+        return None
+    try:
+        from agents.models import AgentConfig, EnvironmentConfig
+        from agents.services import get_service
+
+        agent = (AgentConfig.objects.filter(is_active=True, purpose='general').first()
+                 or AgentConfig.objects.filter(is_active=True).first())
+        env = (EnvironmentConfig.objects.filter(is_default=True).first()
+               or EnvironmentConfig.objects.first())
+        if not agent or not env:
+            return None
+
+        prompt = (
+            f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。今天是 {today.isoformat()}。\n'
+            '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/月底/下周五请换算为绝对日期，未写年份用当年）、'
+            'cost（数字，单位元）、status（planned/in_progress/done/cancelled 之一）、tags（字符串数组）、participants（字符串数组）。\n'
+            f'无法识别的字段不要出现在 JSON 中。用户输入："""{text}"""'
+        )
+        service = get_service()
+        session = service.create_session(agent.agent_id, env.env_id)
+        service.send_message(session['id'], prompt)
+        reply = service.wait_for_response(session['id'], timeout=20, poll_interval=1.0)
+        return _extract_json(reply)
+    except Exception as e:
+        logger.warning(f'快速输入 AI 解析失败，将降级规则解析: {e}')
+        return None
+
+
+def _extract_json(reply):
+    """从 AI 回复中提取首个 JSON 对象（兼容前后有说明文字/代码块的情况）"""
+    m = re.search(r'\{.*\}', reply or '', re.DOTALL)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _normalize(data, today):
+    """清洗校验解析结果（AI 与规则输出共用），丢弃非法字段"""
+    out = {}
+    name = str(data.get('name') or '').strip()
+    if name:
+        out['name'] = name[:255]
+    for key in ('start_date', 'end_date'):
+        value = data.get(key)
+        if value:
+            try:
+                out[key] = date.fromisoformat(str(value)[:10]).isoformat()
+            except ValueError:
+                pass
+    if out.get('start_date') and out.get('end_date') and out['end_date'] < out['start_date']:
+        out['start_date'], out['end_date'] = out['end_date'], out['start_date']
+    cost = data.get('cost')
+    if cost is not None and cost != '':
+        try:
+            cost = float(cost)
+            if cost >= 0:
+                out['cost'] = cost
+        except (TypeError, ValueError):
+            pass
+    status = data.get('status')
+    if status in dict(Activity.STATUS_CHOICES):
+        out['status'] = status
+    for key in ('tags', 'participants'):
+        values = data.get(key)
+        if isinstance(values, str):
+            values = [v.strip() for v in re.split(r'[,，、]', values)]
+        if isinstance(values, list):
+            values = [str(v).strip() for v in values if str(v).strip()]
+            if values:
+                out[key] = values[:10]
+    return out
+
+
+@login_required
+@ensure_csrf_cookie
 def activity_list(request):
     """活动列表（默认树形结构可折叠，筛选/排序时为平铺列表）"""
     status_filter = request.GET.get('status', '')

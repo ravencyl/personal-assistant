@@ -15,6 +15,21 @@
     <div class="bg-white rounded-lg shadow-sm border border-zinc-200 p-6">
         <h1 class="text-xl font-bold text-zinc-900 mb-6">{{ title }}</h1>
 
+        {% if not activity %}
+        <!-- 快速输入（仅创建模式）：一句话解析后自动填入下方表单 -->
+        <div class="mb-6 rounded-md bg-zinc-50 border border-zinc-200 p-3">
+            <div class="flex gap-2">
+                <input type="text" id="form-quick-input" maxlength="500"
+                       placeholder="快速输入，如：8月25到28日去上海出差 预算3000 #工作 @小王"
+                       autocomplete="off"
+                       class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+                <button type="button" id="form-quick-btn"
+                        class="shrink-0 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed">解析</button>
+            </div>
+            <p id="form-quick-msg" class="hidden mt-2 text-sm"></p>
+        </div>
+        {% endif %}
+
         {% if form.non_field_errors %}
         <div class="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
             {{ form.non_field_errors }}
@@ -253,21 +268,96 @@
         box.addEventListener('click', function (e) { if (e.target === box) input.focus(); });
 
         renderTags();
+
+        // 外部设值接口（供快速输入填充使用）
+        return {
+            setNames: function (names) { selected = (names || []).slice(); renderTags(); },
+        };
     }
 
-    initChipsInput({
-        boxId: 'participant-box', inputId: 'participant-input', suggestId: 'participant-suggest',
-        hiddenId: 'id_participants_input', optionsId: 'participant-options',
-        chipClass: 'bg-zinc-50 text-zinc-700',
-        newTip: '回车添加新参与者',
-    });
+    window.__chipsInputs = {
+        participants: initChipsInput({
+            boxId: 'participant-box', inputId: 'participant-input', suggestId: 'participant-suggest',
+            hiddenId: 'id_participants_input', optionsId: 'participant-options',
+            chipClass: 'bg-zinc-50 text-zinc-700',
+            newTip: '回车添加新参与者',
+        }),
+        tags: initChipsInput({
+            boxId: 'tag-box', inputId: 'tag-input', suggestId: 'tag-suggest',
+            hiddenId: 'id_tags', optionsId: 'tag-options',
+            chipClass: 'bg-zinc-100 border border-zinc-200 text-zinc-600',
+            newTip: '回车添加新标签',
+        }),
+    };
 
-    initChipsInput({
-        boxId: 'tag-box', inputId: 'tag-input', suggestId: 'tag-suggest',
-        hiddenId: 'id_tags', optionsId: 'tag-options',
-        chipClass: 'bg-zinc-100 border border-zinc-200 text-zinc-600',
-        newTip: '回车添加新标签',
-    });
+    // ==================== 快速输入（仅创建模式） ====================
+    var qInput = document.getElementById('form-quick-input');
+    if (qInput) {
+        var qBtn = document.getElementById('form-quick-btn');
+        var qMsg = document.getElementById('form-quick-msg');
+
+        function getCookie(name) {
+            var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+            return m ? decodeURIComponent(m[1]) : '';
+        }
+
+        function showMsg(text, isError) {
+            qMsg.textContent = text;
+            qMsg.className = 'mt-2 text-sm ' + (isError ? 'text-red-600' : 'text-green-600');
+        }
+
+        function fillForm(d) {
+            if (d.name) document.getElementById('id_name').value = d.name;
+            if (d.start_date) document.getElementById('id_start_date').value = d.start_date;
+            if (d.end_date) document.getElementById('id_end_date').value = d.end_date;
+            if (d.status) document.getElementById('id_status').value = d.status;
+            if (d.cost !== undefined && d.cost !== null) document.getElementById('id_cost').value = d.cost;
+            if (d.tags) window.__chipsInputs.tags.setNames(d.tags);
+            if (d.participants) window.__chipsInputs.participants.setNames(d.participants);
+        }
+
+        function doParse() {
+            var text = qInput.value.trim();
+            if (!text || qBtn.disabled) return;
+            qMsg.classList.add('hidden');
+            qBtn.disabled = true;
+            qBtn.textContent = '解析中…';
+            var fd = new FormData();
+            fd.append('text', text);
+            fetch('{% url "activities:parse_quick_input" %}', {
+                method: 'POST',
+                body: fd,
+                headers: { 'X-CSRFToken': getCookie('csrftoken') },
+            }).then(function (r) {
+                return r.json().then(function (d) { return { ok: r.ok, data: d } });
+            }).then(function (res) {
+                qBtn.disabled = false;
+                qBtn.textContent = '解析';
+                if (!res.ok) { showMsg(res.data.error || '解析失败，请重试', true); return; }
+                fillForm(res.data);
+                showMsg('已填入表单，请确认后保存' + (res.data.source === 'ai' ? '（AI 识别）' : '（规则识别）'), false);
+            }).catch(function () {
+                qBtn.disabled = false;
+                qBtn.textContent = '解析';
+                showMsg('网络异常，请重试', true);
+            });
+        }
+
+        qBtn.addEventListener('click', doParse);
+        qInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') doParse(); });
+
+        // 列表页「编辑详情」跳转过来：读取草稿直接填充
+        var draft = sessionStorage.getItem('quickInputDraft');
+        if (draft) {
+            sessionStorage.removeItem('quickInputDraft');
+            try {
+                var d = JSON.parse(draft);
+                fillForm(d);
+                showMsg('已从快速输入填入，请确认后保存', false);
+                qInput.value = d.name || '';
+            } catch (e) { /* 草稿损坏时忽略 */ }
+        }
+    }
 })();
 </script>
 {% endblock %}

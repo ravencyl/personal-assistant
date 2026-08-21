@@ -10,6 +10,32 @@
     </a>
 </div>
 
+<!-- 快速输入：一句话自动解析（AI 优先 + 规则兜底），预览确认后创建顶级活动 -->
+<div class="bg-white rounded-lg border border-zinc-200 mb-4 p-3">
+    <div class="flex gap-2">
+        <input type="text" id="quick-input" maxlength="500"
+               placeholder="快速记一笔，如：8月25到28日去上海出差 预算3000 #工作 @小王"
+               autocomplete="off"
+               class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+        <button type="button" id="quick-parse-btn"
+                class="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed">
+            解析
+        </button>
+    </div>
+    <p id="quick-error" class="hidden mt-2 text-sm text-red-600"></p>
+    <div id="quick-preview" class="hidden mt-3 rounded-md bg-zinc-50 border border-zinc-200 p-3">
+        <div id="quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-700"></div>
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+            <button type="button" id="quick-confirm-btn"
+                    class="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed">确认创建</button>
+            <button type="button" id="quick-edit-btn"
+                    class="rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-200">编辑详情</button>
+            <button type="button" id="quick-close-btn" class="text-sm text-zinc-400 hover:text-zinc-600 px-1" title="收起">&#10005;</button>
+            <span id="quick-source" class="ml-auto text-xs text-zinc-400"></span>
+        </div>
+    </div>
+</div>
+
 <!-- Filter panel（可折叠：URL 带筛选/排序参数时自动展开，否则默认折叠） -->
 <div class="bg-white rounded-lg border border-zinc-200 mb-4">
     <button type="button" id="filter-toggle"
@@ -211,9 +237,132 @@
 {% else %}
 <div class="text-center py-12">
     <p class="text-zinc-500">暂无活动</p>
-    <p class="mt-2 text-sm text-zinc-400">点击右上角「新建活动」添加记录</p>
+    <p class="mt-2 text-sm text-zinc-400">在上方快速输入栏记一笔，或点击右上角「新建活动」添加记录</p>
 </div>
 {% endif %}
+
+<script>
+(function () {
+    // ==================== 快速输入（解析 → 预览 → 确认创建） ====================
+    var input = document.getElementById('quick-input');
+    var parseBtn = document.getElementById('quick-parse-btn');
+    var confirmBtn = document.getElementById('quick-confirm-btn');
+    var editBtn = document.getElementById('quick-edit-btn');
+    var closeBtn = document.getElementById('quick-close-btn');
+    var preview = document.getElementById('quick-preview');
+    var previewBody = document.getElementById('quick-preview-body');
+    var errEl = document.getElementById('quick-error');
+    var sourceEl = document.getElementById('quick-source');
+    var parsed = null;
+    var STATUS_LABELS = { planned: '计划', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
+
+    function getCookie(name) {
+        var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    function showError(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    function hideError() { errEl.classList.add('hidden'); }
+    function hidePreview() { preview.classList.add('hidden'); }
+
+    function setLoading(loading, text) {
+        parseBtn.disabled = loading;
+        parseBtn.textContent = loading ? text : '解析';
+    }
+
+    function esc(s) {
+        var d = document.createElement('span');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function renderPreview(d) {
+        var parts = ['<span class="font-medium text-zinc-900">' + esc(d.name) + '</span>'];
+        if (d.start_date) {
+            parts.push('<span class="text-zinc-500">' + d.start_date +
+                (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
+        }
+        if (d.cost !== undefined && d.cost !== null) {
+            parts.push('<span class="text-zinc-500">¥ ' + esc(String(d.cost)) + '</span>');
+        }
+        if (d.status && STATUS_LABELS[d.status]) {
+            parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">' + STATUS_LABELS[d.status] + '</span>');
+        }
+        (d.tags || []).forEach(function (t) {
+            parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600"># ' + esc(t) + '</span>');
+        });
+        (d.participants || []).forEach(function (p) {
+            parts.push('<span class="text-xs text-zinc-500">@ ' + esc(p) + '</span>');
+        });
+        previewBody.innerHTML = parts.join('');
+        sourceEl.textContent = d.source === 'ai' ? 'AI 识别' : '规则识别';
+        preview.classList.remove('hidden');
+    }
+
+    function doParse() {
+        var text = input.value.trim();
+        if (!text || parseBtn.disabled) return;
+        hideError();
+        hidePreview();
+        setLoading(true, '解析中…');
+        var fd = new FormData();
+        fd.append('text', text);
+        fetch('{% url "activities:parse_quick_input" %}', {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, data: d } });
+        }).then(function (res) {
+            setLoading(false);
+            if (!res.ok) { showError(res.data.error || '解析失败，请重试'); return; }
+            parsed = res.data;
+            renderPreview(parsed);
+        }).catch(function () {
+            setLoading(false);
+            showError('网络异常，请重试');
+        });
+    }
+
+    parseBtn.addEventListener('click', doParse);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doParse(); });
+    closeBtn.addEventListener('click', function () { hidePreview(); hideError(); parsed = null; });
+
+    // 编辑详情：携带解析结果跳转完整表单页（由创建页读取填充）
+    editBtn.addEventListener('click', function () {
+        if (!parsed) return;
+        sessionStorage.setItem('quickInputDraft', JSON.stringify(parsed));
+        window.location.href = '{% url "activities:activity_create" %}';
+    });
+
+    confirmBtn.addEventListener('click', function () {
+        if (!parsed || confirmBtn.disabled) return;
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '创建中…';
+        fetch('{% url "activities:activity_quick_create" %}', {
+            method: 'POST',
+            body: JSON.stringify(parsed),
+            headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
+        }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, data: d } });
+        }).then(function (res) {
+            if (!res.ok) {
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '确认创建';
+                showError(res.data.error || '创建失败');
+                return;
+            }
+            previewBody.innerHTML = '<span class="text-green-600">已创建「' + esc(res.data.name) + '」，即将刷新…</span>';
+            confirmBtn.textContent = '已创建';
+            setTimeout(function () { window.location.reload(); }, 700);
+        }).catch(function () {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '确认创建';
+            showError('网络异常，请重试');
+        });
+    });
+})();
+</script>
 
 {% if tree_mode %}
 <script>
