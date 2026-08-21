@@ -400,8 +400,33 @@ def activity_list(request):
         tag_link_params['sort'] = sort
     tag_link_qs = urlencode(tag_link_params)
 
+    # 首页问候头部：时段问候 + 日期星期 + 今日摘要
+    hour = timezone.localtime().hour
+    if hour < 6:
+        greeting = '夜深了，早点休息'
+    elif hour < 12:
+        greeting = '早上好'
+    elif hour < 14:
+        greeting = '中午好'
+    elif hour < 18:
+        greeting = '下午好'
+    else:
+        greeting = '晚上好'
+    weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    today_display = f'{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
+    ongoing_count = sum(1 for a in all_activities if a.status == 'in_progress')
+    today_count = sum(
+        1 for a in all_activities
+        if (a.start_date and a.start_date <= today and (a.end_date is None or a.end_date >= today))
+        or (a.start_date is None and a.end_date == today)
+    )
+
     return render(request, 'activities/activity_list.html', {
         'activities': rows,
+        'greeting': greeting,
+        'today_display': today_display,
+        'ongoing_count': ongoing_count,
+        'today_count': today_count,
         'status_filter': status_filter,
         'status_choices': Activity.STATUS_CHOICES,
         'tag_filter': tag_filter,

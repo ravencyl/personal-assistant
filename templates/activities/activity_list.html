@@ -3,15 +3,26 @@
 {% block title %}活动记录 - Personal AI Assistant{% endblock %}
 
 {% block content %}
-<div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold text-zinc-900">活动记录</h1>
-    <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">
+<!-- 问候头部：时段问候 + 日期星期 + 今日摘要，替代生硬的页面标题 -->
+<div class="flex items-end justify-between gap-4 mb-7">
+    <div class="min-w-0">
+        <p class="text-xs sm:text-sm text-zinc-400 mb-1">{{ today_display }}</p>
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 truncate">{{ greeting }}，{{ user.username }}</h1>
+        {% if ongoing_count or today_count %}
+        <p class="mt-1.5 text-sm text-zinc-500">
+            {% if ongoing_count %}<span class="font-medium text-zinc-700">{{ ongoing_count }}</span> 项进行中{% endif %}
+            {% if ongoing_count and today_count %} · {% endif %}
+            {% if today_count %}<span class="font-medium text-zinc-700">{{ today_count }}</span> 项覆盖今天{% endif %}
+        </p>
+        {% endif %}
+    </div>
+    <a href="{% url 'activities:activity_create' %}" class="shrink-0 inline-flex items-center rounded-full bg-zinc-900 px-4 sm:px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700 shadow-sm">
         + 新建活动
     </a>
 </div>
 
 <!-- 快速输入：一句话自动解析（AI 优先 + 规则兜底），预览确认后创建顶级活动 -->
-<div class="bg-white rounded-lg border border-zinc-200 mb-4 p-3">
+<div class="app-card mb-5 p-4">
     <div class="flex gap-2">
         <input type="text" id="quick-input" maxlength="500"
                placeholder="快速记一笔，如：8月25到28日去上海出差 预算3000 #工作 @小王"
@@ -37,10 +48,10 @@
 </div>
 
 <!-- Filter panel（可折叠：URL 带筛选/排序参数时自动展开，否则默认折叠） -->
-<div class="bg-white rounded-lg border border-zinc-200 mb-4">
+<div class="app-card mb-5 overflow-hidden">
     <button type="button" id="filter-toggle"
             aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
-            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 rounded-lg">
+            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
         <span class="flex items-center gap-2">
             筛选
             {% if active_filter_count %}
@@ -113,7 +124,7 @@
 
 <!-- Activity table (md+) / 卡片列表（移动端） -->
 {% if activities %}
-<div class="hidden md:block bg-white rounded-lg shadow-sm border border-zinc-200 overflow-hidden">
+<div class="hidden md:block app-card overflow-hidden">
     <div class="overflow-x-auto">
     <table class="min-w-[760px] w-full divide-y divide-zinc-200 text-sm">
         <thead class="bg-zinc-50">
@@ -198,9 +209,9 @@
 </div>
 
 <!-- 移动端卡片列表 -->
-<div class="md:hidden space-y-2">
+<div class="md:hidden space-y-3">
     {% for activity in activities %}
-    <div class="tree-row bg-white rounded-lg border border-zinc-200 p-4" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+    <div class="tree-row app-card p-4" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <div class="flex items-center justify-between gap-3 mb-1.5">
             <div class="flex items-center gap-1.5 min-w-0" style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">
@@ -402,7 +413,7 @@
                 btn.innerHTML = '&#9654;';
             } else {
                 // 展开：只显示直接子级（孙级保持折叠状态）；卡片元素用 block，表格行恢复默认
-                childrenOf(targetId).forEach(function (r) { r.style.display = r.classList.contains('rounded-lg') ? 'block' : ''; });
+                childrenOf(targetId).forEach(function (r) { r.style.display = r.classList.contains('app-card') ? 'block' : ''; });
                 btn.setAttribute('aria-expanded', 'true');
                 btn.innerHTML = '&#9660;';
             }
