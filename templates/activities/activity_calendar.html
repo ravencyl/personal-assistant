@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}活动日历 - {{ month_name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- 顶部导航栏 -->
+    <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-4">
+            <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 列表</a>
+            <h1 class="text-xl sm:text-2xl font-bold text-zinc-900">{{ month_name }}</h1>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="?year={{ prev_year }}&month={{ prev_month }}"
+               class="rounded-md bg-white border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50">&larr; 上月</a>
+            <a href="?year={{ today.year }}&month={{ today.month }}"
+               class="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700">今天</a>
+            <a href="?year={{ next_year }}&month={{ next_month }}"
+               class="rounded-md bg-white border border-zinc-200 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50">下月 &rarr;</a>
+        </div>
+    </div>
+
+    <!-- 日历网格 -->
+    <div class="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
+        <!-- 星期标题 -->
+        <div class="grid grid-cols-7 border-b border-zinc-200 bg-zinc-50">
+            {% for day_name in weekdays %}
+            <div class="px-2 py-2 text-center text-xs font-medium text-zinc-500 uppercase">
+                {{ day_name }}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- 日期网格 -->
+        <div class="grid grid-cols-7">
+            {% for week in weeks %}
+                {% for day in week %}
+                <div class="min-h-[100px] sm:min-h-[120px] border-b border-r border-zinc-100 p-1.5 {% if not day.in_month %}bg-zinc-50/50{% endif %} {% if day.is_today %}bg-amber-50/30{% endif %}">
+                    <!-- 日期数字 -->
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs sm:text-sm {% if day.is_today %}font-bold text-amber-600{% elif day.in_month %}text-zinc-700{% else %}text-zinc-300{% endif %}">
+                            {{ day.day }}
+                        </span>
+                        {% if day.is_today %}
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                        {% endif %}
+                    </div>
+                    <!-- 活动色块容器 -->
+                    <div class="space-y-0.5" data-date="{{ day.date_str }}"></div>
+                </div>
+                {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- 图例 -->
+    <div class="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-500">
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#18181b"></span>进行中</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#a1a1aa"></span>计划</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#22c55e"></span>已完成</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f87171"></span>已取消</span>
+    </div>
+</div>
+
+<script>
+(function () {
+    // 加载本月活动数据并渲染到日历
+    var year = {{ year }};
+    var month = {{ month }};
+
+    function renderActivities(activities) {
+        // 按日期分组
+        var byDate = {};
+        activities.forEach(function (a) {
+            var start = new Date(a.start_date);
+            var end = new Date(a.end_date);
+            var current = new Date(start);
+            while (current <= end) {
+                var dateStr = current.toISOString().split('T')[0];
+                if (!byDate[dateStr]) byDate[dateStr] = [];
+                byDate[dateStr].push(a);
+                current.setDate(current.getDate() + 1);
+            }
+        });
+
+        // 渲染到对应日期格子
+        document.querySelectorAll('[data-date]').forEach(function (el) {
+            var dateStr = el.dataset.date;
+            var items = byDate[dateStr] || [];
+            if (items.length === 0) return;
+
+            items.forEach(function (a) {
+                var block = document.createElement('a');
+                block.href = a.url;
+                block.className = 'block rounded px-1.5 py-0.5 text-xs text-white truncate hover:opacity-80 transition-opacity';
+                block.style.backgroundColor = a.color;
+                block.title = a.name + ' (' + a.status_label + ')';
+                block.textContent = a.name;
+                el.appendChild(block);
+            });
+        });
+    }
+
+    // 获取活动数据
+    fetch('{% url "activities:calendar_data" %}?year=' + year + '&month=' + month)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            renderActivities(data.activities || []);
+        })
+        .catch(function (err) {
+            console.error('加载日历数据失败:', err);
+        });
+})();
+</script>
+
+<style>
+/* 移动端优化：小屏幕下减小格子高度 */
+@media (max-width: 640px) {
+    .min-h-\\[100px\\] {
+        min-height: 80px;
+    }
+}
+</style>
+{% endblock %}

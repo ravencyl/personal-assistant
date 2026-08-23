@@ -14,4 +14,6 @@ urlpatterns = [
     path('<int:activity_id>/subactivities/', views.add_subactivity, name='add_subactivity'),
     path('<int:activity_id>/quick-sub/', views.activity_quick_sub, name='activity_quick_sub'),
     path('<int:activity_id>/delete/', views.activity_delete, name='activity_delete'),
+    path('calendar/', views.activity_calendar, name='activity_calendar'),
+    path('calendar-data/', views.calendar_data, name='calendar_data'),
 ]

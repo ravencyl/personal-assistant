@@ -10,6 +10,7 @@ from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import models
 from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
@@ -623,3 +624,127 @@ def activity_delete(request, activity_id):
     activity.delete()
     messages.success(request, f'活动「{name}」已删除')
     return redirect('activities:activity_list')
+
+
+@login_required
+def activity_calendar(request):
+    """活动日历视图（月历）"""
+    today = timezone.localdate()
+    try:
+        year = int(request.GET.get('year', today.year))
+        month = int(request.GET.get('month', today.month))
+        if not (1 <= month <= 12):
+            raise ValueError
+    except (ValueError, TypeError):
+        year, month = today.year, today.month
+
+    # 计算月历网格
+    first_day = date(year, month, 1)
+    if month == 12:
+        last_day = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last_day = date(year, month + 1, 1) - timedelta(days=1)
+
+    # 日历从周一开始，填充前后空白
+    start_offset = first_day.weekday()  # 0=Monday
+    calendar_start = first_day - timedelta(days=start_offset)
+    weeks = []
+    current = calendar_start
+    for _ in range(6):  # 最多6周
+        week = []
+        for _ in range(7):
+            week.append({
+                'date': current,
+                'day': current.day,
+                'in_month': current.month == month,
+                'is_today': current == today,
+                'date_str': current.isoformat(),
+            })
+            current += timedelta(days=1)
+        weeks.append(week)
+        if current > last_day and len(weeks) >= 5:
+            break
+
+    # 上月/下月导航
+    if month == 1:
+        prev_year, prev_month = year - 1, 12
+    else:
+        prev_year, prev_month = year, month - 1
+    if month == 12:
+        next_year, next_month = year + 1, 1
+    else:
+        next_year, next_month = year, month + 1
+
+    return render(request, 'activities/activity_calendar.html', {
+        'year': year,
+        'month': month,
+        'month_name': f'{year}年{month}月',
+        'weeks': weeks,
+        'first_day': first_day,
+        'last_day': last_day,
+        'prev_year': prev_year,
+        'prev_month': prev_month,
+        'next_year': next_year,
+        'next_month': next_month,
+        'today': today,
+        'weekdays': ['一', '二', '三', '四', '五', '六', '日'],
+    })
+
+
+@login_required
+def calendar_data(request):
+    """日历数据 API：返回指定月份的活动（JSON）"""
+    today = timezone.localdate()
+    try:
+        year = int(request.GET.get('year', today.year))
+        month = int(request.GET.get('month', today.month))
+        if not (1 <= month <= 12):
+            raise ValueError
+    except (ValueError, TypeError):
+        year, month = today.year, today.month
+
+    month_start = date(year, month, 1)
+    if month == 12:
+        month_end = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        month_end = date(year, month + 1, 1) - timedelta(days=1)
+
+    # 查询与本月有交集的活动（开始日期 <= 月末 且 结束日期 >= 月初）
+    activities = visible_qs(Activity, request.user).filter(
+        start_date__lte=month_end,
+    ).filter(
+        # 结束日期 >= 月初 或 无结束日期但开始日期 >= 月初
+        models.Q(end_date__gte=month_start) | models.Q(end_date__isnull=True, start_date__gte=month_start)
+    ).prefetch_related('tags')
+
+    data = []
+    for a in activities:
+        # 计算在本月内的显示区间
+        display_start = a.start_date or month_start
+        display_end = a.end_date or a.start_date or month_end
+        if display_start < month_start:
+            display_start = month_start
+        if display_end > month_end:
+            display_end = month_end
+
+        # 状态颜色
+        color_map = {
+            'planned': '#a1a1aa',  # zinc-400
+            'in_progress': '#18181b',  # zinc-900
+            'done': '#22c55e',  # green-500
+            'cancelled': '#f87171',  # red-400
+        }
+
+        data.append({
+            'id': a.id,
+            'name': a.name,
+            'start_date': display_start.isoformat(),
+            'end_date': display_end.isoformat(),
+            'status': a.status,
+            'status_label': a.get_status_display(),
+            'color': color_map.get(a.status, '#a1a1aa'),
+            'url': reverse('activities:activity_detail', args=[a.id]),
+            'tags': list(a.tags.names()),
+        })
+
+    return JsonResponse({'activities': data})
