@@ -12,5 +12,6 @@ urlpatterns = [
     path('<int:activity_id>/status/', views.activity_set_status, name='activity_set_status'),
     path('<int:activity_id>/edit/', views.activity_edit, name='activity_edit'),
     path('<int:activity_id>/subactivities/', views.add_subactivity, name='add_subactivity'),
+    path('<int:activity_id>/quick-sub/', views.activity_quick_sub, name='activity_quick_sub'),
     path('<int:activity_id>/delete/', views.activity_delete, name='activity_delete'),
 ]

@@ -454,7 +454,7 @@ def activity_detail(request, activity_id):
     activity = get_visible(Activity, request.user, id=activity_id)
 
     # 子任务按时间轴排序：可用日期（开始优先，其次结束）从早到晚，无日期排最后
-    children = list(activity.children.all())
+    children = list(activity.children.prefetch_related('tags', 'participants').all())
     children.sort(key=lambda c: ((c.start_date or c.end_date) is None,
                                  c.start_date or c.end_date or date.min))
     for child in children:
@@ -571,6 +571,46 @@ def add_subactivity(request, activity_id):
     if referer:
         return redirect(referer)
     return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+@require_POST
+def activity_quick_sub(request, activity_id):
+    """详情页快速创建子任务（解析后预览确认；归属当前活动）"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+    data = _normalize(data, timezone.localdate())
+    if not data.get('name'):
+        return JsonResponse({'error': '子任务名称不能为空'}, status=400)
+
+    child = Activity.objects.create(
+        user=activity.user,
+        name=data['name'],
+        parent=activity,
+        start_date=data.get('start_date'),
+        end_date=data.get('end_date'),
+        status=data.get('status', 'planned'),
+        cost=data.get('cost', 0),
+    )
+    if data.get('tags'):
+        child.tags.add(*data['tags'])
+    if data.get('participants'):
+        participants = [
+            Participant.objects.get_or_create(user=activity.user, name=name)[0]
+            for name in data['participants']
+        ]
+        child.participants.set(participants)
+    log_activity(request.user, activity, 'sub_created', f'创建子任务「{child.name}」')
+    log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
+
+    return JsonResponse({
+        'id': child.id,
+        'name': child.name,
+        'url': reverse('activities:activity_detail', args=[child.id]),
+    })
 
 
 @login_required
