@@ -1,0 +1,110 @@
+/* Custom styles */
+
+/* ===== 全局设计系统：温暖圆润 + 极简留白 + 活泼个性 ===== */
+
+/* 点缀色变量（琥珀橙） */
+:root {
+    --accent: #f59e0b;
+    --accent-hover: #d97706;
+    --accent-light: #fef3c7;
+}
+
+/* Pill 形按钮/输入框/徽章 */
+button, .btn, input[type="submit"],
+input[type="text"], input[type="email"], input[type="password"], input[type="date"],
+input[type="number"], input[type="search"], textarea, select {
+    border-radius: 9999px !important;
+}
+
+/* 卡片保持圆角但去掉硬边框 */
+.app-card, .card {
+    border-radius: 1.25rem !important;
+    border: none !important;
+    box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.app-card:hover, .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.12), 0 4px 12px -4px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* 主按钮用点缀色（仅 class="btn-accent" 的元素） */
+.btn-accent {
+    background-color: var(--accent) !important;
+    color: white !important;
+}
+
+.btn-accent:hover {
+    background-color: var(--accent-hover) !important;
+}
+
+/* 徽章 pill 形 */
+.badge, span.rounded-full {
+    border-radius: 9999px !important;
+}
+
+/* 输入框内边距调整（pill 形需要更多水平空间） */
+input[type="text"], input[type="email"], input[type="password"],
+input[type="date"], input[type="number"], input[type="search"], textarea {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+}
+
+/* 链接悬停动效 */
+a {
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+/* 淡入动画 */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* ===== 原有样式保留 ===== */
+
+.htmx-indicator {
+    opacity: 0;
+    transition: opacity 500ms ease-in;
+}
+.htmx-request .htmx-indicator {
+    opacity: 1;
+}
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+/* Chat styles */
+.chat-message {
+    max-width: 80%;
+}
+.chat-message.user {
+    margin-left: auto;
+}
+.chat-message.assistant {
+    margin-right: auto;
+}
+
+/* Markdown content */
+.markdown-content pre {
+    background-color: #1f2937;
+    color: #e5e7eb;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    overflow-x: auto;
+}
+.markdown-content code {
+    background-color: #f3f4f6;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+.markdown-content pre code {
+    background-color: transparent;
+    padding: 0;
+}
