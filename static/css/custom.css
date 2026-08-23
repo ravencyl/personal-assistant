@@ -11,22 +11,28 @@
 
 /* Pill 形按钮/输入框/徽章 */
 button, .btn, input[type="submit"],
-input[type="text"], input[type="email"], input[type="password"], input[type="date"],
+input[type="text"], input[type="email"], input[type="password"],
 input[type="number"], input[type="search"], textarea, select {
-    border-radius: 9999px !important;
+    border-radius: 9999px;
 }
 
-/* 卡片保持圆角但去掉硬边框 */
+/* date 输入框保持适中圆角 */
+input[type="date"] {
+    border-radius: 0.5rem;
+}
+
+/* 卡片：轻阴影 + 微边框 */
 .app-card, .card {
-    border-radius: 1.25rem !important;
-    border: none !important;
-    box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border-radius: 1rem;
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px -4px rgba(0, 0, 0, 0.03);
+    transition: box-shadow 0.2s ease;
 }
 
-.app-card:hover, .card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.12), 0 4px 12px -4px rgba(0, 0, 0, 0.06) !important;
+@media (min-width: 768px) {
+    .app-card:hover, .card:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 24px -8px rgba(0, 0, 0, 0.06);
+    }
 }
 
 /* 主按钮用点缀色（仅 class="btn-accent" 的元素） */
@@ -41,14 +47,14 @@ input[type="number"], input[type="search"], textarea, select {
 
 /* 徽章 pill 形 */
 .badge, span.rounded-full {
-    border-radius: 9999px !important;
+    border-radius: 9999px;
 }
 
-/* 输入框内边距调整（pill 形需要更多水平空间） */
+/* 输入框内边距 */
 input[type="text"], input[type="email"], input[type="password"],
-input[type="date"], input[type="number"], input[type="search"], textarea {
-    padding-left: 1.25rem !important;
-    padding-right: 1.25rem !important;
+input[type="number"], input[type="search"], textarea {
+    padding-left: 1rem;
+    padding-right: 1rem;
 }
 
 /* 链接悬停动效 */

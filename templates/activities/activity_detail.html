@@ -3,7 +3,7 @@
 {% block title %}{{ activity.name }} - 活动记录{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-6">
+<div class="max-w-4xl mx-auto space-y-4 sm:space-y-6">
     <div>
         <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回列表</a>
     </div>
@@ -11,7 +11,7 @@
     <!-- 头部卡片：标题 + 进度条 + 快捷状态 -->
     <div class="app-card overflow-hidden">
         <div class="h-1.5 {% if activity.status == 'done' %}bg-green-500{% elif activity.status == 'in_progress' %}bg-amber-500{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-300{% endif %}"></div>
-        <div class="p-6">
+        <div class="p-4 sm:p-6">
             <div class="flex flex-wrap justify-between items-start gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-3 flex-wrap">
@@ -118,28 +118,28 @@
     </div>
 
     <!-- 统计卡片 -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div class="app-card p-4">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+        <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-zinc-500">累计费用</p>
-            <p class="mt-1 text-xl font-bold text-zinc-900">&#165;{{ activity.total_cost }}</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-900">&#165;{{ activity.total_cost }}</p>
         </div>
-        <div class="app-card p-4">
+        <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-zinc-500">自身费用</p>
-            <p class="mt-1 text-xl font-bold text-zinc-800">&#165;{{ activity.cost }}</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-800">&#165;{{ activity.cost }}</p>
         </div>
-        <div class="app-card p-4">
+        <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-zinc-500">子任务</p>
-            <p class="mt-1 text-xl font-bold text-zinc-800">{{ children|length }} <span class="text-sm font-normal text-zinc-400">个</span></p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-800">{{ children|length }} <span class="text-xs sm:text-sm font-normal text-zinc-400">个</span></p>
         </div>
-        <div class="app-card p-4">
+        <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-zinc-500">参与者</p>
-            <p class="mt-1 text-xl font-bold text-zinc-800">{{ participants|length }} <span class="text-sm font-normal text-zinc-400">人</span></p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-800">{{ participants|length }} <span class="text-xs sm:text-sm font-normal text-zinc-400">人</span></p>
         </div>
     </div>
 
     <!-- 描述 -->
     {% if activity.description %}
-    <div class="app-card p-6">
+    <div class="app-card p-4 sm:p-6">
         <h2 class="text-sm font-medium text-zinc-900 mb-3">活动描述</h2>
         <p class="text-sm text-zinc-600 whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
     </div>
@@ -147,7 +147,7 @@
 
     <!-- 参与者 -->
     {% if participants %}
-    <div class="app-card p-6">
+    <div class="app-card p-4 sm:p-6">
         <h2 class="text-sm font-medium text-zinc-900 mb-3">参与者（{{ participants|length }}）</h2>
         <div class="flex flex-wrap gap-2">
             {% for p in participants %}
@@ -162,7 +162,7 @@
     {% endif %}
 
     <!-- 子任务 -->
-    <div class="app-card p-6">
+    <div class="app-card p-4 sm:p-6">
         <h2 class="text-sm font-medium text-zinc-900 mb-3">子任务（{{ children|length }}）</h2>
         <!-- 快速记一笔：一句话解析后预览确认创建子任务 -->
         <div class="mb-4">

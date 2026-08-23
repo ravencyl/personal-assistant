@@ -9,23 +9,12 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <link rel="stylesheet" href="{% static 'css/custom.css' %}">
     <style>
-        /* 暖调背景：顶部淡淡一层暖色渐隐，避免纯灰的「系统感」 */
+        /* 暖调背景 */
         body {
             min-height: 100%;
             background-color: #fafaf9;
-            background-image: linear-gradient(180deg, rgba(254, 235, 200, 0.4) 0%, rgba(254, 243, 199, 0.12) 14rem, rgba(250, 250, 249, 0) 26rem);
+            background-image: linear-gradient(180deg, rgba(254, 235, 200, 0.35) 0%, rgba(254, 243, 199, 0.10) 12rem, rgba(250, 250, 249, 0) 22rem);
             background-repeat: no-repeat;
-        }
-        .app-card {
-            background-color: #fff;
-            border-radius: 1.25rem;
-            box-shadow: 0 4px 24px -8px rgba(0,0,0,0.06), 0 2px 8px -2px rgba(0,0,0,0.03);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .app-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 32px -8px rgba(0,0,0,0.10), 0 4px 12px -4px rgba(0,0,0,0.05);
-        }
         }
     </style>
     {% block extra_head %}{% endblock %}

@@ -5,18 +5,24 @@
 {% block content %}
 <div class="max-w-7xl mx-auto">
     <!-- 顶部导航栏 -->
-    <div class="flex items-center justify-between mb-6">
-        <div class="flex items-center gap-4">
+    <div class="flex items-center justify-between mb-4 sm:mb-6">
+        <div class="flex items-center gap-3">
             <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 列表</a>
-            <h1 class="text-xl sm:text-2xl font-bold text-zinc-900">{{ month_name }}</h1>
+            <h1 class="text-lg sm:text-2xl font-bold text-zinc-900">{{ month_name }}</h1>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5">
             <a href="?year={{ prev_year }}&month={{ prev_month }}"
-               class="rounded-full bg-white border border-zinc-100 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors">&larr; 上月</a>
+               class="inline-flex items-center justify-center w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5 rounded-full bg-white border border-zinc-100 text-zinc-600 hover:bg-zinc-50 transition-colors" title="上月">
+                <svg class="w-4 h-4 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                <span class="hidden sm:inline text-sm">&larr; 上月</span>
+            </a>
             <a href="?year={{ today.year }}&month={{ today.month }}"
                class="btn-accent rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-opacity">今天</a>
             <a href="?year={{ next_year }}&month={{ next_month }}"
-               class="rounded-full bg-white border border-zinc-100 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors">下月 &rarr;</a>
+               class="inline-flex items-center justify-center w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5 rounded-full bg-white border border-zinc-100 text-zinc-600 hover:bg-zinc-50 transition-colors" title="下月">
+                <svg class="w-4 h-4 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                <span class="hidden sm:inline text-sm">下月 &rarr;</span>
+            </a>
         </div>
     </div>
 
@@ -35,10 +41,10 @@
         <div class="grid grid-cols-7">
             {% for week in weeks %}
                 {% for day in week %}
-                <div class="min-h-[100px] sm:min-h-[120px] border-b border-r border-zinc-100 p-1.5 {% if not day.in_month %}bg-zinc-50/50{% endif %} {% if day.is_today %}bg-amber-50/30{% endif %}">
+                <div class="min-h-[60px] sm:min-h-[120px] border-b border-r border-zinc-100 p-1 {% if not day.in_month %}bg-zinc-50/50{% endif %} {% if day.is_today %}bg-amber-50/30{% endif %}">
                     <!-- 日期数字 -->
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="text-xs sm:text-sm {% if day.is_today %}font-bold text-amber-600{% elif day.in_month %}text-zinc-700{% else %}text-zinc-300{% endif %}">
+                    <div class="flex items-center justify-between mb-0.5">
+                        <span class="text-[10px] sm:text-sm {% if day.is_today %}font-bold text-amber-600{% elif day.in_month %}text-zinc-700{% else %}text-zinc-300{% endif %}">
                             {{ day.day }}
                         </span>
                         {% if day.is_today %}
@@ -92,7 +98,7 @@
             items.forEach(function (a) {
                 var block = document.createElement('a');
                 block.href = a.url;
-                block.className = 'block rounded-full px-1.5 py-0.5 text-xs text-white truncate hover:opacity-80 transition-opacity';
+                block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs text-white truncate hover:opacity-80 transition-opacity';
                 block.style.backgroundColor = a.color;
                 block.title = a.name + ' (' + a.status_label + ')';
                 block.textContent = a.name;
@@ -113,12 +119,4 @@
 })();
 </script>
 
-<style>
-/* 移动端优化：小屏幕下减小格子高度 */
-@media (max-width: 640px) {
-    .min-h-\\[100px\\] {
-        min-height: 80px;
-    }
-}
-</style>
 {% endblock %}

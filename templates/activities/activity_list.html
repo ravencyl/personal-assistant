@@ -3,48 +3,63 @@
 {% block title %}活动记录 - Personal AI Assistant{% endblock %}
 
 {% block content %}
-<!-- 问候头部：大字号 + 头像 + 个性化问候 -->
-<div class="flex items-center justify-between gap-6 mb-8 fade-in">
-    <div class="flex items-center gap-4 min-w-0">
-        <!-- 头像占位（首字母） -->
-        <div class="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-white shrink-0"
-             style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
-            {{ user.username|slice:":1"|upper }}
-        </div>
-        <div class="min-w-0">
-            <p class="text-sm text-zinc-400 mb-0.5">{{ today_display }}</p>
-            <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 truncate">{{ greeting }}，{{ user.username }}</h1>
-            {% if ongoing_count or today_count %}
-            <p class="mt-2 text-base text-zinc-500">
-                {% if ongoing_count %}<span class="font-semibold text-amber-600">{{ ongoing_count }}</span> 项进行中{% endif %}
-                {% if ongoing_count and today_count %} · {% endif %}
-                {% if today_count %}<span class="font-semibold text-amber-600">{{ today_count }}</span> 项覆盖今天{% endif %}
-            </p>
-            {% endif %}
+<!-- 问候头部：移动端堆叠，桌面端横排 -->
+<div class="mb-6 sm:mb-8 fade-in">
+    <!-- 移动端：简洁问候 -->
+    <div class="sm:hidden">
+        <p class="text-xs text-zinc-400 mb-1">{{ today_display }}</p>
+        <h1 class="text-2xl font-bold tracking-tight text-zinc-900">{{ greeting }}，{{ user.username }}</h1>
+        {% if ongoing_count or today_count %}
+        <p class="mt-1.5 text-sm text-zinc-500">
+            {% if ongoing_count %}<span class="font-semibold text-amber-600">{{ ongoing_count }}</span> 项进行中{% endif %}
+            {% if ongoing_count and today_count %} · {% endif %}
+            {% if today_count %}<span class="font-semibold text-amber-600">{{ today_count }}</span> 项覆盖今天{% endif %}
+        </p>
+        {% endif %}
+        <div class="flex gap-2 mt-4">
+            <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white shadow-sm border border-zinc-100 text-zinc-600" title="日历">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </a>
+            <a href="{% url 'activities:activity_create' %}" class="btn-accent inline-flex items-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-md">+ 新建</a>
         </div>
     </div>
-    <div class="flex items-center gap-3 shrink-0">
-        <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center rounded-full bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 shadow-md" title="日历视图">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 sm:mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-            <span class="hidden sm:inline">日历</span>
-        </a>
-        <a href="{% url 'activities:activity_create' %}" class="btn-accent inline-flex items-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl transition-all">
-            + 新建活动
-        </a>
+    <!-- 桌面端：横排 -->
+    <div class="hidden sm:flex items-center justify-between gap-6">
+        <div class="flex items-center gap-4 min-w-0">
+            <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white shrink-0" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                {{ user.username|slice:":1"|upper }}
+            </div>
+            <div class="min-w-0">
+                <p class="text-sm text-zinc-400 mb-0.5">{{ today_display }}</p>
+                <h1 class="text-2xl font-bold tracking-tight text-zinc-900 truncate">{{ greeting }}，{{ user.username }}</h1>
+                {% if ongoing_count or today_count %}
+                <p class="mt-1 text-sm text-zinc-500">
+                    {% if ongoing_count %}<span class="font-semibold text-amber-600">{{ ongoing_count }}</span> 项进行中{% endif %}
+                    {% if ongoing_count and today_count %} · {% endif %}
+                    {% if today_count %}<span class="font-semibold text-amber-600">{{ today_count }}</span> 项覆盖今天{% endif %}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+            <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center rounded-full bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 shadow-sm border border-zinc-100" title="日历视图">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                日历
+            </a>
+            <a href="{% url 'activities:activity_create' %}" class="btn-accent inline-flex items-center rounded-full px-5 py-2 text-sm font-semibold text-white shadow-sm">+ 新建活动</a>
+        </div>
     </div>
 </div>
 
 <!-- 快速输入：pill 形输入框 + 点缀色按钮 -->
-<div class="app-card mb-6 p-5">
-    <div class="flex gap-3">
+<div class="app-card mb-5 sm:mb-6 p-3 sm:p-5">
+    <div class="flex gap-2 sm:gap-3">
         <input type="text" id="quick-input" maxlength="500"
-               placeholder="✏️ 快速记一笔，如：8月25到28日去上海出差 预算3000 #工作 @小王"
+               placeholder="✏️ 快速记一笔…"
                autocomplete="off"
-               class="flex-1 bg-zinc-50 border-0 py-3 text-base focus:bg-white focus:ring-2 focus:ring-amber-400 focus:outline-none transition-all">
+               class="flex-1 bg-zinc-50 border-0 py-2.5 sm:py-3 text-sm sm:text-base focus:bg-white focus:ring-2 focus:ring-amber-400 focus:outline-none transition-all">
         <button type="button" id="quick-parse-btn"
-                class="btn-accent shrink-0 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all">
+                class="btn-accent shrink-0 px-4 sm:px-6 py-2.5 sm:py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-md">
             解析
         </button>
     </div>
@@ -242,9 +257,9 @@
 </div>
 
 <!-- 移动端卡片列表 -->
-<div class="md:hidden space-y-3">
+<div class="md:hidden space-y-2">
     {% for activity in activities %}
-    <div class="tree-row app-card p-4" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+    <div class="tree-row app-card p-3" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <div class="flex items-center justify-between gap-3 mb-1.5">
             <div class="flex items-center gap-1.5 min-w-0" style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">
