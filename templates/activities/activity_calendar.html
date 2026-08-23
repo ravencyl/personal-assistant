@@ -41,14 +41,14 @@
         <div class="grid grid-cols-7">
             {% for week in weeks %}
                 {% for day in week %}
-                <div class="min-h-[60px] sm:min-h-[120px] border-b border-r border-zinc-100 p-1 {% if not day.in_month %}bg-zinc-50/50{% endif %} {% if day.is_today %}bg-amber-50/30{% endif %}">
+                <div class="min-h-[60px] sm:min-h-[120px] border-b border-r border-zinc-100 p-1 {% if not day.in_month %}bg-zinc-50/50{% endif %} {% if day.is_today %}bg-zinc-100{% endif %}">
                     <!-- 日期数字 -->
                     <div class="flex items-center justify-between mb-0.5">
-                        <span class="text-[10px] sm:text-sm {% if day.is_today %}font-bold text-amber-600{% elif day.in_month %}text-zinc-700{% else %}text-zinc-300{% endif %}">
+                        <span class="text-[10px] sm:text-sm {% if day.is_today %}font-bold text-zinc-900{% elif day.in_month %}text-zinc-700{% else %}text-zinc-300{% endif %}">
                             {{ day.day }}
                         </span>
                         {% if day.is_today %}
-                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-zinc-900"></span>
                         {% endif %}
                     </div>
                     <!-- 活动色块容器 -->
@@ -61,7 +61,7 @@
 
     <!-- 图例 -->
     <div class="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-500">
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f59e0b"></span>进行中</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#18181b"></span>进行中</span>
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#a1a1aa"></span>计划</span>
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#22c55e"></span>已完成</span>
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f87171"></span>已取消</span>

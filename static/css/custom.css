@@ -1,12 +1,12 @@
 /* Custom styles */
 
-/* ===== 全局设计系统：温暖圆润 + 极简留白 + 活泼个性 ===== */
+/* ===== 全局设计系统：黑白极简 ===== */
 
-/* 点缀色变量（琥珀橙） */
+/* 点缀色变量（黑） */
 :root {
-    --accent: #f59e0b;
-    --accent-hover: #d97706;
-    --accent-light: #fef3c7;
+    --accent: #18181b;
+    --accent-hover: #000000;
+    --accent-light: #f4f4f5;
 }
 
 /* Pill 形按钮/输入框/徽章 */
