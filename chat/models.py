@@ -58,6 +58,10 @@ class Message(models.Model):
     )
     content = models.TextField()
     event_type = models.CharField(max_length=50, blank=True)
+    payload = models.JSONField(
+        null=True, blank=True,
+        help_text='结构化卡片协议：{"card": "activity|activity_list|...", "activity_ids": [...], "action": {...}}',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

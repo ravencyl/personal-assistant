@@ -1,8 +1,13 @@
 {% for msg in widget_messages %}
-<div class="flex {% if msg.role == 'user' %}justify-end{% else %}justify-start{% endif %}">
+<div class="flex flex-col {% if msg.role == 'user' %}items-end{% else %}items-start{% endif %}">
     <div class="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap {% if msg.role == 'user' %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-800{% endif %}">
         {{ msg.content }}
     </div>
+    {% if msg.payload %}
+    <div class="w-[95%]">
+        {% include "chat/cards/_card.html" %}
+    </div>
+    {% endif %}
 </div>
 {% empty %}
 <p class="text-center text-sm text-zinc-400 py-6">发送消息开始对话</p>

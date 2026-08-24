@@ -1,0 +1,6 @@
+{% comment %}对话内卡片分发：按 msg.payload.card 类型渲染对应卡片，无 payload 时静默跳过{% endcomment %}
+{% if msg.payload and msg.payload.card == 'activity' and msg.payload.card_data %}
+    {% include "chat/cards/activity_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'activity_list' and msg.payload.card_data %}
+    {% include "chat/cards/activity_list_card.html" with card=msg.payload.card_data list_url=msg.payload.list_url %}
+{% endif %}

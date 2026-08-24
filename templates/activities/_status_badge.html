@@ -1,0 +1,6 @@
+{% comment %}共享状态徽章：{% include "activities/_status_badge.html" with status=xxx label=xxx %}{% endcomment %}
+<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap
+    {% if status == 'planned' %}bg-zinc-100 text-zinc-600
+    {% elif status == 'in_progress' %}bg-zinc-900 text-white
+    {% elif status == 'done' %}bg-green-100 text-green-700
+    {% else %}bg-red-100 text-red-600{% endif %}">{{ label }}</span>

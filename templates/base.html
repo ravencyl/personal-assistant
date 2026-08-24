@@ -270,6 +270,12 @@
                 .then(function (html) {
                     messagesEl.insertAdjacentHTML('beforeend', html);
                     input.value = '';
+                    // 对话中变更了活动数据：移除后端附带的标记并广播事件，宿主页面据此提示刷新
+                    var marker = messagesEl.querySelector('[data-activity-changed]');
+                    if (marker) {
+                        marker.remove();
+                        document.dispatchEvent(new CustomEvent('activities:changed'));
+                    }
                     scrollBottom();
                 })
                 .catch(function (err) { alert(err.message); })
@@ -282,6 +288,29 @@
     })();
     </script>
     {% endif %}
+
+    <!-- 活动数据变更提示条：AI 对话修改活动后由宿主页面监听 activities:changed 显示 -->
+    <div id="activity-refresh-bar" class="hidden fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50
+         flex items-center gap-3 rounded-full bg-zinc-900 text-white pl-4 pr-2 py-2 shadow-lg text-sm">
+        <span>活动数据已更新</span>
+        <button type="button" onclick="location.reload()"
+                class="rounded-full bg-white text-zinc-900 px-3 py-1 text-xs font-medium hover:bg-zinc-100">刷新页面</button>
+        <button type="button" onclick="this.parentElement.classList.add('hidden')"
+                class="text-zinc-400 hover:text-white px-1" title="关闭">&times;</button>
+    </div>
+    <script>
+    document.addEventListener('activities:changed', function () {
+        document.getElementById('activity-refresh-bar').classList.remove('hidden');
+    });
+    // HTMX 响应中的变更标记（完整版对话页等非浮窗链路）
+    document.addEventListener('htmx:afterSwap', function (e) {
+        var marker = e.detail.target.querySelector('[data-activity-changed]');
+        if (marker) {
+            marker.remove();
+            document.getElementById('activity-refresh-bar').classList.remove('hidden');
+        }
+    });
+    </script>
 
     {% block extra_js %}{% endblock %}
 </body>

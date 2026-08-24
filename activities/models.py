@@ -69,6 +69,14 @@ class Activity(models.Model):
         related_name='children',
         verbose_name='父活动'
     )
+    source_message = models.ForeignKey(
+        'chat.Message',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='created_activities',
+        verbose_name='来源对话消息'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

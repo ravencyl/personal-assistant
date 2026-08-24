@@ -257,6 +257,33 @@ def _normalize(data, today):
     return out
 
 
+def filter_activities(user, params):
+    """按条件筛选活动，返回 queryset（列表视图与 Agent 查询工具共用）
+
+    params 支持：status / tag / date_from / date_to / name，非法值静默忽略。
+    日期筛选与列表页一致：按活动开始日期是否落在区间内。
+    """
+    qs = visible_qs(Activity, user).prefetch_related('tags')
+    status = params.get('status')
+    if status in dict(Activity.STATUS_CHOICES):
+        qs = qs.filter(status=status)
+    tag = str(params.get('tag') or '').strip()
+    if tag:
+        qs = qs.filter(tags__name=tag)
+    for key, lookup in (('date_from', 'gte'), ('date_to', 'lte')):
+        value = str(params.get(key) or '').strip()[:10]
+        if value:
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                continue
+            qs = qs.filter(**{f'start_date__{lookup}': value})
+    name = str(params.get('name') or '').strip()
+    if name:
+        qs = qs.filter(name__icontains=name)
+    return qs
+
+
 @login_required
 @ensure_csrf_cookie
 def activity_list(request):
@@ -282,16 +309,12 @@ def activity_list(request):
     ))
 
     # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
-    matched = Activity.objects.filter(id__in=[a.id for a in all_activities])
-    if status_filter:
-        matched = matched.filter(status=status_filter)
-    if tag_filter:
-        matched = matched.filter(tags__name=tag_filter)
-    # 日期筛选：按活动开始日期是否落在区间内
-    if date_from:
-        matched = matched.filter(start_date__gte=date_from)
-    if date_to:
-        matched = matched.filter(start_date__lte=date_to)
+    matched = filter_activities(request.user, {
+        'status': status_filter,
+        'tag': tag_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+    })
 
     has_filter = bool(status_filter or tag_filter or date_from or date_to)
 

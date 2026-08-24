@@ -26,6 +26,7 @@
                 <span class="text-xs text-zinc-400">{{ msg.created_at|timesince }} 前</span>
             </div>
             <div class="markdown-content text-sm text-zinc-800 whitespace-pre-wrap">{{ msg.content }}</div>
+            {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
         </div>
     </div>
     {% empty %}

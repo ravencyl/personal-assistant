@@ -1,5 +1,7 @@
 import logging
 
+import httpx
+
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
@@ -9,6 +11,7 @@ from django.db import models
 from .models import Conversation, Message
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
+from core.agent_registry import build_protocol_prompt, orchestrator
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
@@ -105,6 +108,12 @@ def create_conversation(request):
             status='idle',
         )
 
+        # 首帧下发意图协议指令（失败不阻断，降级为普通对话）
+        try:
+            service.send_message(session_data['id'], build_protocol_prompt())
+        except Exception as e:
+            logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
+
         if request.htmx:
             return JsonResponse({
                 'conversation_id': conversation.id,
@@ -137,23 +146,36 @@ def send_message(request, conversation_id):
     # 发送到 Qoder
     service = get_service()
     try:
-        service.send_message(conversation.session_id, content)
+        try:
+            service.send_message(conversation.session_id, content)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 409:
+                raise
+            # 409：session 正忙（通常是首帧协议指令还在处理）；等它结束再重发
+            logger.info(f'会话 {conversation.id} 发送 409，等待上一轮结束后重发')
+            service.wait_for_response(conversation.session_id, timeout=60)
+            service.send_message(conversation.session_id, content)
         conversation.status = 'processing'
         conversation.save(update_fields=['status', 'updated_at'])
 
-        # 收集 assistant 响应（返回本轮创建的 Message，超时/无响应为 None）
-        assistant_msg = _collect_response(service, conversation)
+        # 收集 assistant 响应（返回 (Message|None, 活动数据是否变更)）
+        assistant_msg, changed = _collect_response(service, conversation)
 
         # HTMX 请求返回 HTML 片段（含用户消息 + AI 回复），普通请求返回 JSON
         if request.htmx:
             pair = [m for m in [user_msg, assistant_msg] if m]
-            return render(request, 'chat/partials/message_pair.html', {
+            response = render(request, 'chat/partials/message_pair.html', {
                 'messages_pair': pair,
             })
+            # 对话中变更了活动数据：附标记，浮窗 JS 据此通知宿主页面刷新
+            if changed:
+                response.content += b'<div data-activity-changed hidden></div>'
+            return response
 
         return JsonResponse({
             'success': True,
             'response': assistant_msg.content if assistant_msg else '(无响应)',
+            'activity_changed': changed,
         })
     except Exception as e:
         logger.error(f'Failed to send message: {e}')
@@ -163,17 +185,27 @@ def send_message(request, conversation_id):
 
 
 def _collect_response(service, conversation):
-    """等待并落库 AI 响应，返回本轮创建的 Message（超时/无响应返回 None）"""
+    """等待 AI 响应 → 编排器解析意图并执行工具 → 落库，返回 (Message|None, 活动是否变更)"""
     assistant_text = service.wait_for_response(conversation.session_id, timeout=120)
 
     assistant_msg = None
+    changed = False
     if assistant_text:
+        content, payload, changed = orchestrator.process(conversation.user, assistant_text)
         assistant_msg = Message.objects.create(
             conversation=conversation,
             role='assistant',
-            content=assistant_text,
-            event_type='assistant.message'
+            content=content,
+            event_type='assistant.message',
+            payload=payload,
         )
+        # 回填对话创建的活动来源消息（哪条消息创建了哪个活动）
+        if payload and payload.get('created_activity_ids'):
+            from activities.models import Activity
+            Activity.objects.filter(
+                id__in=payload['created_activity_ids'],
+                user=conversation.user,
+            ).update(source_message=assistant_msg)
 
     conversation.status = 'idle'
     conversation.save(update_fields=['status', 'updated_at'])
@@ -185,7 +217,7 @@ def _collect_response(service, conversation):
             conversation.title = first_user_msg.content[:50]
             conversation.save(update_fields=['title'])
 
-    return assistant_msg
+    return assistant_msg, changed
 
 
 @login_required
