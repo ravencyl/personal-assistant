@@ -9,3 +9,4 @@ static/
 dist/
 build/
 .DS_Store
+.qoder/
