@@ -12,7 +12,7 @@
     <div class="app-card overflow-hidden">
         <div class="h-1.5 {% if activity.status == 'done' %}bg-green-500{% elif activity.status == 'in_progress' %}bg-zinc-900{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-300{% endif %}"></div>
         <div class="p-4 sm:p-6">
-            <div class="flex flex-wrap justify-between items-start gap-4">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-3 flex-wrap">
                         <h1 class="text-2xl font-bold text-zinc-900">{{ activity.name }}</h1>
@@ -40,54 +40,20 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="flex gap-2 shrink-0">
+                <!-- 操作区：移动端撑满一行，桌面端居右 -->
+                <div class="flex gap-2 w-full sm:w-auto shrink-0">
                     <a href="{% url 'activities:activity_edit' activity.id %}"
-                       class="btn-accent rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity">编辑</a>
+                       class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-full bg-zinc-900 hover:bg-black px-4 py-2 text-sm font-medium text-white transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/></svg>
+                        编辑</a>
                     <form method="post" action="{% url 'activities:activity_delete' activity.id %}"
+                          class="flex-1 sm:flex-none"
                           onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空。')">
                         {% csrf_token %}
-                        <button type="submit" class="rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors">删除</button>
+                        <button type="submit" class="w-full rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors">删除</button>
                     </form>
                 </div>
             </div>
-
-            <!-- 进度条 -->
-            {% if activity.status == 'cancelled' %}
-            <div class="mt-6 flex items-center gap-3 rounded-lg bg-zinc-50 border border-zinc-200 px-4 py-3">
-                <span class="text-zinc-400 text-lg">&#8856;</span>
-                <p class="text-sm text-zinc-500">该活动已取消，进度不再推进</p>
-            </div>
-            {% else %}
-            <div class="mt-6">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs font-medium text-zinc-500">活动进度</span>
-                    <span class="text-xs font-medium {% if activity.status == 'done' %}text-green-600{% elif activity.status == 'in_progress' %}text-zinc-600{% else %}text-zinc-400{% endif %}">
-                        {% if activity.status == 'done' %}100%{% elif activity.status == 'in_progress' %}50%{% else %}0%{% endif %}
-                    </span>
-                </div>
-                <div class="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                    <div class="h-full rounded-full transition-all duration-500
-                         {% if activity.status == 'done' %}bg-green-500 w-full
-                         {% elif activity.status == 'in_progress' %}bg-zinc-900 w-1/2
-                         {% else %}bg-zinc-300{% endif %}"
-                         {% if activity.status == 'planned' %}style="width: 4%"{% endif %}></div>
-                </div>
-                <div class="flex justify-between mt-2">
-                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'planned' %}text-zinc-800 font-medium{% else %}text-zinc-400{% endif %}">
-                        <span class="w-2 h-2 rounded-full {% if activity.status == 'planned' %}bg-zinc-400{% elif activity.status == 'in_progress' or activity.status == 'done' %}bg-green-400{% else %}bg-zinc-300{% endif %}"></span>
-                        计划
-                    </span>
-                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'in_progress' %}text-zinc-800 font-medium{% else %}text-zinc-400{% endif %}">
-                        <span class="w-2 h-2 rounded-full {% if activity.status == 'in_progress' %}bg-zinc-900{% elif activity.status == 'done' %}bg-green-400{% else %}bg-zinc-300{% endif %}"></span>
-                        进行中
-                    </span>
-                    <span class="flex items-center gap-1.5 text-xs {% if activity.status == 'done' %}text-zinc-800 font-medium{% else %}text-zinc-400{% endif %}">
-                        <span class="w-2 h-2 rounded-full {% if activity.status == 'done' %}bg-green-500{% else %}bg-zinc-300{% endif %}"></span>
-                        完成
-                    </span>
-                </div>
-            </div>
-            {% endif %}
 
             <!-- 快捷状态按钮 -->
             <div class="mt-6 pt-4 border-t border-zinc-100">
