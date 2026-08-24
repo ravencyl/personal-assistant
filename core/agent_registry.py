@@ -26,6 +26,9 @@ INTENT_TOOL_MAP = {
     'status_change': 'activities.set_status',
     'query': 'activities.query',
     'get': 'activities.get',
+    'update': 'activities.update',
+    'delete': 'activities.delete',
+    'stats': 'activities.stats',
 }
 
 
@@ -33,14 +36,25 @@ class ToolError(Exception):
     """工具希望向用户暴露的可读错误（编排器转为友好回复）"""
 
 
-def agent_tool(name, description, params_hint=''):
+class CandidateToolError(ToolError):
+    """目标不唯一时携带候选列表，编排器渲染候选卡片供用户辨认"""
+
+    def __init__(self, message, candidates=None):
+        super().__init__(message)
+        self.candidates = candidates or []
+
+
+def agent_tool(name, description, params_hint='', apply_fn=None):
     """注册一个 Agent 工具。fn 签名：fn(user, params: dict) -> dict
 
     返回约定：{'reply': 自然语言, 'card': 卡片类型, 'activity_ids': [...],
-               'card_data': 卡片快照数据, 'list_url': 列表页链接, 'changed': 是否写操作}
+               'card_data': 卡片快照数据, 'list_url': 列表页链接, 'changed': 是否写操作,
+               'action': 待确认动作 {'tool', 'params'}（两步确认流）}
+    apply_fn：两步确认流中确认后的实际执行函数，签名同 fn。
     """
     def deco(fn):
-        _REGISTRY[name] = {'fn': fn, 'description': description, 'params_hint': params_hint}
+        _REGISTRY[name] = {'fn': fn, 'description': description,
+                           'params_hint': params_hint, 'apply': apply_fn}
         return fn
     return deco
 
@@ -115,6 +129,11 @@ class ChatOrchestrator:
 
         try:
             result = tool['fn'](user, params) or {}
+        except CandidateToolError as e:
+            logger.info(f'Agent 工具 {tool_name} 需要用户澄清: {e}')
+            return (f'{reply}\n\n⚠️ {e}'.strip(),
+                    {'card': 'candidates', 'activity_ids': [],
+                     'card_data': {'hint': str(e), 'items': e.candidates}}, False)
         except ToolError as e:
             logger.warning(f'Agent 工具 {tool_name} 业务错误: {e}')
             return f'{reply}\n\n⚠️ {e}'.strip(), None, False
@@ -132,6 +151,9 @@ class ChatOrchestrator:
                 payload['card_data'] = result['card_data']
             if 'list_url' in result:
                 payload['list_url'] = result['list_url']
+            if 'action' in result:
+                # 待确认动作：token 由消息落库后回填（令牌含 message_id）
+                payload['action'] = result['action']
         if result.get('created'):
             payload = payload or {'card': '', 'activity_ids': []}
             payload['created_activity_ids'] = result.get('activity_ids', [])

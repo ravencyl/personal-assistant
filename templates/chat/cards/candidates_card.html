@@ -1,0 +1,16 @@
+{% comment %}澄清候选卡片：目标不唯一时列出候选活动供用户辨认{% endcomment %}
+<div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
+    <div class="space-y-1.5">
+        {% for item in card.items %}
+        <div class="flex items-center gap-2 text-sm min-w-0">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0 {% if item.status == 'in_progress' %}bg-zinc-900{% elif item.status == 'done' %}bg-green-500{% elif item.status == 'cancelled' %}bg-red-400{% else %}bg-zinc-300{% endif %}"></span>
+            <a href="{{ item.detail_url }}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
+            <span class="text-xs text-zinc-400 shrink-0">{{ item.status_label }}</span>
+            <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{{ item.date_label }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    <p class="mt-2 pt-2 border-t border-zinc-100 text-xs text-zinc-400">
+        请说得更具体些（比如完整名称或日期），也可以点上方名称打开详情直接修改。
+    </p>
+</div>

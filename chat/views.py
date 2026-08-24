@@ -1,8 +1,9 @@
+import hmac
 import logging
 
 import httpx
 
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -11,7 +12,8 @@ from django.db import models
 from .models import Conversation, Message
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
-from core.agent_registry import build_protocol_prompt, orchestrator
+from core.agent_registry import (build_protocol_prompt, get_tool,
+                                 make_action_token, orchestrator)
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
@@ -199,6 +201,11 @@ def _collect_response(service, conversation):
             event_type='assistant.message',
             payload=payload,
         )
+        # 待确认动作回填 HMAC 令牌（令牌含 message_id，只能在落库后生成）
+        if payload and payload.get('action'):
+            payload['action']['token'] = make_action_token(
+                conversation.user, assistant_msg.id, 'confirm')
+            assistant_msg.save(update_fields=['payload'])
         # 回填对话创建的活动来源消息（哪条消息创建了哪个活动）
         if payload and payload.get('created_activity_ids'):
             from activities.models import Activity
@@ -218,6 +225,59 @@ def _collect_response(service, conversation):
             conversation.save(update_fields=['title'])
 
     return assistant_msg, changed
+
+
+@login_required
+@require_POST
+def confirm_action(request, message_id):
+    """两步确认流：校验 HMAC 令牌后执行待确认动作（update / delete）"""
+    message = get_object_or_404(Message, id=message_id,
+                                conversation__user=request.user)
+    payload = message.payload or {}
+    action = payload.get('action') or {}
+
+    def _render():
+        response = render(request, 'chat/cards/_confirm_actions.html', {
+            'msg': message,
+            'action': action,
+            'card': payload.get('card_data') or {},
+        })
+        # 确认后变更了活动数据：附标记，宿主页面据此提示/自动刷新
+        if action.get('resolved') == 'confirmed' and action.get('changed'):
+            response.content += b'<div data-activity-changed hidden></div>'
+        return response
+
+    if action.get('resolved'):
+        return _render()
+
+    if request.POST.get('decision') == 'cancel':
+        action['resolved'] = 'cancelled'
+        message.payload = payload
+        message.save(update_fields=['payload'])
+        return _render()
+
+    token = request.POST.get('token', '')
+    expected = make_action_token(request.user, message.id, 'confirm')
+    tool = get_tool(action.get('tool') or '')
+    if not hmac.compare_digest(token, expected) or not tool or not tool.get('apply'):
+        action['resolved'] = 'failed'
+        action['result'] = '确认无效或已过期，请重新发送消息再试'
+        message.payload = payload
+        message.save(update_fields=['payload'])
+        return _render()
+
+    try:
+        result = tool['apply'](request.user, action.get('params') or {}) or {}
+        action['resolved'] = 'confirmed'
+        action['result'] = result.get('reply') or '操作完成'
+        action['changed'] = bool(result.get('changed'))
+    except Exception as e:
+        logger.error(f'确认动作执行失败（消息 {message.id}）: {e}')
+        action['resolved'] = 'failed'
+        action['result'] = '执行失败，请稍后重试'
+    message.payload = payload
+    message.save(update_fields=['payload'])
+    return _render()
 
 
 @login_required

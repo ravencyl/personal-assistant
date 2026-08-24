@@ -3,4 +3,10 @@
     {% include "chat/cards/activity_card.html" with card=msg.payload.card_data %}
 {% elif msg.payload and msg.payload.card == 'activity_list' and msg.payload.card_data %}
     {% include "chat/cards/activity_list_card.html" with card=msg.payload.card_data list_url=msg.payload.list_url %}
+{% elif msg.payload and msg.payload.card == 'confirm' and msg.payload.card_data %}
+    {% include "chat/cards/confirm_card.html" with card=msg.payload.card_data action=msg.payload.action %}
+{% elif msg.payload and msg.payload.card == 'stats' and msg.payload.card_data %}
+    {% include "chat/cards/stats_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'candidates' and msg.payload.card_data %}
+    {% include "chat/cards/candidates_card.html" with card=msg.payload.card_data %}
 {% endif %}

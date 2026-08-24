@@ -1,19 +1,22 @@
-"""活动 Agent 工具集（P0：query / get / set_status / create）
+"""活动 Agent 工具集（P0：query/get/set_status/create；P1：update/delete/stats）
 
 注册到 core.agent_registry，由对话编排器按意图分发调用。
 约定：权限一律经 visible_qs / get_visible；写操作强制 log_activity；
-目标不明确时抛 ToolError 让用户澄清，绝不猜测。
+目标不明确时抛 ToolError / CandidateToolError 让用户澄清，绝不猜测；
+update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
 from urllib.parse import urlencode
 
+from django.db.models import Count, Sum
 from django.urls import reverse
 from django.utils import timezone
 
-from core.agent_registry import ToolError, agent_tool
-from core.utils import visible_qs
+from core.agent_registry import CandidateToolError, ToolError, agent_tool
+from core.utils import get_visible, visible_qs
 
 from .models import Activity, Participant
-from .views import _normalize, filter_activities, log_activity
+from .views import (_edit_summary, _fmt, _normalize, _snapshot,
+                    filter_activities, log_activity)
 
 STATUS_LABELS = dict(Activity.STATUS_CHOICES)
 
@@ -60,7 +63,7 @@ def _activity_card_data(activity):
 
 
 def _resolve_single(user, target):
-    """按名称关键词定位唯一活动；0 条或多条都要求用户澄清"""
+    """按名称关键词定位唯一活动；0 条报错，多条抛候选列表供用户辨认"""
     target = str(target or '').strip()
     if not target:
         raise ToolError('请告诉我目标活动的名称')
@@ -69,9 +72,23 @@ def _resolve_single(user, target):
     if count == 0:
         raise ToolError(f'没有找到名称包含「{target}」的活动')
     if count > 1:
-        names = '、'.join(qs.values_list('name', flat=True)[:5])
-        raise ToolError(f'匹配到多个活动：{names}，请说得更具体些')
+        candidates = [{
+            'id': a.id,
+            'name': a.name,
+            'status': a.status,
+            'status_label': a.get_status_display(),
+            'date_label': (a.start_date or a.end_date).strftime('%m-%d') if (a.start_date or a.end_date) else '未设定',
+            'detail_url': reverse('activities:activity_detail', args=[a.id]),
+        } for a in qs[:5]]
+        raise CandidateToolError(
+            f'匹配到 {count} 个活动，请告诉我具体是哪一个（也可以直接打开详情修改）',
+            candidates)
     return qs.first()
+
+
+def _resolve_by_id(user, target_id):
+    """确认流执行阶段按 id 精确定位（预览时已锁定目标，避免二次匹配歧义）"""
+    return get_visible(Activity, user, id=target_id)
 
 
 @agent_tool('activities.query', '按条件查询活动列表',
@@ -190,4 +207,202 @@ def tool_create(user, params):
         'card_data': _activity_card_data(activity),
         'changed': True,
         'created': True,
+    }
+
+
+# ==================== P1：两步确认流（update / delete）====================
+
+_UPDATE_FIELD_LABELS = [
+    ('name', '名称'), ('start_date', '开始日期'), ('end_date', '结束日期'),
+    ('status', '状态'), ('cost', '费用'),
+]
+
+
+def _update_preview(user, params):
+    """预览阶段：定位目标 + 清洗参数 + 生成变更 diff（不写库）"""
+    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    # name 在协议中兼任定位关键词：与目标名一致时不作为改名
+    p = dict(params)
+    if str(p.get('name') or '').strip() == activity.name:
+        p.pop('name', None)
+    data = _normalize(p, timezone.localdate())
+
+    changes = []
+    for field, label in _UPDATE_FIELD_LABELS:
+        if field not in data:
+            continue
+        old_v = getattr(activity, field)
+        if field == 'cost':
+            if float(old_v or 0) == float(data[field]):
+                continue
+        elif field in ('start_date', 'end_date'):
+            if (old_v.isoformat() if old_v else None) == data[field]:
+                continue
+        elif str(old_v or '') == str(data[field]):
+            continue
+        changes.append({'field': field, 'label': label,
+                        'old': _fmt(field, old_v), 'new': _fmt(field, data[field])})
+
+    for key, label in (('tags', '标签'), ('participants', '参与者')):
+        if key in data:
+            old_set = set(activity.tags.names()) if key == 'tags' else \
+                set(activity.participants.values_list('name', flat=True))
+            new_set = set(data[key])
+            if old_set != new_set:
+                added = sorted(new_set - old_set)
+                removed = sorted(old_set - new_set)
+                new_desc = ('、'.join(sorted(new_set))) or '清空'
+                detail = []
+                if added:
+                    detail.append('+' + '、'.join(added))
+                if removed:
+                    detail.append('-' + '、'.join(removed))
+                changes.append({'field': key, 'label': label,
+                                'old': '、'.join(sorted(old_set)) or '空',
+                                'new': new_desc + f"（{' '.join(detail)}）"})
+    return activity, data, changes
+
+
+def apply_update(user, params):
+    """确认后执行：应用变更字段 + 日志记录 diff（通过 AI 对话）"""
+    activity = _resolve_by_id(user, params.get('target_id'))
+    p = dict(params)
+    p.pop('target', None)
+    if str(p.get('name') or '').strip() == activity.name:
+        p.pop('name', None)
+    data = _normalize(p, timezone.localdate())
+
+    old = _snapshot(activity)
+    for field in ('name', 'start_date', 'end_date', 'status', 'cost'):
+        if field in data:
+            setattr(activity, field, data[field])
+    activity.save()
+    if 'tags' in data:
+        activity.tags.set(*data['tags'])
+    if 'participants' in data:
+        participants = [
+            Participant.objects.get_or_create(user=user, name=name)[0]
+            for name in data['participants']
+        ]
+        activity.participants.set(participants)
+
+    summary = _edit_summary(old, activity) or '无实质变更'
+    log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
+    return {
+        'reply': f'已更新「{activity.name}」：{summary}',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': _activity_card_data(activity),
+        'changed': True,
+    }
+
+
+@agent_tool('activities.update', '修改指定活动的字段（名称/日期/费用/状态/标签/参与者）',
+            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数）；先出预览，用户确认后生效',
+            apply_fn=apply_update)
+def tool_update(user, params):
+    activity, data, changes = _update_preview(user, params)
+    if not changes:
+        return {
+            'reply': f'没有识别到「{activity.name}」需要修改的内容，请告诉我要改哪些字段',
+            'card': 'activity',
+            'activity_ids': [activity.id],
+            'card_data': _activity_card_data(activity),
+        }
+    return {
+        'reply': f'我准备对「{activity.name}」做以下修改，请确认：',
+        'card': 'confirm',
+        'activity_ids': [activity.id],
+        'card_data': {'kind': 'update', 'name': activity.name,
+                      'detail_url': reverse('activities:activity_detail', args=[activity.id]),
+                      'changes': changes},
+        'action': {'tool': 'activities.update',
+                   'params': {**params, 'target_id': activity.id}},
+    }
+
+
+def apply_delete(user, params):
+    """确认后执行删除（子活动的父活动被清空，日志留存）"""
+    activity = _resolve_by_id(user, params.get('target_id'))
+    name = activity.name
+    log_activity(user, activity, 'deleted', '通过 AI 对话删除')
+    activity.delete()
+    return {'reply': f'已删除活动「{name}」', 'changed': True}
+
+
+@agent_tool('activities.delete', '删除指定活动（高危，必须先确认）',
+            'target（目标活动名称关键词）；先出红色警示预览，用户确认后才删除',
+            apply_fn=apply_delete)
+def tool_delete(user, params):
+    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    children_count = activity.children.count()
+    return {
+        'reply': f'即将删除活动「{activity.name}」，请确认：',
+        'card': 'confirm',
+        'activity_ids': [activity.id],
+        'card_data': {'kind': 'delete', 'name': activity.name,
+                      'date_range': activity.date_range,
+                      'children_count': children_count,
+                      'detail_url': reverse('activities:activity_detail', args=[activity.id])},
+        'action': {'tool': 'activities.delete',
+                   'params': {'target_id': activity.id}},
+    }
+
+
+# ==================== P1：统计 ====================
+
+@agent_tool('activities.stats', '统计活动概况（状态分布/近 6 月趋势/热门标签/费用汇总）',
+            '无必填参数；可选 scope：all（默认）/month（仅本月开始的活动）')
+def tool_stats(user, params):
+    qs = visible_qs(Activity, user)
+    today = timezone.localdate()
+    if str(params.get('scope') or '').strip() == 'month':
+        qs = qs.filter(start_date__year=today.year, start_date__month=today.month)
+
+    total = qs.count()
+    if total == 0:
+        return {'reply': '目前还没有活动记录，要不要先创建一个？'}
+
+    # 状态分布（按固定顺序，模板画分段条）
+    status_counts = dict(qs.values_list('status').annotate(n=Count('id')).values_list('status', 'n'))
+    status_dist = [{'status': s, 'label': STATUS_LABELS[s], 'count': status_counts.get(s, 0),
+                    'pct': round(status_counts.get(s, 0) * 100 / total)}
+                   for s in ('planned', 'in_progress', 'done', 'cancelled')]
+
+    # 近 6 月柱状（按开始日期所在月）
+    months = []
+    y, m = today.year, today.month
+    for _ in range(6):
+        months.append((y, m))
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+    months.reverse()
+    month_qs = qs.filter(start_date__isnull=False)
+    month_counts = {}
+    for d in month_qs.values('start_date').annotate(n=Count('id')):
+        key = (d['start_date'].year, d['start_date'].month)
+        month_counts[key] = month_counts.get(key, 0) + d['n']
+    month_bars = [{'label': f'{m}月', 'count': month_counts.get((y, m), 0)} for y, m in months]
+    max_month = max((b['count'] for b in month_bars), default=0) or 1
+    for b in month_bars:
+        b['pct'] = round(b['count'] * 100 / max_month)
+
+    # 热门标签 Top 5
+    tag_rows = list(qs.values('tags__name').annotate(n=Count('id'))
+                    .filter(tags__name__isnull=False).order_by('-n')[:5])
+    tags_top = [{'name': r['tags__name'], 'count': r['n']} for r in tag_rows]
+
+    cost_total = qs.aggregate(s=Sum('cost'))['s'] or 0
+
+    return {
+        'reply': f'共 {total} 个活动，概况如下：',
+        'card': 'stats',
+        'activity_ids': [],
+        'card_data': {
+            'total': total,
+            'status_dist': status_dist,
+            'month_bars': month_bars,
+            'tags_top': tags_top,
+            'cost_total': float(cost_total),
+            'list_url': reverse('activities:activity_list'),
+        },
     }

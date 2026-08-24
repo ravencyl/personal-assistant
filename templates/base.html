@@ -195,7 +195,7 @@
             messagesEl.innerHTML = '<p class="text-center text-sm text-zinc-400 py-4">加载中...</p>';
             fetch('/chat/' + id + '/widget-messages/', { headers: { 'HX-Request': 'true' } })
                 .then(function (r) { if (!r.ok) throw new Error('加载失败'); return r.text(); })
-                .then(function (html) { messagesEl.innerHTML = html; scrollBottom(); input.focus(); })
+                .then(function (html) { messagesEl.innerHTML = html; if (window.htmx) htmx.process(messagesEl); scrollBottom(); input.focus(); })
                 .catch(function () { messagesEl.innerHTML = '<p class="text-center text-sm text-red-500 py-4">消息加载失败，请重试</p>'; });
         }
 
@@ -277,6 +277,7 @@
                         document.dispatchEvent(new CustomEvent('activities:changed'));
                     }
                     scrollBottom();
+                    if (window.htmx) htmx.process(messagesEl); // 激活新插入卡片中的 hx-* 确认按钮
                 })
                 .catch(function (err) { alert(err.message); })
                 .finally(function () {
@@ -299,15 +300,23 @@
                 class="text-zinc-400 hover:text-white px-1" title="关闭">&times;</button>
     </div>
     <script>
-    document.addEventListener('activities:changed', function () {
-        document.getElementById('activity-refresh-bar').classList.remove('hidden');
-    });
-    // HTMX 响应中的变更标记（完整版对话页等非浮窗链路）
+    var _refreshTimer = null;
+    function notifyActivityChanged() {
+        var bar = document.getElementById('activity-refresh-bar');
+        bar.classList.remove('hidden');
+        // 活动系页面 3s 后自动刷新；其余页面保持手动点击（避免打断对话输入）
+        if (location.pathname.indexOf('/activities') === 0 && !_refreshTimer) {
+            _refreshTimer = setTimeout(function () { location.reload(); }, 3000);
+        }
+    }
+    document.addEventListener('activities:changed', notifyActivityChanged);
+    // HTMX 响应中的变更标记（完整版对话页/确认按钮等非浮窗链路）
     document.addEventListener('htmx:afterSwap', function (e) {
+        if (!e.detail.target || !e.detail.target.querySelector) return;
         var marker = e.detail.target.querySelector('[data-activity-changed]');
         if (marker) {
             marker.remove();
-            document.getElementById('activity-refresh-bar').classList.remove('hidden');
+            notifyActivityChanged();
         }
     });
     </script>
