@@ -77,7 +77,7 @@ def widget_messages(request, conversation_id):
 @login_required
 @require_POST
 def create_conversation(request):
-    """创建新对话（HTMX/fetch 请求返回 JSON，普通表单请求重定向到详情页）"""
+    """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）"""
     agent_id = request.POST.get('agent_id')
     if not agent_id:
         # 使用第一个可用的 agent
@@ -116,7 +116,7 @@ def create_conversation(request):
         except Exception as e:
             logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
 
-        if request.htmx:
+        if request.htmx or request.headers.get('Accept') == 'application/json':
             return JsonResponse({
                 'conversation_id': conversation.id,
                 'title': conversation.title,

@@ -92,17 +92,22 @@ def _resolve_by_id(user, target_id):
 
 
 @agent_tool('activities.query', '按条件查询活动列表',
-            'name（名称关键词）、status、tag、date_from、date_to（YYYY-MM-DD），均可选')
+            'participant（参与者姓名，“和某人一起的活动”用这个，模糊不区分大小写）、'
+            'keyword（主题关键词，“旅游相关/吃饭的”这类用这个，跨名称描述标签模糊搜）、'
+            'name（活动名称关键词）、status、tag（精确标签名，不确定时用 keyword 代替）、'
+            'date_from、date_to（YYYY-MM-DD），均可选，可组合')
 def tool_query(user, params):
     qs = filter_activities(user, params).order_by('-start_date', '-created_at')
     total = qs.count()
 
-    link_params = {k: str(params[k]).strip() for k in ('status', 'tag', 'date_from', 'date_to')
+    link_params = {k: str(params[k]).strip()
+                   for k in ('status', 'tag', 'date_from', 'date_to', 'participant', 'keyword')
                    if str(params.get(k) or '').strip()}
     list_qs = urlencode(link_params)
 
     if total == 0:
-        return {'reply': '没有找到符合条件的活动。要不要告诉我名称和日期，我来创建一个？'}
+        conds = '、'.join(f'{k}={v}' for k, v in link_params.items()) or '该条件'
+        return {'reply': f'没有找到符合条件的活动（{conds}）。换个关键词试试，或者告诉我名称和日期，我来创建一个？'}
 
     items = []
     activity_ids = []

@@ -260,7 +260,8 @@ def _normalize(data, today):
 def filter_activities(user, params):
     """按条件筛选活动，返回 queryset（列表视图与 Agent 查询工具共用）
 
-    params 支持：status / tag / date_from / date_to / name，非法值静默忽略。
+    params 支持：status / tag / date_from / date_to / name /
+    participant（参与者，模糊）/ keyword（名称/描述/标签跨字段模糊），非法值静默忽略。
     日期筛选与列表页一致：按活动开始日期是否落在区间内。
     """
     qs = visible_qs(Activity, user).prefetch_related('tags')
@@ -281,6 +282,16 @@ def filter_activities(user, params):
     name = str(params.get('name') or '').strip()
     if name:
         qs = qs.filter(name__icontains=name)
+    participant = str(params.get('participant') or '').strip()
+    if participant:
+        qs = qs.filter(participants__name__icontains=participant).distinct()
+    keyword = str(params.get('keyword') or '').strip()
+    if keyword:
+        qs = qs.filter(
+            models.Q(name__icontains=keyword)
+            | models.Q(description__icontains=keyword)
+            | models.Q(tags__name__icontains=keyword)
+        ).distinct()
     return qs
 
 
@@ -292,6 +303,8 @@ def activity_list(request):
     tag_filter = request.GET.get('tag', '').strip()
     date_from = request.GET.get('date_from', '').strip()
     date_to = request.GET.get('date_to', '').strip()
+    participant_filter = request.GET.get('participant', '').strip()
+    keyword_filter = request.GET.get('keyword', '').strip()
     sort = request.GET.get('sort', '').strip()
 
     # 表头排序字段映射（key 为 URL 参数值，value 为模型/注解字段）
@@ -314,9 +327,12 @@ def activity_list(request):
         'tag': tag_filter,
         'date_from': date_from,
         'date_to': date_to,
+        'participant': participant_filter,
+        'keyword': keyword_filter,
     })
 
-    has_filter = bool(status_filter or tag_filter or date_from or date_to)
+    has_filter = bool(status_filter or tag_filter or date_from or date_to
+                      or participant_filter or keyword_filter)
 
     # 排序：校验字段合法性（排序作用于树内同级节点，不打乱层级）
     sort_key = sort.lstrip('-')
@@ -411,9 +427,11 @@ def activity_list(request):
     date_qs = urlencode(date_params)
 
     # 筛选面板默认折叠；URL 带任一筛选/排序参数时自动展开
-    filters_active = bool(status_filter or tag_filter or date_from or date_to or sort)
+    filters_active = bool(status_filter or tag_filter or date_from or date_to or sort
+                          or participant_filter or keyword_filter)
     active_filter_count = sum([
         bool(status_filter), bool(tag_filter), bool(date_from or date_to), bool(sort),
+        bool(participant_filter or keyword_filter),
     ])
 
     # 标签筛选需保留状态/日期/排序参数（不含 tag）
@@ -422,6 +440,10 @@ def activity_list(request):
         tag_link_params['status'] = status_filter
     if sort:
         tag_link_params['sort'] = sort
+    if participant_filter:
+        tag_link_params['participant'] = participant_filter
+    if keyword_filter:
+        tag_link_params['keyword'] = keyword_filter
     tag_link_qs = urlencode(tag_link_params)
 
     # 首页问候头部：时段问候 + 日期星期 + 今日摘要
