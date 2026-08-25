@@ -2,7 +2,7 @@ from django import forms
 
 from core.forms import PlainTagField
 
-from .models import Activity, Participant, Expense
+from .models import Activity, Participant
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
@@ -86,15 +86,3 @@ class ActivityForm(forms.ModelForm):
                 parent=activity,
             ))
         return children
-
-
-class ExpenseForm(forms.ModelForm):
-    class Meta:
-        model = Expense
-        fields = ['amount', 'category', 'paid_at', 'note']
-        widgets = {
-            'amount': forms.NumberInput(attrs={'class': INPUT_CLS, 'step': '0.01', 'min': '0.01', 'placeholder': '金额'}),
-            'category': forms.Select(attrs={'class': INPUT_CLS}),
-            'paid_at': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
-            'note': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '备注（可选）'}),
-        }

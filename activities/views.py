@@ -11,7 +11,7 @@ from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models
-from django.db.models import Count
+from django.db.models import Count, Sum
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -21,23 +21,11 @@ from taggit.models import Tag
 from .forms import ActivityForm
 from .models import Activity, Participant, ActivityLog, Expense
 from .parsing import parse_quick_input
+from .utils import (edit_summary, filter_activities, log_activity,
+                    normalize_input, snapshot_activity)
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
-
-
-def log_activity(user, activity, action, summary=''):
-    """写入活动操作日志（失败仅告警，不影响主流程）"""
-    try:
-        ActivityLog.objects.create(
-            user=user,
-            activity=activity,
-            activity_name=activity.name,
-            action=action,
-            summary=summary,
-        )
-    except Exception as e:
-        logger.warning(f'活动日志写入失败: {e}')
 
 
 def auto_start_activities(user=None):
@@ -80,67 +68,6 @@ def auto_start_activities(user=None):
     return count
 
 
-def _snapshot(activity):
-    """编辑前字段快照，用于生成变更摘要"""
-    return {
-        'name': activity.name,
-        'description': activity.description,
-        'start_date': activity.start_date,
-        'end_date': activity.end_date,
-        'status': activity.status,
-        'parent': activity.parent,
-        'tags': set(activity.tags.names()),
-        'participants': set(activity.participants.values_list('name', flat=True)),
-    }
-
-
-_EDIT_FIELDS = [
-    ('name', '名称'), ('description', '描述'),
-    ('start_date', '开始日期'), ('end_date', '结束日期'),
-    ('status', '状态'),
-]
-
-
-def _fmt(field, value):
-    if value in (None, ''):
-        return '空'
-    if field == 'status':
-        return dict(Activity.STATUS_CHOICES).get(value, str(value))
-    return str(value)
-
-
-def _diff_part(label, old_set, new_set):
-    added = sorted(new_set - old_set)
-    removed = sorted(old_set - new_set)
-    parts = []
-    if added:
-        parts.append('+' + '、'.join(added))
-    if removed:
-        parts.append('-' + '、'.join(removed))
-    return f'{label}{" ".join(parts)}' if parts else ''
-
-
-def _edit_summary(old, activity):
-    """对比编辑前后快照，生成变更摘要"""
-    changes = []
-    for field, label in _EDIT_FIELDS:
-        new_v = getattr(activity, field)
-        if old[field] != new_v:
-            changes.append(f'{label} {_fmt(field, old[field])} → {_fmt(field, new_v)}')
-    if old['parent'] != activity.parent:
-        old_p = old['parent'].name if old['parent'] else '无'
-        new_p = activity.parent.name if activity.parent else '无'
-        changes.append(f'父活动 {old_p} → {new_p}')
-    tag_diff = _diff_part('标签 ', old['tags'], set(activity.tags.names()))
-    if tag_diff:
-        changes.append(tag_diff)
-    p_diff = _diff_part('参与者 ', old['participants'],
-                        set(activity.participants.values_list('name', flat=True)))
-    if p_diff:
-        changes.append(p_diff)
-    return '；'.join(changes)[:500]
-
-
 def _user_tag_names(user):
     """可见范围内活动上使用过的全部标签名（供表单 autocomplete 建议）"""
     activity_ids = visible_qs(Activity, user).values('id')
@@ -162,10 +89,10 @@ def parse_quick_input_view(request):
         return JsonResponse({'error': '输入过长，请控制在 500 字以内'}, status=400)
 
     today = timezone.localdate()
-    data = _normalize(_ai_parse(text, today) or {}, today)
+    data = normalize_input(_ai_parse(text, today) or {}, today)
     source = 'ai' if data.get('name') else 'rule'
     if source == 'rule':
-        data = _normalize(parse_quick_input(text, today), today)
+        data = normalize_input(parse_quick_input(text, today), today)
     if not data.get('name'):
         return JsonResponse({
             'error': '未能识别出活动名称，请写得更具体些，例如「8月25到28日去上海出差 预算3000」',
@@ -182,7 +109,7 @@ def activity_quick_create(request):
         data = json.loads(request.body or '{}')
     except ValueError:
         return JsonResponse({'error': '请求数据格式错误'}, status=400)
-    data = _normalize(data, timezone.localdate())
+    data = normalize_input(data, timezone.localdate())
     if not data.get('name'):
         return JsonResponse({'error': '活动名称不能为空'}, status=400)
 
@@ -261,81 +188,6 @@ def _extract_json(reply):
     return data if isinstance(data, dict) else None
 
 
-def _normalize(data, today):
-    """清洗校验解析结果（AI 与规则输出共用），丢弃非法字段"""
-    out = {}
-    name = str(data.get('name') or '').strip()
-    if name:
-        out['name'] = name[:255]
-    for key in ('start_date', 'end_date'):
-        value = data.get(key)
-        if value:
-            try:
-                out[key] = date.fromisoformat(str(value)[:10]).isoformat()
-            except ValueError:
-                pass
-    if out.get('start_date') and out.get('end_date') and out['end_date'] < out['start_date']:
-        out['start_date'], out['end_date'] = out['end_date'], out['start_date']
-    cost = data.get('cost')
-    if cost is not None and cost != '':
-        try:
-            cost = float(cost)
-            if cost >= 0:
-                out['cost'] = cost
-        except (TypeError, ValueError):
-            pass
-    status = data.get('status')
-    if status in dict(Activity.STATUS_CHOICES):
-        out['status'] = status
-    for key in ('tags', 'participants'):
-        values = data.get(key)
-        if isinstance(values, str):
-            values = [v.strip() for v in re.split(r'[,，、]', values)]
-        if isinstance(values, list):
-            values = [str(v).strip() for v in values if str(v).strip()]
-            if values:
-                out[key] = values[:10]
-    return out
-
-
-def filter_activities(user, params):
-    """按条件筛选活动，返回 queryset（列表视图与 Agent 查询工具共用）
-
-    params 支持：status / tag / date_from / date_to / name /
-    participant（参与者，模糊）/ keyword（名称/描述/标签跨字段模糊），非法值静默忽略。
-    日期筛选与列表页一致：按活动开始日期是否落在区间内。
-    """
-    qs = visible_qs(Activity, user).prefetch_related('tags')
-    status = params.get('status')
-    if status in dict(Activity.STATUS_CHOICES):
-        qs = qs.filter(status=status)
-    tag = str(params.get('tag') or '').strip()
-    if tag:
-        qs = qs.filter(tags__name=tag)
-    for key, lookup in (('date_from', 'gte'), ('date_to', 'lte')):
-        value = str(params.get(key) or '').strip()[:10]
-        if value:
-            try:
-                date.fromisoformat(value)
-            except ValueError:
-                continue
-            qs = qs.filter(**{f'start_date__{lookup}': value})
-    name = str(params.get('name') or '').strip()
-    if name:
-        qs = qs.filter(name__icontains=name)
-    participant = str(params.get('participant') or '').strip()
-    if participant:
-        qs = qs.filter(participants__name__icontains=participant).distinct()
-    keyword = str(params.get('keyword') or '').strip()
-    if keyword:
-        qs = qs.filter(
-            models.Q(name__icontains=keyword)
-            | models.Q(description__icontains=keyword)
-            | models.Q(tags__name__icontains=keyword)
-        ).distinct()
-    return qs
-
-
 @login_required
 @ensure_csrf_cookie
 def activity_list(request):
@@ -401,7 +253,6 @@ def activity_list(request):
 
     # 用内存中的 children_map 递归计算累计费用（自身 Expense + 所有后代 Expense）
     # 先批量查每个活动的直接费用合计
-    from django.db.models import Sum
     activity_ids = [a.id for a in all_activities]
     expense_totals = dict(
         Expense.objects.filter(activity_id__in=activity_ids)
@@ -644,12 +495,12 @@ def activity_edit(request, activity_id):
     owner = activity.user
 
     if request.method == 'POST':
-        old = _snapshot(activity)
+        old = snapshot_activity(activity)
         form = ActivityForm(request.POST, instance=activity, user=owner)
         if form.is_valid():
             form.save()
             form.save_participants(activity)
-            log_activity(request.user, activity, 'edited', _edit_summary(old, activity))
+            log_activity(request.user, activity, 'edited', edit_summary(old, activity))
             messages.success(request, f'活动「{activity.name}」已更新')
             return redirect('activities:activity_detail', activity.id)
     else:
@@ -698,7 +549,7 @@ def activity_quick_sub(request, activity_id):
         data = json.loads(request.body or '{}')
     except ValueError:
         return JsonResponse({'error': '请求数据格式错误'}, status=400)
-    data = _normalize(data, timezone.localdate())
+    data = normalize_input(data, timezone.localdate())
     if not data.get('name'):
         return JsonResponse({'error': '子任务名称不能为空'}, status=400)
 
@@ -1023,7 +874,6 @@ def daily_view(request):
     ).order_by('-start_date')[:10]
 
     # ── 统计：今日实际消费（按 paid_at 筛选） ──
-    from django.db.models import Sum
     today_expense = Expense.objects.filter(
         user=request.user,
         paid_at=today,

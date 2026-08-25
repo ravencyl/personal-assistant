@@ -8,10 +8,3 @@ def qoder_context(request):
                                      settings.QODER_ACCESS_TOKEN != 'your-qoder-access-token-here'),
     }
 
-
-def app_info(request):
-    """应用基本信息"""
-    return {
-        'APP_NAME': 'Personal AI Assistant',
-        'APP_VERSION': '1.0.0',
-    }

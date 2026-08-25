@@ -3,7 +3,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from cms_pages.views import dashboard
+from core.views import dashboard
 from activities.views import daily_view
 
 urlpatterns = [

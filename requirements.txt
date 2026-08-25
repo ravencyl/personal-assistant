@@ -1,6 +1,5 @@
 django>=5.0,<5.2
 django-htmx
-celery[redis]>=5.4
 redis>=5.0
 httpx[http2]>=0.27
 django-taggit>=6.0

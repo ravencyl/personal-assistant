@@ -2,15 +2,6 @@
 
 用法：
     python manage.py auto_start_activities [--dry-run]
-
-可配合 Celery Beat 每日定时执行：
-    CELERY_BEAT_SCHEDULE = {
-        'auto-start-activities': {
-            'task': 'django.core.management.call_command',
-            'schedule': crontab(hour=0, minute=5),
-            'args': ('auto_start_activities',),
-        },
-    }
 """
 from django.core.management.base import BaseCommand
 

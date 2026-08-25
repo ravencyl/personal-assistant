@@ -43,7 +43,6 @@ INSTALLED_APPS = [
     'agents',
     'chat',
     'activities',
-    'cms_pages',
 ]
 
 MIDDLEWARE = [
@@ -73,7 +72,6 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.qoder_context',
-                'core.context_processors.app_info',
                 'chat.context_processors.chat_widget',
             ],
         },
@@ -124,7 +122,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# Redis & Celery
+# Redis（生产缓存）
 REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 
 # 缓存配置：开发环境使用本地内存缓存，生产环境使用 Redis
@@ -142,13 +140,6 @@ else:
             'LOCATION': REDIS_URL,
         }
     }
-
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = TIME_ZONE
 
 
 

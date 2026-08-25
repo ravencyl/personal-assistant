@@ -16,8 +16,8 @@ from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
 from .models import Activity, Participant, Expense
-from .views import (_edit_summary, _fmt, _normalize, _snapshot,
-                    filter_activities, log_activity)
+from .utils import (edit_summary, filter_activities, fmt_field,
+                    log_activity, normalize_input, snapshot_activity)
 
 STATUS_LABELS = dict(Activity.STATUS_CHOICES)
 
@@ -177,7 +177,7 @@ def tool_set_status(user, params):
             'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元，将创建为费用条目）、'
             'status、tags（字符串数组）、participants（字符串数组）、parent（父活动名称，可选）')
 def tool_create(user, params):
-    data = _normalize(params, timezone.localdate())
+    data = normalize_input(params, timezone.localdate())
     if not data.get('name'):
         raise ToolError('未能识别出活动名称，请写得更具体些')
 
@@ -236,7 +236,7 @@ def _update_preview(user, params):
     p = dict(params)
     if str(p.get('name') or '').strip() == activity.name:
         p.pop('name', None)
-    data = _normalize(p, timezone.localdate())
+    data = normalize_input(p, timezone.localdate())
 
     changes = []
     for field, label in _UPDATE_FIELD_LABELS:
@@ -249,7 +249,7 @@ def _update_preview(user, params):
         elif str(old_v or '') == str(data[field]):
             continue
         changes.append({'field': field, 'label': label,
-                        'old': _fmt(field, old_v), 'new': _fmt(field, data[field])})
+                        'old': fmt_field(field, old_v), 'new': fmt_field(field, data[field])})
 
     for key, label in (('tags', '标签'), ('participants', '参与者')):
         if key in data:
@@ -278,9 +278,9 @@ def apply_update(user, params):
     p.pop('target', None)
     if str(p.get('name') or '').strip() == activity.name:
         p.pop('name', None)
-    data = _normalize(p, timezone.localdate())
+    data = normalize_input(p, timezone.localdate())
 
-    old = _snapshot(activity)
+    old = snapshot_activity(activity)
     for field in ('name', 'start_date', 'end_date', 'status'):
         if field in data:
             setattr(activity, field, data[field])
@@ -294,7 +294,7 @@ def apply_update(user, params):
         ]
         activity.participants.set(participants)
 
-    summary = _edit_summary(old, activity) or '无实质变更'
+    summary = edit_summary(old, activity) or '无实质变更'
     log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
     return {
         'reply': f'已更新「{activity.name}」：{summary}',
