@@ -744,8 +744,8 @@ def expense_create(request, activity_id):
         amount = float(request.POST.get('amount', 0))
     except (TypeError, ValueError):
         return JsonResponse({'error': '金额格式不正确'}, status=400)
-    if amount <= 0:
-        return JsonResponse({'error': '金额必须大于 0'}, status=400)
+    if amount < 0:
+        return JsonResponse({'error': '金额不能为负数'}, status=400)
 
     category = request.POST.get('category', 'other')
     if category not in dict(Expense.CATEGORY_CHOICES):
@@ -792,8 +792,8 @@ def expense_edit(request, expense_id):
         amount = float(request.POST.get('amount', 0))
     except (TypeError, ValueError):
         return JsonResponse({'error': '金额格式不正确'}, status=400)
-    if amount <= 0:
-        return JsonResponse({'error': '金额必须大于 0'}, status=400)
+    if amount < 0:
+        return JsonResponse({'error': '金额不能为负数'}, status=400)
 
     category = request.POST.get('category', 'other')
     if category not in dict(Expense.CATEGORY_CHOICES):
