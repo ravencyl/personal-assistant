@@ -5,5 +5,3 @@ redis>=5.0
 httpx[http2]>=0.27
 django-taggit>=6.0
 django-environ>=0.11
-feedparser>=6.0
-markdown>=3.6

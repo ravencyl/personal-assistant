@@ -10,7 +10,7 @@
 </div>
 
 <!-- Stats -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+<div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
     <div class="bg-white rounded-lg border border-zinc-200 p-4">
         <p class="text-sm text-zinc-500">AI 对话</p>
         <p class="text-2xl font-bold text-zinc-900">{{ stats.total_conversations }}</p>
@@ -22,10 +22,6 @@
     <div class="bg-white rounded-lg border border-zinc-200 p-4">
         <p class="text-sm text-zinc-500">进行中活动</p>
         <p class="text-2xl font-bold text-zinc-900">{{ stats.ongoing_count }}</p>
-    </div>
-    <div class="bg-white rounded-lg border border-zinc-200 p-4">
-        <p class="text-sm text-zinc-500">内容收藏</p>
-        <p class="text-2xl font-bold text-zinc-900">{{ stats.total_bookmarks }}</p>
     </div>
 </div>
 
@@ -69,26 +65,5 @@
         {% else %}
         <p class="text-sm text-zinc-400">暂无对话记录</p>
         {% endif %}
-    </div>
-
-    <!-- Recent bookmarks -->
-    <div class="bg-white rounded-lg border border-zinc-200 p-5 md:col-span-2">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-zinc-900">最近收藏</h2>
-            <a href="{% url 'content:bookmark_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">查看全部</a>
-        </div>
-        {% if recent_bookmarks %}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {% for bookmark in recent_bookmarks %}
-            <a href="{{ bookmark.url }}" target="_blank" class="block rounded border border-zinc-100 p-3 hover:border-zinc-200 transition">
-                <p class="text-sm font-medium text-zinc-900 truncate">{{ bookmark.title }}</p>
-                <p class="text-xs text-zinc-500 truncate">{{ bookmark.url }}</p>
-            </a>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p class="text-sm text-zinc-400">暂无收藏</p>
-        {% endif %}
-    </div>
 </div>
 {% endblock %}

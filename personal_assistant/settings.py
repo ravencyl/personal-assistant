@@ -42,9 +42,7 @@ INSTALLED_APPS = [
     'core',
     'agents',
     'chat',
-    'knowledge',
     'activities',
-    'content',
     'cms_pages',
 ]
 
@@ -152,13 +150,6 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
-# Celery Beat 定时任务调度
-CELERY_BEAT_SCHEDULE = {
-    'fetch-rss-feeds': {
-        'task': 'content.tasks.fetch_rss_feeds',
-        'schedule': 3600.0,  # 每 1 小时抓取一次
-    },
-}
 
 
 # Qoder Cloud Agents

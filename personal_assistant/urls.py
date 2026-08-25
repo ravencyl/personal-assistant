@@ -21,9 +21,7 @@ urlpatterns = [
 
     # App modules
     path('chat/', include('chat.urls')),
-    path('knowledge/', include('knowledge.urls')),
     path('activities/', include('activities.urls')),
-    path('content/', include('content.urls')),
 
     # Agents API (internal)
     path('api/agents/', include('agents.urls')),
