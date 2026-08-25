@@ -5,6 +5,7 @@ app_name = 'activities'
 
 urlpatterns = [
     path('', views.activity_list, name='activity_list'),
+    path('daily/', views.daily_view, name='daily'),
     path('new/', views.activity_create, name='activity_create'),
     path('parse-quick-input/', views.parse_quick_input_view, name='parse_quick_input'),
     path('quick-create/', views.activity_quick_create, name='activity_quick_create'),

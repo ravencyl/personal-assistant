@@ -1,0 +1,62 @@
+<a href="{% url 'activities:activity_detail' activity.id %}"
+   class="block bg-white rounded-xl border border-zinc-100 p-4 hover:border-zinc-200 transition-colors group">
+    <div class="flex items-start gap-3">
+        <!-- 状态指示点 -->
+        <div class="mt-1.5 shrink-0">
+            {% if badge == "ongoing" or badge == "in_progress" %}
+            <div class="w-2 h-2 rounded-full bg-zinc-900"></div>
+            {% elif badge == "today" %}
+            <div class="w-2 h-2 rounded-full bg-zinc-900 ring-4 ring-zinc-100"></div>
+            {% elif badge == "ending" %}
+            <div class="w-2 h-2 rounded-full bg-zinc-400"></div>
+            {% elif badge == "upcoming" %}
+            <div class="w-2 h-2 rounded-full bg-zinc-300"></div>
+            {% elif badge == "done" %}
+            <div class="w-2 h-2 rounded-full bg-green-500"></div>
+            {% else %}
+            <div class="w-2 h-2 rounded-full bg-zinc-300"></div>
+            {% endif %}
+        </div>
+
+        <!-- 内容 -->
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+                <h3 class="text-sm font-medium text-zinc-900 truncate group-hover:text-zinc-700">
+                    {{ activity.name }}
+                </h3>
+                {% if badge == "today" %}
+                <span class="shrink-0 text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded-full px-1.5 py-0.5">今日开始</span>
+                {% elif badge == "ending" %}
+                <span class="shrink-0 text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded-full px-1.5 py-0.5">今日结束</span>
+                {% endif %}
+            </div>
+
+            <!-- 日期 + 费用 -->
+            <div class="flex items-center gap-3 text-xs text-zinc-400">
+                {% if activity.start_date or activity.end_date %}
+                <span class="tabular-nums">{{ activity.date_range }}</span>
+                {% endif %}
+                {% if activity.expense_total %}
+                <span class="tabular-nums">¥{{ activity.expense_total|floatformat:"0" }}</span>
+                {% endif %}
+            </div>
+
+            <!-- 标签 + 参与者 -->
+            {% if activity.tags.all or activity.participants.all %}
+            <div class="flex items-center gap-2 mt-2 flex-wrap">
+                {% for tag in activity.tags.all|slice:":3" %}
+                <span class="text-[10px] text-zinc-400">#{{ tag.name }}</span>
+                {% endfor %}
+                {% for p in activity.participants.all|slice:":3" %}
+                <span class="text-[10px] text-zinc-400">@{{ p.name }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 箭头 -->
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-zinc-300 group-hover:text-zinc-500 shrink-0 mt-1 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+    </div>
+</a>

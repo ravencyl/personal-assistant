@@ -4,11 +4,11 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from cms_pages.views import dashboard
-from activities.views import activity_list
+from activities.views import daily_view
 
 urlpatterns = [
-    # 首页 = 活动记录列表
-    path('', activity_list, name='home'),
+    # 首页 = 每日简报
+    path('', daily_view, name='home'),
 
     # Dashboard
     path('dashboard/', dashboard, name='dashboard'),

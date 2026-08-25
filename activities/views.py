@@ -882,3 +882,87 @@ def calendar_data(request):
         })
 
     return JsonResponse({'activities': data})
+
+
+@login_required
+def daily_view(request):
+    """每日简报：展示当天活动概况、进行中/即将开始/近期完成的活动"""
+    today = timezone.localdate()
+    qs = visible_qs(Activity, request.user).prefetch_related('tags', 'participants')
+
+    # ── 今日活动：start_date <= today 且 (end_date >= today 或无 end_date) ──
+    ongoing = qs.filter(
+        start_date__lte=today,
+    ).filter(
+        models.Q(end_date__gte=today) | models.Q(end_date__isnull=True, start_date=today)
+    ).exclude(status='cancelled').exclude(status='done')
+
+    # ── 今日开始/结束 ──
+    starting_today = qs.filter(start_date=today).exclude(status='cancelled')
+    ending_today = qs.filter(end_date=today).exclude(status='cancelled')
+
+    # ── 即将开始（未来 7 天） ──
+    upcoming = qs.filter(
+        start_date__gt=today,
+        start_date__lte=today + timedelta(days=7),
+    ).exclude(status='cancelled').order_by('start_date')[:10]
+
+    # ── 近期完成（最近 3 天） ──
+    recently_done = qs.filter(
+        status='done',
+        end_date__gte=today - timedelta(days=3),
+    ).order_by('-end_date')[:10]
+
+    # ── 进行中（全局） ──
+    in_progress = qs.filter(status='in_progress').exclude(
+        id__in=[a.id for a in ongoing]
+    ).order_by('-start_date')[:10]
+
+    # ── 统计 ──
+    from django.db.models import Sum
+    all_ids = [a.id for a in ongoing] + [a.id for a in starting_today]
+    today_expense = Expense.objects.filter(
+        activity_id__in=all_ids,
+    ).aggregate(s=Sum('amount'))['s'] or 0
+
+    # 问候
+    hour = timezone.localtime().hour
+    if hour < 6:
+        greeting = '夜深了，早点休息'
+    elif hour < 12:
+        greeting = '早上好'
+    elif hour < 14:
+        greeting = '中午好'
+    elif hour < 18:
+        greeting = '下午好'
+    else:
+        greeting = '晚上好'
+    weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
+
+    # 为每个活动附加费用合计（避免 N+1）
+    def attach_costs(activities):
+        ids = [a.id for a in activities]
+        totals = dict(
+            Expense.objects.filter(activity_id__in=ids)
+            .values_list('activity_id').annotate(total=Sum('amount'))
+            .values_list('activity_id', 'total')
+        ) if ids else {}
+        for a in activities:
+            a.expense_total = float(totals.get(a.id, 0) or 0)
+        return activities
+
+    return render(request, 'activities/daily.html', {
+        'today': today,
+        'today_display': today_display,
+        'greeting': greeting,
+        'ongoing': attach_costs(list(ongoing)),
+        'starting_today': attach_costs(list(starting_today)),
+        'ending_today': list(ending_today),
+        'upcoming': attach_costs(list(upcoming)),
+        'recently_done': list(recently_done),
+        'in_progress': attach_costs(list(in_progress)),
+        'today_expense': float(today_expense),
+        'ongoing_count': len(ongoing) + len(starting_today),
+        'in_progress_count': qs.filter(status='in_progress').count(),
+    })
