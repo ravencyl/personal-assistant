@@ -1,5 +1,4 @@
 from django import forms
-from django.utils import timezone
 
 from core.forms import PlainTagField
 
@@ -39,11 +38,9 @@ class ActivityForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        # 开始日期非必填；结束日期默认当天
+        # 日期字段均非必填，不设置任何默认值
         self.fields['start_date'].required = False
         self.fields['end_date'].required = False
-        if self.instance.pk is None:
-            self.fields['end_date'].initial = timezone.localdate()
         # 父活动只能选自己的数据
         self.fields['parent'].queryset = Activity.objects.filter(user=user)
         if self.instance.pk:
@@ -87,7 +84,6 @@ class ActivityForm(forms.ModelForm):
                 user=self.user,
                 name=name,
                 parent=activity,
-                end_date=timezone.localdate(),
             ))
         return children
 

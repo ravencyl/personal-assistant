@@ -344,6 +344,12 @@ def activity_list(request):
         sort = ''
         sort_field = None
 
+    # 默认排序：start_date 倒序（最新开始的活动排最前，空日期排最后）
+    default_sort = not sort_field
+    if default_sort:
+        sort_field = 'start_date'
+        desc = True
+
     # 深度优先遍历构建活动树，为每行附加 depth 层级
     children_map = {}
     for a in all_activities:
@@ -373,17 +379,16 @@ def activity_list(request):
         a.show_cost = compute_cost(a)
 
     # 同级排序：空日期始终排最后，费用按累计值排序
-    if sort_field:
-        for siblings in children_map.values():
-            if sort_field == 'start_date':
-                with_val = [a for a in siblings if a.start_date is not None]
-                nulls = [a for a in siblings if a.start_date is None]
-                with_val.sort(key=lambda a: a.start_date, reverse=desc)
-                siblings[:] = with_val + nulls
-            elif sort_field == 'cost':
-                siblings.sort(key=lambda a: a.show_cost or 0, reverse=desc)
-            else:
-                siblings.sort(key=lambda a: getattr(a, sort_field) or '', reverse=desc)
+    for siblings in children_map.values():
+        if sort_field == 'start_date':
+            with_val = [a for a in siblings if a.start_date is not None]
+            nulls = [a for a in siblings if a.start_date is None]
+            with_val.sort(key=lambda a: a.start_date, reverse=desc)
+            siblings[:] = with_val + nulls
+        elif sort_field == 'cost':
+            siblings.sort(key=lambda a: a.show_cost or 0, reverse=desc)
+        else:
+            siblings.sort(key=lambda a: getattr(a, sort_field) or '', reverse=desc)
 
     rows = []
 
