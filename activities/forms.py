@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from core.forms import PlainTagField
 
-from .models import Activity, Participant
+from .models import Activity, Participant, Expense
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
@@ -26,14 +26,13 @@ class ActivityForm(forms.ModelForm):
 
     class Meta:
         model = Activity
-        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'cost', 'parent', 'tags']
+        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'parent', 'tags']
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
             'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
-            'cost': forms.NumberInput(attrs={'class': INPUT_CLS, 'step': '0.01', 'min': '0'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }
 
@@ -91,3 +90,15 @@ class ActivityForm(forms.ModelForm):
                 end_date=timezone.localdate(),
             ))
         return children
+
+
+class ExpenseForm(forms.ModelForm):
+    class Meta:
+        model = Expense
+        fields = ['amount', 'category', 'paid_at', 'note']
+        widgets = {
+            'amount': forms.NumberInput(attrs={'class': INPUT_CLS, 'step': '0.01', 'min': '0.01', 'placeholder': '金额'}),
+            'category': forms.Select(attrs={'class': INPUT_CLS}),
+            'paid_at': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
+            'note': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '备注（可选）'}),
+        }

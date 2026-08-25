@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Activity, Participant
+from .models import Activity, Participant, Expense
 
 
 @admin.register(Participant)
@@ -17,7 +17,7 @@ class ParticipantAdmin(admin.ModelAdmin):
 
 @admin.register(Activity)
 class ActivityAdmin(admin.ModelAdmin):
-    list_display = ['name', 'status', 'start_date', 'end_date', 'cost', 'total_cost', 'parent']
+    list_display = ['name', 'status', 'start_date', 'end_date', 'total_cost', 'parent']
     list_filter = ['status']
     search_fields = ['name', 'description']
     filter_horizontal = ['participants']
@@ -34,6 +34,40 @@ class ActivityAdmin(admin.ModelAdmin):
         if db_field.name == 'participants':
             kwargs['queryset'] = Participant.objects.filter(user=request.user)
         return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.user = request.user
+        super().save_model(request, obj, form, change)
+
+
+class ExpenseInline(admin.TabularInline):
+    model = Expense
+    extra = 0
+    readonly_fields = ['created_at']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(user=request.user)
+
+
+ActivityAdmin.inlines = [ExpenseInline]
+
+
+@admin.register(Expense)
+class ExpenseAdmin(admin.ModelAdmin):
+    list_display = ['amount', 'category', 'activity', 'paid_at', 'note', 'created_at']
+    list_filter = ['category']
+    search_fields = ['note', 'activity__name']
+    readonly_fields = ['user', 'created_at', 'updated_at']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(user=request.user)
 
     def save_model(self, request, obj, form, change):
         if not change:

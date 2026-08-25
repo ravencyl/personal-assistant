@@ -19,7 +19,7 @@ from django.views.decorators.http import require_POST
 from taggit.models import Tag
 
 from .forms import ActivityForm
-from .models import Activity, Participant, ActivityLog
+from .models import Activity, Participant, ActivityLog, Expense
 from .parsing import parse_quick_input
 from core.utils import visible_qs, get_visible
 
@@ -48,7 +48,6 @@ def _snapshot(activity):
         'start_date': activity.start_date,
         'end_date': activity.end_date,
         'status': activity.status,
-        'cost': activity.cost,
         'parent': activity.parent,
         'tags': set(activity.tags.names()),
         'participants': set(activity.participants.values_list('name', flat=True)),
@@ -58,7 +57,7 @@ def _snapshot(activity):
 _EDIT_FIELDS = [
     ('name', '名称'), ('description', '描述'),
     ('start_date', '开始日期'), ('end_date', '结束日期'),
-    ('status', '状态'), ('cost', '费用'),
+    ('status', '状态'),
 ]
 
 
@@ -67,11 +66,6 @@ def _fmt(field, value):
         return '空'
     if field == 'status':
         return dict(Activity.STATUS_CHOICES).get(value, str(value))
-    if field == 'cost':
-        s = str(value)
-        if '.' in s:
-            s = s.rstrip('0').rstrip('.')
-        return f'{s}元'
     return str(value)
 
 
@@ -158,8 +152,15 @@ def activity_quick_create(request):
         start_date=data.get('start_date'),
         end_date=data.get('end_date'),
         status=data.get('status', 'planned'),
-        cost=data.get('cost', 0),
     )
+    if data.get('cost') and float(data['cost']) > 0:
+        Expense.objects.create(
+            activity=activity,
+            user=request.user,
+            amount=data['cost'],
+            category='other',
+            note='快速输入创建',
+        )
     if data.get('tags'):
         activity.tags.add(*data['tags'])
     if data.get('participants'):
@@ -348,12 +349,22 @@ def activity_list(request):
     for a in all_activities:
         children_map.setdefault(a.parent_id, []).append(a)
 
-    # 用内存中的 children_map 递归计算累计费用（自身 + 所有后代）
+    # 用内存中的 children_map 递归计算累计费用（自身 Expense + 所有后代 Expense）
+    # 先批量查每个活动的直接费用合计
+    from django.db.models import Sum
+    activity_ids = [a.id for a in all_activities]
+    expense_totals = dict(
+        Expense.objects.filter(activity_id__in=activity_ids)
+        .values_list('activity_id')
+        .annotate(total=Sum('amount'))
+        .values_list('activity_id', 'total')
+    )
+
     cost_cache = {}
 
     def compute_cost(a):
         if a.id not in cost_cache:
-            cost_cache[a.id] = (a.cost or 0) + sum(
+            cost_cache[a.id] = float(expense_totals.get(a.id, 0) or 0) + sum(
                 compute_cost(c) for c in children_map.get(a.id, [])
             )
         return cost_cache[a.id]
@@ -496,7 +507,7 @@ def activity_list(request):
 
 @login_required
 def activity_detail(request, activity_id):
-    """活动详情（含子任务时间轴与操作日志）"""
+    """活动详情（含子任务时间轴、费用明细与操作日志）"""
     activity = get_visible(Activity, request.user, id=activity_id)
 
     # 子任务按时间轴排序：可用日期（开始优先，其次结束）从早到晚，无日期排最后
@@ -507,6 +518,11 @@ def activity_detail(request, activity_id):
         d = child.start_date or child.end_date
         child.timeline_label = d.strftime('%m-%d') if d else '未设定'
         child.timeline_year = d.strftime('%Y') if d else ''
+        # 子活动的费用合计（自身 Expense + 后代 Expense，用于时间轴展示）
+        child.expenses_total = child.total_cost
+
+    # 费用明细
+    expenses = list(activity.expenses.all())
 
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
@@ -514,6 +530,8 @@ def activity_detail(request, activity_id):
         'participants': activity.participants.all(),
         'status_choices': Activity.STATUS_CHOICES,
         'logs': activity.logs.select_related('user')[:50],
+        'expenses': expenses,
+        'expense_categories': Expense.CATEGORY_CHOICES,
     })
 
 
@@ -639,8 +657,15 @@ def activity_quick_sub(request, activity_id):
         start_date=data.get('start_date'),
         end_date=data.get('end_date'),
         status=data.get('status', 'planned'),
-        cost=data.get('cost', 0),
     )
+    if data.get('cost') and float(data['cost']) > 0:
+        Expense.objects.create(
+            activity=activity,
+            user=activity.user,
+            amount=data['cost'],
+            category='other',
+            note=f'子任务「{child.name}」费用',
+        )
     if data.get('tags'):
         child.tags.add(*data['tags'])
     if data.get('participants'):
@@ -657,6 +682,70 @@ def activity_quick_sub(request, activity_id):
         'name': child.name,
         'url': reverse('activities:activity_detail', args=[child.id]),
     })
+
+
+@login_required
+@require_POST
+def expense_create(request, activity_id):
+    """为活动添加费用条目"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+    try:
+        amount = float(request.POST.get('amount', 0))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '金额格式不正确'}, status=400)
+    if amount <= 0:
+        return JsonResponse({'error': '金额必须大于 0'}, status=400)
+
+    category = request.POST.get('category', 'other')
+    if category not in dict(Expense.CATEGORY_CHOICES):
+        category = 'other'
+
+    paid_at = request.POST.get('paid_at', '').strip() or None
+    if paid_at:
+        try:
+            date.fromisoformat(paid_at)
+        except ValueError:
+            paid_at = None
+
+    note = request.POST.get('note', '').strip()[:255]
+
+    expense = Expense.objects.create(
+        activity=activity,
+        user=request.user,
+        amount=amount,
+        category=category,
+        paid_at=paid_at,
+        note=note,
+    )
+    log_activity(request.user, activity, 'edited',
+                 f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
+
+    if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
+        return JsonResponse({
+            'id': expense.id,
+            'amount': float(expense.amount),
+            'category': expense.get_category_display(),
+            'note': expense.note,
+            'paid_at': expense.paid_at,
+        })
+    return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+@require_POST
+def expense_delete(request, expense_id):
+    """删除费用条目"""
+    expense = get_visible(Expense, request.user, id=expense_id)
+    activity = expense.activity
+    note_desc = f'¥{expense.amount} [{expense.get_category_display()}]'
+    if expense.note:
+        note_desc += f' {expense.note}'
+    expense.delete()
+    log_activity(request.user, activity, 'edited', f'删除费用 {note_desc}')
+
+    if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
+        return JsonResponse({'ok': True})
+    return redirect('activities:activity_detail', activity.id)
 
 
 @login_required

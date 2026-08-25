@@ -29,6 +29,8 @@ INTENT_TOOL_MAP = {
     'update': 'activities.update',
     'delete': 'activities.delete',
     'stats': 'activities.stats',
+    'add_expense': 'activities.add_expense',
+    'list_expenses': 'activities.list_expenses',
 }
 
 

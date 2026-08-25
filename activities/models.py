@@ -55,12 +55,6 @@ class Activity(models.Model):
         verbose_name='参与者'
     )
     tags = TaggableManager(blank=True, verbose_name='标签')
-    cost = models.DecimalField(
-        '费用金额',
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
     parent = models.ForeignKey(
         'self',
         null=True,
@@ -89,18 +83,9 @@ class Activity(models.Model):
         return self.name
 
     @property
-    def children_cost(self):
-        """直接子活动的费用合计"""
-        total = self.children.aggregate(total=Sum('cost'))['total']
-        return total or 0
-
-    @property
     def total_cost(self):
-        """累计费用：自身费用 + 所有后代活动费用"""
-        total = self.cost or 0
-        for child in self.children.all():
-            total += child.total_cost
-        return total
+        """该活动的费用合计（直接关联的 Expense 总额）"""
+        return self.expenses.aggregate(s=Sum('amount'))['s'] or 0
 
     @property
     def date_range(self):
@@ -150,3 +135,42 @@ class ActivityLog(models.Model):
 
     def __str__(self):
         return f'{self.created_at:%Y-%m-%d %H:%M} {self.user.username} {self.get_action_display()} {self.activity_name}'
+
+
+class Expense(models.Model):
+    """费用条目（一个活动可关联 0~N 条费用）"""
+    CATEGORY_CHOICES = [
+        ('transport', '交通'), ('accommodation', '住宿'), ('food', '餐饮'),
+        ('ticket', '门票'), ('shopping', '购物'), ('work', '工作'),
+        ('other', '其他'),
+    ]
+
+    activity = models.ForeignKey(
+        Activity,
+        on_delete=models.CASCADE,
+        related_name='expenses',
+        verbose_name='关联活动'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='expenses',
+        verbose_name='归属用户'
+    )
+    amount = models.DecimalField('金额', max_digits=10, decimal_places=2)
+    category = models.CharField(
+        '类别', max_length=20, choices=CATEGORY_CHOICES, default='other'
+    )
+    paid_at = models.DateField('消费日期', null=True, blank=True)
+    note = models.CharField('备注', max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-paid_at', '-created_at']
+        verbose_name = '费用'
+        verbose_name_plural = '费用'
+
+    def __str__(self):
+        label = self.get_category_display()
+        return f'¥{self.amount} [{label}] {self.note or ""}'.strip()

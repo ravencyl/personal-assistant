@@ -5,6 +5,7 @@
 目标不明确时抛 ToolError / CandidateToolError 让用户澄清，绝不猜测；
 update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
+from datetime import date
 from urllib.parse import urlencode
 
 from django.db.models import Count, Sum
@@ -14,7 +15,7 @@ from django.utils import timezone
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
-from .models import Activity, Participant
+from .models import Activity, Participant, Expense
 from .views import (_edit_summary, _fmt, _normalize, _snapshot,
                     filter_activities, log_activity)
 
@@ -51,7 +52,7 @@ def _activity_card_data(activity):
             {'value': s, 'label': STATUS_LABELS[s]} for s in NEXT_STATUS.get(activity.status, [])
         ],
         'date_range': activity.date_range,
-        'cost': float(activity.cost or 0),
+        'expense_total': float(activity.total_cost or 0),
         'description': activity.description,
         'tags': list(activity.tags.names()),
         'participants': list(activity.participants.values_list('name', flat=True)),
@@ -119,7 +120,7 @@ def tool_query(user, params):
             'status': a.status,
             'status_label': a.get_status_display(),
             'date_label': d.strftime('%m-%d') if d else '未设定',
-            'cost': float(a.cost or 0),
+            'expense_total': float(a.total_cost or 0),
             'detail_url': reverse('activities:activity_detail', args=[a.id]),
         })
         activity_ids.append(a.id)
@@ -173,7 +174,7 @@ def tool_set_status(user, params):
 
 
 @agent_tool('activities.create', '创建一个新活动',
-            'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元）、'
+            'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元，将创建为费用条目）、'
             'status、tags（字符串数组）、participants（字符串数组）、parent（父活动名称，可选）')
 def tool_create(user, params):
     data = _normalize(params, timezone.localdate())
@@ -185,15 +186,20 @@ def tool_create(user, params):
     if parent_name:
         parent = visible_qs(Activity, user).filter(name__icontains=parent_name).first()
 
+    cost_value = data.pop('cost', 0)
     activity = Activity.objects.create(
         user=user,
         name=data['name'],
         start_date=data.get('start_date'),
         end_date=data.get('end_date'),
         status=data.get('status', 'planned'),
-        cost=data.get('cost', 0),
         parent=parent,
     )
+    if cost_value and float(cost_value) > 0:
+        Expense.objects.create(
+            activity=activity, user=user, amount=cost_value,
+            category='other', note='通过 AI 对话创建',
+        )
     if data.get('tags'):
         activity.tags.add(*data['tags'])
     if data.get('participants'):
@@ -219,7 +225,7 @@ def tool_create(user, params):
 
 _UPDATE_FIELD_LABELS = [
     ('name', '名称'), ('start_date', '开始日期'), ('end_date', '结束日期'),
-    ('status', '状态'), ('cost', '费用'),
+    ('status', '状态'),
 ]
 
 
@@ -237,10 +243,7 @@ def _update_preview(user, params):
         if field not in data:
             continue
         old_v = getattr(activity, field)
-        if field == 'cost':
-            if float(old_v or 0) == float(data[field]):
-                continue
-        elif field in ('start_date', 'end_date'):
+        if field in ('start_date', 'end_date'):
             if (old_v.isoformat() if old_v else None) == data[field]:
                 continue
         elif str(old_v or '') == str(data[field]):
@@ -278,7 +281,7 @@ def apply_update(user, params):
     data = _normalize(p, timezone.localdate())
 
     old = _snapshot(activity)
-    for field in ('name', 'start_date', 'end_date', 'status', 'cost'):
+    for field in ('name', 'start_date', 'end_date', 'status'):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()
@@ -396,7 +399,7 @@ def tool_stats(user, params):
                     .filter(tags__name__isnull=False).order_by('-n')[:5])
     tags_top = [{'name': r['tags__name'], 'count': r['n']} for r in tag_rows]
 
-    cost_total = qs.aggregate(s=Sum('cost'))['s'] or 0
+    cost_total = qs.aggregate(s=Sum('expenses__amount'))['s'] or 0
 
     return {
         'reply': f'共 {total} 个活动，概况如下：',
@@ -410,4 +413,90 @@ def tool_stats(user, params):
             'cost_total': float(cost_total),
             'list_url': reverse('activities:activity_list'),
         },
+    }
+
+
+# ==================== P2：费用工具 ====================
+
+_CATEGORY_MAP = {v: k for k, v in dict(Expense.CATEGORY_CHOICES).items()}
+
+
+@agent_tool('activities.add_expense', '为活动添加一笔费用',
+            'target（活动名称关键词）+ amount（金额，必填）+ '
+            'category（类别：交通/住宿/餐饮/门票/购物/工作/其他）+ '
+            'note（备注，可选）+ paid_at（消费日期 YYYY-MM-DD，可选）')
+def tool_add_expense(user, params):
+    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    amount = params.get('amount')
+    if amount is None:
+        raise ToolError('请告诉我费用金额')
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        raise ToolError('金额格式不正确，请输入数字')
+    if amount <= 0:
+        raise ToolError('金额必须大于 0')
+
+    cat_input = str(params.get('category') or '其他').strip()
+    category = _CATEGORY_MAP.get(cat_input, 'other')
+    if cat_input in dict(Expense.CATEGORY_CHOICES):
+        category = cat_input
+
+    paid_at = params.get('paid_at')
+    if paid_at:
+        try:
+            date.fromisoformat(str(paid_at)[:10])
+            paid_at = str(paid_at)[:10]
+        except ValueError:
+            paid_at = None
+    else:
+        paid_at = None
+
+    note = str(params.get('note') or '').strip()[:255]
+
+    expense = Expense.objects.create(
+        activity=activity, user=user, amount=amount,
+        category=category, paid_at=paid_at, note=note,
+    )
+    log_activity(user, activity, 'edited',
+                 f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}（通过 AI 对话）')
+
+    return {
+        'reply': f'已为「{activity.name}」添加费用 ¥{amount}（{expense.get_category_display()}）',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': _activity_card_data(activity),
+        'changed': True,
+    }
+
+
+@agent_tool('activities.list_expenses', '查看某活动的费用明细',
+            'target（活动名称关键词）')
+def tool_list_expenses(user, params):
+    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    expenses = list(activity.expenses.all())
+    total = sum(float(e.amount) for e in expenses)
+
+    if not expenses:
+        return {
+            'reply': f'「{activity.name}」还没有费用记录',
+            'card': 'activity',
+            'activity_ids': [activity.id],
+            'card_data': _activity_card_data(activity),
+        }
+
+    items = []
+    for e in expenses:
+        items.append({
+            'amount': float(e.amount),
+            'category': e.get_category_display(),
+            'note': e.note,
+            'paid_at': e.paid_at.isoformat() if e.paid_at else '',
+        })
+
+    return {
+        'reply': f'「{activity.name}」共 {len(expenses)} 笔费用，合计 ¥{total}：',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': {**_activity_card_data(activity), 'expense_items': items},
     }

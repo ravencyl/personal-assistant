@@ -361,7 +361,7 @@
                 (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
         }
         if (d.cost !== undefined && d.cost !== null) {
-            parts.push('<span class="text-zinc-500">¥ ' + esc(String(d.cost)) + '</span>');
+            parts.push('<span class="text-zinc-500">费用 ¥ ' + esc(String(d.cost)) + '</span>');
         }
         if (d.status && STATUS_LABELS[d.status]) {
             parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">' + STATUS_LABELS[d.status] + '</span>');

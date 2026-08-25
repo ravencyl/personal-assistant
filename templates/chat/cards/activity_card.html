@@ -6,7 +6,7 @@
             <a href="{{ card.detail_url }}" class="font-medium text-sm text-zinc-900 hover:text-zinc-600 truncate">{{ card.name }}</a>
             {% include "activities/_status_badge.html" with status=card.status label=card.status_label %}
         </div>
-        <p class="mt-1 text-xs text-zinc-500">{{ card.date_range }}{% if card.cost %} · &#165;{{ card.cost|floatformat:"-2" }}{% endif %}</p>
+        <p class="mt-1 text-xs text-zinc-500">{{ card.date_range }}{% if card.expense_total %} · &#165;{{ card.expense_total|floatformat:"-2" }}{% endif %}</p>
         {% if card.tags or card.participants %}
         <p class="mt-1 text-xs text-zinc-400">
             {% for t in card.tags %}<span class="mr-1.5"># {{ t }}</span>{% endfor %}
