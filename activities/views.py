@@ -532,6 +532,7 @@ def activity_detail(request, activity_id):
         'logs': activity.logs.select_related('user')[:50],
         'expenses': expenses,
         'expense_categories': Expense.CATEGORY_CHOICES,
+        'today_date': timezone.localdate().isoformat(),
     })
 
 
@@ -700,12 +701,12 @@ def expense_create(request, activity_id):
     if category not in dict(Expense.CATEGORY_CHOICES):
         category = 'other'
 
-    paid_at = request.POST.get('paid_at', '').strip() or None
+    paid_at = request.POST.get('paid_at', '').strip() or timezone.localdate().isoformat()
     if paid_at:
         try:
             date.fromisoformat(paid_at)
         except ValueError:
-            paid_at = None
+            paid_at = timezone.localdate().isoformat()
 
     note = request.POST.get('note', '').strip()[:255]
 
@@ -719,6 +720,51 @@ def expense_create(request, activity_id):
     )
     log_activity(request.user, activity, 'edited',
                  f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
+
+    if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
+        return JsonResponse({
+            'id': expense.id,
+            'amount': float(expense.amount),
+            'category': expense.get_category_display(),
+            'note': expense.note,
+            'paid_at': expense.paid_at,
+        })
+    return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+@require_POST
+def expense_edit(request, expense_id):
+    """编辑费用条目"""
+    expense = get_visible(Expense, request.user, id=expense_id)
+    activity = expense.activity
+    try:
+        amount = float(request.POST.get('amount', 0))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '金额格式不正确'}, status=400)
+    if amount <= 0:
+        return JsonResponse({'error': '金额必须大于 0'}, status=400)
+
+    category = request.POST.get('category', 'other')
+    if category not in dict(Expense.CATEGORY_CHOICES):
+        category = 'other'
+
+    paid_at = request.POST.get('paid_at', '').strip() or None
+    if paid_at:
+        try:
+            date.fromisoformat(paid_at)
+        except ValueError:
+            paid_at = None
+
+    note = request.POST.get('note', '').strip()[:255]
+
+    expense.amount = amount
+    expense.category = category
+    expense.paid_at = paid_at
+    expense.note = note
+    expense.save()
+    log_activity(request.user, activity, 'edited',
+                 f'编辑费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
 
     if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
         return JsonResponse({

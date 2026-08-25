@@ -171,6 +171,28 @@
         var newBtn = document.getElementById('chat-new-btn');
         var csrf = form.querySelector('input[name=csrfmiddlewaretoken]').value;
 
+        // ── 页面上下文感知 ──
+        var pageCtx = (function () {
+            var path = location.pathname;
+            var m = path.match(/^\/activities\/(\d+)\/?$/);
+            if (m) {
+                var el = document.querySelector('[data-page-activity]');
+                var name = el ? el.getAttribute('data-page-activity') : '';
+                return {
+                    type: 'activity_detail',
+                    id: m[1],
+                    name: name,
+                    placeholder: name ? '关于「' + name + '」需要什么帮助？' : '需要我做什么？修改活动信息还是帮你创建一笔费用',
+                    hint: name ? '用户正在查看活动「' + name + '」（ID: ' + m[1] + '）的详情页。可以帮用户修改活动信息、创建费用、添加参与者等。' : ''
+                };
+            }
+            if (/^\/activities\/new\//.test(path)) return { type: 'activity_create', placeholder: '需要帮你填写活动信息吗？', hint: '' };
+            if (/^\/activities/.test(path)) return { type: 'activity_list', placeholder: '需要创建或查找活动吗？', hint: '' };
+            if (/^\/chat/.test(path)) return { type: 'chat', placeholder: '输入消息...', hint: '' };
+            return { type: 'home', placeholder: '有什么需要帮忙的？', hint: '' };
+        })();
+        input.placeholder = pageCtx.placeholder;
+
         function showChatView(show) {
             viewList.classList.toggle('hidden', show);
             viewChat.classList.toggle('hidden', !show);
@@ -251,7 +273,7 @@
                     'HX-Request': 'true',
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                body: 'content=' + encodeURIComponent(content)
+                body: 'content=' + encodeURIComponent(content) + '&page_context=' + encodeURIComponent(pageCtx.hint || pageCtx.type)
             })
                 .then(function (r) {
                     if (!r.ok) {

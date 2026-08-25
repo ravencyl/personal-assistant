@@ -137,7 +137,10 @@ def send_message(request, conversation_id):
     if not content:
         return JsonResponse({'error': '消息内容不能为空'}, status=400)
 
-    # 保存用户消息
+    # 页面上下文提示（不保存到用户消息，仅注入 AI 会话）
+    page_context = request.POST.get('page_context', '').strip()
+
+    # 保存用户消息（原始内容，不含上下文提示）
     user_msg = Message.objects.create(
         conversation=conversation,
         role='user',
@@ -148,15 +151,20 @@ def send_message(request, conversation_id):
     # 发送到 Qoder
     service = get_service()
     try:
+        # 构造发送到 AI 的内容：页面上下文 + 用户消息
+        ai_content = content
+        if page_context and page_context != 'home' and page_context != 'chat':
+            ai_content = f'[页面提示: {page_context}]\n\n{content}'
+
         try:
-            service.send_message(conversation.session_id, content)
+            service.send_message(conversation.session_id, ai_content)
         except httpx.HTTPStatusError as e:
             if e.response.status_code != 409:
                 raise
             # 409：session 正忙（通常是首帧协议指令还在处理）；等它结束再重发
             logger.info(f'会话 {conversation.id} 发送 409，等待上一轮结束后重发')
             service.wait_for_response(conversation.session_id, timeout=60)
-            service.send_message(conversation.session_id, content)
+            service.send_message(conversation.session_id, ai_content)
         conversation.status = 'processing'
         conversation.save(update_fields=['status', 'updated_at'])
 
