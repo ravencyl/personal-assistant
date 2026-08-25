@@ -925,11 +925,11 @@ def daily_view(request):
         id__in=[a.id for a in ongoing]
     ).order_by('-start_date')[:10]
 
-    # ── 统计 ──
+    # ── 统计：今日实际消费（按 paid_at 筛选） ──
     from django.db.models import Sum
-    all_ids = [a.id for a in ongoing] + [a.id for a in starting_today]
     today_expense = Expense.objects.filter(
-        activity_id__in=all_ids,
+        user=request.user,
+        paid_at=today,
     ).aggregate(s=Sum('amount'))['s'] or 0
 
     # 问候
