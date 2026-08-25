@@ -25,13 +25,14 @@ class ActivityForm(forms.ModelForm):
 
     class Meta:
         model = Activity
-        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'parent', 'tags']
+        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'budget', 'parent', 'tags']
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
             'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
+            'budget': forms.NumberInput(attrs={'class': INPUT_CLS, 'placeholder': '可选，设置预算上限', 'step': '0.01', 'min': '0'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }
 

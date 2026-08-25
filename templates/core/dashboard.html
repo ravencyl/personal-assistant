@@ -14,7 +14,7 @@
 </div>
 
 <!-- 统计卡片 -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-2">
     <div class="app-card p-3 md:p-4">
         <p class="text-xs text-[var(--text-muted)]">本周完成</p>
         <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">{{ stats.week_completed }}</p>
@@ -31,6 +31,16 @@
         <p class="text-xs text-[var(--text-muted)]">进行中</p>
         <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">{{ stats.ongoing_count }}</p>
     </div>
+</div>
+
+<!-- 报告入口 -->
+<div class="flex gap-3 mb-6">
+    <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full bg-zinc-900 text-white text-sm hover:bg-black transition-colors">
+        生成周报
+    </a>
+    <a href="{% url 'monthly_report' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] hover:bg-zinc-50 transition-colors">
+        生成月报
+    </a>
 </div>
 
 <!-- 本周费用趋势 -->

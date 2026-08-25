@@ -177,3 +177,12 @@ a {
     background-color: transparent;
     padding: 0;
 }
+
+/* 全局搜索面板 */
+.search-result-item {
+    transition: background-color 0.15s ease;
+}
+.search-result-item:hover,
+.search-result-item.bg-zinc-50 {
+    background-color: var(--accent-light, #f4f4f5);
+}

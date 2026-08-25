@@ -165,3 +165,28 @@ def filter_activities(user, params):
             | models.Q(tags__name__icontains=keyword)
         ).distinct()
     return qs
+
+
+def budget_status(activity):
+    """计算活动预算状态，返回 (ratio, level, label)
+
+    ratio: float (0.0 ~ 1.0+)，已花费/预算
+    level: str，'safe' | 'warning' | 'over' | None
+    label: str，中文状态标签或 None
+    """
+    if not activity.budget:
+        return (None, None, None)
+
+    spent = float(activity.total_cost or 0)
+    budget = float(activity.budget)
+    if budget <= 0:
+        return (None, None, None)
+
+    ratio = spent / budget
+
+    if ratio >= 1.0:
+        return (ratio, 'over', '已超预算')
+    elif ratio >= 0.8:
+        return (ratio, 'warning', '接近预算')
+    else:
+        return (ratio, 'safe', '')

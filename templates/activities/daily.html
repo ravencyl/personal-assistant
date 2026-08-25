@@ -98,6 +98,36 @@
 </section>
 {% endif %}
 
+<!-- 待处理提醒 -->
+{% if pending_reminders %}
+<section class="app-card p-4 mb-8">
+    <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">
+        提醒
+        <span class="ml-1.5 text-[var(--text-muted)] font-normal normal-case">{{ pending_reminders|length }}</span>
+    </h2>
+    <div class="space-y-2">
+        {% for r in pending_reminders %}
+        <div class="flex items-center justify-between py-1.5">
+            <div class="min-w-0 flex-1">
+                <p class="text-sm text-[var(--text)] truncate">{{ r.content }}</p>
+                <p class="text-xs text-[var(--text-muted)]">{{ r.trigger_at|timesince }} 前到期</p>
+            </div>
+            <div class="flex gap-2 shrink-0 ml-3">
+                <form method="post" action="{% url 'reminder_dismiss' r.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-muted)] hover:bg-[var(--accent-light)]">忽略</button>
+                </form>
+                <form method="post" action="{% url 'reminder_done' r.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-xs px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] hover:opacity-90">已完成</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
 <!-- AI 建议 -->
 {% if suggestions %}
 <section class="collapsible-section mb-8" data-section="ai-suggestions">

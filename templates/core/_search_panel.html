@@ -1,0 +1,99 @@
+{% if not query %}
+<!-- 空状态：显示快捷操作 -->
+<div class="space-y-1">
+    <p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>
+    <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+        <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">+</span>
+        <span class="text-sm text-[var(--text)]">新建活动</span>
+    </a>
+    <a href="{% url 'notes:note_list' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+        <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">📝</span>
+        <span class="text-sm text-[var(--text)]">新建笔记</span>
+    </a>
+</div>
+{% elif results and total == 0 %}
+<div class="text-center py-8 text-[var(--text-muted)]">
+    <p class="text-sm">没有找到「{{ query }}」相关内容</p>
+</div>
+{% elif results %}
+<!-- 搜索结果 -->
+<div class="space-y-4">
+    <!-- 活动 -->
+    {% if results.activities %}
+    <div>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">活动</p>
+        {% for a in results.activities %}
+        <a href="{% url 'activities:activity_detail' a.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">📋</span>
+            <div class="min-w-0 flex-1">
+                <p class="text-sm text-[var(--text)] truncate">{{ a.name }}</p>
+                {% if a.description %}<p class="text-xs text-[var(--text-muted)] truncate">{{ a.description|truncatechars:40 }}</p>{% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- 知识库 -->
+    {% if results.articles %}
+    <div>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">知识库</p>
+        {% for a in results.articles %}
+        <a href="{% url 'knowledge:article_detail' a.slug %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">📖</span>
+            <div class="min-w-0 flex-1">
+                <p class="text-sm text-[var(--text)] truncate">{{ a.title }}</p>
+                <p class="text-xs text-[var(--text-muted)] truncate">{{ a.content|truncatechars:40 }}</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- 笔记 -->
+    {% if results.notes %}
+    <div>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">笔记</p>
+        {% for n in results.notes %}
+        <a href="{% url 'notes:note_list' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">📝</span>
+            <div class="min-w-0 flex-1">
+                <p class="text-sm text-[var(--text)] truncate">{{ n.content|truncatechars:60 }}</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- 对话 -->
+    {% if results.conversations %}
+    <div>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">对话</p>
+        {% for c in results.conversations %}
+        <a href="{% url 'chat:conversation_detail' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">💬</span>
+            <div class="min-w-0 flex-1">
+                <p class="text-sm text-[var(--text)] truncate">{{ c.title }}</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- 消息 -->
+    {% if results.messages %}
+    <div>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">消息记录</p>
+        {% for msg, conv in results.messages %}
+        <a href="{% url 'chat:conversation_detail' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">💬</span>
+            <div class="min-w-0 flex-1">
+                <p class="text-sm text-[var(--text)] truncate">{{ msg.content|truncatechars:60 }}</p>
+                <p class="text-xs text-[var(--text-muted)]">{{ conv.title }}</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}

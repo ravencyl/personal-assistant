@@ -93,6 +93,31 @@
         </div>
     </div>
 
+    <!-- 预算进度（仅当设置了预算时显示） -->
+    {% if activity.budget %}
+    <div class="app-card p-4 sm:p-6">
+        <div class="flex items-center justify-between mb-2">
+            <h2 class="text-sm font-medium text-[var(--text)]">预算</h2>
+            {% if budget_level == 'over' %}
+            <span class="text-xs font-medium text-red-600 bg-red-50 rounded-full px-2 py-0.5">已超预算</span>
+            {% elif budget_level == 'warning' %}
+            <span class="text-xs font-medium text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">接近预算</span>
+            {% endif %}
+        </div>
+        <div class="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
+            <div class="h-full rounded-full transition-all
+                {% if budget_level == 'over' %}bg-red-500
+                {% elif budget_level == 'warning' %}bg-amber-500
+                {% else %}bg-zinc-900{% endif %}"
+                style="width: {% widthratio budget_ratio 1 100 %}%"></div>
+        </div>
+        <div class="flex justify-between mt-1.5 text-xs text-[var(--text-muted)]">
+            <span>已花费 ¥{{ activity.total_cost|floatformat:"0" }}</span>
+            <span>预算 ¥{{ activity.budget|floatformat:"0" }}</span>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- 描述 -->
     {% if activity.description %}
     <div class="app-card p-4 sm:p-6">
@@ -128,6 +153,11 @@
         {% else %}
         <p class="text-sm text-[var(--text-muted)]">暂无费用记录</p>
         {% endif %}
+        <!-- 分类推荐 -->
+        <div class="mt-3 mb-1">
+            <p class="text-xs text-[var(--text-muted)] mb-1.5">常用分类（点击快速填入）</p>
+            {% include "activities/_category_suggest.html" %}
+        </div>
         <!-- 添加费用表单 -->
         <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end" id="expense-form">
             {% csrf_token %}
@@ -244,6 +274,42 @@
                 {{ p.name }}
             </span>
             {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 相关知识与笔记 -->
+    {% if related_articles or related_notes %}
+    <div class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关知识与笔记</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% if related_articles %}
+            <div>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">知识库文章</h3>
+                <div class="space-y-2">
+                    {% for item in related_articles %}
+                    <a href="{% url 'knowledge:article_detail' item.object.slug %}"
+                       class="block p-2 rounded-lg hover:bg-zinc-50 transition-colors">
+                        <p class="text-sm text-[var(--text)] truncate">{{ item.object.title }}</p>
+                        <p class="text-xs text-[var(--text-muted)]">{{ item.score }} 个共同标签</p>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if related_notes %}
+            <div>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">笔记</h3>
+                <div class="space-y-2">
+                    {% for item in related_notes %}
+                    <div class="p-2">
+                        <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
+                        <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
     {% endif %}

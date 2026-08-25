@@ -31,6 +31,45 @@
         </div>
     </div>
 
+    <!-- 相关活动与笔记 -->
+    {% if related_activities or related_notes %}
+    <div class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关活动与笔记</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% if related_activities %}
+            <div>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">活动</h3>
+                <div class="space-y-2">
+                    {% for item in related_activities %}
+                    <a href="{% url 'activities:activity_detail' item.object.id %}"
+                       class="block p-2 rounded-lg hover:bg-zinc-50 transition-colors">
+                        <div class="flex items-center gap-2">
+                            <p class="text-sm text-[var(--text)] truncate">{{ item.object.name }}</p>
+                            {% include "activities/_status_badge.html" with status=item.object.status label=item.object.get_status_display %}
+                        </div>
+                        <p class="text-xs text-[var(--text-muted)]">{{ item.score }} 个共同标签</p>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if related_notes %}
+            <div>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">笔记</h3>
+                <div class="space-y-2">
+                    {% for item in related_notes %}
+                    <div class="p-2">
+                        <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
+                        <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- 操作按钮 -->
     <div class="flex items-center gap-3 justify-end">
         <a href="{% url 'knowledge:article_edit' pk=article.pk %}"

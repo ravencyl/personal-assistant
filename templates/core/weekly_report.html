@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - Personal AI Assistant{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <!-- 头部 -->
+    <div class="mb-6">
+        <h1 class="text-xl font-semibold text-[var(--text)]">{{ title }}</h1>
+        <p class="text-sm text-[var(--text-muted)] mt-1">
+            {% if report_type == 'weekly' %}
+                {{ week_start|date:"Y.m.d" }} - {{ week_end|date:"m.d" }}
+            {% else %}
+                {{ month_start|date:"Y.m" }}
+            {% endif %}
+        </p>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div class="app-card p-3 text-center">
+            <p class="text-lg font-semibold text-[var(--text)]">{{ data.total_activities }}</p>
+            <p class="text-xs text-[var(--text-muted)]">活动总数</p>
+        </div>
+        <div class="app-card p-3 text-center">
+            <p class="text-lg font-semibold text-[var(--text)]">{{ data.completed }}</p>
+            <p class="text-xs text-[var(--text-muted)]">已完成</p>
+        </div>
+        <div class="app-card p-3 text-center">
+            <p class="text-lg font-semibold text-[var(--text)]">¥{{ data.total_expense|floatformat:"0" }}</p>
+            <p class="text-xs text-[var(--text-muted)]">总消费</p>
+        </div>
+        <div class="app-card p-3 text-center">
+            {% if data.prev_period_expense > 0 %}
+                {% widthratio data.total_expense data.prev_period_expense 100 as pct %}
+                <p class="text-lg font-semibold {% if pct > 100 %}text-red-600{% else %}text-green-600{% endif %}">
+                    {% if pct > 100 %}+{% endif %}{{ pct|add:"-100" }}%
+                </p>
+            {% else %}
+                <p class="text-lg font-semibold text-[var(--text)]">--</p>
+            {% endif %}
+            <p class="text-xs text-[var(--text-muted)]">环比</p>
+        </div>
+    </div>
+
+    <!-- 报告内容 -->
+    <div class="app-card p-4 sm:p-6 mb-6">
+        <div class="prose prose-sm max-w-none text-[var(--text)]">
+            {{ markdown|linebreaks }}
+        </div>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="flex gap-3">
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="content" value="{{ markdown }}">
+            <button type="submit" class="px-4 py-2 rounded-full bg-zinc-900 text-white text-sm hover:bg-black transition-colors">
+                保存到知识库
+            </button>
+        </form>
+        <form method="post" action="{% url 'report_send_to_chat' %}">
+            {% csrf_token %}
+            <input type="hidden" name="content" value="{{ markdown }}">
+            <input type="hidden" name="title" value="{{ title }}">
+            <button type="submit" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] hover:bg-zinc-50 transition-colors">
+                推送到对话
+            </button>
+        </form>
+        <a href="{% url 'dashboard' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text-muted)] hover:bg-zinc-50 transition-colors">
+            返回仪表盘
+        </a>
+    </div>
+</div>
+{% endblock %}

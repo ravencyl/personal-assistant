@@ -22,6 +22,9 @@ class Article(models.Model):
         ordering = ['-updated_at']
         verbose_name = '知识库文章'
         verbose_name_plural = '知识库文章'
+        indexes = [
+            models.Index(fields=['user']),
+        ]
 
     def __str__(self):
         return self.title

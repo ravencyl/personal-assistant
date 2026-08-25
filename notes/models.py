@@ -20,6 +20,9 @@ class Note(models.Model):
         ordering = ['-pinned', '-updated_at']
         verbose_name = '备忘录'
         verbose_name_plural = '备忘录'
+        indexes = [
+            models.Index(fields=['user', '-updated_at']),
+        ]
 
     def __str__(self):
         # 取内容前 50 字符作为摘要

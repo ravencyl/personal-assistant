@@ -133,6 +133,10 @@ def send_message(request, conversation_id):
     """发送消息"""
     conversation = get_visible(Conversation, request.user, id=conversation_id)
 
+    # 触发到期提醒（每次对话时检查）
+    from core.models import check_due_reminders
+    check_due_reminders(request.user)
+
     content = request.POST.get('content', '').strip()
     if not content:
         return JsonResponse({'error': '消息内容不能为空'}, status=400)

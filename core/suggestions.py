@@ -90,7 +90,7 @@ def generate_suggestions(user):
             'icon': 'stale',
         })
 
-    # 规则 6：今日消费提醒
+    # 规刡 6：今日消费提醒
     today_expense = Expense.objects.filter(
         user=user, paid_at=today
     ).aggregate(s=Sum('amount'))['s'] or 0
@@ -99,5 +99,48 @@ def generate_suggestions(user):
             'text': '今天还没有消费记录',
             'icon': 'expense',
         })
+    
+    # 规刡 7：预算预警
+    from activities.utils import budget_status
+    budget_warning_activities = []
+    for a in Activity.objects.filter(user=user, budget__isnull=False).exclude(budget__lte=0):
+        ratio, level, label = budget_status(a)
+        if level in ('warning', 'over'):
+            budget_warning_activities.append((a, level, label))
+    
+    for a, level, label in budget_warning_activities[:2]:
+        suggestions.append({
+            'text': f'「{a.name}」{label}（已花费 ¥{a.total_cost:.0f} / 预算 ¥{a.budget:.0f}）',
+            'icon': 'expense',
+        })
+
+    # 规刡 8：有即将到期的提醒
+    from core.models import Reminder
+    upcoming_reminders = Reminder.objects.filter(
+        user=user, status='pending',
+        trigger_at__lte=timezone.now() + timedelta(hours=2),
+        trigger_at__gte=timezone.now() - timedelta(hours=1),
+    )
+    for r in upcoming_reminders[:2]:
+        suggestions.append({
+            'text': f'提醒：{r.content}（即将到期）',
+            'icon': 'alert',
+        })
+    
+    # 规刡 9：每周五提示生成周报
+    if today.weekday() == 4:  # 周五
+        from knowledge.models import Article
+        has_report = Article.objects.filter(
+            user=user,
+            tags__name='report-weekly',
+            created_at__gte=timezone.make_aware(
+                timezone.datetime.combine(today - timedelta(days=today.weekday()), timezone.datetime.min.time())
+            ),
+        ).exists()
+        if not has_report:
+            suggestions.append({
+                'text': '本周报告已准备好，要看看吗？',
+                'icon': 'plan',
+            })
 
     return suggestions[:5]  # 最多返回 5 条建议

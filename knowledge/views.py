@@ -44,8 +44,15 @@ def article_list(request):
 def article_detail(request, slug):
     """文章详情"""
     article = get_object_or_404(Article, slug=slug, user=request.user)
+
+    # 跨模块关联推荐
+    from core.cross_link import get_related_content
+    related = get_related_content(request.user, Article, article, limit=5)
+
     return render(request, 'knowledge/article_detail.html', {
         'article': article,
+        'related_activities': related.get('activities', []),
+        'related_notes': related.get('notes', []),
     })
 
 

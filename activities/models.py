@@ -79,6 +79,7 @@ class Activity(models.Model):
         related_name='generated_activities',
         verbose_name='循环来源'
     )
+    budget = models.DecimalField('预算上限', max_digits=10, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -86,6 +87,10 @@ class Activity(models.Model):
         ordering = ['-start_date', '-created_at']
         verbose_name = '活动'
         verbose_name_plural = '活动'
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['user', '-start_date']),
+        ]
 
     def __str__(self):
         return self.name
@@ -176,7 +181,7 @@ class Expense(models.Model):
     CATEGORY_CHOICES = [
         ('transport', '交通'), ('accommodation', '住宿'), ('food', '餐饮'),
         ('ticket', '门票'), ('shopping', '购物'), ('work', '工作'),
-        ('other', '其他'),
+        ('digital', '数码'), ('health', '健康'), ('other', '其他'),
     ]
 
     activity = models.ForeignKey(
@@ -204,6 +209,9 @@ class Expense(models.Model):
         ordering = ['-paid_at', '-created_at']
         verbose_name = '费用'
         verbose_name_plural = '费用'
+        indexes = [
+            models.Index(fields=['user', 'category', '-paid_at']),
+        ]
 
     def __str__(self):
         label = self.get_category_display()

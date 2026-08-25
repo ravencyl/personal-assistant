@@ -6,6 +6,7 @@
 update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from django.db.models import Count, Sum
@@ -701,5 +702,61 @@ def tool_batch_status(user, params):
         'action': {
             'tool': 'activities.batch_status',
             'params': {'status': status, 'target_ids': list(qs.values_list('id', flat=True))},
+        },
+    }
+
+
+# ==================== P2：设置预算 ====================
+
+def _apply_set_budget(user, params):
+    """set_budget 的确认执行函数"""
+    target = params.get('target', '').strip()
+    budget = Decimal(params.get('budget', '0'))
+    activity = _resolve_single(user, target)
+    activity.budget = budget
+    activity.save(update_fields=['budget', 'updated_at'])
+    log_activity(user, activity, 'edited', f'设置预算 ¥{budget}（通过 AI 对话）')
+    return {
+        'reply': f'已为「{activity.name}」设置预算 ¥{budget}',
+        'card': 'activity',
+        'card_data': _activity_card_data(activity),
+        'activity_ids': [activity.id],
+        'changed': True,
+    }
+
+
+@agent_tool('activities.set_budget', '为活动设置预算上限',
+            'target（活动名称关键词）+ budget（预算金额，必填，正数）',
+            apply_fn=_apply_set_budget)
+def tool_set_budget(user, params):
+    target = params.get('target', '').strip()
+    if not target:
+        raise ToolError('请告诉我要为哪个活动设置预算')
+
+    budget = params.get('budget')
+    if budget is None:
+        raise ToolError('请告诉我预算金额')
+    try:
+        budget = Decimal(str(budget))
+        if budget <= 0:
+            raise ToolError('预算金额必须大于 0')
+    except (InvalidOperation, ValueError, TypeError):
+        raise ToolError('预算金额格式不正确')
+
+    activity = _resolve_single(user, target)
+
+    return {
+        'reply': f'将为「{activity.name}」设置预算 ¥{budget}',
+        'card': 'confirm',
+        'card_data': {
+            'kind': 'set_budget',
+            'name': activity.name,
+            'budget': str(budget),
+            'detail_url': reverse('activities:activity_detail', args=[activity.id]),
+        },
+        'activity_ids': [activity.id],
+        'action': {
+            'tool': 'activities.set_budget',
+            'params': {'target': target, 'budget': str(budget), 'target_id': activity.id},
         },
     }

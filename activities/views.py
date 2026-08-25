@@ -22,7 +22,7 @@ from .forms import ActivityForm
 from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplate, RecurringActivity, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, log_activity,
-                    normalize_input, snapshot_activity)
+                    normalize_input, snapshot_activity, budget_status)
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
@@ -429,6 +429,13 @@ def activity_detail(request, activity_id):
     # 附件
     attachments = list(activity.attachments.all())
 
+    # 预算状态
+    budget_ratio, budget_level, budget_label = budget_status(activity)
+
+    # 跨模块关联推荐
+    from core.cross_link import get_related_content
+    related = get_related_content(request.user, Activity, activity, limit=5)
+
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
         'children': children,
@@ -439,6 +446,11 @@ def activity_detail(request, activity_id):
         'expense_categories': Expense.CATEGORY_CHOICES,
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
+        'budget_ratio': budget_ratio,
+        'budget_level': budget_level,
+        'budget_label': budget_label,
+        'related_articles': related.get('articles', []),
+        'related_notes': related.get('notes', []),
     })
 
 
@@ -957,11 +969,27 @@ def daily_view(request):
         for a in activities:
             a.expense_total = float(totals.get(a.id, 0) or 0)
             a.expense_count = counts.get(a.id, 0)
+            if a.budget:
+                ratio = a.expense_total / float(a.budget) if float(a.budget) > 0 else 0
+                a.budget_over = ratio >= 1.0
+                a.budget_warning = ratio >= 0.8 and not a.budget_over
+            else:
+                a.budget_over = False
+                a.budget_warning = False
         return activities
 
     # AI 建议
     from core.suggestions import generate_suggestions
     suggestions = generate_suggestions(request.user)
+
+    # 提醒：先触发到期提醒，再查询今日已触发但未处理的
+    from core.models import Reminder, check_due_reminders
+    check_due_reminders(request.user)
+    pending_reminders = Reminder.objects.filter(
+        user=request.user,
+        status='fired',
+        trigger_at__date=timezone.localdate(),
+    ).order_by('trigger_at')[:10]
 
     # 循环活动今日实例
     today_instances = Activity.objects.filter(
@@ -987,6 +1015,7 @@ def daily_view(request):
         'in_progress_count': qs.filter(status='in_progress').count(),
         'suggestions': suggestions,
         'today_instances': today_instances,
+        'pending_reminders': pending_reminders,
     })
 
 
@@ -1235,6 +1264,34 @@ def attachment_delete(request, attachment_id):
         return JsonResponse({'ok': True})
 
     return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+def expense_category_suggest(request, activity_id):
+    """基于用户历史费用数据推荐类别排序（JSON）"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+
+    from django.core.cache import cache
+    cache_key = f'expense_cat_dist_{request.user.id}'
+    cat_dist = cache.get(cache_key)
+    if cat_dist is None:
+        cat_dist = list(
+            Expense.objects.filter(user=request.user)
+            .values('category').annotate(n=Count('id'))
+            .order_by('-n')
+        )
+        cache.set(cache_key, cat_dist, timeout=86400)
+
+    # 按历史频率排序的类别列表；无历史数据时用默认顺序
+    ordered = [c['category'] for c in cat_dist]
+    default = [c[0] for c in Expense.CATEGORY_CHOICES]
+    # 合并：历史有的排前面，没有的补后面
+    seen = set(ordered)
+    for c in default:
+        if c not in seen:
+            ordered.append(c)
+
+    return JsonResponse({'categories': ordered})
 
 
 @login_required

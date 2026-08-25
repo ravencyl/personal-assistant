@@ -1,0 +1,14 @@
+<div class="app-card p-3 border-l-2 border-zinc-900">
+    <div class="flex items-start gap-2">
+        <span class="text-sm mt-0.5">📊</span>
+        <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-[var(--text)]">{{ card.title }}</p>
+            <p class="text-xs text-[var(--text-muted)] mt-1 line-clamp-2">{{ card.summary }}</p>
+            {% if card.article_slug %}
+            <a href="{% url 'knowledge:article_detail' card.article_slug %}" class="text-xs text-[var(--accent)] hover:underline mt-1 inline-block">
+                查看完整报告 →
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>

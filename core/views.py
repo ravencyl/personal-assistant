@@ -1,13 +1,18 @@
 from datetime import timedelta
 
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Sum
 from django.utils import timezone
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
 
 from chat.models import Conversation
 from activities.models import Activity, Expense
 from core.utils import visible_qs
+from core.search import global_search
+from core.report_generator import collect_report_data, generate_report, save_report_to_knowledge
+from knowledge.models import Article
 
 
 @login_required
@@ -100,3 +105,162 @@ def dashboard(request):
         'greeting': greeting,
         'today_display': today_display,
     })
+
+
+@login_required
+def search_api(request):
+    """全局搜索 API（返回 HTML 片段供 HTMX 使用）"""
+    query = request.GET.get('q', '').strip()
+    if not query:
+        return render(request, 'core/_search_panel.html', {'query': '', 'results': None})
+
+    results = global_search(request.user, query)
+
+    # 计算总结果数
+    total = sum(
+        len(v) if v and not isinstance(v[0], tuple) else len(v)
+        for v in results.values() if v
+    )
+
+    return render(request, 'core/_search_panel.html', {
+        'query': query,
+        'results': results,
+        'total': total,
+    })
+
+
+@login_required
+def weekly_report(request):
+    """生成/查看本周周报"""
+    user = request.user
+    today = timezone.localdate()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = today
+
+    # 检查是否已有本周报告
+    existing = Article.objects.filter(
+        user=user,
+        tags__name='report-weekly',
+        created_at__gte=timezone.make_aware(
+            timezone.datetime.combine(week_start, timezone.datetime.min.time())
+        ),
+    ).first()
+
+    if request.method == 'POST' or (not existing and request.GET.get('generate')):
+        markdown, data = generate_report(user, 'weekly', week_start, week_end)
+        title = f'周报 · {today.year}年第{week_start.isocalendar()[1]}周 ({week_start.strftime("%m.%d")}-{week_end.strftime("%m.%d")})'
+
+        if request.method == 'POST':
+            article = save_report_to_knowledge(user, 'weekly', title, markdown)
+            return redirect('knowledge:article_detail', slug=article.slug)
+
+        return render(request, 'core/weekly_report.html', {
+            'report_type': 'weekly',
+            'title': title,
+            'markdown': markdown,
+            'data': data,
+            'week_start': week_start,
+            'week_end': week_end,
+        })
+
+    if existing:
+        return redirect('knowledge:article_detail', slug=existing.slug)
+
+    # GET 且无报告：显示预览
+    markdown, data = generate_report(user, 'weekly', week_start, week_end)
+    title = f'周报 · {today.year}年第{week_start.isocalendar()[1]}周 ({week_start.strftime("%m.%d")}-{week_end.strftime("%m.%d")})'
+
+    return render(request, 'core/weekly_report.html', {
+        'report_type': 'weekly',
+        'title': title,
+        'markdown': markdown,
+        'data': data,
+        'week_start': week_start,
+        'week_end': week_end,
+    })
+
+
+@login_required
+def monthly_report(request):
+    """生成/查看本月月报"""
+    user = request.user
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    month_end = today
+
+    existing = Article.objects.filter(
+        user=user,
+        tags__name='report-monthly',
+        created_at__gte=timezone.make_aware(
+            timezone.datetime.combine(month_start, timezone.datetime.min.time())
+        ),
+    ).first()
+
+    if request.method == 'POST' or (not existing and request.GET.get('generate')):
+        markdown, data = generate_report(user, 'monthly', month_start, month_end)
+        title = f'月报 · {today.year}年{today.month}月'
+
+        if request.method == 'POST':
+            article = save_report_to_knowledge(user, 'monthly', title, markdown)
+            return redirect('knowledge:article_detail', slug=article.slug)
+
+        return render(request, 'core/weekly_report.html', {
+            'report_type': 'monthly',
+            'title': title,
+            'markdown': markdown,
+            'data': data,
+            'month_start': month_start,
+            'month_end': month_end,
+        })
+
+    if existing:
+        return redirect('knowledge:article_detail', slug=existing.slug)
+
+    markdown, data = generate_report(user, 'monthly', month_start, month_end)
+    title = f'月报 · {today.year}年{today.month}月'
+
+    return render(request, 'core/weekly_report.html', {
+        'report_type': 'monthly',
+        'title': title,
+        'markdown': markdown,
+        'data': data,
+        'month_start': month_start,
+        'month_end': month_end,
+    })
+
+
+@login_required
+@require_POST
+def report_send_to_chat(request):
+    """推送报告摘要到对话"""
+    content = request.POST.get('content', '').strip()
+    title = request.POST.get('title', '报告').strip()
+
+    if not content:
+        return JsonResponse({'error': '报告内容不能为空'}, status=400)
+
+    # 找到或创建对话
+    from chat.models import Conversation, Message
+    conversation = Conversation.objects.filter(
+        user=request.user, status='idle'
+    ).order_by('-updated_at').first()
+
+    if not conversation:
+        return JsonResponse({'error': '没有可用的对话'}, status=400)
+
+    # 创建消息
+    Message.objects.create(
+        conversation=conversation,
+        role='assistant',
+        content=f'📊 {title}\n\n{content[:500]}{"..." if len(content) > 500 else ""}',
+        event_type='assistant.message',
+        payload={
+            'card': 'report',
+            'card_data': {
+                'title': title,
+                'summary': content[:200],
+            },
+        },
+    )
+
+    return JsonResponse({'success': True, 'conversation_id': conversation.id})

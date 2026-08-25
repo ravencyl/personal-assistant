@@ -9,4 +9,8 @@
     {% include "chat/cards/stats_card.html" with card=msg.payload.card_data %}
 {% elif msg.payload and msg.payload.card == 'candidates' and msg.payload.card_data %}
     {% include "chat/cards/candidates_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'reminder' and msg.payload.card_data %}
+    {% include "chat/cards/reminder_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'report' and msg.payload.card_data %}
+    {% include "chat/cards/report_card.html" with card=msg.payload.card_data %}
 {% endif %}

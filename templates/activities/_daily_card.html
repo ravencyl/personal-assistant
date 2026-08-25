@@ -47,6 +47,11 @@
                 {% if activity.expense_count %}
                 <span class="tabular-nums">{{ activity.expense_count }} 笔</span>
                 {% endif %}
+                {% if activity.budget_over %}
+                <span class="text-[10px] font-medium text-red-600 bg-red-50 rounded-full px-1.5 py-0.5">超预算</span>
+                {% elif activity.budget_warning %}
+                <span class="text-[10px] font-medium text-amber-600 bg-amber-50 rounded-full px-1.5 py-0.5">接近预算</span>
+                {% endif %}
             </div>
 
             <!-- 标签 + 参与者 -->

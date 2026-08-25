@@ -1,0 +1,40 @@
+{% comment %}
+HTMX 分类推荐片段：基于用户历史费用数据推荐类别排序
+通过 expense_category_suggest 视图返回 JSON，前端 JS 渲染
+{% endcomment %}
+<div id="category-suggest" class="flex flex-wrap gap-1.5"
+     hx-get="{% url 'activities:expense_category_suggest' activity.id %}"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+    <span class="text-xs text-[var(--text-muted)]">加载中…</span>
+</div>
+<script>
+(function() {
+    var el = document.getElementById('category-suggest');
+    if (!el) return;
+    fetch(el.getAttribute('hx-get'))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var labels = {
+                transport: '交通', accommodation: '住宿', food: '餐饮',
+                ticket: '门票', shopping: '购物', work: '工作',
+                digital: '数码', health: '健康', other: '其他'
+            };
+            el.innerHTML = '';
+            (data.categories || []).forEach(function(cat) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'text-xs rounded-full border border-zinc-200 px-2 py-0.5 text-[var(--text-secondary)] hover:bg-zinc-100 transition-colors';
+                btn.textContent = labels[cat] || cat;
+                btn.addEventListener('click', function() {
+                    var select = document.querySelector('#expense-form select[name="category"]');
+                    if (select) select.value = cat;
+                });
+                el.appendChild(btn);
+            });
+        })
+        .catch(function() {
+            el.innerHTML = '<span class="text-xs text-[var(--text-muted)]">推荐不可用</span>';
+        });
+})();
+</script>
