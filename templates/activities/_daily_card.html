@@ -24,6 +24,14 @@
                 <h3 class="text-sm font-medium text-zinc-900 truncate group-hover:text-zinc-700">
                     {{ activity.name }}
                 </h3>
+                <!-- 状态徽章 -->
+                <span class="shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium whitespace-nowrap
+                    {% if activity.status == 'planned' %}bg-zinc-100 text-zinc-600
+                    {% elif activity.status == 'in_progress' %}bg-zinc-900 text-white
+                    {% elif activity.status == 'done' %}bg-green-100 text-green-700
+                    {% else %}bg-red-100 text-red-600{% endif %}">
+                    {{ activity.get_status_display }}
+                </span>
                 {% if badge == "today" %}
                 <span class="shrink-0 text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded-full px-1.5 py-0.5">今日开始</span>
                 {% elif badge == "ending" %}
@@ -31,13 +39,16 @@
                 {% endif %}
             </div>
 
-            <!-- 日期 + 费用 -->
+            <!-- 日期 + 费用 + 笔数 -->
             <div class="flex items-center gap-3 text-xs text-zinc-400">
                 {% if activity.start_date or activity.end_date %}
                 <span class="tabular-nums">{{ activity.date_range }}</span>
                 {% endif %}
                 {% if activity.expense_total %}
                 <span class="tabular-nums">¥{{ activity.expense_total|floatformat:"0" }}</span>
+                {% endif %}
+                {% if activity.expense_count %}
+                <span class="tabular-nums">{{ activity.expense_count }} 笔</span>
                 {% endif %}
             </div>
 

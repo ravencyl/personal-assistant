@@ -180,6 +180,7 @@
                         费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
                     </a>
                 </th>
+                <th class="px-4 py-3 text-center text-xs font-medium text-zinc-500 uppercase">笔数</th>
                 <th class="px-4 py-3 text-center text-xs font-medium text-zinc-500 uppercase">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-zinc-600 {% if sort == 'sub_count' or sort == '-sub_count' %}text-zinc-600{% endif %}">
                         子活动{% if sort == 'sub_count' %} ▲{% elif sort == '-sub_count' %} ▼{% endif %}
@@ -240,6 +241,7 @@
                     ¥{{ activity.show_cost }}
                     {% if activity.sub_count %}<span class="text-xs text-zinc-400">含子活动</span>{% endif %}
                 </td>
+                <td class="px-4 py-3 text-center text-zinc-500">{{ activity.expense_count }}</td>
                 <td class="px-4 py-3 text-center text-zinc-500">{{ activity.sub_count }}</td>
                 <td class="px-3 py-3 text-center">
                     <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑「{{ activity.name }}」"
@@ -297,7 +299,7 @@
                 </a>
             </span>
         </div>
-        <p class="text-xs text-zinc-500">{{ activity.date_range }} · 费用 ¥{{ activity.show_cost }}{% if activity.sub_count %} <span class="text-zinc-400">· 子活动 {{ activity.sub_count }}</span>{% endif %}</p>
+        <p class="text-xs text-zinc-500">{{ activity.date_range }} · 费用 ¥{{ activity.show_cost }}{% if activity.expense_count %} <span class="text-zinc-400">· {{ activity.expense_count }} 笔</span>{% endif %}{% if activity.sub_count %} <span class="text-zinc-400">· 子活动 {{ activity.sub_count }}</span>{% endif %}</p>
         {% if activity.tags.all %}
         <div class="flex flex-wrap gap-1 mt-2">
             {% for tag in activity.tags.all %}

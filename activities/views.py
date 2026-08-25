@@ -360,9 +360,10 @@ def activity_list(request):
         'sub_count': 'sub_count',
     }
 
-    # 一次性聚合子活动数量，避免 N+1；预取标签（超级用户可见全部数据）
+    # 一次性聚合子活动数量和费用数量，避免 N+1；预取标签（超级用户可见全部数据）
     all_activities = list(visible_qs(Activity, request.user).prefetch_related('tags').annotate(
         sub_count=Count('children', distinct=True),
+        expense_count=Count('expenses', distinct=True),
     ))
 
     # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
@@ -1043,16 +1044,26 @@ def daily_view(request):
     weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
-    # 为每个活动附加费用合计（避免 N+1）
+    # 为每个活动附加费用合计和数量（避免 N+1）
     def attach_costs(activities):
         ids = [a.id for a in activities]
-        totals = dict(
-            Expense.objects.filter(activity_id__in=ids)
-            .values_list('activity_id').annotate(total=Sum('amount'))
-            .values_list('activity_id', 'total')
-        ) if ids else {}
+        if ids:
+            totals = dict(
+                Expense.objects.filter(activity_id__in=ids)
+                .values_list('activity_id').annotate(total=Sum('amount'))
+                .values_list('activity_id', 'total')
+            )
+            counts = dict(
+                Expense.objects.filter(activity_id__in=ids)
+                .values_list('activity_id').annotate(cnt=Count('id'))
+                .values_list('activity_id', 'cnt')
+            )
+        else:
+            totals = {}
+            counts = {}
         for a in activities:
             a.expense_total = float(totals.get(a.id, 0) or 0)
+            a.expense_count = counts.get(a.id, 0)
         return activities
 
     return render(request, 'activities/daily.html', {
