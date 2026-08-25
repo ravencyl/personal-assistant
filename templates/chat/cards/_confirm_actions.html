@@ -1,11 +1,11 @@
 {% comment %}确认流动作区：待确认显示「确认/取消」按钮，已决议显示结果态；确认端点返回同一片段做局部替换{% endcomment %}
 <div class="agent-card-actions mt-2 pt-2 border-t border-zinc-100" id="card-actions-{{ msg.id }}">
     {% if action.resolved == 'confirmed' %}
-        <p class="text-xs text-green-600">✓ {{ action.result }}</p>
+        <p class="text-xs text-zinc-800 font-medium">✓ {{ action.result }}</p>
     {% elif action.resolved == 'cancelled' %}
         <p class="text-xs text-zinc-400">已取消，未做任何修改</p>
     {% elif action.resolved == 'failed' %}
-        <p class="text-xs text-red-500">✗ {{ action.result }}</p>
+        <p class="text-xs text-zinc-800 font-semibold">✗ {{ action.result }}</p>
     {% else %}
         <div class="flex items-center gap-2">
             <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#card-actions-{{ msg.id }}" hx-swap="outerHTML">
@@ -13,7 +13,7 @@
                 <input type="hidden" name="decision" value="confirm">
                 <input type="hidden" name="token" value="{{ action.token }}">
                 <button type="submit" class="rounded-full px-3.5 py-1 text-xs font-medium text-white transition-colors
-                    {% if card.kind == 'delete' %}bg-red-600 hover:bg-red-700{% else %}bg-zinc-900 hover:bg-black{% endif %}">
+                    {% if card.kind == 'delete' %}bg-zinc-900 hover:bg-black{% else %}bg-zinc-900 hover:bg-black{% endif %}">
                     {% if card.kind == 'delete' %}确认删除{% else %}确认执行{% endif %}
                 </button>
             </form>

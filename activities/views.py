@@ -6,8 +6,8 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.http import JsonResponse
-from django.shortcuts import render, redirect
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import models
@@ -19,7 +19,7 @@ from django.views.decorators.http import require_POST
 from taggit.models import Tag
 
 from .forms import ActivityForm
-from .models import Activity, Participant, ActivityLog, Expense
+from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplate, RecurringActivity, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, log_activity,
                     normalize_input, snapshot_activity)
@@ -426,6 +426,9 @@ def activity_detail(request, activity_id):
     # 费用明细
     expenses = list(activity.expenses.all())
 
+    # 附件
+    attachments = list(activity.attachments.all())
+
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
         'children': children,
@@ -435,6 +438,7 @@ def activity_detail(request, activity_id):
         'expenses': expenses,
         'expense_categories': Expense.CATEGORY_CHOICES,
         'today_date': timezone.localdate().isoformat(),
+        'attachments': attachments,
     })
 
 
@@ -710,118 +714,150 @@ def activity_delete(request, activity_id):
 
 @login_required
 def activity_calendar(request):
-    """活动日历视图（月历）"""
+    """活动日历视图（月/周/日）"""
     today = timezone.localdate()
-    try:
-        year = int(request.GET.get('year', today.year))
-        month = int(request.GET.get('month', today.month))
-        if not (1 <= month <= 12):
-            raise ValueError
-    except (ValueError, TypeError):
-        year, month = today.year, today.month
+    mode = request.GET.get('mode', 'month')
+    if mode not in ('month', 'week', 'day'):
+        mode = 'month'
 
-    # 计算月历网格
-    first_day = date(year, month, 1)
-    if month == 12:
-        last_day = date(year + 1, 1, 1) - timedelta(days=1)
+    ref_date_str = request.GET.get('date')
+    if ref_date_str:
+        try:
+            ref_date = date.fromisoformat(ref_date_str)
+        except (ValueError, TypeError):
+            ref_date = today
     else:
-        last_day = date(year, month + 1, 1) - timedelta(days=1)
+        ref_date = today
 
-    # 日历从周一开始，填充前后空白
-    start_offset = first_day.weekday()  # 0=Monday
-    calendar_start = first_day - timedelta(days=start_offset)
-    weeks = []
-    current = calendar_start
-    for _ in range(6):  # 最多6周
-        week = []
-        for _ in range(7):
-            week.append({
-                'date': current,
-                'day': current.day,
-                'in_month': current.month == month,
-                'is_today': current == today,
-                'date_str': current.isoformat(),
+    if mode == 'month':
+        year = ref_date.year
+        month = ref_date.month
+        first_day = date(year, month, 1)
+        last_day = date(year + 1, 1, 1) - timedelta(days=1) if month == 12 else date(year, month + 1, 1) - timedelta(days=1)
+        start_offset = first_day.weekday()
+        calendar_start = first_day - timedelta(days=start_offset)
+        weeks = []
+        current = calendar_start
+        for _ in range(6):
+            week = []
+            for _ in range(7):
+                week.append({
+                    'day': current.day,
+                    'in_month': current.month == month,
+                    'is_today': current == today,
+                    'date_str': current.isoformat(),
+                })
+                current += timedelta(days=1)
+            weeks.append(week)
+            if current > last_day and len(weeks) >= 5:
+                break
+        if month == 1:
+            prev_date = date(year - 1, 12, 1)
+        else:
+            prev_date = date(year, month - 1, 1)
+        if month == 12:
+            next_date = date(year + 1, 1, 1)
+        else:
+            next_date = date(year, month + 1, 1)
+        title = f'{year}年{month}月'
+        ctx = {'weeks': weeks, 'year': year, 'month': month}
+
+    elif mode == 'week':
+        monday = ref_date - timedelta(days=ref_date.weekday())
+        sunday = monday + timedelta(days=6)
+        days = []
+        for i in range(7):
+            d = monday + timedelta(days=i)
+            days.append({
+                'day': d.day,
+                'weekday': ['一', '二', '三', '四', '五', '六', '日'][i],
+                'is_today': d == today,
+                'date_str': d.isoformat(),
             })
-            current += timedelta(days=1)
-        weeks.append(week)
-        if current > last_day and len(weeks) >= 5:
-            break
+        prev_date = monday - timedelta(days=7)
+        next_date = monday + timedelta(days=7)
+        title = f'{monday.month}月{monday.day}日 – {sunday.month}月{sunday.day}日'
+        ctx = {'days': days, 'week_start': monday.isoformat()}
 
-    # 上月/下月导航
-    if month == 1:
-        prev_year, prev_month = year - 1, 12
-    else:
-        prev_year, prev_month = year, month - 1
-    if month == 12:
-        next_year, next_month = year + 1, 1
-    else:
-        next_year, next_month = year, month + 1
+    else:  # day
+        d = ref_date
+        hours = []
+        for h in range(24):
+            hours.append({'hour': h, 'label': f'{h:02d}:00'})
+        prev_date = d - timedelta(days=1)
+        next_date = d + timedelta(days=1)
+        weekdays_cn = ['一', '二', '三', '四', '五', '六', '日']
+        title = f'{d.month}月{d.day}日 周{weekdays_cn[d.weekday()]}'
+        ctx = {'hours': hours, 'day_date': d.isoformat(), 'today_iso': today.isoformat()}
+
+    prev_params = {'mode': mode, 'date': prev_date.isoformat()}
+    next_params = {'mode': mode, 'date': next_date.isoformat()}
+    today_params = {'mode': mode, 'date': today.isoformat()}
 
     return render(request, 'activities/activity_calendar.html', {
-        'year': year,
-        'month': month,
-        'month_name': f'{year}年{month}月',
-        'weeks': weeks,
-        'first_day': first_day,
-        'last_day': last_day,
-        'prev_year': prev_year,
-        'prev_month': prev_month,
-        'next_year': next_year,
-        'next_month': next_month,
-        'today': today,
+        **ctx,
+        'mode': mode,
+        'title': title,
         'weekdays': ['一', '二', '三', '四', '五', '六', '日'],
+        'prev_params': prev_params,
+        'next_params': next_params,
+        'today_params': today_params,
+        'today': today,
     })
 
 
 @login_required
 def calendar_data(request):
-    """日历数据 API：返回指定月份的活动（JSON）"""
+    """日历数据 API：返回指定区间的活动（JSON），支持月/周/日"""
     today = timezone.localdate()
-    try:
-        year = int(request.GET.get('year', today.year))
-        month = int(request.GET.get('month', today.month))
-        if not (1 <= month <= 12):
-            raise ValueError
-    except (ValueError, TypeError):
-        year, month = today.year, today.month
+    mode = request.GET.get('mode', 'month')
 
-    month_start = date(year, month, 1)
-    if month == 12:
-        month_end = date(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        month_end = date(year, month + 1, 1) - timedelta(days=1)
+    if mode == 'week':
+        ref = request.GET.get('date') or request.GET.get('week_start')
+        try:
+            monday = date.fromisoformat(ref)
+        except (ValueError, TypeError):
+            monday = today - timedelta(days=today.weekday())
+        range_start = monday
+        range_end = monday + timedelta(days=6)
+    elif mode == 'day':
+        try:
+            d = date.fromisoformat(request.GET.get('date', today.isoformat()))
+        except (ValueError, TypeError):
+            d = today
+        range_start = d
+        range_end = d
+    else:  # month
+        try:
+            year = int(request.GET.get('year', today.year))
+            month = int(request.GET.get('month', today.month))
+            if not (1 <= month <= 12):
+                raise ValueError
+        except (ValueError, TypeError):
+            year, month = today.year, today.month
+        range_start = date(year, month, 1)
+        range_end = date(year + 1, 1, 1) - timedelta(days=1) if month == 12 else date(year, month + 1, 1) - timedelta(days=1)
 
-    # 查询与本月有交集的活动（开始日期 <= 月末 且 结束日期 >= 月初）
     activities = visible_qs(Activity, request.user).filter(
-        start_date__lte=month_end,
+        start_date__lte=range_end,
     ).filter(
-        # 结束日期 >= 月初 或 无结束日期但开始日期 >= 月初
-        models.Q(end_date__gte=month_start) | models.Q(end_date__isnull=True, start_date__gte=month_start)
+        models.Q(end_date__gte=range_start) | models.Q(end_date__isnull=True, start_date__gte=range_start)
     ).prefetch_related('tags')
+
+    color_map = {
+        'planned': '#a1a1aa',
+        'in_progress': '#18181b',
+        'done': '#d4d4d8',
+        'cancelled': '#e4e4e7',
+    }
 
     data = []
     for a in activities:
-        # 计算在本月内的显示区间
-        display_start = a.start_date or month_start
-        display_end = a.end_date or a.start_date or month_end
-        if display_start < month_start:
-            display_start = month_start
-        if display_end > month_end:
-            display_end = month_end
-
-        # 状态颜色
-        color_map = {
-            'planned': '#a1a1aa',  # zinc-400
-            'in_progress': '#18181b',  # zinc-900
-            'done': '#22c55e',  # green-500
-            'cancelled': '#f87171',  # red-400
-        }
-
         data.append({
             'id': a.id,
             'name': a.name,
-            'start_date': display_start.isoformat(),
-            'end_date': display_end.isoformat(),
+            'start_date': a.start_date.isoformat(),
+            'end_date': (a.end_date or a.start_date).isoformat(),
             'status': a.status,
             'status_label': a.get_status_display(),
             'color': color_map.get(a.status, '#a1a1aa'),
@@ -879,6 +915,13 @@ def daily_view(request):
         paid_at=today,
     ).aggregate(s=Sum('amount'))['s'] or 0
 
+    # ── 本周消费合计 ──
+    week_start = today - timedelta(days=today.weekday())
+    this_week_expense = Expense.objects.filter(
+        user=request.user,
+        paid_at__gte=week_start,
+    ).aggregate(s=Sum('amount'))['s'] or 0
+
     # 问候
     hour = timezone.localtime().hour
     if hour < 6:
@@ -916,6 +959,18 @@ def daily_view(request):
             a.expense_count = counts.get(a.id, 0)
         return activities
 
+    # AI 建议
+    from core.suggestions import generate_suggestions
+    suggestions = generate_suggestions(request.user)
+
+    # 循环活动今日实例
+    today_instances = Activity.objects.filter(
+        user=request.user,
+        recurring_source__isnull=False,
+        start_date=today,
+        recurring_source__is_active=True,
+    ).select_related('recurring_source')
+
     return render(request, 'activities/daily.html', {
         'today': today,
         'today_display': today_display,
@@ -927,6 +982,373 @@ def daily_view(request):
         'recently_done': list(recently_done),
         'in_progress': attach_costs(list(in_progress)),
         'today_expense': float(today_expense),
+        'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': qs.filter(status='in_progress').count(),
+        'suggestions': suggestions,
+        'today_instances': today_instances,
     })
+
+
+@login_required
+def template_list(request):
+    """模板列表页面"""
+    templates = ActivityTemplate.objects.filter(user=request.user)
+    return render(request, 'activities/template_list.html', {
+        'templates': templates,
+    })
+
+
+@login_required
+@require_POST
+def template_create(request):
+    """创建新模板（JSON 请求）"""
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+    
+    name = (data.get('name') or '').strip()
+    if not name:
+        return JsonResponse({'error': '模板名称不能为空'}, status=400)
+    
+    description = (data.get('description') or '').strip()
+    default_children = data.get('default_children', [])
+    default_tags = data.get('default_tags', [])
+    
+    # 验证子任务格式
+    if not isinstance(default_children, list):
+        return JsonResponse({'error': '子任务格式错误'}, status=400)
+    
+    template = ActivityTemplate.objects.create(
+        user=request.user,
+        name=name,
+        description=description,
+        default_children=default_children,
+        default_tags=default_tags,
+    )
+    
+    return JsonResponse({
+        'id': template.id,
+        'name': template.name,
+        'description': template.description,
+        'default_children': template.default_children,
+        'default_tags': template.default_tags,
+    })
+
+
+@login_required
+@require_POST
+def template_delete(request, template_id):
+    """删除模板"""
+    template = ActivityTemplate.objects.filter(
+        id=template_id,
+        user=request.user
+    ).first()
+    if not template:
+        return JsonResponse({'error': '模板不存在'}, status=404)
+    
+    template.delete()
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def activity_from_template(request, template_id):
+    """从模板创建活动（含预设子任务 + 标签）"""
+    template = ActivityTemplate.objects.filter(
+        id=template_id,
+        user=request.user
+    ).first()
+    if not template:
+        return JsonResponse({'error': '模板不存在'}, status=404)
+    
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+    
+    # 活动名称：用户输入优先，否则用模板名
+    name = (data.get('name') or template.name).strip()
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+    
+    # 创建主活动
+    activity = Activity.objects.create(
+        user=request.user,
+        name=name,
+        description=template.description,
+        start_date=start_date,
+        end_date=end_date,
+        status='planned',
+    )
+    
+    # 添加预设标签
+    if template.default_tags:
+        activity.tags.add(*template.default_tags)
+    
+    # 创建预设子任务
+    children = []
+    for child_data in template.default_children:
+        child_name = (child_data.get('name') or '').strip()
+        if child_name:
+            child = Activity.objects.create(
+                user=request.user,
+                name=child_name,
+                parent=activity,
+                status='planned',
+            )
+            children.append(child)
+            log_activity(request.user, child, 'created', f'从模板「{template.name}」创建')
+    
+    log_activity(request.user, activity, 'created', f'从模板「{template.name}」创建')
+    
+    return JsonResponse({
+        'id': activity.id,
+        'name': activity.name,
+        'url': reverse('activities:activity_detail', args=[activity.id]),
+        'children_count': len(children),
+    })
+
+
+@login_required
+def expense_chart_data(request):
+    """费用图表数据 API"""
+    from django.db.models.functions import TruncMonth
+
+    today = timezone.localdate()
+    range_type = request.GET.get('range', 'month')  # month / week / category
+
+    qs = Expense.objects.filter(user=request.user)
+
+    if range_type == 'month':
+        # 近 6 个月月度趋势
+        six_months_ago = today - timedelta(days=180)
+        data = list(
+            qs.filter(paid_at__gte=six_months_ago)
+            .annotate(month=TruncMonth('paid_at'))
+            .values('month')
+            .annotate(total=Sum('amount'))
+            .order_by('month')
+        )
+        return JsonResponse({
+            'labels': [d['month'].strftime('%Y-%m') for d in data],
+            'values': [float(d['total']) for d in data],
+        })
+
+    elif range_type == 'week':
+        # 本周 vs 上周每日对比
+        this_week_start = today - timedelta(days=today.weekday())
+        last_week_start = this_week_start - timedelta(days=7)
+
+        this_week = qs.filter(paid_at__gte=this_week_start, paid_at__lte=today)
+        last_week = qs.filter(paid_at__gte=last_week_start, paid_at__lt=this_week_start)
+
+        weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+        this_data = [0.0] * 7
+        last_data = [0.0] * 7
+
+        for e in this_week:
+            if e.paid_at:
+                idx = (e.paid_at - this_week_start).days
+                if 0 <= idx < 7:
+                    this_data[idx] += float(e.amount)
+        for e in last_week:
+            if e.paid_at:
+                idx = (e.paid_at - last_week_start).days
+                if 0 <= idx < 7:
+                    last_data[idx] += float(e.amount)
+
+        return JsonResponse({
+            'labels': weekdays,
+            'this_week': this_data,
+            'last_week': last_data,
+        })
+
+    elif range_type == 'category':
+        # 分类饼图（近 12 个月）
+        year_ago = today - timedelta(days=365)
+        data = list(
+            qs.filter(paid_at__gte=year_ago)
+            .values('category')
+            .annotate(total=Sum('amount'))
+            .order_by('-total')
+        )
+        category_labels = dict(Expense.CATEGORY_CHOICES)
+        return JsonResponse({
+            'labels': [category_labels.get(d['category'], d['category']) for d in data],
+            'values': [float(d['total']) for d in data],
+        })
+
+    return JsonResponse({'labels': [], 'values': []})
+
+
+@login_required
+@require_POST
+def attachment_upload(request, activity_id):
+    """上传附件"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+    uploaded_file = request.FILES.get('file')
+    if not uploaded_file:
+        return JsonResponse({'error': '请选择文件'}, status=400)
+
+    # 限制文件大小 10MB
+    if uploaded_file.size > 10 * 1024 * 1024:
+        return JsonResponse({'error': '文件大小不能超过 10MB'}, status=400)
+
+    attachment = Attachment.objects.create(
+        activity=activity,
+        user=request.user,
+        file=uploaded_file,
+        filename=uploaded_file.name,
+        content_type=uploaded_file.content_type or '',
+        size=uploaded_file.size,
+    )
+    log_activity(request.user, activity, 'edited', f'上传附件「{attachment.filename}」')
+
+    if request.headers.get('HX-Request'):
+        return render(request, 'activities/_attachment_item.html', {
+            'attachment': attachment,
+        })
+
+    return JsonResponse({
+        'id': attachment.id,
+        'filename': attachment.filename,
+        'size': attachment.size_display,
+        'is_image': attachment.is_image,
+        'url': attachment.file.url,
+    })
+
+
+@login_required
+@require_POST
+def attachment_delete(request, attachment_id):
+    """删除附件"""
+    attachment = get_object_or_404(Attachment, id=attachment_id, user=request.user)
+    activity = attachment.activity
+    filename = attachment.filename
+    attachment.file.delete()  # 删除物理文件
+    attachment.delete()
+    log_activity(request.user, activity, 'edited', f'删除附件「{filename}」')
+
+    if request.headers.get('HX-Request'):
+        return JsonResponse({'ok': True})
+
+    return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+def expense_report(request):
+    """费用报告页面"""
+    today = timezone.localdate()
+
+    # 本月费用合计
+    month_start = today.replace(day=1)
+    this_month_total = Expense.objects.filter(
+        user=request.user, paid_at__gte=month_start
+    ).aggregate(s=Sum('amount'))['s'] or 0
+
+    # 上月费用合计
+    last_month_start = (month_start - timedelta(days=1)).replace(day=1)
+    last_month_total = Expense.objects.filter(
+        user=request.user, paid_at__gte=last_month_start, paid_at__lt=month_start
+    ).aggregate(s=Sum('amount'))['s'] or 0
+
+    # 本周费用合计
+    week_start = today - timedelta(days=today.weekday())
+    this_week_total = Expense.objects.filter(
+        user=request.user, paid_at__gte=week_start
+    ).aggregate(s=Sum('amount'))['s'] or 0
+
+    this_month_f = float(this_month_total)
+    last_month_f = float(last_month_total)
+
+    return render(request, 'activities/expense_report.html', {
+        'this_month_total': this_month_f,
+        'last_month_total': float(last_month_total),
+        'this_week_total': float(this_week_total),
+        'month_change': (
+            round((this_month_f - last_month_f) / last_month_f * 100, 1)
+            if last_month_f > 0 else None
+        ),
+    })
+
+
+@login_required
+def recurring_list(request):
+    """循环活动列表"""
+    recurring = RecurringActivity.objects.filter(user=request.user)
+    # 获取今天及未来的循环实例
+    today = timezone.localdate()
+    instances = Activity.objects.filter(
+        user=request.user,
+        recurring_source__isnull=False,
+        start_date__gte=today,
+    ).order_by('start_date')[:30]
+    
+    return render(request, 'activities/recurring_list.html', {
+        'recurring': recurring,
+        'instances': instances,
+    })
+
+
+@login_required
+@require_POST
+def recurring_create(request):
+    """创建循环活动"""
+    name = (request.POST.get('name') or '').strip()
+    if not name:
+        messages.error(request, '习惯名称不能为空')
+        return redirect('activities:recurring_list')
+    
+    frequency = request.POST.get('frequency', 'daily')
+    day_of_week = request.POST.get('day_of_week')
+    day_of_month = request.POST.get('day_of_month')
+    
+    recurring = RecurringActivity.objects.create(
+        user=request.user,
+        name=name,
+        frequency=frequency,
+        day_of_week=int(day_of_week) if day_of_week else None,
+        day_of_month=int(day_of_month) if day_of_month else None,
+    )
+    messages.success(request, f'循环活动「{name}」已创建')
+    return redirect('activities:recurring_list')
+
+
+@login_required
+@require_POST
+def recurring_delete(request, pk):
+    """删除循环活动"""
+    recurring = get_object_or_404(RecurringActivity, pk=pk, user=request.user)
+    name = recurring.name
+    recurring.delete()
+    messages.success(request, f'循环活动「{name}」已删除')
+    return redirect('activities:recurring_list')
+
+
+@login_required
+@require_POST
+def recurring_toggle(request, pk):
+    """切换启用/暂停"""
+    recurring = get_object_or_404(RecurringActivity, pk=pk, user=request.user)
+    recurring.is_active = not recurring.is_active
+    recurring.save(update_fields=['is_active', 'updated_at'])
+    status_text = '启用' if recurring.is_active else '暂停'
+    messages.success(request, f'「{recurring.name}」已{status_text}')
+    return redirect('activities:recurring_list')
+
+
+@login_required
+@require_POST
+def recurring_checkin(request, activity_id):
+    """打卡：将循环活动实例标记为 done"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+    if activity.status != 'done':
+        activity.status = 'done'
+        activity.save(update_fields=['status', 'updated_at'])
+        log_activity(request.user, activity, 'status_changed', '打卡完成')
+    
+    if request.headers.get('HX-Request'):
+        return HttpResponse('<span class="text-sm text-zinc-400">✓ 已打卡</span>')
+    return redirect(request.META.get('HTTP_REFERER', '/'))

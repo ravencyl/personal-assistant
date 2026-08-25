@@ -5,7 +5,7 @@
 目标不明确时抛 ToolError / CandidateToolError 让用户澄清，绝不猜测；
 update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from django.db.models import Count, Sum
@@ -499,4 +499,207 @@ def tool_list_expenses(user, params):
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': {**_activity_card_data(activity), 'expense_items': items},
+    }
+
+
+# ==================== P2：AA 分账 ====================
+
+def apply_split_expense(user, params):
+    """确认后执行：将总金额 AA 分给所有参与者，每人生成一笔费用"""
+    activity = _resolve_by_id(user, params.get('target_id'))
+    amount = float(params['amount'])
+    per_person = float(params['per_person'])
+    category = params.get('category', 'other')
+    note = params.get('note', 'AA 分账')
+
+    participants = list(activity.participants.all())
+    for p in participants:
+        Expense.objects.create(
+            activity=activity, user=user, amount=per_person,
+            category=category, note=f'{note}（{p.name}）',
+        )
+    log_activity(user, activity, 'edited',
+                 f'AA 分账 ¥{amount} → {len(participants)} 人，每人 ¥{per_person}（通过 AI 对话）')
+
+    return {
+        'reply': f'已将 ¥{amount} 分给 {len(participants)} 人（每人 ¥{per_person}）',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': _activity_card_data(activity),
+        'changed': True,
+    }
+
+
+@agent_tool('activities.split_expense', '将活动的一笔费用 AA 分给所有参与者',
+            'target（活动名称关键词）+ amount（总金额，必填）+ category（类别，可选）+ note（备注，可选）',
+            apply_fn=apply_split_expense)
+def tool_split_expense(user, params):
+    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    amount = params.get('amount')
+    if amount is None:
+        raise ToolError('请告诉我费用总金额')
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        raise ToolError('金额格式不正确')
+    if amount <= 0:
+        raise ToolError('金额必须大于 0')
+
+    participants = list(activity.participants.all())
+    if not participants:
+        raise ToolError(f'「{activity.name}」还没有参与者，无法 AA 分账')
+
+    per_person = round(amount / len(participants), 2)
+    cat_input = str(params.get('category') or '其他').strip()
+    category = _CATEGORY_MAP.get(cat_input, 'other')
+    if cat_input in dict(Expense.CATEGORY_CHOICES):
+        category = cat_input
+    note = str(params.get('note') or 'AA 分账').strip()[:255]
+
+    return {
+        'reply': f'准备将 ¥{amount} 分给 {len(participants)} 位参与者（每人 ¥{per_person}），确认吗？',
+        'card': 'confirm',
+        'activity_ids': [activity.id],
+        'card_data': {
+            'kind': 'split_expense',
+            'name': activity.name,
+            'amount': amount,
+            'per_person': per_person,
+            'participant_count': len(participants),
+            'participants': [p.name for p in participants],
+            'detail_url': reverse('activities:activity_detail', args=[activity.id]),
+        },
+        'action': {
+            'tool': 'activities.split_expense',
+            'params': {**params, 'target_id': activity.id, 'per_person': per_person,
+                       'category': category, 'note': note},
+        },
+    }
+
+
+# ==================== P2：推迟/提前活动日期 ====================
+
+def apply_move_date(user, params):
+    """确认后执行：按天数偏移修改活动的开始/结束日期"""
+    activity = _resolve_by_id(user, params.get('target_id'))
+    days = int(params.get('days', 0))
+    if days == 0:
+        return {'reply': '天数不能为 0', 'changed': False}
+
+    direction = '推迟' if days > 0 else '提前'
+    old_start = activity.start_date
+    old_end = activity.end_date
+    delta = timedelta(days=abs(days))
+
+    if activity.start_date:
+        activity.start_date = activity.start_date + delta if days > 0 else activity.start_date - delta
+    if activity.end_date:
+        activity.end_date = activity.end_date + delta if days > 0 else activity.end_date - delta
+
+    activity.save(update_fields=['start_date', 'end_date', 'updated_at'])
+    log_activity(user, activity, 'edited',
+                 f'{direction} {abs(days)} 天（{old_start} → {activity.start_date}）（通过 AI 对话）')
+
+    return {
+        'reply': f'已将「{activity.name}」{direction} {abs(days)} 天',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': _activity_card_data(activity),
+        'changed': True,
+    }
+
+
+@agent_tool('activities.move_date', '推迟或提前活动日期',
+            'target（活动名称关键词）+ days（正数=推迟天数，负数=提前天数）',
+            apply_fn=apply_move_date)
+def tool_move_date(user, params):
+    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    days = params.get('days')
+    if days is None:
+        raise ToolError('请告诉我推迟或提前几天（正数推迟，负数提前）')
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        raise ToolError('天数必须是整数')
+    if days == 0:
+        raise ToolError('天数不能为 0')
+
+    direction = '推迟' if days > 0 else '提前'
+    return {
+        'reply': f'准备将「{activity.name}」{direction} {abs(days)} 天，确认吗？',
+        'card': 'confirm',
+        'activity_ids': [activity.id],
+        'card_data': {
+            'kind': 'move_date',
+            'name': activity.name,
+            'direction': direction,
+            'days': abs(days),
+            'current_start': activity.start_date.isoformat() if activity.start_date else '未设定',
+            'current_end': activity.end_date.isoformat() if activity.end_date else '未设定',
+            'detail_url': reverse('activities:activity_detail', args=[activity.id]),
+        },
+        'action': {
+            'tool': 'activities.move_date',
+            'params': {**params, 'target_id': activity.id, 'days': days},
+        },
+    }
+
+
+# ==================== P2：批量修改状态 ====================
+
+def apply_batch_status(user, params):
+    """确认后执行：批量修改匹配活动的状态"""
+    status = params.get('status')
+    target_ids = params.get('target_ids', [])
+    activities = Activity.objects.filter(id__in=target_ids, user=user)
+    count = 0
+    for a in activities:
+        old_label = dict(Activity.STATUS_CHOICES).get(a.status, a.status)
+        a.status = status
+        a.save(update_fields=['status', 'updated_at'])
+        log_activity(user, a, 'status_changed',
+                     f'状态「{old_label}」→「{dict(Activity.STATUS_CHOICES).get(status, status)}」（通过 AI 对话批量操作）')
+        count += 1
+    return {
+        'reply': f'已将 {count} 个活动的状态修改为「{dict(Activity.STATUS_CHOICES).get(status, status)}」',
+        'changed': True,
+    }
+
+
+@agent_tool('activities.batch_status', '批量修改活动状态',
+            'status（目标状态）+ keyword/tag（筛选条件，匹配到的活动全部修改）',
+            apply_fn=apply_batch_status)
+def tool_batch_status(user, params):
+    status = params.get('status')
+    if status not in STATUS_LABELS:
+        raise ToolError('目标状态无效，可选：计划 / 进行中 / 已完成 / 已取消')
+
+    qs = visible_qs(Activity, user)
+    keyword = str(params.get('keyword') or '').strip()
+    tag = str(params.get('tag') or '').strip()
+    if keyword:
+        qs = qs.filter(name__icontains=keyword)
+    if tag:
+        qs = qs.filter(tags__name=tag)
+    if not keyword and not tag:
+        raise ToolError('请提供筛选条件（keyword 或 tag），避免误操作')
+
+    count = qs.count()
+    if count == 0:
+        return {'reply': '没有找到符合条件的活动'}
+
+    return {
+        'reply': f'找到 {count} 个匹配活动，准备全部改为「{STATUS_LABELS[status]}」，确认吗？',
+        'card': 'confirm',
+        'activity_ids': list(qs.values_list('id', flat=True)[:20]),
+        'card_data': {
+            'kind': 'batch_status',
+            'count': count,
+            'target_status': STATUS_LABELS[status],
+            'condition': f'{"关键词: " + keyword if keyword else ""}{"标签: " + tag if tag else ""}',
+        },
+        'action': {
+            'tool': 'activities.batch_status',
+            'params': {'status': status, 'target_ids': list(qs.values_list('id', flat=True))},
+        },
     }

@@ -1,57 +1,60 @@
 {% extends "base.html" %}
 
-{% block title %}活动日历 - {{ month_name }}{% endblock %}
+{% block title %}活动日历 - {{ title }}{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto">
     <!-- 顶部导航栏 -->
-    <div class="flex items-center justify-between mb-4 sm:mb-6">
+    <div class="flex items-center justify-between mb-4 sm:mb-6 flex-wrap gap-3">
         <div class="flex items-center gap-3">
-            <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 列表</a>
-            <h1 class="text-lg sm:text-2xl font-bold text-zinc-900">{{ month_name }}</h1>
+            <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 列表</a>
+            <h1 class="text-lg sm:text-2xl font-bold text-[var(--text)]">{{ title }}</h1>
         </div>
-        <div class="flex items-center gap-1.5">
-            <a href="?year={{ prev_year }}&month={{ prev_month }}"
-               class="inline-flex items-center justify-center w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5 rounded-full bg-white border border-zinc-100 text-zinc-600 hover:bg-zinc-50 transition-colors" title="上月">
-                <svg class="w-4 h-4 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                <span class="hidden sm:inline text-sm">&larr; 上月</span>
-            </a>
-            <a href="?year={{ today.year }}&month={{ today.month }}"
-               class="btn-accent rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-opacity">今天</a>
-            <a href="?year={{ next_year }}&month={{ next_month }}"
-               class="inline-flex items-center justify-center w-8 h-8 sm:w-auto sm:px-3 sm:py-1.5 rounded-full bg-white border border-zinc-100 text-zinc-600 hover:bg-zinc-50 transition-colors" title="下月">
-                <svg class="w-4 h-4 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-                <span class="hidden sm:inline text-sm">下月 &rarr;</span>
-            </a>
+        <div class="flex items-center gap-2">
+            <!-- 视图切换 -->
+            <div class="flex items-center rounded-full border border-[var(--border-strong)] overflow-hidden">
+                <a href="?mode=month{% if mode != 'month' %}&date={{ today.isoformat }}{% endif %}"
+                   class="px-3 py-1 text-xs font-medium transition-colors {% if mode == 'month' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">月</a>
+                <a href="?mode=week{% if mode != 'week' %}&date={{ today.isoformat }}{% endif %}"
+                   class="px-3 py-1 text-xs font-medium transition-colors {% if mode == 'week' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">周</a>
+                <a href="?mode=day{% if mode != 'day' %}&date={{ today.isoformat }}{% endif %}"
+                   class="px-3 py-1 text-xs font-medium transition-colors {% if mode == 'day' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">日</a>
+            </div>
         </div>
     </div>
 
-    <!-- 日历网格 -->
+    <!-- 前后导航 -->
+    <div class="flex items-center justify-between mb-3">
+        <a href="?mode={{ mode }}&date={{ prev_params.date }}"
+           class="inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+            上一{% if mode == 'month' %}月{% elif mode == 'week' %}周{% else %}日{% endif %}
+        </a>
+        <a href="?mode={{ mode }}&date={{ today_params.date }}"
+           class="px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] text-sm font-medium hover:opacity-90">今天</a>
+        <a href="?mode={{ mode }}&date={{ next_params.date }}"
+           class="inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
+            下一{% if mode == 'month' %}月{% elif mode == 'week' %}周{% else %}日{% endif %}
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </a>
+    </div>
+
+    <!-- ==================== 月视图 ==================== -->
+    {% if mode == 'month' %}
     <div class="app-card overflow-hidden">
-        <!-- 星期标题 -->
-        <div class="grid grid-cols-7 border-b border-zinc-100 bg-zinc-50">
+        <div class="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--accent-light)]">
             {% for day_name in weekdays %}
-            <div class="px-2 py-2 text-center text-xs font-medium text-zinc-500 uppercase">
-                {{ day_name }}
-            </div>
+            <div class="px-2 py-2 text-center text-xs font-medium text-[var(--text-secondary)] uppercase">{{ day_name }}</div>
             {% endfor %}
         </div>
-
-        <!-- 日期网格 -->
         <div class="grid grid-cols-7">
             {% for week in weeks %}
                 {% for day in week %}
-                <div class="min-h-[60px] sm:min-h-[120px] border-b border-r border-zinc-100 p-1 {% if not day.in_month %}bg-zinc-50/50{% endif %} {% if day.is_today %}bg-zinc-100{% endif %}">
-                    <!-- 日期数字 -->
+                <div class="min-h-[60px] sm:min-h-[120px] border-b border-r border-[var(--border)] p-1 {% if not day.in_month %}bg-[var(--accent-light)]/50{% endif %} {% if day.is_today %}bg-[var(--accent-light)]{% endif %}">
                     <div class="flex items-center justify-between mb-0.5">
-                        <span class="text-[10px] sm:text-sm {% if day.is_today %}font-bold text-zinc-900{% elif day.in_month %}text-zinc-700{% else %}text-zinc-300{% endif %}">
-                            {{ day.day }}
-                        </span>
-                        {% if day.is_today %}
-                        <span class="w-1.5 h-1.5 rounded-full bg-zinc-900"></span>
-                        {% endif %}
+                        <span class="text-[10px] sm:text-sm {% if day.is_today %}font-bold text-[var(--text)]{% elif day.in_month %}text-[var(--text-secondary)]{% else %}text-[var(--text-muted)]{% endif %}">{{ day.day }}</span>
+                        {% if day.is_today %}<span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)]"></span>{% endif %}
                     </div>
-                    <!-- 活动色块容器 -->
                     <div class="space-y-0.5" data-date="{{ day.date_str }}"></div>
                 </div>
                 {% endfor %}
@@ -59,63 +62,133 @@
         </div>
     </div>
 
+    <!-- ==================== 周视图 ==================== -->
+    {% elif mode == 'week' %}
+    <div class="app-card overflow-hidden">
+        <div class="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--accent-light)]">
+            {% for day in days %}
+            <div class="px-1 py-2 text-center {% if day.is_today %}bg-[var(--accent-light)]{% endif %}">
+                <div class="text-[10px] text-[var(--text-muted)]">{{ day.weekday }}</div>
+                <div class="text-sm {% if day.is_today %}font-bold text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">{{ day.day }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="grid grid-cols-7">
+            {% for day in days %}
+            <div class="min-h-[200px] sm:min-h-[400px] border-r border-[var(--border)] p-1 {% if day.is_today %}bg-[var(--accent-light)]{% endif %}" data-date="{{ day.date_str }}">
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- ==================== 日视图 ==================== -->
+    {% else %}
+    <div class="flex gap-4">
+        <!-- 时间轴 -->
+        <div class="app-card overflow-hidden flex-1">
+            {% for hour in hours %}
+            <div class="flex border-b border-[var(--border)] min-h-[40px]">
+                <div class="w-12 shrink-0 text-[11px] text-[var(--text-muted)] pt-1 pr-2 text-right tabular-nums">{{ hour.label }}</div>
+                <div class="flex-1 border-l border-[var(--border)]"></div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 当日活动卡片 -->
+        <div class="w-48 shrink-0 space-y-2" id="day-activities">
+            <p class="text-xs text-[var(--text-muted)] mb-2">当日活动</p>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- 图例 -->
-    <div class="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-500">
+    <div class="mt-4 flex flex-wrap items-center gap-4 text-xs text-[var(--text-secondary)]">
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#18181b"></span>进行中</span>
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#a1a1aa"></span>计划</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#22c55e"></span>已完成</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f87171"></span>已取消</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#d4d4d8"></span>已完成</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#e4e4e7"></span>已取消</span>
     </div>
 </div>
 
 <script>
 (function () {
-    // 加载本月活动数据并渲染到日历
-    var year = {{ year }};
-    var month = {{ month }};
+    var mode = '{{ mode }}';
+    var todayStr = '{{ today.isoformat }}';
+
+    function getDateRange() {
+        {% if mode == 'month' %}
+        return { year: {{ year }}, month: {{ month }} };
+        {% elif mode == 'week' %}
+        return { date: '{{ week_start }}' };
+        {% else %}
+        return { date: '{{ day_date }}' };
+        {% endif %}
+    }
+
+    function findContainer(dateStr) {
+        if (mode === 'day') return document.querySelector('[data-hour]');
+        return document.querySelector('[data-date="' + dateStr + '"]');
+    }
 
     function renderActivities(activities) {
-        // 按日期分组
         var byDate = {};
         activities.forEach(function (a) {
-            var start = new Date(a.start_date);
-            var end = new Date(a.end_date);
-            var current = new Date(start);
-            while (current <= end) {
-                var dateStr = current.toISOString().split('T')[0];
-                if (!byDate[dateStr]) byDate[dateStr] = [];
-                byDate[dateStr].push(a);
-                current.setDate(current.getDate() + 1);
+            var start = new Date(a.start_date + 'T00:00:00');
+            var end = new Date(a.end_date + 'T00:00:00');
+            var cur = new Date(start);
+            while (cur <= end) {
+                var ds = cur.toISOString().split('T')[0];
+                if (!byDate[ds]) byDate[ds] = [];
+                byDate[ds].push(a);
+                cur.setDate(cur.getDate() + 1);
             }
         });
 
-        // 渲染到对应日期格子
-        document.querySelectorAll('[data-date]').forEach(function (el) {
-            var dateStr = el.dataset.date;
+        if (mode === 'day') {
+            var dateStr = '{{ day_date }}';
             var items = byDate[dateStr] || [];
-            if (items.length === 0) return;
-
+            var container = document.getElementById('day-activities');
             items.forEach(function (a) {
                 var block = document.createElement('a');
                 block.href = a.url;
-                block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs text-white truncate hover:opacity-80 transition-opacity';
+                block.className = 'block rounded-lg p-3 hover:opacity-90 transition-opacity ' + ((a.status === 'in_progress' || a.status === 'planned') ? 'text-white' : 'text-zinc-500');
                 block.style.backgroundColor = a.color;
-                block.title = a.name + ' (' + a.status_label + ')';
-                block.textContent = a.name;
-                el.appendChild(block);
+                block.innerHTML = '<div class="text-sm font-medium truncate">' + a.name + '</div>' +
+                    '<div class="text-[11px] opacity-80 mt-1">' + a.status_label + '</div>';
+                container.appendChild(block);
             });
-        });
+            if (items.length === 0) {
+                container.innerHTML += '<p class="text-xs text-zinc-400">无活动</p>';
+            }
+        } else {
+            Object.keys(byDate).forEach(function (ds) {
+                var el = findContainer(ds);
+                if (!el) return;
+                byDate[ds].forEach(function (a) {
+                    var block = document.createElement('a');
+                    block.href = a.url;
+                    var textCls = (a.status === 'in_progress' || a.status === 'planned') ? 'text-white' : 'text-zinc-500';
+                    if (mode === 'week') {
+                        block.className = 'block rounded px-1.5 py-0.5 text-[11px] ' + textCls + ' truncate hover:opacity-80 mb-1';
+                    } else {
+                        block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs ' + textCls + ' truncate hover:opacity-80 transition-opacity';
+                    }
+                    block.style.backgroundColor = a.color;
+                    block.title = a.name + ' (' + a.status_label + ')';
+                    block.textContent = a.name;
+                    el.appendChild(block);
+                });
+            });
+        }
     }
 
-    // 获取活动数据
-    fetch('{% url "activities:calendar_data" %}?year=' + year + '&month=' + month)
+    var params = getDateRange();
+    var qs = 'mode=' + mode;
+    for (var k in params) qs += '&' + k + '=' + params[k];
+
+    fetch('{% url "activities:calendar_data" %}?' + qs)
         .then(function (r) { return r.json(); })
-        .then(function (data) {
-            renderActivities(data.activities || []);
-        })
-        .catch(function (err) {
-            console.error('加载日历数据失败:', err);
-        });
+        .then(function (data) { renderActivities(data.activities || []); })
+        .catch(function (err) { console.error('加载日历数据失败:', err); });
 })();
 </script>
 

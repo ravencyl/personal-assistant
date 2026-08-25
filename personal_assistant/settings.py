@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'agents',
     'chat',
     'activities',
+    'notes',
+    'knowledge',
 ]
 
 MIDDLEWARE = [
@@ -116,6 +118,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Media files
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# 附件上传限制 10MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 
 # Default primary key field type

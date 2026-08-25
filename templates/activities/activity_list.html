@@ -7,46 +7,60 @@
 <div class="mb-6 sm:mb-8 fade-in">
     <!-- 移动端：简洁问候 -->
     <div class="sm:hidden">
-        <p class="text-xs text-zinc-400 mb-1">{{ today_display }}</p>
-        <h1 class="text-2xl font-bold tracking-tight text-zinc-900">{{ greeting }}，{{ user.username }}</h1>
+        <p class="text-xs text-[var(--text-muted)] mb-1">{{ today_display }}</p>
+        <h1 class="text-2xl font-bold tracking-tight text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
         {% if ongoing_count or today_count %}
-        <p class="mt-1.5 text-sm text-zinc-500">
-            {% if ongoing_count %}<span class="font-semibold text-zinc-900">{{ ongoing_count }}</span> 项进行中{% endif %}
+        <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
+            {% if ongoing_count %}<span class="font-semibold text-[var(--text)]">{{ ongoing_count }}</span> 项进行中{% endif %}
             {% if ongoing_count and today_count %} · {% endif %}
-            {% if today_count %}<span class="font-semibold text-zinc-900">{{ today_count }}</span> 项覆盖今天{% endif %}
+            {% if today_count %}<span class="font-semibold text-[var(--text)]">{{ today_count }}</span> 项覆盖今天{% endif %}
         </p>
         {% endif %}
         <div class="flex gap-2 mt-4">
-            <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white shadow-sm border border-zinc-100 text-zinc-600" title="日历">
+            <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="日历">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </a>
-            <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-full bg-zinc-900 hover:bg-black px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-colors">+ 新建</a>
+            <a href="{% url 'activities:template_list' %}" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="模板管理">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 8a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zm10 0a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/></svg>
+            </a>
+            <a href="{% url 'activities:recurring_list' %}" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="循环活动">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </a>
+            <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2.5 text-sm font-semibold text-[var(--bg)] shadow-md transition-colors">+ 新建</a>
         </div>
     </div>
     <!-- 桌面端：横排 -->
     <div class="hidden sm:flex items-center justify-between gap-6">
         <div class="flex items-center gap-4 min-w-0">
-            <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white shrink-0" style="background: linear-gradient(135deg, #18181b 0%, #000000 100%);">
+            <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white shrink-0 bg-zinc-900">
                 {{ user.username|slice:":1"|upper }}
             </div>
             <div class="min-w-0">
-                <p class="text-sm text-zinc-400 mb-0.5">{{ today_display }}</p>
-                <h1 class="text-2xl font-bold tracking-tight text-zinc-900 truncate">{{ greeting }}，{{ user.username }}</h1>
+                <p class="text-sm text-[var(--text-muted)] mb-0.5">{{ today_display }}</p>
+                <h1 class="text-2xl font-bold tracking-tight text-[var(--text)] truncate">{{ greeting }}，{{ user.username }}</h1>
                 {% if ongoing_count or today_count %}
-                <p class="mt-1 text-sm text-zinc-500">
-                    {% if ongoing_count %}<span class="font-semibold text-zinc-900">{{ ongoing_count }}</span> 项进行中{% endif %}
+                <p class="mt-1 text-sm text-[var(--text-secondary)]">
+                    {% if ongoing_count %}<span class="font-semibold text-[var(--text)]">{{ ongoing_count }}</span> 项进行中{% endif %}
                     {% if ongoing_count and today_count %} · {% endif %}
-                    {% if today_count %}<span class="font-semibold text-zinc-900">{{ today_count }}</span> 项覆盖今天{% endif %}
+                    {% if today_count %}<span class="font-semibold text-[var(--text)]">{{ today_count }}</span> 项覆盖今天{% endif %}
                 </p>
                 {% endif %}
             </div>
         </div>
         <div class="flex items-center gap-3 shrink-0">
-            <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center rounded-full bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 shadow-sm border border-zinc-100" title="日历视图">
+            <a href="{% url 'activities:template_list' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="模板管理">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 8a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zm10 0a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/></svg>
+                模板
+            </a>
+            <a href="{% url 'activities:recurring_list' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="循环活动">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                循环
+            </a>
+            <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="日历视图">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                 日历
             </a>
-            <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-full bg-zinc-900 hover:bg-black px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors">+ 新建活动</a>
+            <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2 text-sm font-semibold text-[var(--bg)] shadow-sm transition-colors">+ 新建活动</a>
         </div>
     </div>
 </div>
@@ -57,22 +71,22 @@
         <input type="text" id="quick-input" maxlength="500"
                placeholder="快速记一笔，如：8月25到28日去上海出差 预算3000 #工作 @小王"
                autocomplete="off"
-               class="flex-1 bg-zinc-100 border-0 py-2.5 sm:py-3 text-sm sm:text-base focus:bg-white focus:ring-2 focus:ring-zinc-900 focus:outline-none transition-all">
+               class="flex-1 bg-[var(--accent-light)] border-0 py-2.5 sm:py-3 text-sm sm:text-base focus:bg-[var(--bg-card)] focus:ring-2 focus:ring-[var(--accent)] focus:outline-none transition-all text-[var(--text)]">
         <button type="button" id="quick-parse-btn"
-                class="shrink-0 rounded-full bg-zinc-900 hover:bg-black px-4 sm:px-6 py-2.5 sm:py-3 text-sm font-semibold text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                class="shrink-0 rounded-full bg-[var(--accent)] hover:opacity-90 px-4 sm:px-6 py-2.5 sm:py-3 text-sm font-semibold text-[var(--bg)] shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
             解析
         </button>
     </div>
-    <p id="quick-error" class="hidden mt-3 text-sm text-red-500 pl-2"></p>
-    <div id="quick-preview" class="hidden mt-4 rounded-2xl bg-zinc-50 p-4">
-        <div id="quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-base text-zinc-700"></div>
+    <p id="quick-error" class="hidden mt-3 text-sm text-zinc-800 font-semibold pl-2"></p>
+    <div id="quick-preview" class="hidden mt-4 rounded-2xl bg-[var(--accent-light)] p-4">
+        <div id="quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-base text-[var(--text-secondary)]"></div>
         <div class="flex flex-wrap items-center gap-3 mt-4">
             <button type="button" id="quick-confirm-btn"
-                    class="rounded-full bg-zinc-900 hover:bg-black px-5 py-2 text-sm font-semibold text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors">确认创建</button>
+                    class="rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2 text-sm font-semibold text-[var(--bg)] shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors">确认创建</button>
             <button type="button" id="quick-edit-btn"
-                    class="rounded-full bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 shadow-sm">编辑详情</button>
-            <button type="button" id="quick-close-btn" class="text-sm text-zinc-400 hover:text-zinc-600 px-2" title="收起">&#10005;</button>
-            <span id="quick-source" class="ml-auto text-xs text-zinc-400"></span>
+                    class="inline-flex items-center gap-1 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-colors" style="background: #18181b;">编辑详情</button>
+            <button type="button" id="quick-close-btn" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-2" title="收起">&#10005;</button>
+            <span id="quick-source" class="ml-auto text-xs text-[var(--text-muted)]"></span>
         </div>
     </div>
 </div>
@@ -81,62 +95,110 @@
 <div class="app-card mb-5 overflow-hidden">
     <button type="button" id="filter-toggle"
             aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
-            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
+            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
         <span class="flex items-center gap-2">
             筛选
             {% if active_filter_count %}
-            <span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{{ active_filter_count }} 项生效</span>
+            <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{{ active_filter_count }} 项生效</span>
             {% endif %}
         </span>
-        <span id="filter-arrow" class="text-zinc-400">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
+        <span id="filter-arrow" class="text-[var(--text-muted)]">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
     </button>
 
-    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-zinc-100 px-3 py-3 space-y-3">
+    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-[var(--border)] px-3 py-3 space-y-3">
         <!-- Date filter -->
         <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-zinc-500">日期筛选</span>
+        <span class="text-sm text-[var(--text-secondary)]">日期筛选</span>
         <input type="date" name="date_from" value="{{ date_from }}"
                class="rounded-md border-zinc-300 text-sm px-2 py-1 border focus:ring-zinc-500 focus:border-zinc-500">
-        <span class="text-sm text-zinc-400">至</span>
+        <span class="text-sm text-[var(--text-muted)]">至</span>
         <input type="date" name="date_to" value="{{ date_to }}"
                class="rounded-md border-zinc-300 text-sm px-2 py-1 border focus:ring-zinc-500 focus:border-zinc-500">
         {% if status_filter or tag_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
-        <button type="submit" class="px-3 py-1 text-sm rounded-md bg-zinc-900 text-white hover:bg-zinc-700">筛选</button>
+        <button type="submit" class="px-3 py-1 text-sm rounded-md bg-[var(--accent)] text-[var(--bg)] hover:opacity-90">筛选</button>
         {% if date_from or date_to %}
         <a href="{% url 'activities:activity_list' %}?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if tag_filter %}tag={{ tag_filter|urlencode }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-md bg-zinc-100 text-zinc-600 hover:bg-zinc-200">清除日期</a>
+           class="px-3 py-1 text-sm rounded-md bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除日期</a>
         {% endif %}
-        <span class="mx-1 text-zinc-300">|</span>
+        <span class="mx-1 text-[var(--text-muted)]">|</span>
         <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}"
-           class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">近 7 天</a>
+           class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">近 7 天</a>
         <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}"
-           class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">近一个月</a>
+           class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">近一个月</a>
         </form>
 
         <!-- Status filter -->
         <div class="flex flex-wrap gap-2">
-    <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">全部</a>
+    <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
     {% for value, label in status_choices %}
-    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">{{ label }}</a>
+    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ label }}</a>
     {% endfor %}
         </div>
 
         <!-- Tag filter -->
         {% if all_tags %}
         <div class="flex flex-wrap items-center gap-2">
-    <span class="text-sm text-zinc-500">标签筛选</span>
+    <span class="text-sm text-[var(--text-secondary)]">标签筛选</span>
     <a href="{% url 'activities:activity_list' %}{% if tag_link_qs %}?{{ tag_link_qs }}{% endif %}"
-       class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">全部</a>
+       class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
     {% for tag_name in all_tags %}
     <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
-       class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}"># {{ tag_name }}</a>
+       class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}"># {{ tag_name }}</a>
     {% endfor %}
         </div>
         {% endif %}
     </div>
 </div>
+
+<!-- 导出下拉按钮 -->
+<div class="relative inline-block mb-5" id="export-dropdown">
+    <button type="button" id="export-toggle"
+            class="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        导出
+    </button>
+    <div id="export-menu" class="hidden absolute right-0 mt-1 w-36 rounded-xl bg-[var(--bg-card)] shadow-lg border border-[var(--border)] py-1 z-10">
+        <a href="#" id="export-csv-link"
+           class="flex items-center gap-2 px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            导出 CSV
+        </a>
+        <a href="#" id="export-json-link"
+           class="flex items-center gap-2 px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+            导出 JSON
+        </a>
+    </div>
+</div>
+
+<script>
+(function () {
+    var toggle = document.getElementById('export-toggle');
+    var menu = document.getElementById('export-menu');
+    var csvLink = document.getElementById('export-csv-link');
+    var jsonLink = document.getElementById('export-json-link');
+
+    // 根据当前 URL 参数拼接导出链接
+    function updateExportLinks() {
+        var params = window.location.search;
+        csvLink.href = '{% url "activities:export_csv" %}' + params;
+        jsonLink.href = '{% url "activities:export_json" %}' + params;
+    }
+    updateExportLinks();
+
+    toggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        menu.classList.toggle('hidden');
+    });
+    document.addEventListener('click', function () {
+        menu.classList.add('hidden');
+    });
+})();
+</script>
 
 <script>
 (function () {
@@ -156,57 +218,57 @@
 {% if activities %}
 <div class="hidden md:block app-card overflow-hidden">
     <div class="overflow-x-auto">
-    <table class="min-w-[760px] w-full divide-y divide-zinc-200 text-sm">
-        <thead class="bg-zinc-50">
+    <table class="min-w-[760px] w-full divide-y divide-[var(--border-strong)] text-sm">
+        <thead class="bg-[var(--accent-light)]">
             <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-zinc-600 {% if sort == 'name' or sort == '-name' %}text-zinc-600{% endif %}">
+                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-[var(--text)] {% if sort == 'name' or sort == '-name' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         活动名称{% if sort == 'name' %} ▲{% elif sort == '-name' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">标签</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'status' %}-status{% else %}status{% endif %}" class="hover:text-zinc-600 {% if sort == 'status' or sort == '-status' %}text-zinc-600{% endif %}">
+                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">标签</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'status' %}-status{% else %}status{% endif %}" class="hover:text-[var(--text)] {% if sort == 'status' or sort == '-status' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         状态{% if sort == 'status' %} ▲{% elif sort == '-status' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-zinc-600 {% if sort == 'start_date' or sort == '-start_date' %}text-zinc-600{% endif %}">
+                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-[var(--text)] {% if sort == 'start_date' or sort == '-start_date' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         日期范围{% if sort == 'start_date' %} ▲{% elif sort == '-start_date' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-zinc-600 {% if sort == 'cost' or sort == '-cost' %}text-zinc-600{% endif %}">
+                <th class="px-4 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-[var(--text)] {% if sort == 'cost' or sort == '-cost' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-zinc-500 uppercase">笔数</th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-zinc-500 uppercase">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-zinc-600 {% if sort == 'sub_count' or sort == '-sub_count' %}text-zinc-600{% endif %}">
+                <th class="px-4 py-3 text-center text-xs font-medium text-[var(--text-secondary)] uppercase">笔数</th>
+                <th class="px-4 py-3 text-center text-xs font-medium text-[var(--text-secondary)] uppercase">
+                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-[var(--text)] {% if sort == 'sub_count' or sort == '-sub_count' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         子活动{% if sort == 'sub_count' %} ▲{% elif sort == '-sub_count' %} ▼{% endif %}
                     </a>
                 </th>
                 <th class="w-12 px-3 py-3"></th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-zinc-100">
+        <tbody class="divide-y divide-[var(--border)]">
             {% for activity in activities %}
-            <tr class="hover:bg-zinc-50 tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+            <tr class="hover:bg-[var(--accent-light)] tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
                 {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
                         {% if tree_mode and activity.has_children %}
-                        <button type="button" class="tree-toggle w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-zinc-600 select-none"
+                        <button type="button" class="tree-toggle w-5 h-5 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)] select-none"
                                 data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                         {% elif activity.depth %}
-                        <span class="text-zinc-300 select-none">&#9492;</span>
+                        <span class="text-[var(--text-muted)] select-none">&#9492;</span>
                         {% endif %}
-                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-zinc-700{% else %}text-zinc-900{% endif %} hover:text-zinc-600">
+                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %} hover:text-[var(--text-secondary)]">
                             {{ activity.name }}
                         </a>
                     </div>
                     {% if not tree_mode and activity.parent %}
-                    <span class="ml-1 text-xs text-zinc-400">└ {{ activity.parent.name }}</span>
+                    <span class="ml-1 text-xs text-[var(--text-muted)]">└ {{ activity.parent.name }}</span>
                     {% endif %}
                 </td>
                 <td class="px-4 py-3">
@@ -214,16 +276,16 @@
                         {% for tag in activity.tags.all %}
                         <a href="?tag={{ tag.name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
                            title="筛选标签「{{ tag.name }}」"
-                           class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 whitespace-nowrap"># {{ tag.name }}</a>
+                           class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] whitespace-nowrap"># {{ tag.name }}</a>
                         {% endfor %}
                     </div>
                 </td>
                 <td class="px-4 py-3">
                     <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap
                         {% if activity.status == 'planned' %}bg-zinc-100 text-zinc-600
-                        {% elif activity.status == 'in_progress' %}bg-zinc-900 text-white
-                        {% elif activity.status == 'done' %}bg-green-100 text-green-700
-                        {% else %}bg-red-100 text-red-600{% endif %}">
+                        {% elif activity.status == 'in_progress' %}bg-[var(--accent)] text-[var(--bg)]
+                        {% elif activity.status == 'done' %}bg-zinc-50 text-zinc-400
+                        {% else %}text-zinc-400 line-through{% endif %}">
                         {% if activity.status == 'in_progress' %}
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         {% elif activity.status == 'done' %}
@@ -236,16 +298,16 @@
                         {{ activity.get_status_display }}
                     </span>
                 </td>
-                <td class="px-4 py-3 text-zinc-600 whitespace-nowrap">{{ activity.date_range }}</td>
-                <td class="px-4 py-3 text-right text-zinc-700 whitespace-nowrap">
+                <td class="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{{ activity.date_range }}</td>
+                <td class="px-4 py-3 text-right text-[var(--text)] whitespace-nowrap">
                     ¥{{ activity.show_cost }}
-                    {% if activity.sub_count %}<span class="text-xs text-zinc-400">含子活动</span>{% endif %}
+                    {% if activity.sub_count %}<span class="text-xs text-[var(--text-muted)]">含子活动</span>{% endif %}
                 </td>
-                <td class="px-4 py-3 text-center text-zinc-500">{{ activity.expense_count }}</td>
-                <td class="px-4 py-3 text-center text-zinc-500">{{ activity.sub_count }}</td>
+                <td class="px-4 py-3 text-center text-[var(--text-secondary)]">{{ activity.expense_count }}</td>
+                <td class="px-4 py-3 text-center text-[var(--text-secondary)]">{{ activity.sub_count }}</td>
                 <td class="px-3 py-3 text-center">
                     <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑「{{ activity.name }}」"
-                       class="inline-flex items-center justify-center w-7 h-7 rounded-md text-zinc-900 hover:bg-zinc-100">
+                       class="inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text)] hover:bg-[var(--accent-light)]">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
@@ -266,20 +328,20 @@
         <div class="flex items-center justify-between gap-3 mb-1.5">
             <div class="flex items-center gap-1.5 min-w-0" style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">
                 {% if tree_mode and activity.has_children %}
-                <button type="button" class="tree-toggle shrink-0 w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-zinc-600 select-none"
+                <button type="button" class="tree-toggle shrink-0 w-5 h-5 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)] select-none"
                         data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                 {% elif activity.depth %}
-                <span class="shrink-0 text-zinc-300 select-none">&#9492;</span>
+                <span class="shrink-0 text-[var(--text-muted)] select-none">&#9492;</span>
                 {% endif %}
                 <a href="{% url 'activities:activity_detail' activity.id %}"
-                   class="text-sm font-medium {% if activity.depth %}text-zinc-700{% else %}text-zinc-900{% endif %} break-words min-w-0">{{ activity.name }}</a>
+                   class="text-sm font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %} break-words min-w-0">{{ activity.name }}</a>
             </div>
             <span class="shrink-0 flex items-center gap-1.5">
                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap
                     {% if activity.status == 'planned' %}bg-zinc-100 text-zinc-600
-                    {% elif activity.status == 'in_progress' %}bg-zinc-900 text-white
-                    {% elif activity.status == 'done' %}bg-green-100 text-green-700
-                    {% else %}bg-red-100 text-red-600{% endif %}">
+                    {% elif activity.status == 'in_progress' %}bg-[var(--accent)] text-[var(--bg)]
+                    {% elif activity.status == 'done' %}bg-zinc-50 text-zinc-400
+                    {% else %}text-zinc-400 line-through{% endif %}">
                     {% if activity.status == 'in_progress' %}
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     {% elif activity.status == 'done' %}
@@ -292,20 +354,20 @@
                     {{ activity.get_status_display }}
                 </span>
                 <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑「{{ activity.name }}」"
-                   class="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-900 active:bg-zinc-100">
+                   class="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text)] active:bg-[var(--accent-light)]">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                     </svg>
                 </a>
             </span>
         </div>
-        <p class="text-xs text-zinc-500">{{ activity.date_range }} · 费用 ¥{{ activity.show_cost }}{% if activity.expense_count %} <span class="text-zinc-400">· {{ activity.expense_count }} 笔</span>{% endif %}{% if activity.sub_count %} <span class="text-zinc-400">· 子活动 {{ activity.sub_count }}</span>{% endif %}</p>
+        <p class="text-xs text-[var(--text-secondary)]">{{ activity.date_range }} · 费用 ¥{{ activity.show_cost }}{% if activity.expense_count %} <span class="text-[var(--text-muted)]">· {{ activity.expense_count }} 笔</span>{% endif %}{% if activity.sub_count %} <span class="text-[var(--text-muted)]">· 子活动 {{ activity.sub_count }}</span>{% endif %}</p>
         {% if activity.tags.all %}
         <div class="flex flex-wrap gap-1 mt-2">
             {% for tag in activity.tags.all %}
             <a href="?tag={{ tag.name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
                title="筛选标签「{{ tag.name }}」"
-               class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200"># {{ tag.name }}</a>
+               class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]"># {{ tag.name }}</a>
             {% endfor %}
         </div>
         {% endif %}
@@ -316,8 +378,8 @@
 <!-- 友好空状态 -->
 <div class="text-center py-16 fade-in">
     <div class="text-6xl mb-4">📝</div>
-    <p class="text-xl font-medium text-zinc-700 mb-2">还没有活动记录</p>
-    <p class="text-base text-zinc-500">在上方输入栏快速记一笔，或点击右上角「新建活动」开始吧 ✨</p>
+    <p class="text-xl font-medium text-[var(--text)] mb-2">还没有活动记录</p>
+    <p class="text-base text-[var(--text-secondary)]">在上方输入栏快速记一笔，或点击右上角「新建活动」开始吧 ✨</p>
 </div>
 {% endif %}
 
@@ -357,22 +419,22 @@
     }
 
     function renderPreview(d) {
-        var parts = ['<span class="font-medium text-zinc-900">' + esc(d.name) + '</span>'];
+        var parts = ['<span class="font-medium text-[var(--text)]">' + esc(d.name) + '</span>'];
         if (d.start_date) {
-            parts.push('<span class="text-zinc-500">' + d.start_date +
+            parts.push('<span class="text-[var(--text-secondary)]">' + d.start_date +
                 (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
         }
         if (d.cost !== undefined && d.cost !== null) {
-            parts.push('<span class="text-zinc-500">费用 ¥ ' + esc(String(d.cost)) + '</span>');
+            parts.push('<span class="text-[var(--text-secondary)]">费用 ¥ ' + esc(String(d.cost)) + '</span>');
         }
         if (d.status && STATUS_LABELS[d.status]) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">' + STATUS_LABELS[d.status] + '</span>');
+            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">' + STATUS_LABELS[d.status] + '</span>');
         }
         (d.tags || []).forEach(function (t) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600"># ' + esc(t) + '</span>');
+            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># ' + esc(t) + '</span>');
         });
         (d.participants || []).forEach(function (p) {
-            parts.push('<span class="text-xs text-zinc-500">@ ' + esc(p) + '</span>');
+            parts.push('<span class="text-xs text-[var(--text-secondary)]">@ ' + esc(p) + '</span>');
         });
         previewBody.innerHTML = parts.join('');
         sourceEl.textContent = d.source === 'ai' ? 'AI 识别' : '规则识别';
@@ -432,7 +494,7 @@
                 showError(res.data.error || '创建失败');
                 return;
             }
-            previewBody.innerHTML = '<span class="text-green-600">已创建「' + esc(res.data.name) + '」，即将刷新…</span>';
+            previewBody.innerHTML = '<span class="text-zinc-900 font-medium">已创建「' + esc(res.data.name) + '」，即将刷新…</span>';
             confirmBtn.textContent = '已创建';
             setTimeout(function () { window.location.reload(); }, 700);
         }).catch(function () {

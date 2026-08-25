@@ -1,6 +1,7 @@
 {
   "enabledPlugins": {
     "architecture-visualization@qoder-marketplace": true,
-    "design-review@qoder-marketplace": true
+    "design-review@qoder-marketplace": true,
+    "qmind-knowledge-cn-vpc@qoder-marketplace": true
   }
 }

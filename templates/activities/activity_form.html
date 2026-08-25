@@ -9,15 +9,15 @@
 {% block content %}
 <div class="max-w-2xl mx-auto">
     <div class="mb-4">
-        <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回列表</a>
+        <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
     </div>
 
-    <div class="bg-white rounded-lg shadow-sm border border-zinc-200 p-6">
-        <h1 class="text-xl font-bold text-zinc-900 mb-6">{{ title }}</h1>
+    <div class="bg-[var(--bg-card)] rounded-lg shadow-sm border border-[var(--border-strong)] p-6">
+        <h1 class="text-xl font-bold text-[var(--text)] mb-6">{{ title }}</h1>
 
         {% if not activity %}
         <!-- 快速输入（仅创建模式）：一句话解析后自动填入下方表单 -->
-        <div class="mb-6 rounded-md bg-zinc-50 border border-zinc-200 p-3">
+        <div class="mb-6 rounded-md bg-[var(--accent-light)] border border-[var(--border-strong)] p-3">
             <div class="flex gap-2">
                 <input type="text" id="form-quick-input" maxlength="500"
                        placeholder="快速输入，如：8月25到28日去上海出差 预算3000 #工作 @小王"
@@ -31,8 +31,8 @@
         {% endif %}
 
         {% if form.non_field_errors %}
-        <div class="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-            {{ form.non_field_errors }}
+        <div class="mb-4 rounded-md bg-zinc-50 border border-zinc-200 p-3 text-sm text-zinc-800">
+            错误：{{ form.non_field_errors }}
         </div>
         {% endif %}
 
@@ -40,86 +40,86 @@
             {% csrf_token %}
 
             <div>
-                <label class="block text-sm font-medium text-zinc-700 mb-1">活动名称 <span class="text-red-500">*</span></label>
+                <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-zinc-800">*</span></label>
                 {{ form.name }}
-                {% if form.name.errors %}<p class="mt-1 text-xs text-red-600">{{ form.name.errors.0 }}</p>{% endif %}
+                {% if form.name.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.name.errors.0 }}</p>{% endif %}
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-zinc-700 mb-1">活动描述</label>
+                <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述</label>
                 {{ form.description }}
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-zinc-700 mb-1">开始日期</label>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
                     {{ form.start_date }}
-                    {% if form.start_date.errors %}<p class="mt-1 text-xs text-red-600">{{ form.start_date.errors.0 }}</p>{% endif %}
+                    {% if form.start_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-zinc-700 mb-1">结束日期</label>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
                     {{ form.end_date }}
-                    {% if form.end_date.errors %}<p class="mt-1 text-xs text-red-600">{{ form.end_date.errors.0 }}</p>{% endif %}
+                    {% if form.end_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
                 </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-zinc-700 mb-1">状态</label>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">状态</label>
                     {{ form.status }}
                 </div>
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-zinc-700 mb-1">父活动</label>
+                <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">父活动</label>
                 {{ form.parent }}
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-zinc-700 mb-1">标签</label>
+                <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">标签</label>
                 <div class="relative">
                     <div id="tag-box"
-                         class="flex flex-wrap gap-1.5 items-center rounded-md border border-zinc-300 bg-white px-2 py-1.5 focus-within:border-zinc-500">
+                         class="flex flex-wrap gap-1.5 items-center rounded-md border border-[var(--border-strong)] bg-[var(--bg-card)] px-2 py-1.5 focus-within:border-[var(--accent)]">
                         <input type="text" id="tag-input" placeholder="输入标签，回车添加"
                                autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
                     </div>
                     <div id="tag-suggest"
-                         class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-white border border-zinc-200 rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
+                         class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
                 </div>
-                <p class="mt-1 text-xs text-zinc-400">可从下方建议中选择（支持拼音），或直接输入新标签回车添加</p>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">可从下方建议中选择（支持拼音），或直接输入新标签回车添加</p>
                 {{ form.tags }}
-                {% if form.tags.errors %}<p class="mt-1 text-xs text-red-600">{{ form.tags.errors.0 }}</p>{% endif %}
+                {% if form.tags.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.tags.errors.0 }}</p>{% endif %}
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-zinc-700 mb-1">参与者</label>
+                <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">参与者</label>
                 <div class="relative">
                     <div id="participant-box"
-                         class="flex flex-wrap gap-1.5 items-center rounded-md border border-zinc-300 bg-white px-2 py-1.5 focus-within:border-zinc-500">
+                         class="flex flex-wrap gap-1.5 items-center rounded-md border border-[var(--border-strong)] bg-[var(--bg-card)] px-2 py-1.5 focus-within:border-[var(--accent)]">
                         <input type="text" id="participant-input" placeholder="输入姓名，回车添加"
                                autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
                     </div>
                     <div id="participant-suggest"
-                         class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-white border border-zinc-200 rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
+                         class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
                 </div>
-                <p class="mt-1 text-xs text-zinc-400">可从下方提示中选择，或直接输入新姓名回车添加（新姓名保存时自动创建）</p>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">可从下方提示中选择，或直接输入新姓名回车添加（新姓名保存时自动创建）</p>
                 {{ form.participants_input }}
-                {% if form.participants_input.errors %}<p class="mt-1 text-xs text-red-600">{{ form.participants_input.errors.0 }}</p>{% endif %}
+                {% if form.participants_input.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
             </div>
 
             {% if not activity %}
             <div>
-                <label class="block text-sm font-medium text-zinc-700 mb-1">{{ form.new_children.label }}</label>
+                <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.new_children.label }}</label>
                 {{ form.new_children }}
-                <p class="mt-1 text-xs text-zinc-400">{{ form.new_children.help_text }}</p>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.new_children.help_text }}</p>
             </div>
             {% endif %}
 
             <div class="flex gap-3 pt-2">
-                <button type="submit" class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">
+                <button type="submit" class="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">
                     保存
                 </button>
-                <a href="{% url 'activities:activity_list' %}" class="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-200">
+                <a href="{% url 'activities:activity_list' %}" class="rounded-md bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
                     取消
                 </a>
             </div>
@@ -127,29 +127,29 @@
 
         {% if activity %}
         <!-- 子任务快捷管理（仅编辑模式） -->
-        <div class="mt-6 pt-4 border-t border-zinc-200">
-            <h2 class="text-sm font-medium text-zinc-900 mb-2">子任务（{{ children|length }}）</h2>
+        <div class="mt-6 pt-4 border-t border-[var(--border-strong)]">
+            <h2 class="text-sm font-medium text-[var(--text)] mb-2">子任务（{{ children|length }}）</h2>
             <form method="post" action="{% url 'activities:add_subactivity' activity.id %}" class="flex gap-2 mb-3">
                 {% csrf_token %}
                 <input type="text" name="name" placeholder="输入子任务名称，回车添加"
                        autocomplete="off"
                        class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
-                <button type="submit" class="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700">+ 添加</button>
+                <button type="submit" class="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">+ 添加</button>
             </form>
             {% if children %}
             <div class="space-y-2">
                 {% for child in children %}
-                <div class="flex items-center justify-between bg-zinc-50 rounded-md border border-zinc-200 px-3 py-2">
+                <div class="flex items-center justify-between bg-[var(--accent-light)] rounded-md border border-[var(--border-strong)] px-3 py-2">
                     <div class="flex items-center gap-2 text-sm">
-                        <a href="{% url 'activities:activity_detail' child.id %}" class="text-zinc-800 hover:text-zinc-600">{{ child.name }}</a>
-                        <span class="text-xs text-zinc-400">{{ child.get_status_display }}</span>
+                        <a href="{% url 'activities:activity_detail' child.id %}" class="text-[var(--text)] hover:text-[var(--text-secondary)]">{{ child.name }}</a>
+                        <span class="text-xs text-[var(--text-muted)]">{{ child.get_status_display }}</span>
                     </div>
-                    <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-zinc-500 hover:text-zinc-900">编辑</a>
+                    <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-[var(--text-secondary)] hover:text-[var(--text)]">编辑</a>
                 </div>
                 {% endfor %}
             </div>
             {% else %}
-            <p class="text-xs text-zinc-400">暂无子任务，可在上方输入名称快速添加</p>
+            <p class="text-xs text-[var(--text-muted)]">暂无子任务，可在上方输入名称快速添加</p>
             {% endif %}
         </div>
         {% endif %}
@@ -230,15 +230,15 @@
             suggest.innerHTML = '';
             matches.forEach(function (n) {
                 var item = document.createElement('div');
-                item.className = 'px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 cursor-pointer';
+                item.className = 'px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] cursor-pointer';
                 item.textContent = n;
                 item.addEventListener('mousedown', function (e) { e.preventDefault(); addName(n); });
                 suggest.appendChild(item);
             });
             if (!matches.length && kw) {
                 var tip = document.createElement('div');
-                tip.className = 'px-3 py-2 text-sm text-zinc-400 cursor-pointer';
-                tip.innerHTML = opts.newTip + '：<span class="text-zinc-600"></span>';
+                tip.className = 'px-3 py-2 text-sm text-[var(--text-muted)] cursor-pointer';
+                tip.innerHTML = opts.newTip + '：<span class="text-[var(--text-secondary)]"></span>';
                 tip.querySelector('span').textContent = input.value.trim();
                 tip.addEventListener('mousedown', function (e) { e.preventDefault(); addName(input.value); });
                 suggest.appendChild(tip);
@@ -274,13 +274,13 @@
         participants: initChipsInput({
             boxId: 'participant-box', inputId: 'participant-input', suggestId: 'participant-suggest',
             hiddenId: 'id_participants_input', optionsId: 'participant-options',
-            chipClass: 'bg-zinc-50 text-zinc-700',
+            chipClass: 'bg-[var(--accent-light)] text-[var(--text-secondary)]',
             newTip: '回车添加新参与者',
         }),
         tags: initChipsInput({
             boxId: 'tag-box', inputId: 'tag-input', suggestId: 'tag-suggest',
             hiddenId: 'id_tags', optionsId: 'tag-options',
-            chipClass: 'bg-zinc-100 border border-zinc-200 text-zinc-600',
+            chipClass: 'bg-[var(--accent-light)] border border-[var(--border-strong)] text-[var(--text-secondary)]',
             newTip: '回车添加新标签',
         }),
     };
@@ -298,7 +298,7 @@
 
         function showMsg(text, isError) {
             qMsg.textContent = text;
-            qMsg.className = 'mt-2 text-sm ' + (isError ? 'text-red-600' : 'text-green-600');
+            qMsg.className = 'mt-2 text-sm ' + (isError ? 'text-zinc-800 font-semibold' : 'text-zinc-900');
         }
 
         function fillForm(d) {

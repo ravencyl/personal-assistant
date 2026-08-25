@@ -156,6 +156,14 @@ def send_message(request, conversation_id):
         if page_context and page_context != 'home' and page_context != 'chat':
             ai_content = f'[页面提示: {page_context}]\n\n{content}'
 
+        # 知识库上下文注入（按对话归属用户过滤，失败仅告警不阻断）
+        try:
+            knowledge_context = _build_knowledge_context(conversation.user, content)
+            if knowledge_context:
+                ai_content = knowledge_context + ai_content
+        except Exception as exc:
+            logger.warning("knowledge injection failed: %s", exc)
+
         try:
             service.send_message(conversation.session_id, ai_content)
         except httpx.HTTPStatusError as e:
@@ -192,6 +200,20 @@ def send_message(request, conversation_id):
         conversation.status = 'idle'
         conversation.save(update_fields=['status', 'updated_at'])
         return JsonResponse({'error': str(e)}, status=500)
+
+
+def _build_knowledge_context(user, text):
+    """按用户消息检索相关知识库文章，构造注入上下文；无命中返回空串"""
+    from knowledge.models import Article
+    from knowledge.utils import search_articles
+
+    articles = search_articles(visible_qs(Article, user), text, limit=3)
+    if not articles:
+        return ''
+    context = '\n\n[相关知识库内容]\n'
+    for a in articles:
+        context += f'--- {a.title} ---\n{a.content[:800]}\n\n'
+    return context
 
 
 def _collect_response(service, conversation):

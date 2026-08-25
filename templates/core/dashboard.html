@@ -1,70 +1,165 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Personal AI Assistant{% endblock %}
+{% block title %}仪表盘 - Personal AI Assistant{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+{% endblock %}
 
 {% block content %}
-<!-- Welcome -->
-<div class="mb-8">
-    <h1 class="text-2xl font-bold text-zinc-900">欢迎回来，{{ user.username }}</h1>
-    <p class="text-sm text-zinc-500 mt-1">这是你的个人 AI 助手仪表盘</p>
+<!-- 问候头部 -->
+<div class="mb-6">
+    <h1 class="text-2xl font-semibold text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
+    <p class="text-sm text-[var(--text-secondary)] mt-1">{{ today_display }}</p>
 </div>
 
-<!-- Stats -->
-<div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-    <div class="bg-white rounded-lg border border-zinc-200 p-4">
-        <p class="text-sm text-zinc-500">AI 对话</p>
-        <p class="text-2xl font-bold text-zinc-900">{{ stats.total_conversations }}</p>
+<!-- 统计卡片 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+    <div class="app-card p-3 md:p-4">
+        <p class="text-xs text-[var(--text-muted)]">本周完成</p>
+        <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">{{ stats.week_completed }}</p>
     </div>
-    <div class="bg-white rounded-lg border border-zinc-200 p-4">
-        <p class="text-sm text-zinc-500">活动记录</p>
-        <p class="text-2xl font-bold text-zinc-900">{{ stats.total_activities }}</p>
+    <div class="app-card p-3 md:p-4">
+        <p class="text-xs text-[var(--text-muted)]">本周新增</p>
+        <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">{{ stats.week_new }}</p>
     </div>
-    <div class="bg-white rounded-lg border border-zinc-200 p-4">
-        <p class="text-sm text-zinc-500">进行中活动</p>
-        <p class="text-2xl font-bold text-zinc-900">{{ stats.ongoing_count }}</p>
+    <div class="app-card p-3 md:p-4">
+        <p class="text-xs text-[var(--text-muted)]">本月费用</p>
+        <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">¥{{ stats.month_expense|floatformat:0 }}</p>
+    </div>
+    <div class="app-card p-3 md:p-4">
+        <p class="text-xs text-[var(--text-muted)]">进行中</p>
+        <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">{{ stats.ongoing_count }}</p>
     </div>
 </div>
 
-<div class="grid md:grid-cols-2 gap-6">
-    <!-- Recent activities -->
-    <div class="bg-white rounded-lg border border-zinc-200 p-5">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-zinc-900">最近活动</h2>
-            <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">查看全部</a>
+<!-- 本周费用趋势 -->
+<div class="app-card p-4 mb-6">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-medium text-[var(--text)]">本周费用</h2>
+        <span class="text-xs text-[var(--text-muted)]">¥{{ stats.week_expense|floatformat:0 }}</span>
+    </div>
+    <canvas id="dashWeekChart" height="60"></canvas>
+</div>
+
+<!-- 最近活动 + 最近对话 -->
+<div class="grid md:grid-cols-2 gap-4 mb-6">
+    <!-- 最近活动 -->
+    <div class="app-card p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-medium text-[var(--text)]">最近活动</h2>
+            <a href="{% url 'activities:activity_list' %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部</a>
         </div>
-        {% if recent_activities %}
-        <div class="space-y-2">
-            {% for activity in recent_activities %}
-            <div class="flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full {% if activity.status == 'in_progress' %}bg-zinc-500{% elif activity.status == 'done' %}bg-green-500{% elif activity.status == 'cancelled' %}bg-red-400{% else %}bg-zinc-300{% endif %}"></span>
-                <a href="{% url 'activities:activity_detail' activity.id %}" class="text-sm text-zinc-700 hover:text-zinc-600 truncate">{{ activity.name }}</a>
-                <span class="text-xs text-zinc-400 ml-auto whitespace-nowrap">{{ activity.date_range }}</span>
-            </div>
-            {% endfor %}
+        {% for a in recent_activities %}
+        <a href="{% url 'activities:activity_detail' a.id %}" class="flex items-center gap-2 py-2 border-b border-[var(--border)] last:border-0 hover:bg-[var(--accent-light)] -mx-2 px-2 rounded-lg transition-colors">
+            <span class="h-1.5 w-1.5 rounded-full shrink-0 {% if a.status == 'in_progress' %}bg-zinc-900{% elif a.status == 'done' %}bg-zinc-300{% elif a.status == 'cancelled' %}bg-zinc-200{% else %}bg-zinc-500{% endif %}"></span>
+            <span class="text-sm text-[var(--text)] truncate flex-1">{{ a.name }}</span>
+            <span class="text-xs text-[var(--text-muted)] shrink-0">{{ a.updated_at|timesince }} 前</span>
+        </a>
+        {% empty %}
+        <p class="text-sm text-[var(--text-muted)] py-4">暂无活动</p>
+        {% endfor %}
+    </div>
+
+    <!-- 最近对话 -->
+    <div class="app-card p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-medium text-[var(--text)]">最近对话</h2>
+            <a href="{% url 'chat:conversation_list' %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部</a>
         </div>
-        {% else %}
-        <p class="text-sm text-zinc-400">暂无活动记录</p>
+        {% for conv in recent_conversations %}
+        <a href="{% url 'chat:conversation_detail' conv.id %}" class="flex items-center gap-2 py-2 border-b border-[var(--border)] last:border-0 hover:bg-[var(--accent-light)] -mx-2 px-2 rounded-lg transition-colors">
+            <span class="text-sm text-[var(--text)] truncate flex-1">{{ conv.title }}</span>
+            <span class="text-xs text-[var(--text-muted)] shrink-0">{{ conv.updated_at|timesince }} 前</span>
+        </a>
+        {% empty %}
+        <p class="text-sm text-[var(--text-muted)] py-4">暂无对话</p>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- 活动状态分布 -->
+{% if stats.status_counts %}
+<div class="app-card p-4">
+    <h2 class="text-sm font-medium text-[var(--text)] mb-3">活动分布</h2>
+
+    <!-- 分段条 -->
+    <div class="flex h-2 rounded-full overflow-hidden bg-[var(--accent-light)] mb-4">
+        {% with total=stats.total_activities %}
+        {% if total > 0 %}
+            {% with planned=stats.status_counts.planned|default:0 in_progress=stats.status_counts.in_progress|default:0 done=stats.status_counts.done|default:0 cancelled=stats.status_counts.cancelled|default:0 %}
+            {% if planned > 0 %}
+            <div class="bg-zinc-500" style="width:{% widthratio planned total 100 %}%"></div>
+            {% endif %}
+            {% if in_progress > 0 %}
+            <div class="bg-zinc-900" style="width:{% widthratio in_progress total 100 %}%"></div>
+            {% endif %}
+            {% if done > 0 %}
+            <div class="bg-zinc-300" style="width:{% widthratio done total 100 %}%"></div>
+            {% endif %}
+            {% if cancelled > 0 %}
+            <div class="bg-zinc-200" style="width:{% widthratio cancelled total 100 %}%"></div>
+            {% endif %}
+            {% endwith %}
         {% endif %}
+        {% endwith %}
     </div>
 
-    <!-- Recent conversations -->
-    <div class="bg-white rounded-lg border border-zinc-200 p-5">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-medium text-zinc-900">最近对话</h2>
-            <a href="{% url 'chat:conversation_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">查看全部</a>
+    <!-- 图例 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {% with planned=stats.status_counts.planned|default:0 in_progress=stats.status_counts.in_progress|default:0 done=stats.status_counts.done|default:0 cancelled=stats.status_counts.cancelled|default:0 %}
+        <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-zinc-500"></span>
+            <span class="text-xs text-[var(--text-secondary)]">计划 {{ planned }}</span>
         </div>
-        {% if recent_conversations %}
-        <div class="space-y-2">
-            {% for conv in recent_conversations %}
-            <a href="{% url 'chat:conversation_detail' conv.id %}" class="block text-sm text-zinc-700 hover:text-zinc-600 truncate">
-                {{ conv.title }}
-                <span class="text-xs text-zinc-400 ml-2">{{ conv.updated_at|timesince }} 前</span>
-            </a>
-            {% endfor %}
+        <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-zinc-900"></span>
+            <span class="text-xs text-[var(--text-secondary)]">进行中 {{ in_progress }}</span>
         </div>
-        {% else %}
-        <p class="text-sm text-zinc-400">暂无对话记录</p>
-        {% endif %}
+        <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-zinc-300"></span>
+            <span class="text-xs text-[var(--text-secondary)]">已完成 {{ done }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-zinc-200"></span>
+            <span class="text-xs text-[var(--text-secondary)]">已取消 {{ cancelled }}</span>
+        </div>
+        {% endwith %}
     </div>
 </div>
+{% endif %}
+
+<!-- Chart.js 初始化 -->
+<script>
+(function() {
+    var ctx = document.getElementById('dashWeekChart');
+    if (!ctx) return;
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: {{ weekdays|safe }},
+            datasets: [{
+                data: {{ daily_expense|safe }},
+                backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: getComputedStyle(document.documentElement).getPropertyValue('--border').trim() },
+                    ticks: { font: { size: 10 } }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 } }
+                }
+            }
+        }
+    });
+})();
+</script>
 {% endblock %}

@@ -3,7 +3,7 @@
     <div class="space-y-1.5">
         {% for item in card.items %}
         <div class="flex items-center gap-2 text-sm min-w-0">
-            <span class="w-1.5 h-1.5 rounded-full shrink-0 {% if item.status == 'in_progress' %}bg-zinc-900{% elif item.status == 'done' %}bg-green-500{% elif item.status == 'cancelled' %}bg-red-400{% else %}bg-zinc-300{% endif %}"></span>
+            <span class="w-1.5 h-1.5 rounded-full shrink-0 {% if item.status == 'in_progress' %}bg-zinc-900{% elif item.status == 'done' %}bg-zinc-400{% elif item.status == 'cancelled' %}bg-zinc-300{% else %}bg-zinc-500{% endif %}"></span>
             <a href="{{ item.detail_url }}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
             <span class="text-xs text-zinc-400 shrink-0">{{ item.status_label }}</span>
             <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{{ item.date_label }}</span>

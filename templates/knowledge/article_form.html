@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - 知识库{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6 fade-in">
+    <!-- 返回链接 -->
+    <div>
+        <a href="{% url 'knowledge:article_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回知识库</a>
+    </div>
+
+    <!-- 表单卡片 -->
+    <div class="app-card p-5 sm:p-8">
+        <h1 class="text-xl font-bold text-[var(--text)] mb-6">{{ title }}</h1>
+        
+        <form method="post" class="space-y-5">
+            {% csrf_token %}
+            
+            <!-- 标题 -->
+            <div>
+                <label for="{{ form.title.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">标题</label>
+                {{ form.title }}
+                {% if form.title.errors %}
+                <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.title.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- 内容 -->
+            <div>
+                <label for="{{ form.content.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">内容（Markdown）</label>
+                {{ form.content }}
+                {% if form.content.errors %}
+                <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.content.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- 标签 -->
+            <div>
+                <label for="{{ form.tags.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">标签</label>
+                {{ form.tags }}
+                <p class="mt-1 text-xs text-[var(--text-muted)]">多个标签用逗号分隔</p>
+                {% if form.tags.errors %}
+                <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.tags.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- 提交按钮 -->
+            <div class="flex items-center gap-3 pt-2">
+                <button type="submit"
+                        class="inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">
+                    {% if article %}保存修改{% else %}创建文章{% endif %}
+                </button>
+                <a href="{% url 'knowledge:article_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">取消</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

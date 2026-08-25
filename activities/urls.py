@@ -1,11 +1,17 @@
 from django.urls import path
-from . import views
+from . import views, export_views
 
 app_name = 'activities'
 
 urlpatterns = [
     path('', views.activity_list, name='activity_list'),
+    path('export/csv/', export_views.export_csv, name='export_csv'),
+    path('export/json/', export_views.export_json, name='export_json'),
     path('daily/', views.daily_view, name='daily'),
+    path('templates/', views.template_list, name='template_list'),
+    path('templates/create/', views.template_create, name='template_create'),
+    path('templates/<int:template_id>/delete/', views.template_delete, name='template_delete'),
+    path('templates/<int:template_id>/create/', views.activity_from_template, name='activity_from_template'),
     path('new/', views.activity_create, name='activity_create'),
     path('parse-quick-input/', views.parse_quick_input_view, name='parse_quick_input'),
     path('quick-create/', views.activity_quick_create, name='activity_quick_create'),
@@ -20,4 +26,13 @@ urlpatterns = [
     path('expenses/<int:expense_id>/delete/', views.expense_delete, name='expense_delete'),
     path('calendar/', views.activity_calendar, name='activity_calendar'),
     path('calendar-data/', views.calendar_data, name='calendar_data'),
+    path('expense-chart-data/', views.expense_chart_data, name='expense_chart_data'),
+    path('expense-report/', views.expense_report, name='expense_report'),
+    path('attachments/upload/<int:activity_id>/', views.attachment_upload, name='attachment_upload'),
+    path('attachments/<int:attachment_id>/delete/', views.attachment_delete, name='attachment_delete'),
+    path('recurring/', views.recurring_list, name='recurring_list'),
+    path('recurring/create/', views.recurring_create, name='recurring_create'),
+    path('recurring/<int:pk>/delete/', views.recurring_delete, name='recurring_delete'),
+    path('recurring/<int:pk>/toggle/', views.recurring_toggle, name='recurring_toggle'),
+    path('recurring/checkin/<int:activity_id>/', views.recurring_checkin, name='recurring_checkin'),
 ]

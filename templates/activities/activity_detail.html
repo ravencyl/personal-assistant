@@ -5,30 +5,30 @@
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-4 sm:space-y-6" data-page-activity="{{ activity.name }}">
     <div>
-        <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回列表</a>
+        <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
     </div>
 
     <!-- 头部卡片：标题 + 进度条 + 快捷状态 -->
     <div class="app-card overflow-hidden">
-        <div class="h-1.5 {% if activity.status == 'done' %}bg-green-500{% elif activity.status == 'in_progress' %}bg-zinc-900{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-300{% endif %}"></div>
+        <div class="h-1.5 {% if activity.status == 'done' %}bg-zinc-900{% elif activity.status == 'in_progress' %}bg-[var(--accent)]{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-200{% endif %}"></div>
         <div class="p-4 sm:p-6">
             <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-3 flex-wrap">
-                        <h1 class="text-2xl font-bold text-zinc-900">{{ activity.name }}</h1>
+                        <h1 class="text-2xl font-bold text-[var(--text)]">{{ activity.name }}</h1>
                         {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
                     </div>
-                    <p class="mt-1.5 text-sm text-zinc-500">
+                    <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
                         {{ activity.date_range }}
                         {% if activity.parent %}
                         · 所属
-                        <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-zinc-500 hover:text-zinc-900">{{ activity.parent.name }}</a>
+                        <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-[var(--text-secondary)] hover:text-[var(--text)]">{{ activity.parent.name }}</a>
                         {% endif %}
                     </p>
                     {% if activity.tags.all %}
                     <div class="mt-2 flex flex-wrap gap-1.5">
                         {% for tag in activity.tags.all %}
-                        <span class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2.5 py-0.5 text-xs text-zinc-600"># {{ tag.name }}</span>
+                        <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2.5 py-0.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -36,21 +36,21 @@
                 <!-- 操作区：移动端撑满一行，桌面端居右 -->
                 <div class="flex gap-2 w-full sm:w-auto shrink-0">
                     <a href="{% url 'activities:activity_edit' activity.id %}"
-                       class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-full bg-zinc-900 hover:bg-black px-4 py-2 text-sm font-medium text-white transition-colors">
+                       class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--accent)] hover:opacity-90 px-4 py-2 text-sm font-medium text-[var(--bg)] transition-colors">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/></svg>
                         编辑</a>
                     <form method="post" action="{% url 'activities:activity_delete' activity.id %}"
                           class="flex-1 sm:flex-none"
                           onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空。')">
                         {% csrf_token %}
-                        <button type="submit" class="w-full rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors">删除</button>
+                        <button type="submit" class="w-full rounded-full bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors">删除</button>
                     </form>
                 </div>
             </div>
 
             <!-- 快捷状态按钮 -->
-            <div class="mt-6 pt-4 border-t border-zinc-100">
-                <p class="text-xs text-zinc-400 mb-2">快捷修改状态</p>
+            <div class="mt-6 pt-4 border-t border-[var(--border)]">
+                <p class="text-xs text-[var(--text-muted)] mb-2">快捷修改状态</p>
                 <div class="flex flex-wrap gap-2">
                     {% for value, label in status_choices %}
                     <form method="post" action="{% url 'activities:activity_set_status' activity.id %}">
@@ -59,13 +59,10 @@
                         <button type="submit" {% if activity.status == value %}disabled{% endif %}
                             class="rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
                             {% if activity.status == value %}
-                                {% if value == 'done' %}bg-green-600 text-white cursor-default
-                                {% elif value == 'cancelled' %}bg-red-600 text-white cursor-default
-                                {% else %}bg-zinc-900 text-white cursor-default{% endif %}
+                                bg-zinc-900 text-white cursor-default
                             {% else %}
-                                {% if value == 'done' %}bg-green-50 text-green-600 hover:bg-green-100
-                                {% elif value == 'cancelled' %}bg-red-50 text-red-600 hover:bg-red-100
-                                {% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}
+                                {% if value == 'done' or value == 'cancelled' %}bg-zinc-50 text-zinc-500 hover:bg-zinc-100
+                                {% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}
                             {% endif %}">
                             {% if activity.status == value %}&#10003; {% endif %}{{ label }}
                         </button>
@@ -79,57 +76,57 @@
     <!-- 统计卡片 -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
         <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-zinc-500">累计费用</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-900">&#165;{{ activity.total_cost }}</p>
+            <p class="text-xs text-[var(--text-secondary)]">累计费用</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">&#165;{{ activity.total_cost }}</p>
         </div>
         <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-zinc-500">费用条目</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-800">{{ expenses|length }} <span class="text-xs sm:text-sm font-normal text-zinc-400">笔</span></p>
+            <p class="text-xs text-[var(--text-secondary)]">费用条目</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ expenses|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">笔</span></p>
         </div>
         <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-zinc-500">子任务</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-800">{{ children|length }} <span class="text-xs sm:text-sm font-normal text-zinc-400">个</span></p>
+            <p class="text-xs text-[var(--text-secondary)]">子任务</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ children|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个</span></p>
         </div>
         <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-zinc-500">参与者</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-zinc-800">{{ participants|length }} <span class="text-xs sm:text-sm font-normal text-zinc-400">人</span></p>
+            <p class="text-xs text-[var(--text-secondary)]">参与者</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ participants|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">人</span></p>
         </div>
     </div>
 
     <!-- 描述 -->
     {% if activity.description %}
     <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-zinc-900 mb-3">活动描述</h2>
-        <p class="text-sm text-zinc-600 whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">活动描述</h2>
+        <p class="text-sm text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
     </div>
     {% endif %}
 
     <!-- 费用明细 -->
     <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-zinc-900 mb-3">费用明细（{{ expenses|length }}）</h2>
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">费用明细（{{ expenses|length }}）</h2>
         {% if expenses %}
         <div class="space-y-2">
             {% for e in expenses %}
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2 rounded-lg bg-zinc-50 px-3 py-2" id="expense-{{ e.id }}">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2" id="expense-{{ e.id }}">
                 <div class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span class="text-sm font-medium text-zinc-900">&#165;{{ e.amount|floatformat:"-2" }}</span>
-                    <span class="inline-flex items-center rounded-full bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600">{{ e.get_category_display }}</span>
-                    {% if e.paid_at %}<span class="text-xs text-zinc-400">{{ e.paid_at }}</span>{% endif %}
-                    {% if e.note %}<span class="text-xs text-zinc-500 truncate">{{ e.note }}</span>{% endif %}
+                    <span class="text-sm font-medium text-[var(--text)]">&#165;{{ e.amount|floatformat:"-2" }}</span>
+                    <span class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{{ e.get_category_display }}</span>
+                    {% if e.paid_at %}<span class="text-xs text-[var(--text-muted)]">{{ e.paid_at }}</span>{% endif %}
+                    {% if e.note %}<span class="text-xs text-[var(--text-secondary)] truncate">{{ e.note }}</span>{% endif %}
                 </div>
                 <div class="shrink-0 flex items-center gap-3 self-end sm:self-auto">
-                    <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.category }}', '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}')" class="text-xs text-zinc-400 hover:text-zinc-900">编辑</button>
+                    <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.category }}', '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}')" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
                     <form method="post" action="{% url 'activities:expense_delete' e.id %}" class="inline"
                           onsubmit="return confirm('确认删除这笔费用？')">
                         {% csrf_token %}
-                        <button type="submit" class="text-xs text-zinc-400 hover:text-red-500">删除</button>
+                        <button type="submit" class="text-xs text-zinc-500 hover:text-zinc-900">删除</button>
                     </form>
                 </div>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-zinc-400">暂无费用记录</p>
+        <p class="text-sm text-[var(--text-muted)]">暂无费用记录</p>
         {% endif %}
         <!-- 添加费用表单 -->
         <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end" id="expense-form">
@@ -160,21 +157,90 @@
                        class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <div>
-                <button type="submit" class="rounded-full bg-zinc-900 px-5 py-1.5 text-sm font-medium text-white hover:opacity-90" id="expense-submit-btn">添加</button>
-                <button type="button" onclick="cancelEdit()" class="hidden rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-50" id="expense-cancel-btn">取消</button>
+                <button type="submit" class="rounded-full bg-[var(--accent)] px-5 py-1.5 text-sm font-medium text-[var(--bg)] hover:opacity-90" id="expense-submit-btn">添加</button>
+                <button type="button" onclick="cancelEdit()" class="hidden rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]" id="expense-cancel-btn">取消</button>
             </div>
         </form>
     </div>
 
+    <!-- 附件区域 -->
+    <section class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3 flex items-center gap-2">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+            </svg>
+            附件
+            <span class="text-xs text-[var(--text-muted)]">({{ attachments|length }})</span>
+        </h2>
+
+        <!-- 图片附件网格 -->
+        {% with has_images=0 %}
+        {% for att in attachments %}{% if att.is_image %}{% with has_images=1 %}{% endwith %}{% endif %}{% endfor %}
+        {% for att in attachments %}
+            {% if att.is_image %}
+            <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(25%-0.5625rem)] mb-3 align-top">
+                <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
+                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <a href="{{ att.file.url }}" target="_blank" class="text-white text-xs hover:underline">查看原图</a>
+                    <form method="post" action="{% url 'activities:attachment_delete' att.id %}" class="inline"
+                          onsubmit="return confirm('确定删除？')">
+                        {% csrf_token %}
+                        <button type="submit" class="text-zinc-300 text-xs hover:text-white">删除</button>
+                    </form>
+                </div>
+                <div class="p-1.5 bg-[var(--bg-card)]">
+                    <p class="text-xs text-[var(--text-muted)] truncate">{{ att.filename }}</p>
+                    <p class="text-xs text-[var(--text-muted)]">{{ att.size_display }}</p>
+                </div>
+            </div>
+            {% endif %}
+        {% endfor %}
+        {% endwith %}
+
+        <!-- 非图片文件列表 -->
+        {% for att in attachments %}
+        {% if not att.is_image %}
+        <div class="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
+            <div class="flex items-center gap-2 min-w-0">
+                <svg class="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <a href="{{ att.file.url }}" target="_blank" class="text-sm text-[var(--text)] hover:underline truncate">{{ att.filename }}</a>
+                <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{{ att.size_display }}</span>
+            </div>
+            <form method="post" action="{% url 'activities:attachment_delete' att.id %}" onsubmit="return confirm('确定删除？')">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
+            </form>
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% if not attachments %}
+        <p class="text-sm text-[var(--text-muted)]">暂无附件</p>
+        {% endif %}
+
+        <!-- 上传表单 -->
+        <form method="post" action="{% url 'activities:attachment_upload' activity.id %}" enctype="multipart/form-data"
+              class="mt-3 flex items-center gap-2">
+            {% csrf_token %}
+            <input type="file" name="file" required
+                   class="text-sm text-[var(--text-secondary)] file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-[var(--accent-light)] file:text-[var(--text)] hover:file:bg-[var(--border)]">
+            <button type="submit" class="text-xs px-3 py-1.5 rounded-full bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90">
+                上传
+            </button>
+        </form>
+    </section>
+
     <!-- 参与者 -->
     {% if participants %}
     <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-zinc-900 mb-3">参与者（{{ participants|length }}）</h2>
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">参与者（{{ participants|length }}）</h2>
         <div class="flex flex-wrap gap-2">
             {% for p in participants %}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-50 px-3 py-1 text-sm text-zinc-700"
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-sm text-[var(--text-secondary)]"
                   {% if p.note %}title="{{ p.note }}"{% endif %}>
-                <span class="w-5 h-5 rounded-full bg-zinc-200 text-zinc-700 text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
+                <span class="w-5 h-5 rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
                 {{ p.name }}
             </span>
             {% endfor %}
@@ -184,27 +250,27 @@
 
     <!-- 子任务 -->
     <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-zinc-900 mb-3">子任务（{{ children|length }}）</h2>
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">子任务（{{ children|length }}）</h2>
         <!-- 快速记一笔：一句话解析后预览确认创建子任务 -->
         <div class="mb-4">
             <div class="flex gap-2">
                 <input type="text" id="sub-quick-input" maxlength="500"
                        placeholder="快速记一笔子任务，如：下周三去杭州团建 预算5千 #团建 @小王"
                        autocomplete="off"
-                       class="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 transition-colors">
+                       class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
                 <button type="button" id="sub-quick-parse-btn"
                         class="btn-accent shrink-0 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
                     解析
                 </button>
             </div>
-            <p id="sub-quick-error" class="hidden mt-2 text-sm text-red-600"></p>
-            <div id="sub-quick-preview" class="hidden mt-3 rounded-2xl bg-zinc-50 p-4">
-                <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-700"></div>
+            <p id="sub-quick-error" class="hidden mt-2 text-sm text-zinc-800 font-semibold"></p>
+            <div id="sub-quick-preview" class="hidden mt-3 rounded-2xl bg-[var(--accent-light)] p-4">
+                <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]"></div>
                 <div class="flex flex-wrap items-center gap-2 mt-3">
                     <button type="button" id="sub-quick-confirm-btn"
                             class="btn-accent rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">确认创建子任务</button>
-                    <button type="button" id="sub-quick-close-btn" class="text-sm text-zinc-400 hover:text-zinc-600 px-1" title="收起">&#10005;</button>
-                    <span id="sub-quick-source" class="ml-auto text-xs text-zinc-400"></span>
+                    <button type="button" id="sub-quick-close-btn" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1" title="收起">&#10005;</button>
+                    <span id="sub-quick-source" class="ml-auto text-xs text-[var(--text-muted)]"></span>
                 </div>
             </div>
         </div>
@@ -212,41 +278,41 @@
         <!-- 时间轴展示：按可用日期从早到晚，无日期排最后 -->
         <div class="relative mt-1">
             <!-- 时间轴竖线 -->
-            <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-zinc-200"></div>
+            <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-[var(--border-strong)]"></div>
             <ol>
                 {% for child in children %}
                 <li class="relative pl-6 {% if not forloop.last %}pb-5{% endif %}">
                     <!-- 节点圆点（随状态着色） -->
                     <span class="absolute left-0 top-[5px] w-2 h-2 rounded-full
-                        {% if child.status == 'in_progress' %}bg-zinc-900
-                        {% elif child.status == 'done' %}bg-green-500
-                        {% elif child.status == 'cancelled' %}bg-red-400
-                        {% else %}bg-zinc-300{% endif %}"></span>
+                        {% if child.status == 'in_progress' %}bg-[var(--accent)]
+                        {% elif child.status == 'done' %}bg-zinc-300
+                        {% elif child.status == 'cancelled' %}bg-zinc-400
+                        {% else %}bg-zinc-200{% endif %}"></span>
                     <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
                     <div class="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-4">
-                        <span class="text-xs {% if child.timeline_year %}text-zinc-400{% else %}text-zinc-300{% endif %} sm:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
+                        <span class="text-xs {% if child.timeline_year %}text-[var(--text-muted)]{% else %}text-[var(--text-muted)]{% endif %} sm:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-zinc-900 hover:text-zinc-600 break-words">{{ child.name }}</a>
+                                <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-[var(--text)] hover:text-[var(--text-secondary)] break-words">{{ child.name }}</a>
                                 {% include "activities/_status_badge.html" with status=child.status label=child.get_status_display %}
-                                {% if child.expenses_total %}<span class="text-xs text-zinc-400">&#165;{{ child.expenses_total }}</span>{% endif %}
-                                <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-zinc-400 hover:text-zinc-900">编辑</a>
+                                {% if child.expenses_total %}<span class="text-xs text-[var(--text-muted)]">&#165;{{ child.expenses_total }}</span>{% endif %}
+                                <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</a>
                             </div>
                             {% if child.tags.all %}
                             <div class="mt-1 flex flex-wrap gap-1">
                                 {% for tag in child.tags.all %}
-                                <span class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600"># {{ tag.name }}</span>
+                                <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
                                 {% endfor %}
                             </div>
                             {% endif %}
                             {% if child.participants.all %}
-                            <p class="mt-1 text-xs text-zinc-500">
-                                <span class="text-zinc-400">@</span>
+                            <p class="mt-1 text-xs text-[var(--text-secondary)]">
+                                <span class="text-[var(--text-muted)]">@</span>
                                 {% for p in child.participants.all %}{% if not forloop.first %}、{% endif %}{{ p.name }}{% endfor %}
                             </p>
                             {% endif %}
                             {% if child.start_date and child.end_date and child.start_date != child.end_date %}
-                            <p class="mt-0.5 text-xs text-zinc-400">{{ child.start_date|date:"m-d" }} ~ {{ child.end_date|date:"m-d" }}</p>
+                            <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ child.start_date|date:"m-d" }} ~ {{ child.end_date|date:"m-d" }}</p>
                             {% endif %}
                         </div>
                     </div>
@@ -255,21 +321,21 @@
             </ol>
         </div>
         {% else %}
-        <p class="text-sm text-zinc-400">暂无子任务，可在上方输入名称快速添加</p>
+        <p class="text-sm text-[var(--text-muted)]">暂无子任务，可在上方输入名称快速添加</p>
         {% endif %}
     </div>
 
     <!-- 操作历史（辅助信息，低调展示；默认折叠，点击展开） -->
     {% if logs %}
     <details class="app-card">
-        <summary class="px-6 py-3 text-xs font-medium text-zinc-500 cursor-pointer select-none hover:bg-zinc-50 list-none flex items-center justify-between">
+        <summary class="px-6 py-3 text-xs font-medium text-[var(--text-secondary)] cursor-pointer select-none hover:bg-[var(--accent-light)] list-none flex items-center justify-between">
             <span>操作历史（{{ logs|length }}）</span>
-            <span class="text-zinc-300">&#9654;</span>
+            <span class="text-[var(--text-muted)]">&#9654;</span>
         </summary>
-        <div class="px-6 pb-4 space-y-1.5 border-t border-zinc-100 pt-3">
+        <div class="px-6 pb-4 space-y-1.5 border-t border-[var(--border)] pt-3">
             {% for log in logs %}
-            <p class="text-xs text-zinc-400">
-                {{ log.created_at|date:"Y-m-d H:i" }} · {{ log.user.username }} · {{ log.get_action_display }}{% if log.summary %} · <span class="text-zinc-400/80">{{ log.summary }}</span>{% endif %}
+            <p class="text-xs text-[var(--text-muted)]">
+                {{ log.created_at|date:"Y-m-d H:i" }} · {{ log.user.username }} · {{ log.get_action_display }}{% if log.summary %} · <span class="text-[var(--text-muted)]">{{ log.summary }}</span>{% endif %}
             </p>
             {% endfor %}
         </div>
@@ -277,7 +343,7 @@
     {% endif %}
 
     <!-- 元信息 -->
-    <p class="text-xs text-zinc-400 text-center">创建于 {{ activity.created_at|date:"Y-m-d H:i" }} · 最近更新 {{ activity.updated_at|date:"Y-m-d H:i" }}</p>
+    <p class="text-xs text-[var(--text-muted)] text-center">创建于 {{ activity.created_at|date:"Y-m-d H:i" }} · 最近更新 {{ activity.updated_at|date:"Y-m-d H:i" }}</p>
 </div>
 
 <script>
@@ -344,22 +410,22 @@ function cancelEdit() {
     }
 
     function renderPreview(d) {
-        var parts = ['<span class="font-medium text-zinc-900">' + esc(d.name) + '</span>'];
+        var parts = ['<span class="font-medium text-[var(--text)]">' + esc(d.name) + '</span>'];
         if (d.start_date) {
-            parts.push('<span class="text-zinc-500">' + d.start_date +
+            parts.push('<span class="text-[var(--text-secondary)]">' + d.start_date +
                 (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
         }
         if (d.cost !== undefined && d.cost !== null) {
-            parts.push('<span class="text-zinc-500">费用 ¥ ' + esc(String(d.cost)) + '</span>');
+            parts.push('<span class="text-[var(--text-secondary)]">费用 ¥ ' + esc(String(d.cost)) + '</span>');
         }
         if (d.status && STATUS_LABELS[d.status]) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">' + STATUS_LABELS[d.status] + '</span>');
+            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">' + STATUS_LABELS[d.status] + '</span>');
         }
         (d.tags || []).forEach(function (t) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600"># ' + esc(t) + '</span>');
+            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># ' + esc(t) + '</span>');
         });
         (d.participants || []).forEach(function (p) {
-            parts.push('<span class="text-xs text-zinc-500">@ ' + esc(p) + '</span>');
+            parts.push('<span class="text-xs text-[var(--text-secondary)]">@ ' + esc(p) + '</span>');
         });
         previewBody.innerHTML = parts.join('');
         sourceEl.textContent = d.source === 'ai' ? 'AI 识别' : '规则识别';
@@ -412,7 +478,7 @@ function cancelEdit() {
                 showError(res.data.error || '创建失败');
                 return;
             }
-            previewBody.innerHTML = '<span class="text-green-600">已创建子任务「' + esc(res.data.name) + '」，即将刷新…</span>';
+            previewBody.innerHTML = '<span class="text-zinc-900 font-medium">已创建子任务「' + esc(res.data.name) + '」，即将刷新…</span>';
             confirmBtn.textContent = '已创建';
             setTimeout(function () { window.location.reload(); }, 700);
         }).catch(function () {
