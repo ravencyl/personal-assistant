@@ -891,15 +891,22 @@ def daily_view(request):
     qs = visible_qs(Activity, request.user).prefetch_related('tags', 'participants')
 
     # ── 今日活动：start_date <= today 且 (end_date >= today 或无 end_date) ──
-    ongoing = qs.filter(
+    ongoing = list(qs.filter(
         start_date__lte=today,
     ).filter(
         models.Q(end_date__gte=today) | models.Q(end_date__isnull=True, start_date=today)
-    ).exclude(status='cancelled').exclude(status='done')
+    ).exclude(status='cancelled').exclude(status='done'))
+    ongoing_ids = [a.id for a in ongoing]
 
-    # ── 今日开始/结束 ──
-    starting_today = qs.filter(start_date=today).exclude(status='cancelled')
-    ending_today = qs.filter(end_date=today).exclude(status='cancelled')
+    # ── 今日开始/结束（排除已在 ongoing 中的，避免重复） ──
+    starting_today = list(qs.filter(start_date=today).exclude(
+        status='cancelled'
+    ).exclude(id__in=ongoing_ids))
+    ending_today = list(qs.filter(end_date=today).exclude(
+        status='cancelled'
+    ).exclude(id__in=ongoing_ids).exclude(
+        id__in=[a.id for a in starting_today]
+    ))
 
     # ── 即将开始（未来 7 天） ──
     upcoming = qs.filter(
