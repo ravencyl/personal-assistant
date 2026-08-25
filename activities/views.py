@@ -40,6 +40,46 @@ def log_activity(user, activity, action, summary=''):
         logger.warning(f'活动日志写入失败: {e}')
 
 
+def auto_start_activities(user=None):
+    """将 start_date 已到但状态仍为 planned 的活动自动改为 in_progress。
+
+    仅在状态为 planned 时变更，不覆盖用户手动设置的其他状态。
+    每次变更都会写入 ActivityLog（操作人为 system）。
+    返回变更数量。
+    """
+    today = timezone.localdate()
+    qs = Activity.objects.filter(
+        status='planned',
+        start_date__lte=today,
+        start_date__isnull=False,
+    )
+    if user is not None:
+        qs = qs.filter(user=user)
+
+    count = 0
+    for activity in qs:
+        activity.status = 'in_progress'
+        activity.save(update_fields=['status', 'updated_at'])
+        try:
+            from django.contrib.auth import get_user_model
+            system_user = get_user_model().objects.filter(username='system').first()
+            if system_user:
+                ActivityLog.objects.create(
+                    user=system_user,
+                    activity=activity,
+                    activity_name=activity.name,
+                    action='status_changed',
+                    summary=f'系统自动调整：计划→进行中（开始日期 {activity.start_date} 已到）',
+                )
+        except Exception as e:
+            logger.warning(f'自动状态变更日志写入失败 [{activity.name}]: {e}')
+        count += 1
+
+    if count:
+        logger.info(f'自动状态变更: {count} 个活动 planned → in_progress')
+    return count
+
+
 def _snapshot(activity):
     """编辑前字段快照，用于生成变更摘要"""
     return {
@@ -300,6 +340,9 @@ def filter_activities(user, params):
 @ensure_csrf_cookie
 def activity_list(request):
     """活动列表（默认树形结构可折叠，筛选/排序时为平铺列表）"""
+    # 自动将 start_date 已到的 planned 活动改为 in_progress
+    auto_start_activities(request.user)
+
     status_filter = request.GET.get('status', '')
     tag_filter = request.GET.get('tag', '').strip()
     date_from = request.GET.get('date_from', '').strip()
@@ -513,6 +556,8 @@ def activity_list(request):
 @login_required
 def activity_detail(request, activity_id):
     """活动详情（含子任务时间轴、费用明细与操作日志）"""
+    # 自动将 start_date 已到的 planned 活动改为 in_progress
+    auto_start_activities(request.user)
     activity = get_visible(Activity, request.user, id=activity_id)
 
     # 子任务按时间轴排序：可用日期（开始优先，其次结束）从早到晚，无日期排最后
