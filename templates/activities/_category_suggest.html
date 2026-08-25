@@ -2,17 +2,14 @@
 HTMX 分类推荐片段：基于用户历史费用数据推荐类别排序
 通过 expense_category_suggest 视图返回 JSON，前端 JS 渲染
 {% endcomment %}
-<div id="category-suggest" class="flex flex-wrap gap-1.5"
-     hx-get="{% url 'activities:expense_category_suggest' activity.id %}"
-     hx-trigger="load"
-     hx-swap="outerHTML">
+<div id="category-suggest" class="flex flex-wrap gap-1.5">
     <span class="text-xs text-[var(--text-muted)]">加载中…</span>
 </div>
 <script>
 (function() {
     var el = document.getElementById('category-suggest');
     if (!el) return;
-    fetch(el.getAttribute('hx-get'))
+    fetch('{% url "activities:expense_category_suggest" activity.id %}')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             var labels = {
