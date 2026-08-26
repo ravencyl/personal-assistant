@@ -4,7 +4,7 @@ __pycache__/
 *.pyc
 db.sqlite3
 media/
-static/
+staticfiles/
 *.egg-info/
 dist/
 build/
