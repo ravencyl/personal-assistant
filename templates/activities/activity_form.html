@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}{{ title }} - 活动记录{% endblock %}
 
 {% block extra_head %}
-<script src="https://unpkg.com/pinyin-pro@3.26.0/dist/index.js"></script>
+<script src="{% static 'js/pinyin-pro.js' %}"></script>
 {% endblock %}
 
 {% block content %}

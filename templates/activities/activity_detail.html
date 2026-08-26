@@ -12,7 +12,7 @@
     <div class="app-card overflow-hidden">
         <div class="h-1.5 {% if activity.status == 'done' %}bg-zinc-900{% elif activity.status == 'in_progress' %}bg-[var(--accent)]{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-200{% endif %}"></div>
         <div class="p-4 sm:p-6">
-            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+            <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-3 flex-wrap">
                         <h1 class="text-2xl font-bold text-[var(--text)]">{{ activity.name }}</h1>
@@ -34,13 +34,13 @@
                     {% endif %}
                 </div>
                 <!-- 操作区：移动端撑满一行，桌面端居右 -->
-                <div class="flex gap-2 w-full sm:w-auto shrink-0">
+                <div class="flex gap-2 w-full md:w-auto shrink-0">
                     <a href="{% url 'activities:activity_edit' activity.id %}"
-                       class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--accent)] hover:opacity-90 px-4 py-2 text-sm font-medium text-[var(--bg)] transition-colors">
+                       class="flex-1 md:flex-none inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--accent)] hover:opacity-90 px-4 py-2 text-sm font-medium text-[var(--bg)] transition-colors">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/></svg>
                         编辑</a>
                     <form method="post" action="{% url 'activities:activity_delete' activity.id %}"
-                          class="flex-1 sm:flex-none"
+                          class="flex-1 md:flex-none"
                           onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空。')">
                         {% csrf_token %}
                         <button type="submit" class="w-full rounded-full bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors">删除</button>
@@ -74,7 +74,7 @@
     </div>
 
     <!-- 统计卡片 -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">累计费用</p>
             <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">&#165;{{ activity.total_cost }}</p>
@@ -132,14 +132,14 @@
         {% if expenses %}
         <div class="space-y-2">
             {% for e in expenses %}
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2" id="expense-{{ e.id }}">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-1 sm:gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2" id="expense-{{ e.id }}">
                 <div class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span class="text-sm font-medium text-[var(--text)]">&#165;{{ e.amount|floatformat:"-2" }}</span>
                     <span class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{{ e.get_category_display }}</span>
                     {% if e.paid_at %}<span class="text-xs text-[var(--text-muted)]">{{ e.paid_at }}</span>{% endif %}
                     {% if e.note %}<span class="text-xs text-[var(--text-secondary)] truncate">{{ e.note }}</span>{% endif %}
                 </div>
-                <div class="shrink-0 flex items-center gap-3 self-end sm:self-auto">
+                <div class="shrink-0 flex items-center gap-3 self-end md:self-auto">
                     <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.category }}', '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}')" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
                     <form method="post" action="{% url 'activities:expense_delete' e.id %}" class="inline"
                           onsubmit="return confirm('确认删除这笔费用？')">
@@ -159,7 +159,7 @@
             {% include "activities/_category_suggest.html" %}
         </div>
         <!-- 添加费用表单 -->
-        <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end" id="expense-form">
+        <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end" id="expense-form">
             {% csrf_token %}
             <input type="hidden" name="_method" value="POST" id="expense-method">
             <!-- 移动端：每行一个字段（全宽）；桌面端（sm+）：金额+类别同行，日期+备注同行 -->
@@ -177,7 +177,7 @@
                 </div>
             </div>
             <!-- 日期：移动端全宽独占一行，桌面端固定宽度 -->
-            <div class="w-full sm:w-40 sm:shrink-0">
+            <div class="w-full md:w-40 md:shrink-0">
                 <input type="text" name="paid_at" value="{{ today_date }}" placeholder="日期（如 2026-08-25）"
                        class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
@@ -210,7 +210,7 @@
             {% if att.is_image %}
             <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(25%-0.5625rem)] mb-3 align-top">
                 <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
-                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
                     <a href="{{ att.file.url }}" target="_blank" class="text-white text-xs hover:underline">查看原图</a>
                     <form method="post" action="{% url 'activities:attachment_delete' att.id %}" class="inline"
                           onsubmit="return confirm('确定删除？')">
@@ -355,8 +355,8 @@
                         {% elif child.status == 'cancelled' %}bg-zinc-400
                         {% else %}bg-zinc-200{% endif %}"></span>
                     <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
-                    <div class="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-4">
-                        <span class="text-xs {% if child.timeline_year %}text-[var(--text-muted)]{% else %}text-[var(--text-muted)]{% endif %} sm:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
+                    <div class="flex flex-col md:flex-row md:items-baseline gap-0.5 sm:gap-4">
+                        <span class="text-xs {% if child.timeline_year %}text-[var(--text-muted)]{% else %}text-[var(--text-muted)]{% endif %} md:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-[var(--text)] hover:text-[var(--text-secondary)] break-words">{{ child.name }}</a>
