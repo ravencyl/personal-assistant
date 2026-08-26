@@ -5,15 +5,15 @@
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6 fade-in">
     <!-- 头部：搜索 + 新建 -->
-    <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+    <div class="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
         <h1 class="text-2xl font-bold text-[var(--text)]">知识库</h1>
-        <div class="flex gap-2 w-full sm:w-auto">
-            <form method="get" class="flex-1 sm:flex-initial flex gap-2">
+        <div class="flex gap-2 w-full md:w-auto">
+            <form method="get" class="flex-1 md:flex-initial flex gap-2">
                 {% if current_tag %}
                 <input type="hidden" name="tag" value="{{ current_tag.slug }}">
                 {% endif %}
                 <input type="search" name="q" value="{{ query }}" placeholder="搜索文章..."
-                       class="flex-1 sm:w-56 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="flex-1 md:w-56 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
             </form>
             <a href="{% url 'knowledge:article_create' %}"
                class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">

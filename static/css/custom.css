@@ -28,6 +28,15 @@
    - 计划中 = 浅灰底中灰字（bg-zinc-100 text-zinc-500）
    - 已完成 = 更浅灰底浅灰字（bg-zinc-50 text-zinc-400）
    - 已取消 = 灰字删除线（text-zinc-400 line-through）
+
+   【分端约定】
+   - 唯一分端断点：md:（768px），与导航层现状一致；640-768px 平板竖屏跟随桌面布局（预期行为）
+   - 结构性显隐一律用成对块：桌面元素 `hidden md:flex` / `hidden md:block`，移动元素 `md:hidden`；
+     禁止新增 sm: 结构性断点；sm:p-×、sm:text-×、sm:gap-× 等纯尺寸渐进类不属于结构，保留不动
+   - 数据接口（返回 JSON 的端点）必须由原生 fetch() 消费，严禁在元素上挂 hx-* 属性
+     （HTMX 仅用于返回 HTML 片段的端点；混用会导致 JSON 被当作文本插入 DOM）
+   - 禁止手动调用 htmx.process()：htmx 内置 MutationObserver 会自动初始化新增节点，
+     手动重复处理会造成双重绑定与旧节点引用残留（参见历史踩坑记录）
    ============================================================ */
 
 :root {
@@ -185,4 +194,52 @@ a {
 .search-result-item:hover,
 .search-result-item.bg-zinc-50 {
     background-color: var(--accent-light, #f4f4f5);
+}
+
+/* ===== 分端工具类（唯一断点 768px，见头部【分端约定】） ===== */
+
+/* 移动端触控目标：≤767px 下保证最小 44×44px 点击区 */
+@media (max-width: 767px) {
+    .tap-target {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+/* 键盘选中态：仅用描边，不引入新颜色、不用阴影 */
+.daily-card-focus {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+}
+
+/* 悬停操作区：桌面有 hover 时随 .group 悬停显示；触屏/移动端常驻可见 */
+.hover-actions {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+@media (hover: hover) and (min-width: 768px) {
+    .group:hover .hover-actions {
+        opacity: 1;
+    }
+}
+
+@media (hover: none), (max-width: 767px) {
+    .hover-actions {
+        opacity: 1;
+    }
+}
+
+/* 聊天浮窗高度：移动端放宽 max-height 以适配软键盘场景，桌面端维持原值 */
+#chat-panel {
+    height: 480px;
+    max-height: calc(100dvh - 8rem);
+}
+@media (min-width: 768px) {
+    #chat-panel {
+        max-height: calc(100dvh - 11rem);
+    }
 }

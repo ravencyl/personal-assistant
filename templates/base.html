@@ -5,8 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}Personal AI Assistant{% endblock %}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <script src="{% static 'js/tailwind.js' %}"></script>
+    <script src="{% static 'js/htmx.min.js' %}"></script>
     <link rel="stylesheet" href="{% static 'css/custom.css' %}">
     <style>
         body {
@@ -150,7 +151,7 @@
     <!-- AI 聊天浮窗（右下角；移动端抬高避开底部 Tab 栏） -->
     <div class="fixed bottom-24 right-4 z-50 md:bottom-4">
         <!-- 展开面板 -->
-        <div id="chat-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]" style="height: 480px; max-height: calc(100dvh - 11rem);">
+        <div id="chat-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
             <!-- 视图一：对话选择 -->
             <div id="chat-view-list" class="flex flex-col h-full">
                 <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -259,7 +260,7 @@
             messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text-muted)] py-4">加载中...</p>';
             fetch('/chat/' + id + '/widget-messages/', { headers: { 'HX-Request': 'true' } })
                 .then(function (r) { if (!r.ok) throw new Error('加载失败'); return r.text(); })
-                .then(function (html) { messagesEl.innerHTML = html; if (window.htmx) htmx.process(messagesEl); scrollBottom(); input.focus(); })
+                .then(function (html) { messagesEl.innerHTML = html; scrollBottom(); input.focus(); })
                 .catch(function () { messagesEl.innerHTML = '<p class="text-center text-sm text-zinc-800 font-semibold py-4">消息加载失败，请重试</p>'; });
         }
 
@@ -341,7 +342,6 @@
                         document.dispatchEvent(new CustomEvent('activities:changed'));
                     }
                     scrollBottom();
-                    if (window.htmx) htmx.process(messagesEl); // 激活新插入卡片中的 hx-* 确认按钮
                 })
                 .catch(function (err) { alert(err.message); })
                 .finally(function () {
@@ -394,7 +394,8 @@
     </script>
 
     {% if user.is_authenticated %}
-    <!-- 全局搜索面板（Cmd+K / Ctrl+K） -->
+    <!-- 全局搜索面板（Cmd+K / Ctrl+K）——外层 hidden md:block 限定仅桌面端渲染，内层 hidden 仍由 JS classList 控制 -->
+    <div class="hidden md:block">
     <div id="search-overlay" class="fixed inset-0 z-[60] hidden" style="background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);">
         <div class="mx-auto mt-[15vh] max-w-lg px-4">
             <div class="panel overflow-hidden bg-[var(--bg-card)]" style="border-radius: 1rem;">
@@ -410,7 +411,7 @@
                            hx-trigger="keyup changed delay:300ms"
                            hx-target="#search-results"
                            hx-include="this">
-                    <kbd class="hidden sm:inline text-[10px] text-[var(--text-muted)] bg-zinc-100 rounded px-1.5 py-0.5">ESC</kbd>
+                    <kbd class="hidden md:inline text-[10px] text-[var(--text-muted)] bg-zinc-100 rounded px-1.5 py-0.5">ESC</kbd>
                 </div>
                 <!-- 搜索结果 -->
                 <div id="search-results" class="max-h-[50vh] overflow-y-auto p-2">
@@ -430,8 +431,9 @@
             </div>
         </div>
     </div>
+    </div>
     <script>
-    // Cmd+K / Ctrl+K 全局搜索快捷键
+    // Cmd+K / Ctrl+K 全局搜索快捷键（仅桌面端：浮窗外层被 hidden md:block 限定，JS 逻辑不受影响）
     (function() {
         var overlay = document.getElementById('search-overlay');
         var input = document.getElementById('search-input');

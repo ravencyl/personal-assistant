@@ -83,7 +83,7 @@
 
     <!-- ==================== 日视图 ==================== -->
     {% else %}
-    <div class="flex gap-4">
+    <div class="flex flex-col md:flex-row gap-4">
         <!-- 时间轴 -->
         <div class="app-card overflow-hidden flex-1">
             {% for hour in hours %}
@@ -93,8 +93,8 @@
             </div>
             {% endfor %}
         </div>
-        <!-- 当日活动卡片 -->
-        <div class="w-48 shrink-0 space-y-2" id="day-activities">
+        <!-- 当日活动卡片：小屏全宽堆叠在时间轴下方，桌面端右侧固定宽 -->
+        <div class="w-full md:w-48 md:shrink-0 space-y-2" id="day-activities">
             <p class="text-xs text-[var(--text-muted)] mb-2">当日活动</p>
         </div>
     </div>
