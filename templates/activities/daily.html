@@ -9,6 +9,9 @@
     <h1 class="text-2xl sm:text-3xl font-bold text-[var(--text)] tracking-tight">{{ today_display }}</h1>
 </div>
 
+<!-- 桌面快捷键提示 -->
+<div class="hidden md:flex items-center gap-3 text-xs text-[var(--text-muted)] mb-4">J/K 选择 · D 完成 · I 进行中 · P 计划 · X 取消 · E 记费用</div>
+
 <!-- 统计卡片 -->
 <div class="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
     <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
@@ -43,7 +46,7 @@
 </a>
 
 <!-- 快捷操作 -->
-<div class="flex items-center gap-3 mb-8">
+<div class="flex items-center flex-wrap gap-3 mb-8">
     <a href="{% url 'activities:activity_create' %}"
        class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] text-[var(--bg)] px-4 py-2 text-sm font-medium hover:opacity-90 transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -87,7 +90,7 @@
                   hx-post="{% url 'activities:recurring_checkin' a.id %}"
                   hx-swap="outerHTML">
                 {% csrf_token %}
-                <button type="submit" class="text-xs px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] hover:opacity-90 transition-opacity">
+                <button type="submit" class="tap-target text-xs px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] hover:opacity-90 transition-opacity">
                     打卡
                 </button>
             </form>
@@ -115,11 +118,11 @@
             <div class="flex gap-2 shrink-0 ml-3">
                 <form method="post" action="{% url 'reminder_dismiss' r.id %}">
                     {% csrf_token %}
-                    <button type="submit" class="text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-muted)] hover:bg-[var(--accent-light)]">忽略</button>
+                    <button type="submit" class="tap-target text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-muted)] hover:bg-[var(--accent-light)]">忽略</button>
                 </form>
                 <form method="post" action="{% url 'reminder_done' r.id %}">
                     {% csrf_token %}
-                    <button type="submit" class="text-xs px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] hover:opacity-90">已完成</button>
+                    <button type="submit" class="tap-target text-xs px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] hover:opacity-90">已完成</button>
                 </form>
             </div>
         </div>
@@ -290,6 +293,183 @@ function toggleSection(sectionId) {
             arrow.style.transform = 'rotate(0deg)';
         }
     });
+})();
+</script>
+
+<script>
+// Daily 卡片快捷操作：状态切换、内联记费用、桌面快捷键（事件委托挂 document，兼容替换后的新节点）
+(function () {
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var csrf = csrfMeta ? csrfMeta.content : '';
+
+    function setCardStatus(card, target) {
+        if (!card || !card.dataset.statusUrl || card.dataset.busy === '1') return;
+        card.dataset.busy = '1';
+        var hadFocus = card.classList.contains('daily-card-focus');
+        fetch(card.dataset.statusUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'HX-Request': 'true' },
+            body: new URLSearchParams({ status: target })
+        }).then(function (res) {
+            if (!res.ok) throw new Error('status');
+            return res.text();
+        }).then(function (html) {
+            var holder = document.createElement('div');
+            holder.innerHTML = html.trim();
+            var newCard = holder.querySelector('.daily-card');
+            if (newCard) {
+                if (hadFocus) newCard.classList.add('daily-card-focus');
+                card.replaceWith(newCard);
+            } else {
+                card.outerHTML = html;
+            }
+        }).catch(function () {
+            var err = card.querySelector('[data-expense-error]');
+            if (err) {
+                err.textContent = '状态更新失败，请重试';
+                err.classList.remove('hidden');
+            }
+        }).finally(function () {
+            card.dataset.busy = '';
+        });
+    }
+
+    function toggleExpenseForm(card, focusAmount) {
+        var form = card.querySelector('[data-expense-form]');
+        if (!form) return;
+        var nowHidden = form.classList.toggle('hidden');
+        if (!nowHidden && focusAmount !== false) {
+            var amount = form.querySelector('input[name="amount"]');
+            if (amount) amount.focus();
+        }
+    }
+
+    // 点击：状态切换 / 展开费用表单
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        var card = btn.closest('.daily-card');
+        if (!card) return;
+        var action = btn.dataset.action;
+        if (action === 'set-status') {
+            e.preventDefault();
+            setCardStatus(card, btn.dataset.statusTarget);
+        } else if (action === 'toggle-expense') {
+            e.preventDefault();
+            toggleExpenseForm(card);
+        }
+    });
+
+    // 提交：内联记费用（JSON 端点，fetch 消费）
+    document.addEventListener('submit', function (e) {
+        var form = e.target.closest('[data-expense-form]');
+        if (!form) return;
+        e.preventDefault();
+        var card = form.closest('.daily-card');
+        if (!card) return;
+        var errEl = form.querySelector('[data-expense-error]');
+        var amountInput = form.querySelector('input[name="amount"]');
+        var noteInput = form.querySelector('input[name="note"]');
+        var amount = amountInput ? amountInput.value.trim() : '';
+        if (!amount) {
+            if (amountInput) amountInput.focus();
+            return;
+        }
+        fetch(card.dataset.expenseUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' },
+            body: new URLSearchParams({
+                amount: amount,
+                note: noteInput ? noteInput.value : ''
+            })
+        }).then(function (res) {
+            return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        }).then(function (r) {
+            if (!r.ok) throw new Error((r.data && r.data.error) || '保存失败');
+            var totalEl = card.querySelector('[data-role="expense-total"]');
+            var countEl = card.querySelector('[data-role="expense-count"]');
+            if (totalEl) {
+                totalEl.textContent = '¥' + Math.round(r.data.expense_total || 0);
+                totalEl.classList.remove('hidden');
+            }
+            if (countEl) {
+                countEl.textContent = (r.data.expense_count || 0) + ' 笔';
+                countEl.classList.remove('hidden');
+            }
+            form.classList.add('hidden');
+            if (amountInput) amountInput.value = '';
+            if (noteInput) noteInput.value = '';
+            if (errEl) {
+                errEl.textContent = '';
+                errEl.classList.add('hidden');
+            }
+        }).catch(function (err) {
+            if (errEl) {
+                errEl.textContent = err.message || '保存失败';
+                errEl.classList.remove('hidden');
+            }
+        });
+    });
+
+    // 桌面快捷键：仅精确指针 + 桌面宽度下启用
+    if (window.matchMedia && window.matchMedia('(hover:hover) and (pointer:fine) and (min-width:768px)').matches) {
+        var focusedId = null;
+
+        function visibleCards() {
+            return Array.prototype.filter.call(document.querySelectorAll('.daily-card[data-activity-id]'), function (c) {
+                return c.offsetParent !== null;
+            });
+        }
+
+        function setFocus(card) {
+            Array.prototype.forEach.call(document.querySelectorAll('.daily-card-focus'), function (c) {
+                c.classList.remove('daily-card-focus');
+            });
+            if (!card) {
+                focusedId = null;
+                return;
+            }
+            card.classList.add('daily-card-focus');
+            focusedId = card.dataset.activityId;
+            card.scrollIntoView({ block: 'nearest' });
+        }
+
+        document.addEventListener('keydown', function (e) {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            var t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+            var overlay = document.getElementById('search-overlay');
+            if (overlay && !overlay.classList.contains('hidden')) return;
+            var panel = document.getElementById('chat-panel');
+            if (panel && !panel.classList.contains('hidden')) return;
+
+            var cards = visibleCards();
+            if (!cards.length) return;
+            var key = (e.key || '').toLowerCase();
+
+            if (key === 'j' || key === 'k' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                var dir = (key === 'j' || e.key === 'ArrowDown') ? 1 : -1;
+                var idx = -1;
+                for (var i = 0; i < cards.length; i++) {
+                    if (cards[i].dataset.activityId === focusedId) { idx = i; break; }
+                }
+                var next = idx < 0 ? (dir === 1 ? 0 : cards.length - 1)
+                                   : Math.min(cards.length - 1, Math.max(0, idx + dir));
+                setFocus(cards[next]);
+                return;
+            }
+
+            var card = focusedId ? document.querySelector('.daily-card[data-activity-id="' + focusedId + '"]') : null;
+            if (!card) return;
+            if (e.key === 'Escape') { setFocus(null); return; }
+            if (key === 'd') { e.preventDefault(); setCardStatus(card, 'done'); }
+            else if (key === 'i') { e.preventDefault(); setCardStatus(card, 'in_progress'); }
+            else if (key === 'p') { e.preventDefault(); setCardStatus(card, 'planned'); }
+            else if (key === 'x') { e.preventDefault(); setCardStatus(card, 'cancelled'); }
+            else if (key === 'e') { e.preventDefault(); toggleExpenseForm(card); }
+        });
+    }
 })();
 </script>
 {% endblock %}

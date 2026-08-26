@@ -461,15 +461,23 @@ def activity_set_status(request, activity_id):
     activity = get_visible(Activity, request.user, id=activity_id)
     status = request.POST.get('status', '')
     valid = dict(Activity.STATUS_CHOICES)
+    is_fragment = bool(request.headers.get('HX-Request'))
     if status not in valid:
+        if is_fragment:
+            return HttpResponse('错误：无效的状态值', status=400)
         messages.error(request, '无效的状态值')
-    elif status != activity.status:
-        old_label = valid.get(activity.status, activity.status)
-        activity.status = status
-        activity.save(update_fields=['status', 'updated_at'])
-        log_activity(request.user, activity, 'status_changed',
-                     f'状态「{old_label}」→「{valid[status]}」')
-        messages.success(request, f'状态已更新为「{valid[status]}」')
+    else:
+        if status != activity.status:
+            old_label = valid.get(activity.status, activity.status)
+            activity.status = status
+            activity.save(update_fields=['status', 'updated_at'])
+            log_activity(request.user, activity, 'status_changed',
+                         f'状态「{old_label}」→「{valid[status]}」')
+            if not is_fragment:
+                messages.success(request, f'状态已更新为「{valid[status]}」')
+        if is_fragment:
+            attach_costs([activity])
+            return render(request, 'activities/_daily_card.html', {'activity': activity})
     referer = request.META.get('HTTP_REFERER')
     if referer:
         return redirect(referer)
@@ -640,12 +648,15 @@ def expense_create(request, activity_id):
                  f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
 
     if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
+        agg = activity.expenses.aggregate(total=Sum('amount'), cnt=Count('id'))
         return JsonResponse({
             'id': expense.id,
             'amount': float(expense.amount),
             'category': expense.get_category_display(),
             'note': expense.note,
             'paid_at': expense.paid_at,
+            'expense_total': float(agg['total'] or 0),
+            'expense_count': agg['cnt'] or 0,
         })
     return redirect('activities:activity_detail', activity.id)
 
@@ -880,6 +891,36 @@ def calendar_data(request):
     return JsonResponse({'activities': data})
 
 
+def attach_costs(activities):
+    """为活动列表附加费用合计/笔数/预算标注（避免 N+1）。"""
+    ids = [a.id for a in activities]
+    if ids:
+        totals = dict(
+            Expense.objects.filter(activity_id__in=ids)
+            .values_list('activity_id').annotate(total=Sum('amount'))
+            .values_list('activity_id', 'total')
+        )
+        counts = dict(
+            Expense.objects.filter(activity_id__in=ids)
+            .values_list('activity_id').annotate(cnt=Count('id'))
+            .values_list('activity_id', 'cnt')
+        )
+    else:
+        totals = {}
+        counts = {}
+    for a in activities:
+        a.expense_total = float(totals.get(a.id, 0) or 0)
+        a.expense_count = counts.get(a.id, 0)
+        if a.budget:
+            ratio = a.expense_total / float(a.budget) if float(a.budget) > 0 else 0
+            a.budget_over = ratio >= 1.0
+            a.budget_warning = ratio >= 0.8 and not a.budget_over
+        else:
+            a.budget_over = False
+            a.budget_warning = False
+    return activities
+
+
 @login_required
 def daily_view(request):
     """每日简报：展示当天活动概况、进行中/即将开始/近期完成的活动"""
@@ -949,35 +990,6 @@ def daily_view(request):
     weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
-    # 为每个活动附加费用合计和数量（避免 N+1）
-    def attach_costs(activities):
-        ids = [a.id for a in activities]
-        if ids:
-            totals = dict(
-                Expense.objects.filter(activity_id__in=ids)
-                .values_list('activity_id').annotate(total=Sum('amount'))
-                .values_list('activity_id', 'total')
-            )
-            counts = dict(
-                Expense.objects.filter(activity_id__in=ids)
-                .values_list('activity_id').annotate(cnt=Count('id'))
-                .values_list('activity_id', 'cnt')
-            )
-        else:
-            totals = {}
-            counts = {}
-        for a in activities:
-            a.expense_total = float(totals.get(a.id, 0) or 0)
-            a.expense_count = counts.get(a.id, 0)
-            if a.budget:
-                ratio = a.expense_total / float(a.budget) if float(a.budget) > 0 else 0
-                a.budget_over = ratio >= 1.0
-                a.budget_warning = ratio >= 0.8 and not a.budget_over
-            else:
-                a.budget_over = False
-                a.budget_warning = False
-        return activities
-
     # AI 建议
     from core.suggestions import generate_suggestions
     suggestions = generate_suggestions(request.user)
@@ -1005,9 +1017,9 @@ def daily_view(request):
         'greeting': greeting,
         'ongoing': attach_costs(list(ongoing)),
         'starting_today': attach_costs(list(starting_today)),
-        'ending_today': list(ending_today),
+        'ending_today': attach_costs(list(ending_today)),
         'upcoming': attach_costs(list(upcoming)),
-        'recently_done': list(recently_done),
+        'recently_done': attach_costs(list(recently_done)),
         'in_progress': attach_costs(list(in_progress)),
         'today_expense': float(today_expense),
         'this_week_expense': float(this_week_expense),

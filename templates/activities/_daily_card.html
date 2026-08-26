@@ -1,75 +1,116 @@
-<a href="{% url 'activities:activity_detail' activity.id %}"
-   class="block bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors group">
-    <div class="flex items-start gap-3">
-        <!-- 状态图标 -->
-        <div class="mt-0.5 shrink-0 w-5 h-5 flex items-center justify-center">
-            {% if activity.status == 'in_progress' %}
-            <svg class="w-5 h-5 text-[var(--text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+<div class="daily-card group relative bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors"
+     data-activity-id="{{ activity.id }}"
+     data-status="{{ activity.status }}"
+     data-status-url="{% url 'activities:activity_set_status' activity.id %}"
+     data-expense-url="{% url 'activities:expense_create' activity.id %}"
+     tabindex="-1">
+    <div class="flex items-start gap-2">
+        <a href="{% url 'activities:activity_detail' activity.id %}" class="flex items-start gap-3 flex-1 min-w-0">
+            <!-- 状态图标 -->
+            <div class="mt-0.5 shrink-0 w-5 h-5 flex items-center justify-center">
+                {% if activity.status == 'in_progress' %}
+                <svg class="w-5 h-5 text-[var(--text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                {% elif activity.status == 'done' %}
+                <svg class="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                {% elif activity.status == 'cancelled' %}
+                <svg class="w-5 h-5 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                </svg>
+                {% else %}
+                <svg class="w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                {% endif %}
+            </div>
+
+            <!-- 内容 -->
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                    <h3 class="text-sm font-medium text-[var(--text)] truncate group-hover:text-[var(--text-secondary)]">
+                        {{ activity.name }}
+                    </h3>
+                    {% if badge == "today" %}
+                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日开始</span>
+                    {% elif badge == "ending" %}
+                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日结束</span>
+                    {% endif %}
+                </div>
+
+                <!-- 日期 + 费用 + 笔数 -->
+                <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                    {% if activity.start_date or activity.end_date %}
+                    <span class="tabular-nums">{{ activity.date_range }}</span>
+                    {% endif %}
+                    <span data-role="expense-total" class="tabular-nums {% if not activity.expense_total %}hidden{% endif %}">¥{{ activity.expense_total|floatformat:"0" }}</span>
+                    <span data-role="expense-count" class="tabular-nums {% if not activity.expense_count %}hidden{% endif %}">{{ activity.expense_count }} 笔</span>
+                    {% if activity.budget_over %}
+                    <span class="text-[10px] font-medium text-red-600 bg-red-50 rounded-full px-1.5 py-0.5">超预算</span>
+                    {% elif activity.budget_warning %}
+                    <span class="text-[10px] font-medium text-amber-600 bg-amber-50 rounded-full px-1.5 py-0.5">接近预算</span>
+                    {% endif %}
+                </div>
+
+                <!-- 标签 + 参与者 -->
+                {% if activity.tags.all or activity.participants.all %}
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    {% for tag in activity.tags.all|slice:":3" %}
+                    <span class="text-[10px] text-[var(--text-muted)]">#{{ tag.name }}</span>
+                    {% endfor %}
+                    {% for p in activity.participants.all|slice:":3" %}
+                    <span class="text-[10px] text-[var(--text-muted)]">@{{ p.name }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- 箭头 -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] shrink-0 mt-1 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
             </svg>
-            {% elif activity.status == 'done' %}
-            <svg class="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            {% elif activity.status == 'cancelled' %}
-            <svg class="w-5 h-5 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
-            </svg>
+        </a>
+
+        <!-- 桌面端快捷操作 -->
+        <div class="hidden md:flex items-center gap-1.5 shrink-0 mt-0.5">
+            {% if activity.status != 'done' %}
+            <button type="button" data-action="set-status" data-status-target="done"
+                    class="rounded-full bg-zinc-900 text-white text-xs px-2.5 py-1 hover:bg-black transition-colors">✓ 完成</button>
             {% else %}
-            <svg class="w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
+            <button type="button" data-action="set-status" data-status-target="in_progress"
+                    class="rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs px-2.5 py-1 hover:bg-[var(--accent-light)] transition-colors">↺ 恢复进行中</button>
             {% endif %}
+            <button type="button" data-action="toggle-expense"
+                    class="rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs px-2.5 py-1 hover:bg-[var(--accent-light)] transition-colors">+ 记一笔</button>
         </div>
-
-        <!-- 内容 -->
-        <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-                <h3 class="text-sm font-medium text-[var(--text)] truncate group-hover:text-[var(--text-secondary)]">
-                    {{ activity.name }}
-                </h3>
-                {% if badge == "today" %}
-                <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日开始</span>
-                {% elif badge == "ending" %}
-                <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日结束</span>
-                {% endif %}
-            </div>
-
-            <!-- 日期 + 费用 + 笔数 -->
-            <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-                {% if activity.start_date or activity.end_date %}
-                <span class="tabular-nums">{{ activity.date_range }}</span>
-                {% endif %}
-                {% if activity.expense_total %}
-                <span class="tabular-nums">¥{{ activity.expense_total|floatformat:"0" }}</span>
-                {% endif %}
-                {% if activity.expense_count %}
-                <span class="tabular-nums">{{ activity.expense_count }} 笔</span>
-                {% endif %}
-                {% if activity.budget_over %}
-                <span class="text-[10px] font-medium text-red-600 bg-red-50 rounded-full px-1.5 py-0.5">超预算</span>
-                {% elif activity.budget_warning %}
-                <span class="text-[10px] font-medium text-amber-600 bg-amber-50 rounded-full px-1.5 py-0.5">接近预算</span>
-                {% endif %}
-            </div>
-
-            <!-- 标签 + 参与者 -->
-            {% if activity.tags.all or activity.participants.all %}
-            <div class="flex items-center gap-2 mt-2 flex-wrap">
-                {% for tag in activity.tags.all|slice:":3" %}
-                <span class="text-[10px] text-[var(--text-muted)]">#{{ tag.name }}</span>
-                {% endfor %}
-                {% for p in activity.participants.all|slice:":3" %}
-                <span class="text-[10px] text-[var(--text-muted)]">@{{ p.name }}</span>
-                {% endfor %}
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- 箭头 -->
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] shrink-0 mt-1 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-        </svg>
     </div>
-</a>
+
+    <!-- 移动端快捷操作 -->
+    <div class="flex md:hidden mt-3 pt-3 border-t border-[var(--border)] gap-2">
+        {% if activity.status != 'done' %}
+        <button type="button" data-action="set-status" data-status-target="done"
+                class="tap-target inline-flex items-center justify-center rounded-full bg-zinc-900 text-white text-xs font-medium px-3 hover:bg-black transition-colors">✓ 完成</button>
+        {% else %}
+        <button type="button" data-action="set-status" data-status-target="in_progress"
+                class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs font-medium px-3 transition-colors">↺ 恢复进行中</button>
+        {% endif %}
+        <button type="button" data-action="toggle-expense"
+                class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs font-medium px-3 transition-colors">+ 记一笔</button>
+    </div>
+
+    <!-- 内联记费用表单 -->
+    <form data-expense-form class="hidden mt-3 pt-3 border-t border-[var(--border)]">
+        <div class="flex items-center gap-2">
+            <input type="number" name="amount" step="0.01" min="0" placeholder="金额" required
+                   class="tap-target flex-none w-24 rounded-full border border-[var(--border-strong)] bg-transparent px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+            <input type="text" name="note" placeholder="备注（可选）" maxlength="255"
+                   class="flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
+            <button type="submit"
+                    class="tap-target shrink-0 rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">记入</button>
+        </div>
+        <p data-expense-error class="hidden text-xs text-[var(--text-muted)] mt-2"></p>
+    </form>
+</div>
