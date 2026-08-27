@@ -60,7 +60,7 @@ def export_csv(request):
 
     # UTF-8 BOM
     bom = '\ufeff'
-    header = ['ID', '名称', '状态', '开始日期', '结束日期', '标签', '参与者', '费用合计']
+    header = ['ID', '名称', '状态', '开始日期', '结束日期', '标签', '参与者', '费用合计', '耗时（分钟）']
 
     def rows():
         buf = io.StringIO()
@@ -83,6 +83,7 @@ def export_csv(request):
                 tags,
                 participants,
                 expense_total,
+                a.duration_minutes if a.duration_minutes is not None else '',
             ])
             yield buf.getvalue()
 
@@ -110,6 +111,7 @@ def _activity_to_dict(activity, expense_totals, children_map):
         'tags': tags,
         'participants': participants,
         'expense_total': expense_total,
+        'duration_minutes': activity.duration_minutes,
         'children': children,
     }
 

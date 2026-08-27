@@ -1434,10 +1434,15 @@ def expense_report(request):
     this_month_f = float(this_month_total)
     last_month_f = float(last_month_total)
 
+    # 时间花费：全部活动耗时总和，人性化格式（批次4C，函数内局部导入避免触碰顶部 import 区）
+    from .utils import fmt_duration
+    total_duration_display = fmt_duration(Activity.objects.filter(user=request.user).aggregate(s=Sum('duration_minutes'))['s'])
+
     return render(request, 'activities/expense_report.html', {
         'this_month_total': this_month_f,
         'last_month_total': float(last_month_total),
         'this_week_total': float(this_week_total),
+        'total_duration_display': total_duration_display,
         'month_change': (
             round((this_month_f - last_month_f) / last_month_f * 100, 1)
             if last_month_f > 0 else None

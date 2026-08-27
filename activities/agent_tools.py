@@ -18,7 +18,7 @@ from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
 from .models import Activity, Participant, Expense
-from .utils import (edit_summary, filter_activities, fmt_field,
+from .utils import (edit_summary, filter_activities, fmt_duration, fmt_field,
                     get_daily_bucket, is_daily_bucket, log_activity,
                     normalize_input, snapshot_activity)
 
@@ -55,6 +55,7 @@ def _activity_card_data(activity):
             {'value': s, 'label': STATUS_LABELS[s]} for s in NEXT_STATUS.get(activity.status, [])
         ],
         'date_range': activity.date_range,
+        'duration': activity.duration_display,
         'expense_total': float(activity.total_cost or 0),
         'description': activity.description,
         'tags': list(activity.tags.names()),
@@ -228,7 +229,7 @@ def tool_create(user, params):
 
 _UPDATE_FIELD_LABELS = [
     ('name', '名称'), ('start_date', '开始日期'), ('end_date', '结束日期'),
-    ('status', '状态'),
+    ('status', '状态'), ('duration_minutes', '耗时（分钟）'),
 ]
 
 
@@ -250,6 +251,11 @@ def _update_preview(user, params):
             if (old_v.isoformat() if old_v else None) == data[field]:
                 continue
         elif str(old_v or '') == str(data[field]):
+            continue
+        if field == 'duration_minutes':
+            # 人性化格式展示，如「1 小时 30 分钟」
+            changes.append({'field': field, 'label': label,
+                            'old': fmt_duration(old_v), 'new': fmt_duration(data[field])})
             continue
         changes.append({'field': field, 'label': label,
                         'old': fmt_field(field, old_v), 'new': fmt_field(field, data[field])})
@@ -284,7 +290,8 @@ def apply_update(user, params):
     data = normalize_input(p, timezone.localdate())
 
     old = snapshot_activity(activity)
-    for field in ('name', 'start_date', 'end_date', 'status'):
+    old_duration = activity.duration_minutes
+    for field in ('name', 'start_date', 'end_date', 'status', 'duration_minutes'):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()
@@ -297,7 +304,11 @@ def apply_update(user, params):
         ]
         activity.participants.set(participants)
 
-    summary = edit_summary(old, activity) or '无实质变更'
+    summary = edit_summary(old, activity)
+    if activity.duration_minutes != old_duration:
+        duration_change = (f'耗时 {fmt_duration(old_duration)} → {fmt_duration(activity.duration_minutes)}')
+        summary = f'{summary}；{duration_change}' if summary else duration_change
+    summary = summary or '无实质变更'
     log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
     return {
         'reply': f'已更新「{activity.name}」：{summary}',
@@ -308,8 +319,8 @@ def apply_update(user, params):
     }
 
 
-@agent_tool('activities.update', '修改指定活动的字段（名称/日期/费用/状态/标签/参与者）',
-            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数）；先出预览，用户确认后生效',
+@agent_tool('activities.update', '修改指定活动的字段（名称/日期/费用/状态/标签/参与者/耗时）',
+            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 duration_minutes 耗时分钟数）；先出预览，用户确认后生效',
             apply_fn=apply_update)
 def tool_update(user, params):
     activity, data, changes = _update_preview(user, params)
@@ -403,6 +414,8 @@ def tool_stats(user, params):
     tags_top = [{'name': r['tags__name'], 'count': r['n']} for r in tag_rows]
 
     cost_total = qs.aggregate(s=Sum('expenses__amount'))['s'] or 0
+    # 时间花费：用户全部活动耗时汇总（一条聚合查询），人性化格式输出；受 scope 限制同 qs 口径
+    duration_total_minutes = visible_qs(Activity, user).aggregate(s=Sum('duration_minutes'))['s'] or 0
 
     return {
         'reply': f'共 {total} 个活动，概况如下：',
@@ -414,6 +427,7 @@ def tool_stats(user, params):
             'month_bars': month_bars,
             'tags_top': tags_top,
             'cost_total': float(cost_total),
+            'duration_total': fmt_duration(duration_total_minutes) if duration_total_minutes else '',
             'list_url': reverse('activities:activity_list'),
         },
     }

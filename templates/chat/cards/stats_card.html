@@ -2,7 +2,7 @@
 <div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
     <div class="flex items-baseline justify-between gap-2">
         <span class="text-sm font-medium text-zinc-900">活动概况</span>
-        <span class="text-xs text-zinc-400">共 {{ card.total }} 个 · 费用合计 &#165;{{ card.cost_total|floatformat:"-2" }}</span>
+        <span class="text-xs text-zinc-400">共 {{ card.total }} 个 · 费用合计 &#165;{{ card.cost_total|floatformat:"-2" }}{% if card.duration_total %} · 时间花费 {{ card.duration_total }}{% endif %}</span>
     </div>
 
     <!-- 状态分布分段条 -->

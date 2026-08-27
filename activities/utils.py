@@ -127,6 +127,19 @@ def edit_summary(old, activity):
     return '；'.join(changes)[:500]
 
 
+def fmt_duration(minutes):
+    """耗时分钟数的人性化展示，如「2 小时 30 分钟」「45 分钟」；空值返回「—」（批次4C 耗时统计）"""
+    if minutes in (None, ''):
+        return '—'
+    minutes = int(minutes)
+    hours, m = divmod(minutes, 60)
+    if hours and m:
+        return f'{hours} 小时 {m} 分钟'
+    if hours:
+        return f'{hours} 小时'
+    return f'{m} 分钟'
+
+
 def normalize_input(data, today):
     """清洗校验解析结果（AI 与规则输出共用），丢弃非法字段"""
     out = {}
@@ -153,6 +166,14 @@ def normalize_input(data, today):
     status = data.get('status')
     if status in dict(Activity.STATUS_CHOICES):
         out['status'] = status
+    duration = data.get('duration_minutes')
+    if duration not in (None, ''):
+        try:
+            duration = int(duration)
+            if duration >= 0:
+                out['duration_minutes'] = duration
+        except (TypeError, ValueError):
+            pass
     for key in ('tags', 'participants'):
         values = data.get(key)
         if isinstance(values, str):
