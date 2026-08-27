@@ -9,6 +9,88 @@
     <h1 class="text-2xl sm:text-3xl font-bold text-[var(--text)] tracking-tight">{{ today_display }}</h1>
 </div>
 
+<!-- 每日规划（今日安排）：早间（<18 点）展示，与晚间摘要按时段互斥 -->
+{% if show_today_plan %}
+<section class="collapsible-section mb-8" data-section="daily-plan">
+    <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center gap-2 cursor-pointer select-none" onclick="toggleSection('daily-plan')">
+        <span>今日安排</span>
+        <svg class="w-4 h-4 text-[var(--text-muted)] ml-auto transition-transform" id="arrow-daily-plan" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </h2>
+    <div class="collapsible-content space-y-4" id="content-daily-plan">
+        {% if today_plan.is_empty %}
+        <p class="text-sm text-[var(--text-muted)]">今天还没有安排，轻松一下，或者规划点新的事情吧</p>
+        {% else %}
+        {% if today_plan.due_today %}
+        <div>
+            <p class="text-xs text-[var(--text-muted)] mb-1.5">今日到期</p>
+            <div class="space-y-1">
+                {% for a in today_plan.due_today %}
+                <a href="{% url 'activities:activity_detail' a.id %}" class="flex items-center justify-between py-1 group">
+                    <span class="text-sm text-[var(--text)] truncate group-hover:underline">{{ a.name }}</span>
+                    {% if a.status == 'in_progress' %}
+                    <span class="text-xs text-[var(--text-muted)] shrink-0 ml-3">进行中</span>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% if today_plan.habits %}
+        <div>
+            <p class="text-xs text-[var(--text-muted)] mb-1.5">今日习惯</p>
+            <div class="space-y-1">
+                {% for a in today_plan.habits %}
+                <a href="{% url 'activities:activity_detail' a.id %}" class="flex items-center justify-between py-1 group">
+                    <span class="text-sm text-[var(--text)] truncate group-hover:underline">{{ a.name }}</span>
+                    <span class="text-xs shrink-0 ml-3 {% if a.status == 'done' %}text-[var(--text-muted)]{% else %}text-[var(--text)] font-medium{% endif %}">{% if a.status == 'done' %}已打卡{% else %}待打卡{% endif %}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% if today_plan.subtask_groups %}
+        <div>
+            <p class="text-xs text-[var(--text-muted)] mb-1.5">未完成子活动</p>
+            <div class="space-y-2">
+                {% for g in today_plan.subtask_groups %}
+                <div>
+                    <a href="{% url 'activities:activity_detail' g.parent.id %}" class="text-xs text-[var(--text-secondary)] hover:underline">{{ g.parent.name }}</a>
+                    <div class="space-y-1 mt-0.5">
+                        {% for c in g.children %}
+                        <a href="{% url 'activities:activity_detail' c.id %}" class="flex items-center py-0.5 group">
+                            <span class="text-sm text-[var(--text)] truncate group-hover:underline">{{ c.name }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% if today_plan.reminders %}
+        <div>
+            <p class="text-xs text-[var(--text-muted)] mb-1.5">待触发提醒</p>
+            <div class="space-y-1">
+                {% for r in today_plan.reminders %}
+                <div class="flex items-center justify-between py-1">
+                    {% if r.related_activity %}
+                    <a href="{% url 'activities:activity_detail' r.related_activity.id %}" class="text-sm text-[var(--text)] truncate hover:underline">{{ r.content }}</a>
+                    {% else %}
+                    <span class="text-sm text-[var(--text)] truncate">{{ r.content }}</span>
+                    {% endif %}
+                    <span class="text-xs text-[var(--text-muted)] shrink-0 ml-3 tabular-nums">{{ r.trigger_at|date:"H:i" }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
 <!-- 桌面快捷键提示 -->
 <div class="hidden md:flex items-center gap-3 text-xs text-[var(--text-muted)] mb-4">J/K 选择 · D 完成 · I 进行中 · P 计划 · X 取消 · E 记费用</div>
 
@@ -87,6 +169,13 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
         日历
+    </a>
+    <a href="{% url 'activities:next_actions' %}"
+       class="tap-target inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+        </svg>
+        下一步行动
     </a>
 </div>
 
@@ -298,7 +387,7 @@ function toggleSection(sectionId) {
 
 // 页面加载时恢复折叠状态
 (function() {
-    var sections = ['ai-suggestions', 'daily-summary', 'in_progress', 'upcoming', 'recently_done'];
+    var sections = ['daily-plan', 'ai-suggestions', 'daily-summary', 'in_progress', 'upcoming', 'recently_done'];
     sections.forEach(function(sectionId) {
         var content = document.getElementById('content-' + sectionId);
         var arrow = document.getElementById('arrow-' + sectionId);

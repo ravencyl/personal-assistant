@@ -1064,6 +1064,10 @@ def daily_view(request):
         trigger_at__date=timezone.localdate(),
     ).order_by('trigger_at')[:10]
 
+    # 每日规划（今日安排）：一次调用注入，早间（<18 点）展示，与晚间摘要按时段互斥
+    from core.suggestions import generate_daily_plan
+    today_plan = generate_daily_plan(request.user)
+
     # 循环活动今日实例
     today_instances = Activity.objects.filter(
         user=request.user,
@@ -1097,6 +1101,8 @@ def daily_view(request):
         'today_instances': today_instances,
         'pending_reminders': pending_reminders,
         'daily_summary': daily_summary,
+        'today_plan': today_plan,
+        'show_today_plan': hour < 18,
     })
 
 

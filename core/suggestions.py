@@ -339,3 +339,78 @@ def _connect_invalidation_signals():
 
 
 _connect_invalidation_signals()
+
+
+# ────────────────────────────────────────────────
+# 每日规划（今日安排）——独立于建议规则引擎，纯规则、不缓存，
+# 由 daily_view 每次请求调用一次，避免重复查询。
+# ────────────────────────────────────────────────
+
+def generate_daily_plan(user):
+    """生成 Daily 页「今日安排」结构化数据（纯规则，零 AI）
+
+    返回 dict：
+    - due_today:    待办活动列表——今日落在 [start_date, end_date] 区间，
+                    或 start_date/end_date 为今日；排除已完成/已取消、
+                    「日常开支」归属桶及循环实例（循环实例归入 habits，避免重复）
+    - habits:       循环活动今日实例列表（与 daily_view 的 today_instances 同口径）
+    - subtask_groups: 未完成子活动 Top 5，按父活动分组，
+                    结构 [{'parent': Activity, 'children': [Activity, ...]}]
+    - reminders:    待触发提醒列表——status='pending' 且 trigger_at 在今日内，
+                    按触发时间升序（字段语义同 core.models.check_due_reminders）
+    - is_empty:     四组全部为空（供模板渲染早间空态文案）
+    """
+    from django.db.models import Q
+    from activities.models import Activity
+    from activities.utils import exclude_daily_bucket
+    from core.models import Reminder
+
+    today = timezone.localdate()
+
+    # ── 待办：今日区间/起止日为今日的非完成活动 ──
+    due_today = list(
+        exclude_daily_bucket(Activity.objects.filter(user=user)).filter(
+            Q(start_date__lte=today, end_date__gte=today)
+            | Q(start_date=today)
+            | Q(end_date=today)
+        ).filter(
+            recurring_source__isnull=True,
+        ).exclude(status__in=('done', 'cancelled')).order_by('start_date')[:10]
+    )
+
+    # ── 习惯：今日循环实例（照 daily_view 的 today_instances 查询口径） ──
+    habits = list(Activity.objects.filter(
+        user=user,
+        recurring_source__isnull=False,
+        start_date=today,
+        recurring_source__is_active=True,
+    ).select_related('recurring_source').order_by('id')[:10])
+
+    # ── 子活动：未完成（计划/进行中）子活动取前 5，按父活动分组 ──
+    children = Activity.objects.filter(
+        user=user,
+        parent__isnull=False,
+        status__in=('planned', 'in_progress'),
+    ).select_related('parent').order_by('parent_id', 'start_date', 'id')[:5]
+    subtask_groups = []
+    for child in children:
+        if subtask_groups and subtask_groups[-1]['parent'].id == child.parent_id:
+            subtask_groups[-1]['children'].append(child)
+        else:
+            subtask_groups.append({'parent': child.parent, 'children': [child]})
+
+    # ── 提醒：待触发且今日到期的（到期即被 check_due_reminders 转为 fired） ──
+    day_end = timezone.make_aware(
+        timezone.datetime.combine(today + timedelta(days=1), timezone.datetime.min.time())
+    )
+    reminders = list(Reminder.objects.filter(
+        user=user, status='pending', trigger_at__lt=day_end,
+    ).order_by('trigger_at')[:5])
+
+    return {
+        'due_today': due_today,
+        'habits': habits,
+        'subtask_groups': subtask_groups,
+        'reminders': reminders,
+        'is_empty': not (due_today or habits or subtask_groups or reminders),
+    }
