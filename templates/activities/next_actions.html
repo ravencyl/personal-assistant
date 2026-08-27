@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}下一步行动 - Personal AI Assistant{% endblock %}
+
+{% block content %}
+<!-- 头部 -->
+<div class="mb-6 sm:mb-8 fade-in">
+    <p class="text-sm text-[var(--text-muted)] mb-1">{{ today_display }} · 接下来可以做什么</p>
+    <h1 class="text-2xl sm:text-3xl font-bold text-[var(--text)] tracking-tight">下一步行动</h1>
+</div>
+
+{% if pending_parents or upcoming %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+    <!-- 组 1：待处理的子任务 -->
+    <section>
+        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">
+            待处理的子任务
+            <span class="ml-1.5 text-[var(--text-muted)] font-normal normal-case">{{ pending_parents|length }}</span>
+        </h2>
+        {% if pending_parents %}
+        <div class="space-y-3">
+            {% for parent in pending_parents %}
+            <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors">
+                <!-- 父活动 -->
+                <a href="{% url 'activities:activity_detail' parent.id %}" class="group flex items-start gap-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1 flex-wrap">
+                            <h3 class="text-sm font-medium text-[var(--text)] group-hover:text-[var(--text-secondary)]">{{ parent.name }}</h3>
+                            {% include "activities/_status_badge.html" with status=parent.status label=parent.get_status_display %}
+                        </div>
+                        <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                            {% if parent.start_date or parent.end_date %}
+                            <span class="tabular-nums">{{ parent.date_range }}</span>
+                            {% endif %}
+                            <span>{{ parent.pending_children|length }} 项待处理</span>
+                        </div>
+                        {% if parent.tags.all %}
+                        <div class="flex items-center gap-2 mt-2 flex-wrap">
+                            {% for tag in parent.tags.all|slice:":3" %}
+                            <span class="text-[10px] text-[var(--text-muted)]">#{{ tag.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] shrink-0 mt-1 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+                <!-- 未完成子活动 -->
+                <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+                    {% for child in parent.pending_children %}
+                    <a href="{% url 'activities:activity_detail' child.id %}"
+                       class="flex items-center gap-2 py-1 hover:opacity-75 transition-opacity">
+                        <svg class="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                        <span class="flex-1 min-w-0 text-sm text-[var(--text-secondary)] truncate">{{ child.name }}</span>
+                        {% if child.start_date %}
+                        <span class="shrink-0 text-xs text-[var(--text-muted)] tabular-nums">{{ child.start_date|date:"m-d" }}</span>
+                        {% endif %}
+                        {% include "activities/_status_badge.html" with status=child.status label=child.get_status_display %}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-6 text-center">
+            <p class="text-sm text-[var(--text-muted)]">没有待处理的子任务，进行中的活动都没有尾巴了</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <!-- 组 2：临近的计划活动 -->
+    <section>
+        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">
+            临近的计划活动
+            <span class="ml-1.5 text-[var(--text-muted)] font-normal normal-case">{{ upcoming|length }}</span>
+        </h2>
+        {% if upcoming %}
+        <div class="space-y-2">
+            {% for a in upcoming %}
+            <a href="{% url 'activities:activity_detail' a.id %}"
+               class="group flex items-start gap-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 class="text-sm font-medium text-[var(--text)] group-hover:text-[var(--text-secondary)]">{{ a.name }}</h3>
+                        {% if a.days_until == 0 %}
+                        <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日开始</span>
+                        {% elif a.days_until == 1 %}
+                        <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">明天开始</span>
+                        {% else %}
+                        <span class="shrink-0 text-[10px] font-medium text-[var(--text-muted)] bg-zinc-100 rounded-full px-1.5 py-0.5">{{ a.days_until }} 天后</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                        <span class="tabular-nums">{{ a.date_range }}</span>
+                        {% include "activities/_status_badge.html" with status=a.status label=a.get_status_display %}
+                    </div>
+                    {% if a.tags.all %}
+                    <div class="flex items-center gap-2 mt-2 flex-wrap">
+                        {% for tag in a.tags.all|slice:":3" %}
+                        <span class="text-[10px] text-[var(--text-muted)]">#{{ tag.name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] shrink-0 mt-1 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-6 text-center">
+            <p class="text-sm text-[var(--text-muted)]">未来 7 天没有计划中的活动，享受当下吧</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% else %}
+<!-- 双组全空 -->
+<div class="text-center py-16">
+    <p class="text-[var(--text-muted)] text-sm mb-4">目前没有需要跟进的活动，一切尽在掌握</p>
+    <div class="flex items-center justify-center flex-wrap gap-3">
+        <a href="{% url 'activities:activity_create' %}"
+           class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] text-[var(--bg)] px-4 py-2 text-sm font-medium hover:opacity-90 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            新建活动
+        </a>
+        <a href="{% url 'activities:activity_calendar' %}"
+           class="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
+            查看日历
+        </a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

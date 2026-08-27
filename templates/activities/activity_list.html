@@ -26,6 +26,9 @@
             <a href="{% url 'activities:recurring_list' %}" class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="循环活动">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             </a>
+            <a href="{% url 'activities:next_actions' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="下一步行动">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+            </a>
             <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2.5 text-sm font-semibold text-[var(--bg)] shadow-md transition-colors">+ 新建</a>
         </div>
     </div>
@@ -59,6 +62,10 @@
             <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="日历视图">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                 日历
+            </a>
+            <a href="{% url 'activities:next_actions' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="下一步行动">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                下一步行动
             </a>
             <a href="{% url 'activities:activity_create' %}" class="inline-flex items-center rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2 text-sm font-semibold text-[var(--bg)] shadow-sm transition-colors">+ 新建活动</a>
         </div>
