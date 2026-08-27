@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'personal-assistant-v4';
+const CACHE_VERSION = 'personal-assistant-v5';
 
 // 预缓存的核心静态资源（已自托管，不再依赖 CDN）
 const PRECACHE_URLS = [
@@ -7,6 +7,7 @@ const PRECACHE_URLS = [
   '/static/js/htmx.min.js',
   '/static/js/chart.umd.min.js',
   '/static/js/pinyin-pro.js',
+  '/static/js/offline-queue.js',
   '/static/manifest.json',
 ];
 
