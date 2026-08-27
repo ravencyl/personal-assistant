@@ -363,6 +363,8 @@ class ReportAgentToolTest(TestCase):
 class SuggestionsBudgetWarningTest(TestCase):
     """验证 suggestions 包含预算预警建议"""
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         self.user = User.objects.create_user('testuser', password='test')
 
     def test_suggestions_budget_warning(self):
@@ -400,3 +402,219 @@ class SuggestionsBudgetWarningTest(TestCase):
         texts = [s['text'] for s in suggestions]
         # 应该包含活动名称
         self.assertTrue(any('超支预警测试' in t for t in texts), f'Expected activity name in suggestions, got: {texts}')
+
+
+class SuggestionsBudgetBatchQueryTest(TestCase):
+    """规则 7 预算预警：批量聚合取费用，查询数固定（无 N+1）"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_budget_warning_batch_aggregation(self):
+        """多个带预算活动时仅 2 条查询（活动 1 条 + 费用聚合 1 条）"""
+        from core.suggestions import _rule_budget_warning
+
+        for i in range(3):
+            activity = Activity.objects.create(
+                user=self.user, name=f'批量聚合活动{i}',
+                budget=Decimal('1000'), status='in_progress',
+            )
+            for amount in ('500', '350'):
+                Expense.objects.create(
+                    activity=activity, user=self.user,
+                    amount=Decimal(amount), category='food',
+                )
+
+        with self.assertNumQueries(2):
+            result = _rule_budget_warning(self.user, timezone.localdate())
+
+        # 预警最多保留 2 条，金额来自聚合结果而非逐条查询
+        self.assertEqual(len(result), 2)
+        for s in result:
+            self.assertIn('接近预算', s['text'])
+            self.assertIn('已花费 ¥850', s['text'])
+
+
+class SuggestionsHabitMissedTest(TestCase):
+    """规则 10 习惯断签：daily 循环活动昨日实例未完成 → 提示未打卡"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.today = timezone.localdate()
+        self.yesterday = self.today - timedelta(days=1)
+
+    def test_missed_daily_habit(self):
+        """昨日 daily 实例状态非 done → 提示没有打卡"""
+        from core.suggestions import generate_suggestions
+        from activities.models import RecurringActivity
+
+        pattern = RecurringActivity.objects.create(
+            user=self.user, name='晨跑', frequency='daily', is_active=True,
+        )
+        Activity.objects.create(
+            user=self.user, name='晨跑',
+            start_date=self.yesterday, end_date=self.yesterday,
+            status='planned', recurring_source=pattern,
+        )
+
+        texts = [s['text'] for s in generate_suggestions(self.user)]
+        self.assertTrue(
+            any('晨跑' in t and '没有打卡' in t for t in texts),
+            f'Expected habit-missed suggestion, got: {texts}',
+        )
+
+    def test_done_habit_not_suggested(self):
+        """昨日实例已完成 → 不提示"""
+        from core.suggestions import generate_suggestions
+        from activities.models import RecurringActivity
+
+        pattern = RecurringActivity.objects.create(
+            user=self.user, name='晨跑', frequency='daily', is_active=True,
+        )
+        Activity.objects.create(
+            user=self.user, name='晨跑',
+            start_date=self.yesterday, end_date=self.yesterday,
+            status='done', recurring_source=pattern,
+        )
+
+        texts = [s['text'] for s in generate_suggestions(self.user)]
+        self.assertFalse(any('没有打卡' in t for t in texts), texts)
+
+    def test_weekly_habit_not_suggested(self):
+        """非 daily 频率的循环活动不参与断签检查"""
+        from core.suggestions import generate_suggestions
+        from activities.models import RecurringActivity
+
+        pattern = RecurringActivity.objects.create(
+            user=self.user, name='周例会', frequency='weekly',
+            day_of_week=0, is_active=True,
+        )
+        Activity.objects.create(
+            user=self.user, name='周例会',
+            start_date=self.yesterday, end_date=self.yesterday,
+            status='planned', recurring_source=pattern,
+        )
+
+        texts = [s['text'] for s in generate_suggestions(self.user)]
+        self.assertFalse(any('没有打卡' in t for t in texts), texts)
+
+
+class SuggestionsEndingSoonTest(TestCase):
+    """规则 11 临期活动：end_date 距今 ≤3 天且状态非 done/cancelled"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.today = timezone.localdate()
+
+    def test_ending_in_days(self):
+        """2 天后到期 → 提示剩余天数"""
+        from core.suggestions import generate_suggestions
+
+        Activity.objects.create(
+            user=self.user, name='临期测试', status='in_progress',
+            start_date=self.today - timedelta(days=5),
+            end_date=self.today + timedelta(days=2),
+        )
+
+        texts = [s['text'] for s in generate_suggestions(self.user)]
+        self.assertTrue(
+            any('临期测试' in t and '还有 2 天到期' in t for t in texts),
+            f'Expected ending-soon suggestion, got: {texts}',
+        )
+
+    def test_ending_today(self):
+        """今天到期 → 提示今天到期"""
+        from core.suggestions import generate_suggestions
+
+        Activity.objects.create(
+            user=self.user, name='今日截止', status='in_progress',
+            start_date=self.today - timedelta(days=1), end_date=self.today,
+        )
+
+        texts = [s['text'] for s in generate_suggestions(self.user)]
+        self.assertTrue(any('今日截止' in t and '今天到期' in t for t in texts), texts)
+
+    def test_done_cancelled_and_far_dates_excluded(self):
+        """done/cancelled 及超过 3 天的活动不提示"""
+        from core.suggestions import generate_suggestions
+
+        for status in ('done', 'cancelled'):
+            Activity.objects.create(
+                user=self.user, name=f'{status}活动', status=status,
+                start_date=self.today, end_date=self.today + timedelta(days=1),
+            )
+        Activity.objects.create(
+            user=self.user, name='远期活动', status='in_progress',
+            start_date=self.today, end_date=self.today + timedelta(days=10),
+        )
+
+        texts = [s['text'] for s in generate_suggestions(self.user)]
+        self.assertFalse(any('到期' in t for t in texts), texts)
+
+
+class SuggestionsTruncationTest(TestCase):
+    """建议总数超过上限时截断为 5 条"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_max_five_suggestions(self):
+        """多规则同时命中时最多返回 5 条"""
+        from core.suggestions import generate_suggestions
+        today = timezone.localdate()
+
+        # 规则 1：明天有活动开始（1 条）
+        Activity.objects.create(
+            user=self.user, name='明日开始', status='planned',
+            start_date=today + timedelta(days=1),
+        )
+        # 规则 4：计划中无日期（1 条）
+        Activity.objects.create(
+            user=self.user, name='没有日期', status='planned',
+        )
+        # 规则 6：今日无消费（1 条，费用未设 paid_at）
+        # 规则 7：3 个超预算活动 → 2 条
+        for i in range(3):
+            activity = Activity.objects.create(
+                user=self.user, name=f'超预算{i}', status='in_progress',
+                start_date=today, budget=Decimal('100'),
+            )
+            Expense.objects.create(
+                activity=activity, user=self.user, amount=Decimal('200'),
+            )
+        # 规则 8：2 个即将到期提醒 → 2 条（共 7 条）
+        for i in range(2):
+            Reminder.objects.create(
+                user=self.user, content=f'提醒{i}',
+                trigger_at=timezone.now() + timedelta(minutes=30),
+            )
+
+        suggestions = generate_suggestions(self.user)
+        self.assertEqual(len(suggestions), 5)
+
+
+class SuggestionsCacheTest(TestCase):
+    """建议结果按用户缓存，数据源变更时信号失效"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_cache_hit_and_signal_invalidation(self):
+        """首次生成后写入缓存；新建活动触发信号清除缓存"""
+        from django.core.cache import cache
+        from core.suggestions import generate_suggestions, _cache_key
+
+        first = generate_suggestions(self.user)
+        self.assertIsNotNone(cache.get(_cache_key(self.user.id)))
+
+        # 命中缓存：修改数据前二次调用返回同一对象内容且缓存仍在
+        self.assertEqual(generate_suggestions(self.user), first)
+
+        # 数据源变更 → post_save 信号清除缓存
+        Activity.objects.create(user=self.user, name='新活动', status='planned')
+        self.assertIsNone(cache.get(_cache_key(self.user.id)))
