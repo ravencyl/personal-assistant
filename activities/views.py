@@ -10,6 +10,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.db import models
 from django.db.models import Count, Sum
 from django.urls import reverse
@@ -1233,6 +1234,33 @@ def expense_chart_data(request):
             'values': [float(d['total']) for d in data],
         })
 
+    elif range_type == 'month_category':
+        # 单月分类明细（month 参数 YYYY-MM，缺省/非法回退当月）
+        m = re.match(r'^(\d{4})-(\d{1,2})$', (request.GET.get('month') or '').strip())
+        if m and 1 <= int(m.group(2)) <= 12:
+            year, month = int(m.group(1)), int(m.group(2))
+        else:
+            year, month = today.year, today.month
+        data = list(
+            qs.filter(paid_at__year=year, paid_at__month=month)
+            .values('category')
+            .annotate(total=Sum('amount'))
+            .order_by('-total')
+        )
+        category_labels = dict(Expense.CATEGORY_CHOICES)
+        grand_total = sum(float(d['total']) for d in data)
+        items = [{
+            'category': d['category'],
+            'label': category_labels.get(d['category'], d['category']),
+            'amount': float(d['total']),
+            'pct': round(float(d['total']) * 100 / grand_total, 1) if grand_total else 0,
+        } for d in data]
+        return JsonResponse({
+            'month': f'{year:04d}-{month:02d}',
+            'total': grand_total,
+            'items': items,
+        })
+
     return JsonResponse({'labels': [], 'values': []})
 
 
@@ -1429,7 +1457,35 @@ def recurring_checkin(request, activity_id):
         activity.status = 'done'
         activity.save(update_fields=['status', 'updated_at'])
         log_activity(request.user, activity, 'status_changed', '打卡完成')
+        cache.delete(f'habit_heatmap_{request.user.id}')  # 失效打卡热力图缓存
     
     if request.headers.get('HX-Request'):
         return HttpResponse('<span class="text-sm text-zinc-400">✓ 已打卡</span>')
     return redirect(request.META.get('HTTP_REFERER', '/'))
+
+
+@login_required
+def habit_heatmap_data(request):
+    """打卡热力图数据 API：近 365 天循环活动实例打卡（done）按日聚合（JSON）
+
+    返回 {'heatmap': {'YYYY-MM-DD': count, ...}, 'total_days': int}，
+    缓存 1 小时，打卡成功时失效。
+    """
+    cache_key = f'habit_heatmap_{request.user.id}'
+    result = cache.get(cache_key)
+    if result is None:
+        today = timezone.localdate()
+        start = today - timedelta(days=364)
+        rows = list(
+            visible_qs(Activity, request.user)
+            .filter(recurring_source__isnull=False, status='done',
+                    start_date__gte=start, start_date__lte=today)
+            .values('start_date')
+            .annotate(n=Count('id'))
+        )
+        result = {
+            'heatmap': {row['start_date'].isoformat(): row['n'] for row in rows},
+            'total_days': len(rows),
+        }
+        cache.set(cache_key, result, timeout=3600)
+    return JsonResponse(result)

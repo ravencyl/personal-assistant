@@ -72,6 +72,34 @@
     </div>
 </div>
 
+<!-- 本月分类明细 -->
+<div class="mt-4 sm:mt-6 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
+    <div class="flex items-center justify-between gap-3 mb-4">
+        <h2 class="text-sm font-semibold text-[var(--text)]">本月分类明细</h2>
+        <div class="flex items-center gap-1">
+            <button type="button" id="mcPrev"
+                    class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors"
+                    aria-label="上一月">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <span id="mcMonthLabel" class="min-w-[6.5rem] text-center text-sm font-medium text-[var(--text)] tabular-nums">—</span>
+            <button type="button" id="mcNext"
+                    class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors"
+                    aria-label="下一月">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    <p id="mcTotal" class="text-xs text-[var(--text-muted)] mb-4"></p>
+    <div id="mcList" class="space-y-3">
+        <p class="text-sm text-[var(--text-muted)] py-6 text-center">加载中…</p>
+    </div>
+</div>
+
 <script>
 (function() {
     var textColor = '#18181b';
@@ -172,6 +200,66 @@
                 }
             });
         });
+})();
+</script>
+
+<script>
+// 本月分类明细（原生 fetch 消费 month_category JSON，与上方图表脚本互不影响）
+(function() {
+    var endpoint = '{% url "activities:expense_chart_data" %}';
+    // 灰阶条形序列：金额从高到低依次变浅（只用 zinc 灰阶）
+    var barColors = ['bg-zinc-900', 'bg-zinc-700', 'bg-zinc-500', 'bg-zinc-300', 'bg-zinc-100'];
+    var now = new Date();
+    var year = now.getFullYear();
+    var month = now.getMonth() + 1;
+
+    var labelEl = document.getElementById('mcMonthLabel');
+    var totalEl = document.getElementById('mcTotal');
+    var listEl = document.getElementById('mcList');
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function fmtMoney(v) { return '¥' + Math.round(v).toLocaleString('zh-CN'); }
+    function shiftMonth(delta) {
+        month += delta;
+        if (month < 1) { month = 12; year -= 1; }
+        if (month > 12) { month = 1; year += 1; }
+        load();
+    }
+
+    function load() {
+        labelEl.textContent = year + ' 年 ' + month + ' 月';
+        fetch(endpoint + '?range=month_category&month=' + year + '-' + pad(month))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var items = data.items || [];
+                totalEl.textContent = items.length ? ('合计 ' + fmtMoney(data.total || 0) + ' · ' + items.length + ' 个分类') : '';
+                if (!items.length) {
+                    listEl.innerHTML = '<p class="text-sm text-[var(--text-muted)] py-6 text-center">本月暂无费用记录</p>';
+                    return;
+                }
+                listEl.innerHTML = items.map(function(it, i) {
+                    var width = Math.max(it.pct, 2); // 占比宽度 %，保底 2% 可见
+                    var color = barColors[Math.min(i, barColors.length - 1)];
+                    return '<div>' +
+                        '<div class="flex items-baseline justify-between gap-2 mb-1">' +
+                            '<span class="text-sm text-[var(--text)]">' + it.label + '</span>' +
+                            '<span class="text-sm tabular-nums text-[var(--text-secondary)] whitespace-nowrap">' + fmtMoney(it.amount) +
+                                ' <span class="text-xs text-[var(--text-muted)]">' + it.pct + '%</span></span>' +
+                        '</div>' +
+                        '<div class="h-2 rounded-full bg-[var(--border)] overflow-hidden">' +
+                            '<div class="h-full rounded-full ' + color + '" style="width:' + width + '%"></div>' +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+            })
+            .catch(function() {
+                listEl.innerHTML = '<p class="text-sm text-[var(--text-muted)] py-6 text-center">加载失败，请稍后重试</p>';
+            });
+    }
+
+    document.getElementById('mcPrev').addEventListener('click', function() { shiftMonth(-1); });
+    document.getElementById('mcNext').addEventListener('click', function() { shiftMonth(1); });
+    load(); // 页面加载默认渲染当月
 })();
 </script>
 {% endblock %}
