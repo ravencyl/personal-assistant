@@ -15,6 +15,41 @@ from .models import Activity, ActivityLog
 logger = logging.getLogger(__name__)
 
 
+# ==================== 「日常开支」归属桶 ====================
+# 桶活动为系统常驻活动，用于承接无活动语境的费用；
+# 识别方式：标题 == DAILY_BUCKET_NAME 且描述含 DAILY_BUCKET_MARKER（比普通用户同名活动更稳妥）。
+DAILY_BUCKET_NAME = '日常开支'
+DAILY_BUCKET_MARKER = '系统归属桶：无活动语境的费用记入此处'
+
+
+def get_daily_bucket(user):
+    """惰性创建/复用该用户的「日常开支」归属桶活动"""
+    bucket, _created = Activity.objects.get_or_create(
+        user=user,
+        name=DAILY_BUCKET_NAME,
+        defaults={
+            'description': DAILY_BUCKET_MARKER,
+            'status': 'in_progress',
+            'start_date': None,
+            'end_date': None,
+        },
+    )
+    return bucket
+
+
+def is_daily_bucket(activity):
+    """判断活动是否为「日常开支」归属桶"""
+    return (
+        activity.name == DAILY_BUCKET_NAME
+        and DAILY_BUCKET_MARKER in (activity.description or '')
+    )
+
+
+def exclude_daily_bucket(qs):
+    """从活动查询集中排除归属桶（列表页/每日简报展示用；费用统计不排除）"""
+    return qs.exclude(name=DAILY_BUCKET_NAME, description__contains=DAILY_BUCKET_MARKER)
+
+
 def log_activity(user, activity, action, summary=''):
     """写入活动操作日志（失败仅告警，不影响主流程）"""
     try:

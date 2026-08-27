@@ -1,9 +1,12 @@
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.utils import timezone
 from decimal import Decimal
+from datetime import timedelta
+from django.db.models import Sum
 from activities.models import Activity, Expense
-from activities.utils import budget_status
+from activities.utils import budget_status, get_daily_bucket, DAILY_BUCKET_NAME
 
 
 class BudgetStatusTest(TestCase):
@@ -108,3 +111,69 @@ class BudgetProgressBarTest(TestCase):
         content = response.content.decode()
         self.assertIn('red', content)
         self.assertIn('已超预算', content)
+
+
+class AddExpenseAutoTargetTest(TestCase):
+    """记账工具 target 缺省时的归属链：日期重叠 → note 关键词 → 日常开支桶"""
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.tool = get_tool('activities.add_expense')
+        self.assertIsNotNone(self.tool)
+        self.user = User.objects.create_user('testuser', password='test')
+        self.today = timezone.localdate()
+
+    def test_no_target_fallback_to_daily_bucket(self):
+        """无 target 且无可归属活动时，费用记入「日常开支」归属桶"""
+        result = self.tool['fn'](self.user, {'amount': 25, 'category': '餐饮', 'note': '午饭'})
+        bucket = get_daily_bucket(self.user)
+        expense = Expense.objects.get(user=self.user)
+        self.assertEqual(expense.activity_id, bucket.id)
+        self.assertEqual(bucket.name, DAILY_BUCKET_NAME)
+        self.assertEqual(bucket.status, 'in_progress')
+        self.assertIn('日常开支', result['reply'])
+        self.assertTrue(result['changed'])
+
+    def test_no_target_keyword_unique_match(self):
+        """无 target 时按 note 关键词唯一命中进行中活动（活动日期不与今昨重叠）"""
+        Activity.objects.create(
+            user=self.user, name='出差上海', status='in_progress',
+            start_date=self.today - timedelta(days=30),
+            end_date=self.today - timedelta(days=25),
+        )
+        result = self.tool['fn'](self.user, {'amount': 30, 'category': '交通', 'note': '上海 打车 35'})
+        expense = Expense.objects.get(user=self.user)
+        self.assertEqual(expense.activity.name, '出差上海')
+        self.assertIn('出差上海', result['reply'])
+
+    def test_with_target_original_path(self):
+        """有 target 时走原匹配路径，行为不变"""
+        activity = Activity.objects.create(user=self.user, name='周末露营')
+        result = self.tool['fn'](self.user, {'target': '露营', 'amount': 120, 'category': '购物'})
+        expense = Expense.objects.get(user=self.user)
+        self.assertEqual(expense.activity_id, activity.id)
+        self.assertEqual(result['reply'], f'已为「周末露营」添加费用 ¥120.0（购物）')
+
+    def test_no_target_date_overlap_unique(self):
+        """无 target 时当日/昨日日期重叠的唯一进行中活动优先命中"""
+        Activity.objects.create(
+            user=self.user, name='桐庐旅行', status='in_progress',
+            start_date=self.today - timedelta(days=1),
+            end_date=self.today + timedelta(days=1),
+        )
+        result = self.tool['fn'](self.user, {'amount': 66, 'category': '餐饮'})
+        expense = Expense.objects.get(user=self.user)
+        self.assertEqual(expense.activity.name, '桐庐旅行')
+        self.assertIn('桐庐旅行', result['reply'])
+
+    def test_bucket_hidden_from_activity_list_page(self):
+        """归属桶不出现在活动列表页，但费用统计口径包含桶内费用"""
+        self.tool['fn'](self.user, {'amount': 10})
+        client = Client()
+        client.login(username='testuser', password='test')
+        response = client.get('/activities/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(DAILY_BUCKET_NAME, response.content.decode())
+        # 费用统计口径包含桶内费用（按用户聚合）
+        total = Expense.objects.filter(user=self.user).aggregate(s=Sum('amount'))['s']
+        self.assertEqual(total, Decimal('10'))

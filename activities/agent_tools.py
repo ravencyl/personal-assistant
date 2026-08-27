@@ -5,11 +5,12 @@
 目标不明确时抛 ToolError / CandidateToolError 让用户澄清，绝不猜测；
 update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
+import re
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.urls import reverse
 from django.utils import timezone
 
@@ -18,7 +19,8 @@ from core.utils import get_visible, visible_qs
 
 from .models import Activity, Participant, Expense
 from .utils import (edit_summary, filter_activities, fmt_field,
-                    log_activity, normalize_input, snapshot_activity)
+                    get_daily_bucket, is_daily_bucket, log_activity,
+                    normalize_input, snapshot_activity)
 
 STATUS_LABELS = dict(Activity.STATUS_CHOICES)
 
@@ -421,13 +423,62 @@ def tool_stats(user, params):
 
 _CATEGORY_MAP = {v: k for k, v in dict(Expense.CATEGORY_CHOICES).items()}
 
+_NOTE_TOKEN_RE = re.compile(r'[\s,，。、;；:：!！?？()（）\[\]【】"\'~～·]+')
 
-@agent_tool('activities.add_expense', '为活动添加一笔费用',
-            'target（活动名称关键词）+ amount（金额，必填）+ '
+
+def _auto_expense_target(user, note):
+    """target 缺省时的费用归属链：
+    ① 当日/昨日日期重叠且进行中的唯一活动（多条不选）
+    ② note 关键词对进行中活动标题 icontains 唯一命中（多条不选）
+    ③ 「日常开支」归属桶兜底；返回 (activity, reason)
+    """
+    base = visible_qs(Activity, user).filter(status='in_progress')
+
+    # ① 日期重叠：活动区间覆盖今天或昨天（无开始日期的桶活动自然不命中）
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    date_qs = base.filter(
+        start_date__isnull=False,
+        start_date__lte=today,
+    ).filter(
+        Q(end_date__isnull=True) | Q(end_date__gte=yesterday)
+    )
+    if date_qs.count() == 1:
+        return date_qs.first(), 'date'
+
+    # ② note 分词后对进行中活动标题模糊匹配（跳过纯数字/金额词，唯一命中才用）
+    tokens = [
+        t for t in _NOTE_TOKEN_RE.split(str(note or ''))
+        if len(t) >= 2 and not t.isdigit() and not re.fullmatch(r'[\d.]+[元块角分]?', t)
+    ]
+    if tokens:
+        q = Q()
+        for t in tokens:
+            q |= Q(name__icontains=t)
+        kw_qs = base.filter(q).distinct()
+        kw_qs = kw_qs.exclude(pk__in=[a.pk for a in kw_qs if is_daily_bucket(a)])
+        if kw_qs.count() == 1:
+            return kw_qs.first(), 'keyword'
+
+    # ③ 兜底归属桶
+    return get_daily_bucket(user), 'bucket'
+
+
+@agent_tool('activities.add_expense', '为活动添加一笔费用（目标可省略，自动归属）',
+            'target（活动名称关键词，可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
+            'note 关键词唯一命中的进行中活动，都没有则记入「日常开支」）+ '
+            'amount（金额，必填）+ '
             'category（类别：交通/住宿/餐饮/门票/购物/工作/其他）+ '
-            'note（备注，可选）+ paid_at（消费日期 YYYY-MM-DD，可选）')
+            'note（备注，可选，也参与归属匹配）+ paid_at（消费日期 YYYY-MM-DD，可选；'
+            '相对日期需换算：“今天”用当前日期，“昨天”用当前日期减一天）')
 def tool_add_expense(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    target = str(params.get('target') or params.get('name') or '').strip()
+    if target:
+        # 有 target：行为与原来完全一致（0 条报错，多条抛候选）
+        activity = _resolve_single(user, target)
+        reason = 'target'
+    else:
+        activity, reason = _auto_expense_target(user, params.get('note'))
     amount = params.get('amount')
     if amount is None:
         raise ToolError('请告诉我费用金额')
@@ -462,8 +513,17 @@ def tool_add_expense(user, params):
     log_activity(user, activity, 'edited',
                  f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}（通过 AI 对话）')
 
+    if reason == 'target':
+        reply = f'已为「{activity.name}」添加费用 ¥{amount}（{expense.get_category_display()}）'
+    elif reason == 'date':
+        reply = f'已自动归入当日进行中的活动「{activity.name}」，添加费用 ¥{amount}（{expense.get_category_display()}）'
+    elif reason == 'keyword':
+        reply = f'已根据备注匹配到活动「{activity.name}」，添加费用 ¥{amount}（{expense.get_category_display()}）'
+    else:
+        reply = f'未找到明确归属的活动，已记入「{activity.name}」：费用 ¥{amount}（{expense.get_category_display()}）'
+
     return {
-        'reply': f'已为「{activity.name}」添加费用 ¥{amount}（{expense.get_category_display()}）',
+        'reply': reply,
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
