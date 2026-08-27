@@ -562,8 +562,8 @@ class SuggestionsTruncationTest(TestCase):
         cache.clear()
         self.user = User.objects.create_user('testuser', password='test')
 
-    def test_max_five_suggestions(self):
-        """多规则同时命中时最多返回 5 条"""
+    def test_max_suggestions(self):
+        """多规则同时命中时最多返回 6 条"""
         from core.suggestions import generate_suggestions
         today = timezone.localdate()
 
@@ -594,7 +594,7 @@ class SuggestionsTruncationTest(TestCase):
             )
 
         suggestions = generate_suggestions(self.user)
-        self.assertEqual(len(suggestions), 5)
+        self.assertEqual(len(suggestions), 6)
 
 
 class SuggestionsCacheTest(TestCase):
@@ -618,3 +618,351 @@ class SuggestionsCacheTest(TestCase):
         # 数据源变更 → post_save 信号清除缓存
         Activity.objects.create(user=self.user, name='新活动', status='planned')
         self.assertIsNone(cache.get(_cache_key(self.user.id)))
+
+
+class SuggestionDismissReadTest(TestCase):
+    """建议关闭/已读端点测试"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def test_dismiss_suggestion(self):
+        """关闭建议后不再出现"""
+        from core.models import SuggestionState
+        from core.suggestions import generate_suggestions
+
+        # 先创建一条建议数据
+        activity = Activity.objects.create(
+            user=self.user, name='测试活动',
+            budget=Decimal('1000'), status='in_progress',
+        )
+        Expense.objects.create(
+            activity=activity, user=self.user,
+            amount=Decimal('900'), category='food',
+        )
+
+        suggestions = generate_suggestions(self.user)
+        budget_suggestions = [s for s in suggestions if s['key'].startswith('budget:')]
+        self.assertTrue(len(budget_suggestions) > 0)
+        key = budget_suggestions[0]['key']
+
+        # 关闭
+        response = self.client.post(
+            '/suggestions/dismiss/',
+            data={'key': key},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+
+        # 验证 SuggestionState 记录
+        state = SuggestionState.objects.get(user=self.user, fingerprint=key)
+        self.assertEqual(state.action, 'dismissed')
+
+        # 重新生成建议，该条不再出现
+        suggestions = generate_suggestions(self.user)
+        keys = [s['key'] for s in suggestions]
+        self.assertNotIn(key, keys)
+
+    def test_read_suggestion(self):
+        """标记已读"""
+        from core.models import SuggestionState
+
+        response = self.client.post(
+            '/suggestions/read/',
+            data={'key': 'test_key:1'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        state = SuggestionState.objects.get(user=self.user, fingerprint='test_key:1')
+        self.assertEqual(state.action, 'read')
+
+    def test_read_does_not_override_dismiss(self):
+        """已读不覆盖已关闭"""
+        from core.models import SuggestionState
+
+        SuggestionState.objects.create(
+            user=self.user, fingerprint='test_key:2', action='dismissed'
+        )
+        self.client.post(
+            '/suggestions/read/',
+            data={'key': 'test_key:2'},
+            content_type='application/json',
+        )
+        state = SuggestionState.objects.get(user=self.user, fingerprint='test_key:2')
+        self.assertEqual(state.action, 'dismissed')
+
+    def test_dismiss_invalid_key(self):
+        """无效 key 返回 400"""
+        response = self.client.post(
+            '/suggestions/dismiss/',
+            data={'key': ''},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_dismiss_requires_login(self):
+        """未登录返回重定向"""
+        self.client.logout()
+        response = self.client.post(
+            '/suggestions/dismiss/',
+            data={'key': 'x'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 302)
+
+
+class SuggestionsNewRulesTest(TestCase):
+    """新增规则测试"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.today = timezone.localdate()
+
+    def test_expense_anomaly_triggers(self):
+        """单日消费显著高于日均时触发异常提醒"""
+        from core.suggestions import _rule_expense_anomaly
+
+        # 近 30 天每天消费 20 元
+        for i in range(1, 20):
+            activity = Activity.objects.create(
+                user=self.user, name=f'活动{i}', status='done',
+                start_date=self.today - timedelta(days=i),
+                end_date=self.today - timedelta(days=i),
+            )
+            Expense.objects.create(
+                activity=activity, user=self.user,
+                amount=Decimal('20'), category='food',
+                paid_at=self.today - timedelta(days=i),
+            )
+
+        # 今天消费 200 元（远超日均 20 * 3 = 60）
+        today_activity = Activity.objects.create(
+            user=self.user, name='今日活动', status='done',
+            start_date=self.today, end_date=self.today,
+        )
+        Expense.objects.create(
+            activity=today_activity, user=self.user,
+            amount=Decimal('200'), category='shopping',
+            paid_at=self.today,
+        )
+
+        result = _rule_expense_anomaly(self.user, self.today)
+        self.assertIsNotNone(result)
+        self.assertIn('明显高于', result['text'])
+        self.assertEqual(result['icon'], 'expense')
+
+    def test_expense_anomaly_not_triggered(self):
+        """正常消费不触发"""
+        from core.suggestions import _rule_expense_anomaly
+
+        activity = Activity.objects.create(
+            user=self.user, name='普通活动', status='done',
+            start_date=self.today, end_date=self.today,
+        )
+        Expense.objects.create(
+            activity=activity, user=self.user,
+            amount=Decimal('10'), category='food',
+            paid_at=self.today,
+        )
+
+        result = _rule_expense_anomaly(self.user, self.today)
+        self.assertIsNone(result)
+
+    def test_habit_streak_positive(self):
+        """连续打卡 ≥3 天时正向激励"""
+        from core.suggestions import _rule_habit_streak
+        from activities.models import RecurringActivity
+
+        pattern = RecurringActivity.objects.create(
+            user=self.user, name='冥想', frequency='daily', is_active=True,
+        )
+        # 连续 5 天打卡
+        for i in range(1, 6):
+            Activity.objects.create(
+                user=self.user, name='冥想',
+                start_date=self.today - timedelta(days=i),
+                end_date=self.today - timedelta(days=i),
+                status='done', recurring_source=pattern,
+            )
+
+        result = _rule_habit_streak(self.user, self.today)
+        self.assertIsNotNone(result)
+        self.assertTrue(len(result) > 0)
+        self.assertIn('连续打卡 5 天', result[0]['text'])
+
+    def test_subtask_progress_triggers(self):
+        """子任务完成 ≥80% 时鼓励"""
+        from core.suggestions import _rule_subtask_progress
+
+        parent = Activity.objects.create(
+            user=self.user, name='大项目', status='in_progress',
+        )
+        # 5 个子任务，4 个完成
+        for i in range(5):
+            Activity.objects.create(
+                user=self.user, name=f'子任务{i}',
+                parent=parent,
+                status='done' if i < 4 else 'planned',
+            )
+
+        result = _rule_subtask_progress(self.user, self.today)
+        self.assertIsNotNone(result)
+        self.assertTrue(len(result) > 0)
+        self.assertIn('只剩 1 个子任务', result[0]['text'])
+
+    def test_goal_progress_no_goals(self):
+        """无目标记忆时不触发"""
+        from core.suggestions import _rule_goal_progress
+
+        result = _rule_goal_progress(self.user, self.today)
+        self.assertIsNone(result)
+
+    def test_goal_progress_with_matching_activity(self):
+        """有目标且有匹配活动时正向提示"""
+        from core.suggestions import _rule_goal_progress
+        from memory.models import Memory
+
+        Memory.objects.create(
+            user=self.user, content='学好英语',
+            category='goal', importance=8,
+        )
+        Activity.objects.create(
+            user=self.user, name='英语学习计划',
+            status='in_progress',
+            start_date=self.today,
+        )
+
+        result = _rule_goal_progress(self.user, self.today)
+        self.assertIsNotNone(result)
+        self.assertTrue(len(result) > 0)
+        self.assertIn('进行中', result[0]['text'])
+
+
+class ParseInsightsTest(TestCase):
+    """AI 洞察 JSON 解析校验"""
+    def test_valid_json(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = '[{"text": "测试洞察", "icon": "plan", "action": {"label": "查看", "url": "/activities/"}}]'
+        result = parse_insights(raw)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['text'], '测试洞察')
+
+    def test_invalid_json(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        self.assertEqual(parse_insights('not json'), [])
+        self.assertEqual(parse_insights(''), [])
+        self.assertEqual(parse_insights(None), [])
+
+    def test_url_whitelist_filtering(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = '[{"text": "测试", "icon": "plan", "action": {"label": "查看", "url": "https://evil.com"}}]'
+        result = parse_insights(raw)
+        self.assertEqual(len(result), 1)
+        self.assertIsNone(result[0]['action'])
+
+    def test_max_two_insights(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = '[{"text": "1", "icon": "plan", "action": null}, {"text": "2", "icon": "goal", "action": null}, {"text": "3", "icon": "habit", "action": null}]'
+        result = parse_insights(raw)
+        self.assertEqual(len(result), 2)
+
+    def test_markdown_fence_stripped(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = '```json\n[{"text": "测试", "icon": "plan", "action": null}]\n```'
+        result = parse_insights(raw)
+        self.assertEqual(len(result), 1)
+
+
+class DailyInsightMergeTest(TestCase):
+    """AI 洞察合并到建议列表"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_insights_merged_at_top(self):
+        """DailyInsight 置顶，总上限 6"""
+        from core.models import DailyInsight
+        from core.suggestions import generate_suggestions
+
+        today = timezone.localdate()
+        DailyInsight.objects.create(
+            user=self.user,
+            insight_date=today,
+            insights=[
+                {'text': 'AI 洞察 1', 'icon': 'goal', 'key': 'ai:test:0', 'action': None, 'source': 'ai'},
+                {'text': 'AI 洞察 2', 'icon': 'habit', 'key': 'ai:test:1', 'action': None, 'source': 'ai'},
+            ],
+            status='ready',
+        )
+
+        suggestions = generate_suggestions(self.user)
+        # AI 洞察应在最前
+        if suggestions:
+            self.assertEqual(suggestions[0]['source'], 'ai')
+            self.assertEqual(suggestions[0]['text'], 'AI 洞察 1')
+
+    def test_dismissed_insight_hidden(self):
+        """已关闭的洞察不再显示"""
+        from core.models import DailyInsight, SuggestionState
+        from core.suggestions import generate_suggestions
+
+        today = timezone.localdate()
+        DailyInsight.objects.create(
+            user=self.user,
+            insight_date=today,
+            insights=[
+                {'text': 'AI 洞察', 'icon': 'goal', 'key': 'ai:test:0', 'action': None, 'source': 'ai'},
+            ],
+            status='ready',
+        )
+        SuggestionState.objects.create(
+            user=self.user, fingerprint='ai:test:0', action='dismissed'
+        )
+
+        suggestions = generate_suggestions(self.user)
+        ai_keys = [s['key'] for s in suggestions if s.get('source') == 'ai']
+        self.assertNotIn('ai:test:0', ai_keys)
+
+
+class ComputeHabitStreaksTest(TestCase):
+    """compute_habit_streaks 公共函数"""
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.today = timezone.localdate()
+
+    def test_streak_calculation(self):
+        from core.suggestions import compute_habit_streaks
+        from activities.models import RecurringActivity
+
+        pattern = RecurringActivity.objects.create(
+            user=self.user, name='跑步', frequency='daily', is_active=True,
+        )
+        # 连续 3 天打卡（昨天、前天、大前天）
+        for i in range(1, 4):
+            Activity.objects.create(
+                user=self.user, name='跑步',
+                start_date=self.today - timedelta(days=i),
+                status='done', recurring_source=pattern,
+            )
+        # 第 4 天未完成（断签）
+        Activity.objects.create(
+            user=self.user, name='跑步',
+            start_date=self.today - timedelta(days=4),
+            status='planned', recurring_source=pattern,
+        )
+
+        streaks = compute_habit_streaks(self.user, self.today)
+        self.assertEqual(len(streaks), 1)
+        self.assertEqual(streaks[0]['streak'], 3)
+        self.assertEqual(streaks[0]['name'], '跑步')
+
+    def test_no_active_recurring(self):
+        from core.suggestions import compute_habit_streaks
+        streaks = compute_habit_streaks(self.user, self.today)
+        self.assertEqual(streaks, [])

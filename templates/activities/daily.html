@@ -252,11 +252,23 @@
     </h2>
     <div class="space-y-3 collapsible-content" id="content-ai-suggestions">
         {% for s in suggestions %}
-        <div class="flex items-start gap-3">
+        <div class="flex items-start gap-3 group transition-opacity duration-200 {% if s.source == 'ai' %}border-l-2 border-[var(--accent)] pl-3{% endif %}"
+             data-suggestion-key="{{ s.key }}" {% if s.is_read %}style="opacity:0.6"{% endif %}>
             <span class="text-xs text-[var(--text-muted)] font-medium flex-shrink-0 mt-0.5 whitespace-nowrap">
-                {% if s.icon == 'calendar' %}日程{% elif s.icon == 'expense' %}消费{% elif s.icon == 'alert' %}进度{% elif s.icon == 'plan' %}待办{% elif s.icon == 'stale' %}日程{% else %}建议{% endif %}
+                {% if s.source == 'ai' %}洞察{% elif s.icon == 'calendar' %}日程{% elif s.icon == 'expense' %}消费{% elif s.icon == 'alert' %}进度{% elif s.icon == 'plan' %}待办{% elif s.icon == 'stale' %}日程{% elif s.icon == 'goal' %}目标{% elif s.icon == 'habit' %}习惯{% else %}建议{% endif %}
             </span>
-            <p class="text-sm text-[var(--text)]">{{ s.text }}</p>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-[var(--text)]">{{ s.text }}</p>
+                {% if s.action %}
+                <a href="{{ s.action.url }}" data-suggestion-action
+                   class="inline-flex items-center gap-1 mt-1.5 text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">
+                    {{ s.action.label }} →
+                </a>
+                {% endif %}
+            </div>
+            <button type="button" data-suggestion-dismiss
+                    class="hover-actions tap-target flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm leading-none mt-0.5"
+                    aria-label="关闭建议">✕</button>
         </div>
         {% endfor %}
     </div>
@@ -400,6 +412,55 @@ function toggleSection(sectionId) {
         } else {
             // 默认展开
             arrow.style.transform = 'rotate(0deg)';
+        }
+    });
+})();
+</script>
+
+<script>
+// 建议交互：关闭/已读（fetch 消费 JSON 端点，事件委托兼容动态节点）
+(function () {
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var csrf = csrfMeta ? csrfMeta.content : '';
+
+    function postJson(url, key) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: key })
+        }).catch(function () { return null; });
+    }
+
+    function removeRow(row) {
+        row.style.opacity = '0';
+        setTimeout(function () {
+            row.remove();
+            var section = document.querySelector('[data-section="ai-suggestions"]');
+            if (section && !section.querySelector('[data-suggestion-key]')) {
+                section.style.opacity = '0';
+                setTimeout(function () { section.remove(); }, 200);
+            }
+        }, 200);
+    }
+
+    document.addEventListener('click', function (e) {
+        var dismissBtn = e.target.closest('[data-suggestion-dismiss]');
+        if (dismissBtn) {
+            e.preventDefault();
+            var row = dismissBtn.closest('[data-suggestion-key]');
+            if (!row) return;
+            dismissBtn.disabled = true;
+            postJson('{% url "suggestion_dismiss" %}', row.dataset.suggestionKey)
+                .then(function (res) {
+                    if (res && res.ok) removeRow(row);
+                    else dismissBtn.disabled = false;
+                });
+            return;
+        }
+        var actionLink = e.target.closest('[data-suggestion-action]');
+        if (actionLink) {
+            var key = actionLink.closest('[data-suggestion-key]');
+            if (key) postJson('{% url "suggestion_read" %}', key.dataset.suggestionKey);
         }
     });
 })();

@@ -69,6 +69,9 @@ crontab -e
 
 # 每晚 21:30 生成每日晚间摘要（AI 优先，失败降级为规则模板，幂等可重跑）
 30 21 * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py generate_daily_summary >> /tmp/daily_summary.log 2>&1
+
+# 每早 06:30 生成每日个性化洞察（AI 优先，失败降级为规则模板，幂等可重跑）
+30 6 * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py generate_daily_insights >> /tmp/daily_insights.log 2>&1
 ```
 
 ### 定时任务说明
@@ -78,6 +81,7 @@ crontab -e
 | auto_start_activities | 每 30 分钟 | 将 start_date 已到的 planned 活动自动改为 in_progress |
 | generate_recurring | 每日 1 次 | 根据循环活动规则生成未来 7 天的活动实例 |
 | generate_daily_summary | 每晚 21:30 | 为活跃用户预生成当日摘要（今日回顾/消费/明日安排），展示在 Daily 页；当日已有摘要则跳过 |
+| generate_daily_insights | 每早 06:30 | 为活跃用户预生成个性化洞察（结合记忆与行为数据），展示在 Daily 页建议区顶部；当日已有洞察则跳过 |
 
 ## 配置说明（.env）
 
@@ -118,6 +122,9 @@ python manage.py generate_recurring
 
 # 导入 media/knowledge/ 下的 Markdown 文件为知识库文章
 python manage.py import_knowledge_files
+
+# 生成每日个性化洞察（AI 优先，失败降级，幂等）
+python manage.py generate_daily_insights [--dry-run]
 ```
 
 ## 生产部署

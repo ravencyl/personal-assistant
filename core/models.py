@@ -78,6 +78,65 @@ class DailySummary(models.Model):
         return f'{self.user} {self.summary_date} ({self.get_status_display()})'
 
 
+class SuggestionState(models.Model):
+    """建议关闭/已读状态，按指纹幂等记录"""
+    ACTION_CHOICES = [
+        ('dismissed', '已关闭'),
+        ('read', '已读'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='suggestion_states',
+    )
+    fingerprint = models.CharField('建议指纹', max_length=128, db_index=True)
+    action = models.CharField('操作', max_length=20, choices=ACTION_CHOICES, default='dismissed')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '建议状态'
+        verbose_name_plural = '建议状态'
+        unique_together = [('user', 'fingerprint')]
+        indexes = [
+            models.Index(fields=['user', 'action']),
+        ]
+
+    def __str__(self):
+        return f'{self.user} {self.fingerprint} ({self.get_action_display()})'
+
+
+class DailyInsight(models.Model):
+    """AI 个性化洞察：cron 每日预生成，Daily 页展示"""
+    STATUS_CHOICES = [
+        ('pending', '待生成'),
+        ('ready', '已生成'),
+        ('fallback', '降级生成'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='daily_insights',
+    )
+    insight_date = models.DateField('洞察日期')
+    insights = models.JSONField('洞察列表', default=list, blank=True)
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='pending')
+    generated_at = models.DateTimeField('生成时间', null=True, blank=True)
+
+    class Meta:
+        verbose_name = '每日洞察'
+        verbose_name_plural = '每日洞察'
+        unique_together = [('user', 'insight_date')]
+        indexes = [
+            models.Index(fields=['user', 'insight_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.user} {self.insight_date} ({self.get_status_display()})'
+
+
 def check_due_reminders(user):
     """检查并触发到期的提醒，返回触发的提醒列表"""
     from django.utils import timezone
