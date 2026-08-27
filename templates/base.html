@@ -8,6 +8,7 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{% static 'js/tailwind.js' %}"></script>
     <script src="{% static 'js/htmx.min.js' %}"></script>
+    <script src="{% static 'js/offline-queue.js' %}"></script>
     <link rel="stylesheet" href="{% static 'css/custom.css' %}">
     <style>
         body {
@@ -207,6 +208,79 @@
         </button>
     </div>
 
+    <!-- 一键快记浮窗（聊天 FAB 上方；移动端 bottom-36 避让底部 Tab 栏，桌面 md:bottom-16 避让聊天 FAB） -->
+    <div class="fixed bottom-36 right-4 z-50 md:bottom-16 flex flex-col items-end">
+        <!-- 展开面板（复制 #chat-panel 开合模式；所有表单走原生 fetch，严禁挂 hx-*） -->
+        <div id="quick-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+                <span class="font-medium text-[var(--text)]">快记</span>
+                <button type="button" id="quick-close-btn" class="tap-target text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-2" title="关闭（Esc）">&times;</button>
+            </div>
+            <!-- Tab 切换（纯 JS） -->
+            <div class="flex gap-2 px-4 pt-3">
+                <button type="button" data-quick-tab="expense" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 bg-zinc-900 text-white transition-colors">费用</button>
+                <button type="button" data-quick-tab="note" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">备忘</button>
+                <button type="button" data-quick-tab="activity" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">活动</button>
+            </div>
+            <!-- 费用 Tab（复制 _daily_card.html 内联费用表单结构；不选活动时缺省记入系统归属桶） -->
+            <form id="quick-expense-form" data-quick-pane="expense" class="p-4 space-y-2">
+                <div class="flex gap-2">
+                    <input type="number" name="amount" step="0.01" min="0" placeholder="金额" required
+                           class="tap-target flex-none w-24 rounded-full border border-[var(--border-strong)] bg-transparent px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                    <select name="category" class="tap-target flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]">
+                        <option value="food">餐饮</option>
+                        <option value="transport">交通</option>
+                        <option value="accommodation">住宿</option>
+                        <option value="ticket">门票</option>
+                        <option value="shopping">购物</option>
+                        <option value="work">工作</option>
+                        <option value="digital">数码</option>
+                        <option value="health">健康</option>
+                        <option value="other" selected>其他</option>
+                    </select>
+                </div>
+                <input type="text" name="note" placeholder="备注（可选）" maxlength="255"
+                       class="tap-target w-full rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
+                <div class="flex gap-2 items-center">
+                    <input type="date" name="paid_at" title="不填默认今天"
+                           class="tap-target flex-1 min-w-0 border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]">
+                    <button type="submit"
+                            class="tap-target shrink-0 rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">记入</button>
+                </div>
+                <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
+            </form>
+            <!-- 备忘 Tab -->
+            <form id="quick-note-form" data-quick-pane="note" class="hidden p-4 space-y-2">
+                <textarea name="content" rows="4" placeholder="记点什么…"
+                          class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]"></textarea>
+                <div class="flex justify-end">
+                    <button type="submit"
+                            class="tap-target rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">保存</button>
+                </div>
+                <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
+            </form>
+            <!-- 活动 Tab（一句话创建：parse-quick-input AI 优先 + 规则兜底） -->
+            <form id="quick-activity-form" data-quick-pane="activity" class="hidden p-4 space-y-2">
+                <input type="text" name="text" maxlength="500" autocomplete="off"
+                       placeholder="一句话创建活动，如：8月25到28日去上海出差 预算3000 #工作"
+                       class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                <div class="flex justify-end">
+                    <button type="submit"
+                            class="tap-target rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">创建</button>
+                </div>
+                <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
+            </form>
+        </div>
+        <!-- 悬浮按钮（灰阶描边样式，与既有浮窗一致；右上角灰阶角标为离线待同步数） -->
+        <button type="button" id="quick-toggle-btn"
+                class="relative w-12 h-12 rounded-full bg-[var(--bg-card)] border border-[var(--border-strong)] text-[var(--text)] flex items-center justify-center hover:bg-[var(--accent-light)] transition-colors" title="快记">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            <span id="quick-outbox-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-zinc-700 text-white text-[10px] font-bold flex items-center justify-center">0</span>
+        </button>
+    </div>
+
     <script>
     (function () {
         var panel = document.getElementById('chat-panel');
@@ -264,10 +338,14 @@
                 .catch(function () { messagesEl.innerHTML = '<p class="text-center text-sm text-zinc-800 font-semibold py-4">消息加载失败，请重试</p>'; });
         }
 
-        // 展开/收起面板
+        // 展开/收起面板（与快记浮层互斥，同时只开一个）
         document.getElementById('chat-toggle-btn').addEventListener('click', function () {
             panel.classList.toggle('hidden');
-            if (!panel.classList.contains('hidden')) input.focus();
+            if (!panel.classList.contains('hidden')) {
+                var qp = document.getElementById('quick-panel');
+                if (qp) qp.classList.add('hidden');
+                input.focus();
+            }
         });
 
         // 选择历史对话（事件委托，兼容动态新增项）
@@ -349,6 +427,181 @@
                     input.disabled = false;
                     input.focus();
                 });
+        });
+    })();
+    </script>
+
+    <!-- 快记浮层脚本：三端点全部原生 fetch + meta[name="csrf-token"]；无 hx-*、无 htmx.process() -->
+    <script>
+    (function () {
+        var panel = document.getElementById('quick-panel');
+        var chatPanel = document.getElementById('chat-panel');
+        var csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+        function openPanel() {
+            panel.classList.remove('hidden');
+            if (chatPanel) chatPanel.classList.add('hidden');
+        }
+        function closePanel() { panel.classList.add('hidden'); }
+
+        document.getElementById('quick-toggle-btn').addEventListener('click', function () {
+            panel.classList.contains('hidden') ? openPanel() : closePanel();
+        });
+        document.getElementById('quick-close-btn').addEventListener('click', closePanel);
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape' || panel.classList.contains('hidden')) return;
+            // 搜索面板展开时让其自身的 Esc 守卫优先，避免同时关闭两层
+            var so = document.getElementById('search-overlay');
+            if (so && !so.classList.contains('hidden')) return;
+            closePanel();
+        });
+
+        // ── Tab 切换（纯 JS） ──
+        var tabBtns = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-tab]'));
+        var panes = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-pane]'));
+        function switchTab(name) {
+            tabBtns.forEach(function (b) {
+                var active = b.getAttribute('data-quick-tab') === name;
+                b.classList.toggle('bg-zinc-900', active);
+                b.classList.toggle('text-white', active);
+                b.classList.toggle('border', !active);
+                b.classList.toggle('border-[var(--border-strong)]', !active);
+                b.classList.toggle('text-[var(--text-secondary)]', !active);
+                b.classList.toggle('hover:bg-[var(--accent-light)]', !active);
+            });
+            panes.forEach(function (p) {
+                p.classList.toggle('hidden', p.getAttribute('data-quick-pane') !== name);
+            });
+        }
+        tabBtns.forEach(function (b) {
+            b.addEventListener('click', function () { switchTab(b.getAttribute('data-quick-tab')); });
+        });
+
+        function setStatus(el, msg) { el.textContent = msg; el.classList.remove('hidden'); }
+        function setBtnLoading(btn, loading, text) {
+            if (loading) {
+                if (!btn.disabled) btn.dataset.idleText = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = text;
+            } else {
+                btn.disabled = false;
+                if (btn.dataset.idleText) btn.textContent = btn.dataset.idleText;
+            }
+        }
+
+        // ── 弱网兜底：网络失败入离线队列（业务 400 仍即时提示不入队） ──
+        function netFail(err) { return (err instanceof TypeError) || navigator.onLine === false; }
+        function stashOffline(url, body, headers, follow) {
+            if (window.PaOutbox) window.PaOutbox.enqueue(url, body, headers, follow);
+            return '已暂存，联网后自动提交';
+        }
+
+        // ── 费用 Tab ──
+        var expenseForm = document.getElementById('quick-expense-form');
+        var expenseBtn = expenseForm.querySelector('button[type="submit"]');
+        var expenseStatus = expenseForm.querySelector('[data-quick-status]');
+        var expenseUrl = '{% url "activities:expense_quick_create" %}';
+        expenseForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (expenseBtn.disabled) return;
+            setBtnLoading(expenseBtn, true, '记入中…');
+            var expBody = new URLSearchParams(new FormData(expenseForm)).toString();
+            var expHeaders = { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' };
+            fetch(expenseUrl, {
+                method: 'POST',
+                body: expBody,
+                headers: expHeaders
+            }).then(function (r) {
+                return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+            }).then(function (res) {
+                if (!res.ok) { setStatus(expenseStatus, res.data.error || '保存失败，请重试'); return; }
+                var d = res.data;
+                setStatus(expenseStatus, '已记 ¥' + d.amount + ' [' + d.category + '] 至「' + d.activity_name +
+                    '」（累计 ¥' + d.expense_total + ' · ' + d.expense_count + ' 笔）');
+                expenseForm.querySelector('[name="amount"]').value = '';
+                expenseForm.querySelector('[name="note"]').value = '';
+            }).catch(function (err) {
+                setStatus(expenseStatus, netFail(err) ? stashOffline(expenseUrl, expBody, expHeaders) : '网络异常，请重试');
+            }).finally(function () { setBtnLoading(expenseBtn, false); });
+        });
+
+        // ── 备忘 Tab ──
+        var noteForm = document.getElementById('quick-note-form');
+        var noteBtn = noteForm.querySelector('button[type="submit"]');
+        var noteStatus = noteForm.querySelector('[data-quick-status]');
+        var noteUrl = '{% url "notes:note_create" %}';
+        noteForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (noteBtn.disabled) return;
+            setBtnLoading(noteBtn, true, '保存中…');
+            var noteBody = new URLSearchParams(new FormData(noteForm)).toString();
+            var noteHeaders = { 'X-CSRFToken': csrf, 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' };
+            fetch(noteUrl, {
+                method: 'POST',
+                body: noteBody,
+                headers: noteHeaders
+            }).then(function (r) {
+                return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+            }).then(function (res) {
+                if (!res.ok) { setStatus(noteStatus, res.data.error || '保存失败，请重试'); return; }
+                setStatus(noteStatus, '备忘已保存');
+                noteForm.querySelector('[name="content"]').value = '';
+            }).catch(function (err) {
+                setStatus(noteStatus, netFail(err) ? stashOffline(noteUrl, noteBody, noteHeaders) : '网络异常，请重试');
+            }).finally(function () { setBtnLoading(noteBtn, false); });
+        });
+
+        // ── 活动 Tab：一句话 → 解析（AI 优先，可能耗时）→ 确认创建（消费方式照抄 activity_list.html） ──
+        var actForm = document.getElementById('quick-activity-form');
+        var actBtn = actForm.querySelector('button[type="submit"]');
+        var actStatus = actForm.querySelector('[data-quick-status]');
+        var actInput = actForm.querySelector('[name="text"]');
+        var parseUrl = '{% url "activities:parse_quick_input" %}';
+        var quickCreateUrl = '{% url "activities:activity_quick_create" %}';
+        var createHeaders = { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' };
+        actForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (actBtn.disabled) return;
+            var text = actInput.value.trim();
+            if (!text) { setStatus(actStatus, '请输入内容'); return; }
+            setBtnLoading(actBtn, true, '解析中…');
+            setStatus(actStatus, 'AI 解析中，可能需要几秒…');
+            var parseBody = 'text=' + encodeURIComponent(text);
+            var parseHeaders = { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' };
+            fetch(parseUrl, {
+                method: 'POST',
+                body: parseBody,
+                headers: parseHeaders
+            }).then(function (r) {
+                return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+            }).then(function (res) {
+                if (!res.ok) { setStatus(actStatus, res.data.error || '解析失败，请重试'); setBtnLoading(actBtn, false); return; }
+                setBtnLoading(actBtn, true, '创建中…');
+                fetch(quickCreateUrl, {
+                    method: 'POST',
+                    body: JSON.stringify(res.data),
+                    headers: createHeaders
+                }).then(function (r2) {
+                    return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; });
+                }).then(function (res2) {
+                    if (!res2.ok) { setStatus(actStatus, res2.data.error || '创建失败，请重试'); return; }
+                    setStatus(actStatus, '活动「' + res2.data.name + '」已创建');
+                    actInput.value = '';
+                    document.dispatchEvent(new CustomEvent('activities:changed'));
+                }).catch(function (err) {
+                    // 解析已成功但创建断网：直接入队创建请求（携已解析字段）
+                    setStatus(actStatus, netFail(err) ? stashOffline(quickCreateUrl, JSON.stringify(res.data), createHeaders) : '创建失败，请重试');
+                }).finally(function () { setBtnLoading(actBtn, false); });
+            }).catch(function (err) {
+                // 解析请求断网：入队两跳链路（重放时先解析再以结果创建）
+                if (netFail(err)) {
+                    stashOffline(parseUrl, parseBody, parseHeaders, { url: quickCreateUrl, headers: createHeaders });
+                    setStatus(actStatus, '已暂存，联网后自动提交');
+                } else {
+                    setStatus(actStatus, '网络异常，请重试');
+                }
+                setBtnLoading(actBtn, false);
+            });
         });
     })();
     </script>

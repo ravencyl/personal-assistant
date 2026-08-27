@@ -24,7 +24,7 @@ from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplat
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, log_activity,
                     normalize_input, snapshot_activity, budget_status,
-                    exclude_daily_bucket)
+                    exclude_daily_bucket, get_daily_bucket)
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
@@ -664,6 +664,62 @@ def expense_create(request, activity_id):
             'expense_count': agg['cnt'] or 0,
         })
     return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+@require_POST
+def expense_quick_create(request):
+    """全局快记：一键记一笔费用（JSON 端点，由原生 fetch 消费）
+
+    活动 id 可选；缺省记入「日常开支」归属桶。校验逻辑与 expense_create 一致。
+    """
+    try:
+        amount = float(request.POST.get('amount', ''))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '请输入正确的金额'}, status=400)
+    if amount < 0:
+        return JsonResponse({'error': '金额不能为负数'}, status=400)
+
+    activity_id = (request.POST.get('activity_id') or '').strip()
+    if activity_id:
+        activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+        if not activity:
+            return JsonResponse({'error': '活动不存在或无权访问'}, status=400)
+    else:
+        activity = get_daily_bucket(request.user)
+
+    category = request.POST.get('category', 'other')
+    if category not in dict(Expense.CATEGORY_CHOICES):
+        category = 'other'
+
+    paid_at = request.POST.get('paid_at', '').strip() or timezone.localdate().isoformat()
+    try:
+        date.fromisoformat(paid_at)
+    except ValueError:
+        paid_at = timezone.localdate().isoformat()
+
+    note = request.POST.get('note', '').strip()[:255]
+
+    expense = Expense.objects.create(
+        activity=activity,
+        user=request.user,
+        amount=amount,
+        category=category,
+        paid_at=paid_at,
+        note=note,
+    )
+    log_activity(request.user, activity, 'edited',
+                 f'快记费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
+
+    agg = activity.expenses.aggregate(total=Sum('amount'), cnt=Count('id'))
+    return JsonResponse({
+        'success': True,
+        'amount': float(expense.amount),
+        'category': expense.get_category_display(),
+        'activity_name': activity.name,
+        'expense_total': float(agg['total'] or 0),
+        'expense_count': agg['cnt'] or 0,
+    })
 
 
 @login_required

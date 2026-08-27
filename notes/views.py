@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from taggit.models import Tag
 
@@ -55,10 +56,17 @@ def note_list(request):
 @login_required
 @require_POST
 def note_create(request):
-    """创建笔记（支持快速创建和完整创建两种入口）"""
-    # 判断是否为快速创建（只有 content，无 tags/pinned）
+    """创建笔记（支持快速创建和完整创建两种入口；JSON 请求返回 JSON）"""
+    # JSON 客户端（全局快记浮层等，原生 fetch + Accept/X-Requested-With 头）
+    wants_json = (
+        request.headers.get('Accept') == 'application/json'
+        or request.headers.get('X-Requested-With') in ('XMLHttpRequest', 'fetch')
+    )
+
     content = (request.POST.get('content') or '').strip()
     if not content:
+        if wants_json:
+            return JsonResponse({'error': '内容不能为空'}, status=400)
         messages.error(request, '内容不能为空')
         return redirect('notes:note_list')
 
@@ -77,6 +85,9 @@ def note_create(request):
         tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
         if tag_names:
             note.tags.add(*tag_names)
+
+    if wants_json:
+        return JsonResponse({'success': True, 'id': note.id, 'content': note.content})
 
     messages.success(request, '备忘录已创建')
     return redirect('notes:note_list')
