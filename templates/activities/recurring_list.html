@@ -9,6 +9,29 @@
     <p class="text-sm text-[var(--text-muted)] mt-1">管理习惯性任务，系统自动生成每日实例</p>
 </div>
 
+<!-- 打卡热力图 -->
+<section class="app-card p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-[var(--text)]">打卡热力图（近一年）</h2>
+        <span id="habit-heatmap-total" class="text-xs text-[var(--text-muted)]"></span>
+    </div>
+    <div class="overflow-x-auto pb-1">
+        <p id="habit-heatmap-loading" class="text-xs text-[var(--text-muted)] py-2">加载中…</p>
+        <div id="habit-heatmap" data-url="{% url 'activities:habit_heatmap_data' %}"
+             class="hidden grid gap-[3px]"
+             style="grid-template-rows:repeat(7,0.75rem);grid-auto-flow:column;grid-auto-columns:0.75rem;"></div>
+    </div>
+    <div class="flex items-center gap-1.5 mt-3 text-xs text-[var(--text-muted)]">
+        <span>少</span>
+        <span class="w-3 h-3 rounded-[2px] bg-[var(--accent-light)]"></span>
+        <span class="w-3 h-3 rounded-[2px] bg-zinc-300"></span>
+        <span class="w-3 h-3 rounded-[2px] bg-zinc-500"></span>
+        <span class="w-3 h-3 rounded-[2px] bg-zinc-700"></span>
+        <span class="w-3 h-3 rounded-[2px] bg-zinc-900"></span>
+        <span>多</span>
+    </div>
+</section>
+
 <!-- 创建表单 -->
 <section class="app-card p-5 mb-6">
     <h2 class="text-sm font-semibold text-[var(--text)] mb-4">新建循环活动</h2>
@@ -176,5 +199,54 @@ function toggleFrequencyFields() {
     weeklyFields.classList.toggle('hidden', freq !== 'weekly');
     monthlyFields.classList.toggle('hidden', freq !== 'monthly');
 }
+
+// 打卡热力图：原生 fetch 拉取近一年打卡数据，纯 CSS grid 按周列渲染（禁用 hx-*）
+(function () {
+    var grid = document.getElementById('habit-heatmap');
+    var loading = document.getElementById('habit-heatmap-loading');
+    var totalEl = document.getElementById('habit-heatmap-total');
+    if (!grid) return;
+
+    function iso(d) {
+        var m = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + m + '-' + day;
+    }
+
+    fetch(grid.dataset.url)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var heat = data.heatmap || {};
+            var today = new Date();
+            var start = new Date(today);
+            start.setDate(start.getDate() - 364);
+            // 回退到所在周的周一，保证每列一整周（周一起始）
+            start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+
+            // 五档灰阶：0 无打卡 / 1 / 2 / 3 / ≥4 次
+            var levels = ['bg-[var(--accent-light)]', 'bg-zinc-300', 'bg-zinc-500', 'bg-zinc-700', 'bg-zinc-900'];
+            var frag = document.createDocumentFragment();
+            var cursor = new Date(start);
+            while (cursor <= today) {
+                var key = iso(cursor);
+                var n = heat[key] || 0;
+                var level = n === 0 ? 0 : (n >= 4 ? 4 : n);
+                var cell = document.createElement('div');
+                cell.className = 'w-3 h-3 rounded-[2px] ' + levels[level];
+                cell.title = key + (n ? ' · 打卡 ' + n + ' 次' : ' · 无打卡');
+                frag.appendChild(cell);
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            grid.appendChild(frag);
+            loading.classList.add('hidden');
+            grid.classList.remove('hidden');
+            if (totalEl && typeof data.total_days === 'number') {
+                totalEl.textContent = '近一年打卡 ' + data.total_days + ' 天';
+            }
+        })
+        .catch(function () {
+            loading.textContent = '热力图加载失败，请稍后重试';
+        });
+})();
 </script>
 {% endblock %}
