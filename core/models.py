@@ -47,6 +47,37 @@ class Reminder(models.Model):
         return f'{self.content} ({self.get_status_display()})'
 
 
+class DailySummary(models.Model):
+    """每日晚间摘要：cron 预生成，Daily 页展示"""
+    STATUS_CHOICES = [
+        ('pending', '待生成'),
+        ('ready', '已生成'),
+        ('fallback', '降级生成'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='daily_summaries',
+    )
+    summary_date = models.DateField('摘要日期')
+    content = models.TextField('摘要内容', blank=True, default='')
+    stats = models.JSONField('统计数据', default=dict, blank=True)
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='pending')
+    generated_at = models.DateTimeField('生成时间', null=True, blank=True)
+
+    class Meta:
+        verbose_name = '每日摘要'
+        verbose_name_plural = '每日摘要'
+        unique_together = [('user', 'summary_date')]
+        indexes = [
+            models.Index(fields=['user', 'summary_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.user} {self.summary_date} ({self.get_status_display()})'
+
+
 def check_due_reminders(user):
     """检查并触发到期的提醒，返回触发的提醒列表"""
     from django.utils import timezone

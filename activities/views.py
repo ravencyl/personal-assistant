@@ -22,7 +22,8 @@ from .forms import ActivityForm
 from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplate, RecurringActivity, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, log_activity,
-                    normalize_input, snapshot_activity, budget_status)
+                    normalize_input, snapshot_activity, budget_status,
+                    exclude_daily_bucket)
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
@@ -213,20 +214,23 @@ def activity_list(request):
     }
 
     # 一次性聚合子活动数量和费用数量，避免 N+1；预取标签（超级用户可见全部数据）
-    all_activities = list(visible_qs(Activity, request.user).prefetch_related('tags').annotate(
+    # 「日常开支」归属桶为系统常驻活动，不展示在活动列表中（费用统计仍包含）
+    all_activities = list(exclude_daily_bucket(
+        visible_qs(Activity, request.user)
+    ).prefetch_related('tags').annotate(
         sub_count=Count('children', distinct=True),
         expense_count=Count('expenses', distinct=True),
     ))
 
     # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
-    matched = filter_activities(request.user, {
+    matched = exclude_daily_bucket(filter_activities(request.user, {
         'status': status_filter,
         'tag': tag_filter,
         'date_from': date_from,
         'date_to': date_to,
         'participant': participant_filter,
         'keyword': keyword_filter,
-    })
+    }))
 
     has_filter = bool(status_filter or tag_filter or date_from or date_to
                       or participant_filter or keyword_filter)
@@ -957,8 +961,8 @@ def daily_view(request):
         end_date__gte=today - timedelta(days=3),
     ).order_by('-end_date')[:10]
 
-    # ── 进行中（全局） ──
-    in_progress = qs.filter(status='in_progress').exclude(
+    # ── 进行中（全局，排除「日常开支」归属桶） ──
+    in_progress = exclude_daily_bucket(qs.filter(status='in_progress')).exclude(
         id__in=[a.id for a in ongoing]
     ).order_by('-start_date')[:10]
 
@@ -1011,6 +1015,13 @@ def daily_view(request):
         recurring_source__is_active=True,
     ).select_related('recurring_source')
 
+    # 每日摘要（cron 预生成，只读库一次）
+    from core.models import DailySummary
+    daily_summary = DailySummary.objects.filter(
+        user=request.user,
+        summary_date=today,
+    ).exclude(status='pending').first()
+
     return render(request, 'activities/daily.html', {
         'today': today,
         'today_display': today_display,
@@ -1024,10 +1035,11 @@ def daily_view(request):
         'today_expense': float(today_expense),
         'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),
-        'in_progress_count': qs.filter(status='in_progress').count(),
+        'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
         'suggestions': suggestions,
         'today_instances': today_instances,
         'pending_reminders': pending_reminders,
+        'daily_summary': daily_summary,
     })
 
 

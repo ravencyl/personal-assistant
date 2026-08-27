@@ -135,8 +135,12 @@ def generate_report(user, report_type, period_start, period_end):
     return markdown, data
 
 
-def _ai_generate_report(user, data, report_type, period_start, period_end):
-    """调用 AI 生成报告分析文本"""
+def ai_round_trip(prompt, timeout=60):
+    """公共 AI 会话往返：create_session → send_message → wait_for_response → finally cancel_session。
+
+    返回 AI 回复文本（可能为空串）；无可用 Agent/Environment 配置时返回 None。
+    异常向上抛出，由调用方捕获后降级处理。
+    """
     from agents.services import get_service
     from agents.models import AgentConfig, EnvironmentConfig
 
@@ -147,6 +151,23 @@ def _ai_generate_report(user, data, report_type, period_start, period_end):
     if not agent_config or not env_config:
         return None
 
+    session_data = service.create_session(
+        agent_id=agent_config.agent_id,
+        environment_id=env_config.env_id,
+    )
+    try:
+        service.send_message(session_data['id'], prompt)
+        result = service.wait_for_response(session_data['id'], timeout=timeout)
+        return result
+    finally:
+        try:
+            service.cancel_session(session_data['id'])
+        except Exception:
+            pass
+
+
+def _ai_generate_report(user, data, report_type, period_start, period_end):
+    """调用 AI 生成报告分析文本"""
     type_label = '周报' if report_type == 'weekly' else '月报'
     period_str = f'{period_start.isoformat()} ~ {period_end.isoformat()}'
 
@@ -162,19 +183,7 @@ def _ai_generate_report(user, data, report_type, period_start, period_end):
 数据：
 {json.dumps(data, ensure_ascii=False, indent=2)}"""
 
-    session_data = service.create_session(
-        agent_id=agent_config.agent_id,
-        environment_id=env_config.env_id,
-    )
-    try:
-        service.send_message(session_data['id'], prompt)
-        result = service.wait_for_response(session_data['id'], timeout=60)
-        return result
-    finally:
-        try:
-            service.cancel_session(session_data['id'])
-        except Exception:
-            pass
+    return ai_round_trip(prompt, timeout=60)
 
 
 def _fallback_report(data, report_type, period_start, period_end):
