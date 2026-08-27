@@ -74,6 +74,11 @@
                     {{ form.budget }}
                     {% if form.budget.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.budget.errors.0 }}</p>{% endif %}
                 </div>
+                <div>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">耗时（分钟）</label>
+                    {{ form.duration_minutes }}
+                    {% if form.duration_minutes.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.duration_minutes.errors.0 }}</p>{% endif %}
+                </div>
             </div>
 
             <div>

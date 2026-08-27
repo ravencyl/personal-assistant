@@ -80,6 +80,7 @@ class Activity(models.Model):
         verbose_name='循环来源'
     )
     budget = models.DecimalField('预算上限', max_digits=10, decimal_places=2, null=True, blank=True)
+    duration_minutes = models.PositiveIntegerField('耗时（分钟）', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -99,6 +100,18 @@ class Activity(models.Model):
     def total_cost(self):
         """该活动的费用合计（直接关联的 Expense 总额）"""
         return self.expenses.aggregate(s=Sum('amount'))['s'] or 0
+
+    @property
+    def duration_display(self):
+        """耗时的人性化展示，如「2 小时 30 分钟」「45 分钟」「3 小时」"""
+        if self.duration_minutes is None:
+            return ''
+        hours, minutes = divmod(self.duration_minutes, 60)
+        if hours and minutes:
+            return f'{hours} 小时 {minutes} 分钟'
+        if hours:
+            return f'{hours} 小时'
+        return f'{minutes} 分钟'
 
     @property
     def date_range(self):

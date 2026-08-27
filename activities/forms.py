@@ -25,7 +25,7 @@ class ActivityForm(forms.ModelForm):
 
     class Meta:
         model = Activity
-        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'budget', 'parent', 'tags']
+        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'budget', 'duration_minutes', 'parent', 'tags']
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
@@ -33,6 +33,7 @@ class ActivityForm(forms.ModelForm):
             'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
             'budget': forms.NumberInput(attrs={'class': INPUT_CLS, 'placeholder': '可选，设置预算上限', 'step': '0.01', 'min': '0'}),
+            'duration_minutes': forms.NumberInput(attrs={'class': INPUT_CLS, 'placeholder': '可选，耗时分钟数，如 150', 'step': '1', 'min': '0'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }
 
@@ -42,6 +43,7 @@ class ActivityForm(forms.ModelForm):
         # 日期字段均非必填，不设置任何默认值
         self.fields['start_date'].required = False
         self.fields['end_date'].required = False
+        self.fields['duration_minutes'].required = False
         # 父活动只能选自己的数据
         self.fields['parent'].queryset = Activity.objects.filter(user=user)
         if self.instance.pk:

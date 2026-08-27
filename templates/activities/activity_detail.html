@@ -20,6 +20,9 @@
                     </div>
                     <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
                         {{ activity.date_range }}
+                        {% if activity.duration_minutes %}
+                        · 耗时 {{ activity.duration_display }}
+                        {% endif %}
                         {% if activity.parent %}
                         · 所属
                         <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-[var(--text-secondary)] hover:text-[var(--text)]">{{ activity.parent.name }}</a>
