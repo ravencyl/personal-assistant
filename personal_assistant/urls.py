@@ -3,7 +3,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from core.views import dashboard, search_api, weekly_report, monthly_report, report_send_to_chat
+from core.views import dashboard, search_api, weekly_report, monthly_report, yearly_report, report_send_to_chat
 from activities.views import daily_view
 from core.reminder_views import reminder_dismiss, reminder_done
 
@@ -35,6 +35,7 @@ urlpatterns = [
     # Reports
     path('reports/weekly/', weekly_report, name='weekly_report'),
     path('reports/monthly/', monthly_report, name='monthly_report'),
+    path('reports/yearly/', yearly_report, name='yearly_report'),
     path('reports/send-to-chat/', report_send_to_chat, name='report_send_to_chat'),
 
     # Reminders

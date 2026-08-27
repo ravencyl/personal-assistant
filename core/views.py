@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -227,6 +227,56 @@ def monthly_report(request):
         'month_start': month_start,
         'month_end': month_end,
     })
+
+
+@login_required
+def yearly_report(request):
+    """生成/查看年度回顾报告（年份缺省当年，可查往年）"""
+    user = request.user
+    today = timezone.localdate()
+
+    try:
+        year = int(request.POST.get('year') or request.GET.get('year') or today.year)
+    except (TypeError, ValueError):
+        year = today.year
+    if year < 2000 or year > today.year:
+        year = today.year
+
+    period_start = date(year, 1, 1)
+    period_end = date(year, 12, 31) if year < today.year else today
+    title = f'年报 · {year}年'
+
+    # 查重：同一年份的年报只保留一份（按标题匹配，兼容跨年生成往年报告）
+    existing = Article.objects.filter(
+        user=user,
+        tags__name='report-yearly',
+        title=title,
+    ).first()
+
+    context = {
+        'report_type': 'yearly',
+        'title': title,
+        'year': year,
+        'month_start': period_start,
+        'month_end': period_end,
+    }
+
+    if request.method == 'POST' or (not existing and request.GET.get('generate')):
+        markdown, data = generate_report(user, 'yearly', period_start, period_end)
+        context.update({'markdown': markdown, 'data': data})
+
+        if request.method == 'POST':
+            article = save_report_to_knowledge(user, 'yearly', title, markdown)
+            return redirect('knowledge:article_detail', slug=article.slug)
+
+        return render(request, 'core/weekly_report.html', context)
+
+    if existing:
+        return redirect('knowledge:article_detail', slug=existing.slug)
+
+    markdown, data = generate_report(user, 'yearly', period_start, period_end)
+    context.update({'markdown': markdown, 'data': data})
+    return render(request, 'core/weekly_report.html', context)
 
 
 @login_required
