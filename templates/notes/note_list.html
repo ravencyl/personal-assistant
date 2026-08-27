@@ -14,9 +14,23 @@
     <div class="app-card">
         <form method="post" action="{% url 'notes:note_create' %}" class="space-y-3">
             {% csrf_token %}
-            <textarea name="content" rows="2"
-                      placeholder="记点什么..."
-                      class="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-3 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
+            <div class="flex items-start gap-2">
+                <textarea name="content" rows="2" id="noteContentInput"
+                          placeholder="记点什么..."
+                          class="flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-3 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
+                <!-- 语音速记按钮：不支持 Web Speech API 时由脚本保持 hidden -->
+                <button type="button" id="voiceBtn" hidden
+                        class="tap-target shrink-0 mt-0.5 inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors"
+                        style="width:2.75rem;height:2.75rem;"
+                        title="语音速记" aria-label="语音速记">
+                    <svg id="voiceBtnIcon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+                    </svg>
+                    <span class="voice-rec-dot" style="display:none;"></span>
+                </button>
+            </div>
+            <!-- 语音识别错误提示（灰字内联） -->
+            <p id="voiceError" class="hidden text-xs text-[var(--text-muted)]"></p>
             <div class="flex items-center justify-between gap-3">
                 <input type="text" name="tags" placeholder="标签（可选，逗号分隔）"
                        class="flex-1 rounded-full border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
@@ -164,4 +178,136 @@
         {% endfor %}
     </div>
 </div>
+
+<!-- 语音速记：录音态灰阶脉冲点样式（禁彩色） -->
+<style>
+    .voice-rec-dot {
+        width: 0.625rem;
+        height: 0.625rem;
+        border-radius: 9999px;
+        background: var(--accent, #18181b);
+    }
+    #voiceBtn.voice-recording {
+        border-color: var(--accent, #18181b);
+        color: var(--text, #18181b);
+    }
+    #voiceBtn.voice-recording .voice-rec-dot {
+        animation: voice-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes voice-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.3; transform: scale(0.65); }
+    }
+</style>
+
+<script>
+(function () {
+    var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    var btn = document.getElementById('voiceBtn');
+    var textarea = document.getElementById('noteContentInput');
+    var errEl = document.getElementById('voiceError');
+    var iconEl = document.getElementById('voiceBtnIcon');
+    var dotEl = btn && btn.querySelector('.voice-rec-dot');
+    if (!btn || !textarea) return;
+
+    // 能力检测：不支持则按钮保持隐藏，不提示任何内容（避免视觉噪音）
+    if (!SpeechRecognition) { btn.hidden = true; return; }
+    btn.hidden = false;
+
+    var recognition = null;
+    var recording = false;
+    var baseText = '';      // 开始录音时 textarea 的既有内容（不清空）
+    var sessionText = '';   // 本次录音累计识别文本（追加在既有内容之后）
+    var userStopped = false;
+
+    function showError(msg) {
+        if (!errEl) return;
+        errEl.textContent = msg;
+        errEl.classList.remove('hidden');
+    }
+    function clearError() {
+        if (!errEl) return;
+        errEl.textContent = '';
+        errEl.classList.add('hidden');
+    }
+
+    function setRecordingUI(on) {
+        recording = on;
+        btn.classList.toggle('voice-recording', on);
+        btn.title = on ? '停止录音' : '语音速记';
+        if (iconEl) iconEl.style.display = on ? 'none' : '';
+        if (dotEl) dotEl.style.display = on ? '' : 'none';
+    }
+
+    function appendResult() {
+        textarea.value = baseText + sessionText;
+    }
+
+    btn.addEventListener('click', function () {
+        if (recording) {
+            // 再次点击：停止识别（onend 中收尾）
+            userStopped = true;
+            if (recognition) recognition.stop();
+            return;
+        }
+
+        clearError();
+        recognition = new SpeechRecognition();
+        recognition.lang = 'zh-CN';
+        recognition.interimResults = true;
+        recognition.continuous = true;
+
+        baseText = textarea.value;
+        sessionText = '';
+        userStopped = false;
+
+        recognition.onstart = function () { setRecordingUI(true); };
+
+        recognition.onresult = function (event) {
+            var finalText = '';
+            var interimText = '';
+            for (var i = 0; i < event.results.length; i++) {
+                var result = event.results[i];
+                if (result.isFinal) {
+                    finalText += result[0].transcript;
+                } else {
+                    interimText += result[0].transcript;
+                }
+            }
+            sessionText = finalText + interimText;
+            appendResult();
+        };
+
+        recognition.onerror = function (event) {
+            var msg = '语音识别出错，请重试';
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                msg = '麦克风权限被拒绝，请在浏览器设置中允许访问麦克风';
+            } else if (event.error === 'no-speech') {
+                msg = '没有检测到语音，请靠近麦克风重试';
+            } else if (event.error === 'audio-capture') {
+                msg = '未检测到麦克风设备';
+            } else if (event.error === 'network') {
+                msg = '网络异常，语音识别不可用';
+            }
+            showError(msg);
+        };
+
+        recognition.onend = function () {
+            setRecordingUI(false);
+            // 收尾：把最终文本追加进既有内容后保持原位（不清空用户已输入内容）
+            appendResult();
+            if (userStopped) {
+                userStopped = false;
+            }
+        };
+
+        try {
+            recognition.start();
+        } catch (e) {
+            setRecordingUI(false);
+            showError('无法启动语音识别，请重试');
+        }
+    });
+})();
+</script>
 {% endblock %}
