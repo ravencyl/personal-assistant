@@ -116,6 +116,16 @@ def create_conversation(request):
         except Exception as e:
             logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
 
+        # 首帧注入用户记忆（让 AI 天然「认识」用户）
+        try:
+            from memory.services import retrieve_memories, format_memory_for_injection
+            top_memories = retrieve_memories(request.user, limit=10)
+            if top_memories:
+                memory_context = format_memory_for_injection(top_memories)
+                service.send_message(session_data['id'], memory_context)
+        except Exception as e:
+            logger.warning(f'记忆注入失败（对话 {conversation.id}）: {e}')
+
         if request.htmx or request.headers.get('Accept') == 'application/json':
             return JsonResponse({
                 'conversation_id': conversation.id,
@@ -151,6 +161,13 @@ def send_message(request, conversation_id):
         content=content,
         event_type='user.message'
     )
+
+    # 规则兜底提取记忆（从用户消息中提取值得记住的信息）
+    try:
+        from memory.services import extract_memories_from_text
+        extract_memories_from_text(request.user, content, source_message=user_msg)
+    except Exception as e:
+        logger.warning(f'规则记忆提取失败: {e}')
 
     # 发送到 Qoder
     service = get_service()

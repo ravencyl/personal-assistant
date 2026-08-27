@@ -25,6 +25,7 @@ urlpatterns = [
     path('activities/', include('activities.urls')),
     path('notes/', include('notes.urls')),
     path('knowledge/', include('knowledge.urls')),
+    path('memory/', include('memory.urls')),
 
     # Agents API (internal)
     path('api/agents/', include('agents.urls')),

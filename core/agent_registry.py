@@ -41,6 +41,7 @@ INTENT_TOOL_MAP = {
     'set_reminder': 'reminders.set_reminder',
     'list_reminders': 'reminders.list_reminders',
     'generate_report': 'reports.generate',
+    'memory_search': 'memory.search',
 }
 
 
@@ -98,7 +99,11 @@ def build_protocol_prompt(today=None):
         '1. 相对日期（明天/下周五/月底等）一律换算为 YYYY-MM-DD 绝对日期，未写年份用当年。\n'
         '2. 写操作意图（create / status_change）的 reply 中不要宣布已执行完成，系统会代为执行。\n'
         '3. 无法识别的字段不要写入 params，禁止编造数据。\n'
-        '4. status 取值：planned（计划）/ in_progress（进行中）/ done（已完成）/ cancelled（已取消）。'
+        '4. status 取值：planned（计划）/ in_progress（进行中）/ done（已完成）/ cancelled（已取消）。\n'
+        '5. 当你从用户的消息中了解到值得长期记住的信息（偏好、目标、个人事实、关系等），'
+        '在 JSON 中附加 "memory" 字段（可省略）：\n'
+        '   "memory": [{"content": "记忆内容", "category": "preference|fact|goal|relationship|habit|other", "importance": 1-10}]\n'
+        '   只记录有长期价值的信息，不要记录临时性请求或操作指令。'
     )
 
 
@@ -169,6 +174,15 @@ class ChatOrchestrator:
         if result.get('created'):
             payload = payload or {'card': '', 'activity_ids': []}
             payload['created_activity_ids'] = result.get('activity_ids', [])
+
+        # ── AI 主动提取记忆（JSON 中的 memory 字段） ──
+        memory_list = intent_data.get('memory')
+        if memory_list and isinstance(memory_list, list):
+            try:
+                from memory.services import save_ai_extracted_memories
+                save_ai_extracted_memories(user, memory_list)
+            except Exception as e:
+                logger.warning(f'AI 记忆存储失败: {e}')
 
         return result.get('reply') or reply, payload, bool(result.get('changed'))
 

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}AI 记忆{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl px-4 py-6">
+    <!-- 头部 -->
+    <div class="mb-6">
+        <h1 class="text-xl font-semibold">AI 记忆</h1>
+        <p class="mt-1 text-sm text-[var(--text-secondary)]">
+            AI 在对话中记住的关于你的信息。这些记忆会帮助 AI 更好地理解你。
+        </p>
+    </div>
+
+    <!-- 搜索 + 筛选 -->
+    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div class="flex-1 flex gap-2">
+            <input type="text" id="memory-search" name="q" value="{{ query }}"
+                   placeholder="搜索记忆..."
+                   hx-get="{% url 'memory:memory_list' %}"
+                   hx-target="#memory-list"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-include="#memory-category-filter"
+                   class="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-sm focus:border-zinc-400 focus:outline-none">
+        </div>
+    </div>
+
+    <!-- 类别筛选 Tab -->
+    <div class="mb-4 flex flex-wrap gap-2" id="memory-category-filter">
+        <a href="#"
+           hx-get="{% url 'memory:memory_list' %}"
+           hx-target="#memory-list"
+           hx-include="#memory-search"
+           hx-push-url="true"
+           onclick="this.querySelector('input') || 0"
+           class="rounded-full px-3 py-1 text-sm {% if not category %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+            全部
+            <input type="hidden" name="category" value="">
+        </a>
+        {% for cat_value, cat_label in categories %}
+        <a href="#"
+           hx-get="{% url 'memory:memory_list' %}?category={{ cat_value }}"
+           hx-target="#memory-list"
+           hx-include="#memory-search"
+           hx-push-url="true"
+           class="rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+            {{ cat_label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <!-- 记忆列表（HTMX 局部刷新区域） -->
+    <div id="memory-list">
+        {% include "memory/_memory_items.html" %}
+    </div>
+</div>
+{% endblock %}

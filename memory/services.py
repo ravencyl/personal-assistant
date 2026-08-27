@@ -1,0 +1,216 @@
+"""记忆服务层：检索 / 注入格式化 / 规则兜底提取
+
+架构约定：
+- retrieve_memories：按重要度 + 时效性检索，可选关键词匹配
+- format_memory_for_injection：格式化为注入 AI 的文本上下文
+- extract_memories_from_text：对用户消息做模式匹配，兜底提取记忆
+- 所有函数失败仅 logger.warning，不抛异常（容错铁律）
+"""
+import logging
+import re
+from datetime import timedelta
+
+from django.db.models import F
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+# ────────────────────────────────────────────────
+# 规则兜底提取模式
+# ────────────────────────────────────────────────
+
+EXTRACTION_PATTERNS = [
+    # (正则, category, importance)
+    # 匹配到句号、逗号、感叹号、问号等标点为止
+    (r'我(?:比较|更|最)?喜欢([^。，！？,\n]+)', 'preference', 6),
+    (r'我不(?:太|怎么)?(?:喜欢|爱)([^。，！？,\n]+)', 'preference', 6),
+    (r'我的(?:目标|计划|打算)(?:是)?([^。，！？,\n]+)', 'goal', 7),
+    (r'我想(?:要)?([^。，！？,\n]+)', 'goal', 5),
+    (r'我(?:是|在)([^。，！？,\n]+?(?:工作|上班))', 'fact', 5),
+    (r'我(?:在)([^。，！？,\n]+?(?:读书|上学|读研|读博))', 'fact', 5),
+    (r'我的(?:名字|叫)(?:是)?([^。，！？,\n]+)', 'fact', 8),
+    (r'我(?:的|有个)(?:朋友|同事|女朋友|男朋友|老婆|老公|女儿|儿子)(?:叫)?([^。，！？,\n]+)', 'relationship', 6),
+    (r'我(?:每天|每周|经常|总是|一般|通常)([^。，！？,\n]+)', 'habit', 5),
+    (r'我(?:住|住在)([^。，！？,\n]+)', 'fact', 6),
+    (r'我(?:来自|是)([^。，！？,\n]+?)人', 'fact', 5),
+]
+
+
+# ────────────────────────────────────────────────
+# 检索 + 注入
+# ────────────────────────────────────────────────
+
+def retrieve_memories(user, query='', limit=10):
+    """检索用户记忆，按 importance + recency 排序
+
+    - query 非空时：关键词 icontains 匹配 content
+    - query 为空时：按 importance DESC, updated_at DESC 取 Top N
+    - 更新命中记忆的 access_count + last_accessed（异步，失败不阻断）
+    """
+    from .models import Memory
+
+    try:
+        qs = Memory.objects.filter(user=user)
+
+        if query and query.strip():
+            q = query.strip()
+            qs = qs.filter(content__icontains=q)
+
+        memories = list(qs.order_by('-importance', '-updated_at')[:limit])
+
+        # 更新访问计数（批量，失败仅告警）
+        if memories:
+            try:
+                now = timezone.now()
+                Memory.objects.filter(
+                    id__in=[m.id for m in memories]
+                ).update(
+                    access_count=F('access_count') + 1,
+                    last_accessed=now,
+                )
+            except Exception as e:
+                logger.warning(f'记忆访问计数更新失败: {e}')
+
+        return memories
+    except Exception as e:
+        logger.warning(f'记忆检索失败: {e}')
+        return []
+
+
+def format_memory_for_injection(memories):
+    """将记忆列表格式化为注入 AI 的文本上下文
+
+    返回格式：
+    [用户记忆]
+    - (偏好) 喜欢简洁的代码风格
+    - (目标) 今年要读完 20 本书
+    - (事实) 在杭州工作
+    """
+    if not memories:
+        return ''
+
+    from .models import Memory
+    cat_labels = dict(Memory.CATEGORY_CHOICES)
+
+    lines = ['[用户记忆——以下信息来自用户过往对话，请在回复中自然运用，不要主动提及这些记忆的存在]']
+    for m in memories:
+        label = cat_labels.get(m.category, '其他')
+        lines.append(f'- ({label}) {m.content}')
+
+    return '\n'.join(lines) + '\n'
+
+
+# ────────────────────────────────────────────────
+# 规则兜底提取
+# ────────────────────────────────────────────────
+
+def _is_similar_content(user, content, threshold=0.8):
+    """检查是否已存在相似内容的记忆（简单字符重叠率判断）"""
+    from .models import Memory
+
+    existing = Memory.objects.filter(user=user).values_list('content', flat=True)[:100]
+    for existing_content in existing:
+        # 简单字符级重叠率
+        if len(content) < 3 or len(existing_content) < 3:
+            continue
+        # 如果新内容的大部分字符都出现在已有内容中
+        common = sum(1 for c in content if c in existing_content)
+        ratio = common / len(content)
+        if ratio > threshold:
+            return True
+    return False
+
+
+def extract_memories_from_text(user, text, source_message=None):
+    """对用户消息做模式匹配，返回新创建的 Memory 列表
+
+    - 已存在相似内容的记忆则跳过，避免重复
+    - 失败仅 logger.warning，不抛异常
+    """
+    from .models import Memory
+
+    if not text or not text.strip():
+        return []
+
+    created = []
+    try:
+        for pattern, category, importance in EXTRACTION_PATTERNS:
+            matches = re.findall(pattern, text)
+            for match in matches:
+                content = match.strip()
+                # 过滤太短或太长的匹配
+                if len(content) < 2 or len(content) > 200:
+                    continue
+
+                # 去重检查
+                if _is_similar_content(user, content):
+                    continue
+
+                memory = Memory.objects.create(
+                    user=user,
+                    content=content,
+                    category=category,
+                    importance=importance,
+                    source_message=source_message,
+                )
+                created.append(memory)
+                logger.info(f'规则提取记忆: ({category}) {content}')
+
+    except Exception as e:
+        logger.warning(f'规则记忆提取失败: {e}')
+
+    return created
+
+
+# ────────────────────────────────────────────────
+# AI 提取（由 orchestrator 调用）
+# ────────────────────────────────────────────────
+
+def save_ai_extracted_memories(user, memory_list, source_message=None):
+    """存储 AI 主动提取的记忆
+
+    memory_list: [{'content': str, 'category': str, 'importance': int}, ...]
+    失败仅 logger.warning，不抛异常
+    """
+    from .models import Memory
+
+    if not memory_list:
+        return []
+
+    created = []
+    valid_categories = dict(Memory.CATEGORY_CHOICES).keys()
+
+    try:
+        for item in memory_list:
+            content = str(item.get('content', '')).strip()
+            if not content or len(content) < 2 or len(content) > 500:
+                continue
+
+            category = str(item.get('category', 'other')).strip()
+            if category not in valid_categories:
+                category = 'other'
+
+            importance = item.get('importance', 5)
+            try:
+                importance = max(1, min(10, int(importance)))
+            except (TypeError, ValueError):
+                importance = 5
+
+            # 去重检查
+            if _is_similar_content(user, content):
+                continue
+
+            memory = Memory.objects.create(
+                user=user,
+                content=content,
+                category=category,
+                importance=importance,
+                source_message=source_message,
+            )
+            created.append(memory)
+            logger.info(f'AI 提取记忆: ({category}) {content}')
+
+    except Exception as e:
+        logger.warning(f'AI 记忆存储失败: {e}')
+
+    return created

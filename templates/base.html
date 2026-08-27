@@ -64,6 +64,10 @@
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'knowledge' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 知识库
                             </a>
+                            <a href="{% url 'memory:memory_list' %}"
+                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                                记忆
+                            </a>
 
                         </div>
                         {% endif %}

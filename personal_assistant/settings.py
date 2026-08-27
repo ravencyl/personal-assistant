@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'activities',
     'notes',
     'knowledge',
+    'memory',
 ]
 
 MIDDLEWARE = [
