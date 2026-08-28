@@ -40,6 +40,7 @@ INTENT_TOOL_MAP = {
     'knowledge_search': 'knowledge.search',
     'set_reminder': 'reminders.set_reminder',
     'list_reminders': 'reminders.list_reminders',
+    'complete_reminder': 'reminders.complete',
     'generate_report': 'reports.generate',
     'memory_search': 'memory.search',
 }

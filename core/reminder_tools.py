@@ -1,6 +1,6 @@
 """提醒 Agent 工具
 
-注册 set_reminder 和 list_reminders 意图工具。
+注册 set_reminder、list_reminders、complete_reminder 意图工具。
 """
 import logging
 
@@ -86,4 +86,33 @@ def tool_list_reminders(user, params):
     status_label = dict(Reminder.STATUS_CHOICES).get(status, status)
     return {
         'reply': f'{status_label}的提醒（{len(lines)} 条）：\n' + '\n'.join(lines),
+    }
+
+
+@agent_tool('reminders.complete', '确认完成/忽略一条提醒',
+            'reminder_id（提醒 ID，必填）或 target（提醒内容关键词）')
+def tool_complete_reminder(user, params):
+    reminder_id = params.get('reminder_id')
+    reminder = None
+    if reminder_id:
+        reminder = Reminder.objects.filter(user=user, id=reminder_id).first()
+    else:
+        target = str(params.get('target') or '').strip()
+        if not target:
+            raise ToolError('请告诉我提醒 ID 或内容关键词')
+        matches = Reminder.objects.filter(user=user, content__icontains=target,
+                                          status__in=('pending', 'fired'))
+        if matches.count() > 1:
+            raise ToolError(f'匹配到 {matches.count()} 条提醒，请说得更具体些')
+        reminder = matches.first()
+    if not reminder:
+        raise ToolError('没有找到这条提醒，可能已处理或删除')
+    if reminder.status == 'dismissed':
+        return {'reply': f'提醒「{reminder.content}」之前已经处理过了'}
+
+    reminder.status = 'dismissed'
+    reminder.save(update_fields=['status'])
+    return {
+        'reply': f'已确认提醒「{reminder.content}」，不再提醒',
+        'changed': True,
     }

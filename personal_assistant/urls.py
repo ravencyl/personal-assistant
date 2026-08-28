@@ -6,7 +6,7 @@ from django.conf.urls.static import static
 from core.views import dashboard, search_api, weekly_report, monthly_report, yearly_report, report_send_to_chat
 from activities.views import daily_view
 from core.reminder_views import reminder_dismiss, reminder_done
-from core.suggestion_views import suggestion_dismiss, suggestion_read
+from core.suggestion_views import suggestion_dismiss, suggestion_read, suggestion_tool_run
 
 urlpatterns = [
     # 首页 = 每日简报
@@ -47,6 +47,7 @@ urlpatterns = [
     # Suggestions
     path('suggestions/dismiss/', suggestion_dismiss, name='suggestion_dismiss'),
     path('suggestions/read/', suggestion_read, name='suggestion_read'),
+    path('suggestions/run-tool/', suggestion_tool_run, name='suggestion_tool_run'),
 ]
 
 if settings.DEBUG:

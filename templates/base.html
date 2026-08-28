@@ -330,7 +330,10 @@
 
         function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
+        var lastConvId = null;
+
         function openConversation(id, title) {
+            lastConvId = id;
             titleEl.textContent = title || '对话';
             fullLink.href = '/chat/' + id + '/';
             form.dataset.action = '/chat/' + id + '/send/';
@@ -363,43 +366,22 @@
             showChatView(false);
         });
 
-        // 新建对话
-        newBtn.addEventListener('click', function () {
-            newBtn.disabled = true;
-            newBtn.textContent = '创建中...';
-            fetch('/chat/create/', {
+        // 新建对话（返回 conversation_id，失败返回 null；供按钮与全局 paChatAsk 复用）
+        function createConversation() {
+            return fetch('/chat/create/', {
                 method: 'POST',
                 headers: { 'X-CSRFToken': csrf, 'HX-Request': 'true' }
             })
                 .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (data.conversation_id) {
-                        // 同步更新选择列表
-                        var item = document.createElement('a');
-                        item.href = 'javascript:void(0)';
-                        item.className = 'chat-conv-item block px-4 py-2.5 hover:bg-[var(--accent-light)] border-b border-[var(--border)]';
-                        item.dataset.id = data.conversation_id;
-                        item.dataset.title = data.title;
-                        item.innerHTML = '<span class="block text-sm text-[var(--text)] truncate">' + data.title + '</span>' +
-                            '<span class="block text-xs text-[var(--text-muted)] mt-0.5">刚刚更新</span>';
-                        convList.prepend(item);
-                        openConversation(data.conversation_id, data.title);
-                    } else {
-                        alert(data.error || '创建对话失败');
-                    }
-                })
-                .catch(function () { alert('创建对话失败，请检查网络或 Agent 配置'); })
-                .finally(function () { newBtn.disabled = false; newBtn.textContent = '+ 新对话'; });
-        });
+                .then(function (data) { return data.conversation_id || null; })
+                .catch(function () { return null; });
+        }
 
-        // 发送消息
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var content = input.value.trim();
-            if (!content || !form.dataset.action) return;
+        // 发送一条消息并渲染回复（供表单提交与全局 paChatAsk 复用）
+        function postMessage(content) {
             loading.classList.remove('hidden');
             input.disabled = true;
-            fetch(form.dataset.action, {
+            return fetch(form.dataset.action, {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': csrf,
@@ -431,7 +413,59 @@
                     input.disabled = false;
                     input.focus();
                 });
+        }
+
+        newBtn.addEventListener('click', function () {
+            newBtn.disabled = true;
+            newBtn.textContent = '创建中...';
+            createConversation()
+                .then(function (id) {
+                    if (!id) { alert('创建对话失败，请检查网络或 Agent 配置'); return null; }
+                    // 同步更新选择列表
+                    var item = document.createElement('a');
+                    item.href = 'javascript:void(0)';
+                    item.className = 'chat-conv-item block px-4 py-2.5 hover:bg-[var(--accent-light)] border-b border-[var(--border)]';
+                    item.dataset.id = id;
+                    item.dataset.title = '新对话';
+                    item.innerHTML = '<span class="block text-sm text-[var(--text)] truncate">新对话</span>' +
+                        '<span class="block text-xs text-[var(--text-muted)] mt-0.5">刚刚更新</span>';
+                    convList.prepend(item);
+                    openConversation(id, '新对话');
+                })
+                .catch(function () { alert('创建对话失败，请检查网络或 Agent 配置'); })
+                .finally(function () { newBtn.disabled = false; newBtn.textContent = '+ 新对话'; });
         });
+
+        // 发送消息
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var content = input.value.trim();
+            if (!content || !form.dataset.action) return;
+            input.value = '';
+            postMessage(content);
+        });
+
+        // 全局 API：其他页面（如 Daily 建议行）点击后直接向 AI 追问：
+        // 打开面板 → 复用最近对话或新建 → 发送追问 prompt
+        window.paChatAsk = function (text) {
+            text = (text || '').trim();
+            if (!text) return;
+            panel.classList.remove('hidden');
+            var qp = document.getElementById('quick-panel');
+            if (qp) qp.classList.add('hidden');
+            var proceed = function (id) {
+                openConversation(id, titleEl.textContent || '对话');
+                postMessage(text);
+            };
+            if (lastConvId && form.dataset.action) {
+                proceed(lastConvId);
+            } else {
+                createConversation().then(function (id) {
+                    if (id) { proceed(id); }
+                    else { alert('创建对话失败，请稍后重试'); }
+                });
+            }
+        };
     })();
     </script>
 
@@ -480,6 +514,12 @@
         tabBtns.forEach(function (b) {
             b.addEventListener('click', function () { switchTab(b.getAttribute('data-quick-tab')); });
         });
+
+        // 全局 API：其他页面（如 Daily 建议「记一笔」）直接打开快记浮层并切到指定 Tab
+        window.paQuickOpen = function (tab) {
+            openPanel();
+            if (tab) switchTab(tab);
+        };
 
         function setStatus(el, msg) { el.textContent = msg; el.classList.remove('hidden'); }
         function setBtnLoading(btn, loading, text) {

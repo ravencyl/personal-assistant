@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load core_tags %}
 
 {% block title %}今日 · {{ today_display }}{% endblock %}
 
@@ -253,17 +254,36 @@
     <div class="space-y-3 collapsible-content" id="content-ai-suggestions">
         {% for s in suggestions %}
         <div class="flex items-start gap-3 group transition-opacity duration-200 {% if s.source == 'ai' %}border-l-2 border-[var(--accent)] pl-3{% endif %}"
-             data-suggestion-key="{{ s.key }}" {% if s.is_read %}style="opacity:0.6"{% endif %}>
+             data-suggestion-key="{{ s.key }}" data-suggestion-followup="{{ s.followup|default:s.text }}" {% if s.is_read %}style="opacity:0.6"{% endif %}>
             <span class="text-xs text-[var(--text-muted)] font-medium flex-shrink-0 mt-0.5 whitespace-nowrap">
                 {% if s.source == 'ai' %}洞察{% elif s.icon == 'calendar' %}日程{% elif s.icon == 'expense' %}消费{% elif s.icon == 'alert' %}进度{% elif s.icon == 'plan' %}待办{% elif s.icon == 'stale' %}日程{% elif s.icon == 'goal' %}目标{% elif s.icon == 'habit' %}习惯{% else %}建议{% endif %}
             </span>
             <div class="flex-1 min-w-0">
-                <p class="text-sm text-[var(--text)]">{{ s.text }}</p>
+                <p class="text-sm text-[var(--text)] cursor-pointer hover:underline decoration-dotted underline-offset-4"
+                   data-suggestion-ask title="点击追问 AI">{{ s.text }}</p>
                 {% if s.action %}
+                {% with kind=s.action.kind|default:'link' %}
+                {% if kind == 'link' %}
                 <a href="{{ s.action.url }}" data-suggestion-action
                    class="inline-flex items-center gap-1 mt-1.5 text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">
                     {{ s.action.label }} →
                 </a>
+                {% elif kind == 'tool' %}
+                <button type="button" data-suggestion-tool
+                        data-tool-name="{{ s.action.tool }}"
+                        data-tool-params="{{ s.action.params|json_url }}"
+                        data-tool-confirm="{% if s.action.confirm %}1{% endif %}"
+                        data-tool-summary="{{ s.action.summary }}"
+                        class="inline-flex items-center gap-1 mt-1.5 text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">
+                    {{ s.action.label }} ⚡
+                </button>
+                {% elif kind == 'post' %}
+                <button type="button" data-quick-open="{{ s.action.panel|default:'expense' }}"
+                        class="inline-flex items-center gap-1 mt-1.5 text-xs px-3 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">
+                    {{ s.action.label }} +
+                </button>
+                {% endif %}
+                {% endwith %}
                 {% endif %}
             </div>
             <button type="button" data-suggestion-dismiss
@@ -461,6 +481,104 @@ function toggleSection(sectionId) {
         if (actionLink) {
             var key = actionLink.closest('[data-suggestion-key]');
             if (key) postJson('{% url "suggestion_read" %}', key.dataset.suggestionKey);
+        }
+    });
+
+    // ── 三态交互：行点击追问 / 工具直操 / 快记浮层 ──
+    var runToolUrl = '{% url "suggestion_tool_run" %}';
+
+    function markRowRead(row) {
+        if (!row) return;
+        row.style.opacity = '0.6';
+        postJson('{% url "suggestion_read" %}', row.dataset.suggestionKey);
+    }
+
+    function parseToolParams(btn) {
+        // params 由服务端 urlencode 后放在 data 属性（纯 ASCII，无转义歧义）
+        try { return JSON.parse(decodeURIComponent(btn.dataset.toolParams || '')) || {}; } catch (err) { return {}; }
+    }
+
+    function postTool(payload) {
+        return fetch(runToolUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (res) { return res.json(); });
+    }
+
+    // 工具直操：需确认的白名单工具首次返回 need_confirm+token → confirm → 带 token 重发
+    function runTool(btn, payload, token) {
+        btn.disabled = true;
+        btn.dataset.busy = '1';
+        var idleText = btn.dataset.idleText || btn.textContent;
+        btn.dataset.idleText = idleText;
+        btn.textContent = '执行中…';
+        if (token) payload.confirm_token = token;
+        postTool(payload).then(function (data) {
+            if (data.need_confirm) {
+                btn.disabled = false;
+                btn.dataset.busy = '';
+                btn.textContent = idleText;
+                if (window.confirm(data.summary || '确认执行该操作？')) {
+                    runTool(btn, payload, data.token);
+                }
+                return;
+            }
+            if (data.ok) {
+                // 行内反馈：按钮替换为 ✓ 结果，广播数据变更，标记已读
+                var toolRow = btn.closest('[data-suggestion-key]');
+                var feedback = document.createElement('span');
+                feedback.className = 'inline-flex items-center gap-1 mt-1.5 text-xs px-3 py-1 rounded-full text-[var(--text-muted)]';
+                feedback.textContent = '✓ ' + (data.reply || '操作完成');
+                btn.replaceWith(feedback);
+                document.dispatchEvent(new CustomEvent('activities:changed'));
+                markRowRead(toolRow);
+            } else {
+                btn.disabled = false;
+                btn.dataset.busy = '';
+                btn.textContent = (data.error || '执行失败') + '，重试';
+            }
+        }).catch(function () {
+            btn.disabled = false;
+            btn.dataset.busy = '';
+            btn.textContent = '网络错误，重试';
+        });
+    }
+
+    document.addEventListener('click', function (e) {
+        // 工具按钮：优先于行追问，阻止冒泡
+        var toolBtn = e.target.closest('[data-suggestion-tool]');
+        if (toolBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (toolBtn.dataset.busy === '1') return;
+            var row = toolBtn.closest('[data-suggestion-key]');
+            runTool(toolBtn, {
+                key: row ? row.dataset.suggestionKey : '',
+                tool: toolBtn.dataset.toolName,
+                params: parseToolParams(toolBtn),
+                summary: toolBtn.dataset.toolSummary || ''
+            });
+            return;
+        }
+        // 快记入口：打开快记浮层并切 Tab
+        var quickBtn = e.target.closest('[data-quick-open]');
+        if (quickBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.paQuickOpen) window.paQuickOpen(quickBtn.dataset.quickOpen);
+            markRowRead(quickBtn.closest('[data-suggestion-key]'));
+            return;
+        }
+        // 点击建议文字：打开聊天浮窗追问 AI
+        var askEl = e.target.closest('[data-suggestion-ask]');
+        if (askEl && !e.target.closest('button, a')) {
+            var askRow = askEl.closest('[data-suggestion-key]');
+            var followup = (askRow && askRow.dataset.suggestionFollowup) || askEl.textContent.trim();
+            if (window.paChatAsk) {
+                window.paChatAsk(followup);
+                markRowRead(askRow);
+            }
         }
     });
 })();

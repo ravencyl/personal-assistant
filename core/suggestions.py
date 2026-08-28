@@ -3,7 +3,13 @@
 架构约定：
 - 每条规则一个 `_rule_xxx(user, today)` 函数，返回单个建议 dict、
   建议 dict 列表，或 None（无建议）。
-- 建议 dict 格式：{'text': str, 'icon': str, 'key': str, 'action': dict|None, 'source': 'rule'}
+- 建议 dict 格式：{'text': str, 'icon': str, 'key': str, 'action': dict|None,
+  'followup': str, 'source': 'rule'}
+- action 三种 kind（无 kind 字段视为 link，向后兼容）：
+  {'kind': 'link', 'label', 'url'}        页面跳转
+  {'kind': 'tool', 'label', 'tool', 'params', 'confirm'}  Agent 工具直操（白名单内）
+  {'kind': 'post', 'label', 'panel'}      前端打开对应浮层（如快记）
+- followup：点击整条建议时发送到聊天浮窗的追问 prompt，缺省自动生成。
 - `generate_suggestions(user)` 按 `_RULES` 顺序执行、聚合、过滤已关闭、
   截断至最多 6 条，返回结构供 activities.views.daily_view 注入 Daily 页。
 - 结果按用户缓存 10 分钟；建议数据源模型保存/删除时通过信号清除缓存。
@@ -17,6 +23,25 @@ from django.utils import timezone
 
 SUGGESTION_CACHE_TIMEOUT = 600  # 10 分钟
 MAX_SUGGESTIONS = 6  # 最多返回 6 条建议（规则 5 + AI 洞察 1-2）
+
+# 建议动作可调用的 Agent 工具白名单：{工具名: 是否需要确认弹窗}
+# 新增工具前评估误操作风险；规则引擎与 AI 洞察共用这份白名单，
+# 端点校验见 core/suggestion_views.py。
+SUGGESTION_TOOLS = {
+    'activities.set_status': False,
+    'activities.batch_status': True,
+    'activities.move_date': True,
+    'reminders.complete': False,
+}
+
+
+def _tool_action(label, tool, params, confirm=None, summary=''):
+    """构造可直接执行 Agent 工具的建议动作（工具名必须已在 SUGGESTION_TOOLS）"""
+    assert tool in SUGGESTION_TOOLS, f'工具 {tool} 不在建议白名单'
+    if confirm is None:
+        confirm = SUGGESTION_TOOLS[tool]
+    return {'kind': 'tool', 'label': label, 'tool': tool,
+            'params': params, 'confirm': confirm, 'summary': summary}
 
 
 def _cache_key(user_id):
@@ -35,6 +60,9 @@ def _normalize(suggestion, rule_name, today):
         suggestion['action'] = None
     if 'source' not in suggestion:
         suggestion['source'] = 'rule'
+    if 'followup' not in suggestion or not suggestion.get('followup'):
+        text = (suggestion.get('text') or '').strip()
+        suggestion['followup'] = f'关于这条建议：“{text[:40]}”，帮我具体分析并给出下一步'
     return suggestion
 
 
@@ -91,7 +119,9 @@ def _rule_starting_tomorrow(user, today):
             'text': f'明天有 {count} 个活动即将开始，要不要提前准备？',
             'icon': 'calendar',
             'key': f'starting_tomorrow:{tomorrow.isoformat()}',
-            'action': {'label': '查看', 'url': reverse('activities:activity_list')},
+            'action': {'kind': 'link', 'label': '查看',
+                       'url': reverse('activities:activity_list') + f'?status=planned&start_date={tomorrow.isoformat()}'},
+            'followup': f'明天有 {count} 个活动即将开始，帮我梳理一下需要提前准备什么',
         }
     return None
 
@@ -111,6 +141,7 @@ def _rule_weekly_expense(user, today):
 
     this_week = float(this_week_expense)
     last_week = float(last_week_expense)
+    report_url = reverse('activities:expense_report')
     if last_week > 0:
         change_pct = round((this_week - last_week) / last_week * 100, 1)
         if change_pct > 20:
@@ -118,14 +149,16 @@ def _rule_weekly_expense(user, today):
                 'text': f'本周消费 ¥{this_week:.0f}，比上周多了 {change_pct:.0f}%，注意控制开支',
                 'icon': 'expense',
                 'key': f'weekly_expense:{week_start.isoformat()}',
-                'action': {'label': '消费报告', 'url': reverse('activities:expense_report')},
+                'action': {'kind': 'link', 'label': '消费报告', 'url': report_url},
+                'followup': f'本周消费 ¥{this_week:.0f} 比上周多了 {change_pct:.0f}%，帮我分析变化原因和可压缩的类别',
             }
         if change_pct < -20:
             return {
                 'text': f'本周消费 ¥{this_week:.0f}，比上周少了 {abs(change_pct):.0f}%，继续保持',
                 'icon': 'expense',
                 'key': f'weekly_expense:{week_start.isoformat()}',
-                'action': {'label': '消费报告', 'url': reverse('activities:expense_report')},
+                'action': {'kind': 'link', 'label': '消费报告', 'url': report_url},
+                'followup': f'本周消费比上周少了 {abs(change_pct):.0f}%，帮我看看哪些类别降下来了',
             }
         return None
     if this_week > 0:
@@ -133,7 +166,8 @@ def _rule_weekly_expense(user, today):
             'text': f'本周已消费 ¥{this_week:.0f}',
             'icon': 'expense',
             'key': f'weekly_expense:{week_start.isoformat()}',
-            'action': None,
+            'action': {'kind': 'link', 'label': '消费报告', 'url': report_url},
+            'followup': f'本周已消费 ¥{this_week:.0f}，帮我看看各类别占比是否健康',
         }
     return None
 
@@ -155,7 +189,9 @@ def _rule_long_running(user, today):
         'text': f'{name_str}{suffix}已进行中超过一周了，进度如何？',
         'icon': 'alert',
         'key': f'long_running:{today.isoformat()}',
-        'action': {'label': '查看', 'url': reverse('activities:activity_list')},
+        'action': {'kind': 'link', 'label': '查看',
+                   'url': reverse('activities:activity_list') + '?status=in_progress'},
+        'followup': f'{name_str}{suffix}已经进行中超过一周，帮我梳理进度并建议下一步',
     }
 
 
@@ -171,7 +207,9 @@ def _rule_no_start_date(user, today):
             'text': f'有 {no_date} 个计划中的活动还没有开始日期，要不要安排一下？',
             'icon': 'plan',
             'key': f'no_start_date:{today.isoformat()}',
-            'action': {'label': '去安排', 'url': reverse('activities:activity_list')},
+            'action': {'kind': 'link', 'label': '去安排',
+                       'url': reverse('activities:activity_list') + '?status=planned'},
+            'followup': f'我有 {no_date} 个计划中的活动还没定开始日期，帮我根据优先级建议一个排期方案',
         }
     return None
 
@@ -186,6 +224,7 @@ def _rule_stale_planned(user, today):
     )
     if not stale_planned.exists():
         return None
+    ids = list(stale_planned.values_list('id', flat=True)[:10])
     names = [a.name for a in stale_planned[:3]]
     name_str = '、'.join(f'「{n}」' for n in names)
     suffix = f'等 {stale_planned.count()} 个活动' if stale_planned.count() > 3 else ''
@@ -193,7 +232,11 @@ def _rule_stale_planned(user, today):
         'text': f'{name_str}{suffix}已计划超过 30 天仍未开始，是否要调整或取消？',
         'icon': 'stale',
         'key': f'stale_planned:{today.isoformat()}',
-        'action': {'label': '查看', 'url': reverse('activities:activity_list')},
+        'action': _tool_action(
+            '全部取消', 'activities.batch_status',
+            {'status': 'cancelled', 'target_ids': ids},
+            summary=f'将 {len(ids)} 个长期未开始的活动（{name_str}{suffix}）标记为已取消'),
+        'followup': f'{name_str}{suffix}计划超过 30 天未开始，帮我判断该推进、改期还是取消',
     }
 
 
@@ -209,7 +252,8 @@ def _rule_today_expense(user, today):
             'text': '今天还没有消费记录',
             'icon': 'expense',
             'key': f'today_expense:{today.isoformat()}',
-            'action': None,
+            'action': {'kind': 'post', 'label': '记一笔', 'panel': 'expense'},
+            'followup': '今天还没有记消费，帮我回顾一下今天可能有哪些开支需要补记',
         }
     return None
 
@@ -245,7 +289,8 @@ def _rule_budget_warning(user, today):
             'text': f'「{a.name}」{label}（已花费 ¥{spent:.0f} / 预算 ¥{a.budget:.0f}）',
             'icon': 'expense',
             'key': f'budget:{a.id}',
-            'action': {'label': '查看', 'url': reverse('activities:activity_detail', args=[a.id])},
+            'action': {'kind': 'link', 'label': '查看', 'url': reverse('activities:activity_detail', args=[a.id])},
+            'followup': f'「{a.name}」{label}（¥{spent:.0f}/¥{a.budget:.0f}），帮我分析剩余预算怎么分配',
         })
         if len(suggestions) >= 2:
             break
@@ -266,7 +311,8 @@ def _rule_upcoming_reminders(user, today):
             'text': f'提醒：{r.content}（即将到期）',
             'icon': 'alert',
             'key': f'reminder:{r.id}',
-            'action': None,
+            'action': _tool_action('知道了', 'reminders.complete', {'reminder_id': r.id}),
+            'followup': f'提醒“{r.content}”快到期了，帮我想想该怎么处理',
         }
         for r in upcoming_reminders[:2]
     ] or None
@@ -291,7 +337,8 @@ def _rule_weekly_report(user, today):
             'text': '本周报告已准备好，要看看吗？',
             'icon': 'plan',
             'key': f'weekly_report:{week_start.isoformat()}',
-            'action': {'label': '查看周报', 'url': reverse('weekly_report')},
+            'action': {'kind': 'link', 'label': '查看周报', 'url': reverse('weekly_report')},
+            'followup': '帮我生成本周周报，并总结本周的关键进展',
         }
     return None
 
@@ -312,7 +359,9 @@ def _rule_habit_missed(user, today):
             'text': f'「{a.name}」昨天没有打卡',
             'icon': 'alert',
             'key': f'habit_missed:{a.id}',
-            'action': {'label': '查看', 'url': reverse('activities:activity_detail', args=[a.id])},
+            'action': _tool_action('补打卡', 'activities.set_status',
+                                   {'activity_id': a.id, 'status': 'done'}),
+            'followup': f'「{a.name}」昨天断签了，帮我想想怎么调整节奏把习惯恢复',
         }
         for a in missed[:2]
     ] or None
@@ -333,7 +382,10 @@ def _rule_ending_soon(user, today):
             else f'「{a.name}」还有 {(a.end_date - today).days} 天到期',
             'icon': 'calendar',
             'key': f'ending:{a.id}',
-            'action': {'label': '查看', 'url': reverse('activities:activity_detail', args=[a.id])},
+            'action': _tool_action(
+                '标记完成', 'activities.set_status', {'activity_id': a.id, 'status': 'done'},
+                summary=f'将「{a.name}」标记为已完成'),
+            'followup': f'「{a.name}」即将到期还没完成，帮我拆解剩下的工作',
         }
         for a in soon[:2]
     ] or None
@@ -378,21 +430,26 @@ def _rule_goal_progress(user, today):
                     'text': f'目标「{goal.content}」相关的「{name}」进行中，加油',
                     'icon': 'goal',
                     'key': f'goal:{goal.id}',
-                    'action': {'label': '查看', 'url': reverse('activities:activity_detail', args=[act_id])},
+                    'action': {'kind': 'link', 'label': '查看', 'url': reverse('activities:activity_detail', args=[act_id])},
+                    'followup': f'目标「{goal.content}」相关的「{name}」正在进行，帮我看看下一步可以推进什么',
                 })
             else:
                 suggestions.append({
                     'text': f'目标「{goal.content}」相关的「{name}」已规划，准备开始吧',
                     'icon': 'goal',
                     'key': f'goal:{goal.id}',
-                    'action': {'label': '查看', 'url': reverse('activities:activity_detail', args=[act_id])},
+                    'action': _tool_action(
+                        '开始活动', 'activities.set_status', {'activity_id': act_id, 'status': 'in_progress'},
+                        summary=f'将「{name}」标记为进行中'),
+                    'followup': f'目标「{goal.content}」相关的「{name}」还没开始，帮我规划启动步骤',
                 })
         else:
             suggestions.append({
                 'text': f'目标「{goal.content}」近期没有相关进展，要不要规划下一步？',
                 'icon': 'goal',
                 'key': f'goal:{goal.id}',
-                'action': {'label': '创建活动', 'url': reverse('activities:activity_create')},
+                'action': {'kind': 'link', 'label': '创建活动', 'url': reverse('activities:activity_create')},
+                'followup': f'围绕目标「{goal.content}」，帮我拆解成几个可执行的具体任务',
             })
         if len(suggestions) >= 2:
             break
@@ -434,7 +491,9 @@ def _rule_time_investment(user, today):
         'text': text,
         'icon': 'plan',
         'key': f'time_invest:{week_start.isoformat()}',
-        'action': None,
+        'action': {'kind': 'link', 'label': '本周活动',
+                   'url': reverse('activities:activity_list') + '?status=done'},
+        'followup': text + '，帮我分析时间投入的变化是否合理',
     }
 
 
@@ -468,7 +527,8 @@ def _rule_expense_anomaly(user, today):
             'text': f'今日消费 ¥{today_expense:.0f}，明显高于近期日均（¥{avg_daily:.0f}），留意一下',
             'icon': 'expense',
             'key': f'expense_anomaly:{today.isoformat()}',
-            'action': {'label': '消费报告', 'url': reverse('activities:expense_report')},
+            'action': {'kind': 'link', 'label': '消费报告', 'url': reverse('activities:expense_report')},
+            'followup': f'今日消费 ¥{today_expense:.0f} 明显高于日均，帮我复盘这笔开支是否必要',
         }
     return None
 
@@ -483,7 +543,8 @@ def _rule_habit_streak(user, today):
                 'text': f'「{item["name"]}」已连续打卡 {item["streak"]} 天，继续保持',
                 'icon': 'habit',
                 'key': f'habit_streak:{item["recurring"].id}:{item["streak"]}',
-                'action': {'label': '习惯列表', 'url': reverse('activities:recurring_list')},
+                'action': {'kind': 'link', 'label': '习惯列表', 'url': reverse('activities:recurring_list')},
+                'followup': f'「{item["name"]}」已连续打卡 {item["streak"]} 天，帮我看看怎么让它更容易坚持',
             })
         if len(suggestions) >= 2:
             break
@@ -512,11 +573,20 @@ def _rule_subtask_progress(user, today):
         ratio = row['done_count'] / row['total_count']
         remaining = row['total_count'] - row['done_count']
         if ratio >= 0.8 and remaining > 0:
+            undone_ids = list(
+                Activity.objects.filter(
+                    parent_id=row['parent_id'], user=user
+                ).exclude(status='done').values_list('id', flat=True)[:20]
+            )
             suggestions.append({
                 'text': f'「{row["parent__name"]}」只剩 {remaining} 个子任务，一鼓作气完成吧',
                 'icon': 'plan',
                 'key': f'subtask:{row["parent_id"]}',
-                'action': {'label': '查看', 'url': reverse('activities:activity_detail', args=[row['parent_id']])},
+                'action': _tool_action(
+                    '完成子任务', 'activities.batch_status',
+                    {'status': 'done', 'target_ids': undone_ids},
+                    summary=f'将「{row["parent__name"]}」剩余 {remaining} 个子任务标记为已完成'),
+                'followup': f'「{row["parent__name"]}」只剩 {remaining} 个子任务，帮我看看收尾需要注意什么',
             })
         if len(suggestions) >= 2:
             break
@@ -603,11 +673,13 @@ def _get_daily_insights(user, today):
     for item in insight_obj.insights:
         if not isinstance(item, dict) or not item.get('text'):
             continue
+        text = item['text']
         results.append({
-            'text': item['text'],
+            'text': text,
             'icon': item.get('icon', 'plan'),
             'key': item.get('key', f'ai:{today.isoformat()}:{len(results)}'),
             'action': item.get('action'),
+            'followup': item.get('followup') or f'关于这条洞察：“{text[:40]}”，帮我具体分析并给出下一步',
             'source': 'ai',
         })
     return results

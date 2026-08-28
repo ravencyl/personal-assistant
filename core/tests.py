@@ -966,3 +966,245 @@ class ComputeHabitStreaksTest(TestCase):
         from core.suggestions import compute_habit_streaks
         streaks = compute_habit_streaks(self.user, self.today)
         self.assertEqual(streaks, [])
+
+
+class SuggestionActionProtocolTest(TestCase):
+    """建议可操作增强：规则 action 协议（tool/post/link）+ followup"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.today = timezone.localdate()
+
+    def _find(self, suggestions, key_prefix):
+        return next((s for s in suggestions if s['key'].startswith(key_prefix)), None)
+
+    def test_habit_missed_tool_action(self):
+        """规则 10：补打卡→合法 tool action，params 携精确 activity_id"""
+        from core.suggestions import generate_suggestions, SUGGESTION_TOOLS
+        from activities.models import RecurringActivity
+
+        pattern = RecurringActivity.objects.create(
+            user=self.user, name='晨跑', frequency='daily', is_active=True)
+        a = Activity.objects.create(
+            user=self.user, name='晨跑',
+            start_date=self.today - timedelta(days=1),
+            end_date=self.today - timedelta(days=1),
+            status='planned', recurring_source=pattern)
+
+        s = self._find(generate_suggestions(self.user), 'habit_missed:')
+        self.assertIsNotNone(s)
+        self.assertTrue(s['followup'])
+        action = s['action']
+        self.assertEqual(action['kind'], 'tool')
+        self.assertIn(action['tool'], SUGGESTION_TOOLS)
+        self.assertEqual(action['params'], {'activity_id': a.id, 'status': 'done'})
+        # params 全部为标量
+        self.assertTrue(all(isinstance(v, (str, int, float, bool))
+                            for v in action['params'].values()))
+
+    def test_stale_planned_confirm_action(self):
+        """规则 5：批量取消→tool action 需确认，target_ids 为整数列表"""
+        from core.suggestions import generate_suggestions
+
+        stale = Activity.objects.create(
+            user=self.user, name='陈旧计划', status='planned',
+            start_date=self.today - timedelta(days=40))
+        Activity.objects.filter(id=stale.id).update(
+            updated_at=timezone.now() - timedelta(days=31))
+
+        s = self._find(generate_suggestions(self.user), 'stale_planned:')
+        self.assertIsNotNone(s)
+        action = s['action']
+        self.assertEqual(action['kind'], 'tool')
+        self.assertEqual(action['tool'], 'activities.batch_status')
+        self.assertTrue(action['confirm'])
+        self.assertTrue(action['summary'])
+        self.assertEqual(action['params']['target_ids'], [stale.id])
+
+    def test_today_expense_post_action(self):
+        """规则 6：记一笔→post action 打开快记浮层 expense Tab"""
+        from core.suggestions import generate_suggestions
+
+        s = self._find(generate_suggestions(self.user), 'today_expense:')
+        self.assertIsNotNone(s)
+        self.assertEqual(s['action']['kind'], 'post')
+        self.assertEqual(s['action']['panel'], 'expense')
+        self.assertTrue(s['followup'])
+
+    def test_all_suggestions_have_followup(self):
+        """全量规则输出：每条建议 followup 非空，action kind 合法"""
+        from core.suggestions import generate_suggestions, SUGGESTION_TOOLS
+        from activities.models import RecurringActivity
+
+        Activity.objects.create(user=self.user, name='陈旧计划', status='planned',
+                                start_date=self.today - timedelta(days=40))
+        Activity.objects.filter(name='陈旧计划').update(
+            updated_at=timezone.now() - timedelta(days=31))
+        RecurringActivity.objects.create(
+            user=self.user, name='晨跑', frequency='daily', is_active=True)
+        Activity.objects.create(
+            user=self.user, name='晨跑',
+            start_date=self.today - timedelta(days=1),
+            end_date=self.today - timedelta(days=1),
+            status='planned')
+
+        for s in generate_suggestions(self.user):
+            self.assertTrue(s['followup'], f"{s['key']} 缺 followup")
+            action = s['action']
+            if not action:
+                continue
+            kind = action.get('kind', 'link')  # 无 kind 视为 link（向后兼容）
+            self.assertIn(kind, ('link', 'tool', 'post'))
+            if kind == 'tool':
+                self.assertIn(action['tool'], SUGGESTION_TOOLS)
+                self.assertIsInstance(action['params'], dict)
+
+    def test_link_action_backward_compatible(self):
+        """现有 link action 结构不变（label + url）"""
+        from core.suggestions import _normalize
+        from datetime import date
+
+        s = _normalize({'text': '测试', 'icon': 'plan',
+                        'action': {'label': '查看', 'url': '/activities/'}},
+                       'test_rule', date(2026, 1, 1))
+        self.assertEqual(s['action'], {'label': '查看', 'url': '/activities/'})
+        self.assertTrue(s['followup'])
+
+
+class ParseInsightsActionTest(TestCase):
+    """AI 洞察协议：tool action 白名单校验 + followup 兜底"""
+
+    def test_valid_tool_action_passes(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = ('[{"text": "晨跑断签了", "icon": "habit", '
+               '"followup": "怎么恢复习惯", '
+               '"action": {"kind": "tool", "label": "补打卡", '
+               '"tool": "activities.set_status", "params": {"target": "晨跑", "status": "done"}}}]')
+        result = parse_insights(raw)
+        self.assertEqual(len(result), 1)
+        action = result[0]['action']
+        self.assertEqual(action['kind'], 'tool')
+        self.assertEqual(action['tool'], 'activities.set_status')
+        self.assertFalse(action['confirm'])  # set_status 白名单声明免确认
+        self.assertEqual(result[0]['followup'], '怎么恢复习惯')
+
+    def test_non_whitelist_tool_downgraded(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = ('[{"text": "测试", "icon": "plan", '
+               '"action": {"kind": "tool", "label": "删掉", '
+               '"tool": "activities.delete", "params": {"target": "x"}}}]')
+        result = parse_insights(raw)
+        self.assertIsNone(result[0]['action'])
+
+    def test_nested_params_downgraded(self):
+        """params 携非标量值（嵌套结构）→ 降级 None"""
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = ('[{"text": "测试", "icon": "plan", '
+               '"action": {"kind": "tool", "label": "打卡", '
+               '"tool": "activities.set_status", "params": {"evil": {"a": 1}}}}]')
+        result = parse_insights(raw)
+        self.assertIsNone(result[0]['action'])
+
+    def test_missing_followup_fallback(self):
+        from core.management.commands.generate_daily_insights import parse_insights
+        raw = '[{"text": "一条洞察", "icon": "plan", "action": null}]'
+        result = parse_insights(raw)
+        self.assertTrue(result[0]['followup'])
+        self.assertIn('一条洞察', result[0]['followup'])
+
+
+class SuggestionToolRunEndpointTest(TestCase):
+    """建议工具执行端点：白名单 / 两步确认 / 标记已读 / 容错"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = Client()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client.login(username='testuser', password='test')
+        self.url = '/suggestions/run-tool/'
+
+    def _post(self, payload):
+        import json
+        return self.client.post(self.url, json.dumps(payload),
+                                content_type='application/json')
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self._post({'tool': 'activities.set_status', 'params': {}})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/login/', resp.url)
+
+    def test_non_whitelist_tool_rejected(self):
+        resp = self._post({'tool': 'activities.delete', 'params': {'target': 'x'}})
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertFalse(data['ok'])
+
+    def test_invalid_params_rejected(self):
+        """嵌套结构 params 拒绝"""
+        resp = self._post({'tool': 'activities.set_status',
+                           'params': {'evil': {'a': 1}}})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_direct_tool_executes_and_marks_read(self):
+        """免确认工具单次执行成功 → 状态变更 + 建议标记已读"""
+        from core.models import SuggestionState
+
+        a = Activity.objects.create(user=self.user, name='晨跑', status='planned')
+        resp = self._post({'key': 'habit_missed:1', 'tool': 'activities.set_status',
+                           'params': {'activity_id': a.id, 'status': 'done'}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertIn('晨跑', data['reply'])
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'done')
+        self.assertTrue(SuggestionState.objects.filter(
+            user=self.user, fingerprint='habit_missed:1', action='read').exists())
+
+    def test_confirm_two_step_flow(self):
+        """需确认工具：首次 need_confirm+token → 带 token 二次执行；错误 token 拒绝"""
+        from core.agent_registry import make_action_token
+
+        a = Activity.objects.create(user=self.user, name='陈旧计划', status='planned')
+        payload = {'key': 'stale_planned:x', 'tool': 'activities.batch_status',
+                   'params': {'status': 'cancelled', 'target_ids': [a.id]},
+                   'summary': '将取消 1 个活动'}
+
+        # 第一步：无 token → 要求确认
+        resp = self._post(payload)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data.get('need_confirm'))
+        self.assertFalse(data['ok'])
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'planned')  # 未执行
+
+        # 错误 token → 400
+        bad = dict(payload, confirm_token='0' * 32)
+        resp = self._post(bad)
+        self.assertEqual(resp.status_code, 400)
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'planned')
+
+        # 正确 token → 执行成功（target_ids 直达 apply）
+        token = make_action_token(self.user, 'stale_planned:x', 'confirm')
+        resp = self._post(dict(payload, confirm_token=token))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'cancelled')
+
+    def test_tool_error_returns_ok_false(self):
+        """工具抛 ToolError → 200 + ok=False，不抛 500"""
+        resp = self._post({'key': 'k', 'tool': 'activities.set_status',
+                           'params': {'activity_id': 999999, 'status': 'done'}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertFalse(data['ok'])
+        self.assertTrue(data['error'])
+
+    def test_invalid_body(self):
+        resp = self.client.post(self.url, 'not json', content_type='application/json')
+        self.assertEqual(resp.status_code, 400)

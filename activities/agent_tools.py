@@ -155,7 +155,15 @@ def tool_set_status(user, params):
     status = params.get('status')
     if status not in STATUS_LABELS:
         raise ToolError('目标状态无效，可选：计划 / 进行中 / 已完成 / 已取消')
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    # activity_id：Daily 建议动作等已知目标 id 的调用方精确锁定，避免名称歧义
+    activity_id = params.get('activity_id')
+    if activity_id:
+        try:
+            activity = visible_qs(Activity, user).get(id=activity_id)
+        except Activity.DoesNotExist:
+            raise ToolError('没有找到目标任务，可能已被删除')
+    else:
+        activity = _resolve_single(user, params.get('target') or params.get('name'))
     if activity.status == status:
         return {
             'reply': f'「{activity.name}」已经处于「{STATUS_LABELS[status]}」状态了',

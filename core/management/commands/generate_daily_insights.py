@@ -118,20 +118,57 @@ def collect_insight_data(user, today):
 
 def build_insight_prompt(data, memory_text):
     """构造 AI 洞察提示词"""
+    from core.suggestions import SUGGESTION_TOOLS
+
+    tool_hints = '、'.join(sorted(SUGGESTION_TOOLS))
     return f"""请根据用户近期的行为数据和个人记忆，生成 1-2 条今日个性化洞察。
 
 要求：
 1. 严格输出 JSON 数组（不要 Markdown 代码块包裹）：
-   [{{"text": "...", "icon": "goal|expense|habit|plan|calendar|alert", "action": {{"label": "≤4字", "url": "..."}} 或 null}}]
+   [{{"text": "...", "icon": "goal|expense|habit|plan|calendar|alert",
+     "followup": "用户点击这条洞察时想追问 AI 的问题（≤30字，结合洞察内容）",
+     "action": {{"kind": "link", "label": "≤4字", "url": "..."}}
+          或 {{"kind": "tool", "label": "≤4字", "tool": "工具名", "params": {{...}}}}
+          或 null}}]
 2. 每条 text ≤ 50 字，自然亲切，必须基于提供的数据，不得虚构
 3. 结合用户记忆给出个性化建议（如目标推进、习惯保持），不要复述数据本身
-4. action.url 只能从以下页面选择：{', '.join(sorted(URL_WHITELIST))}
-5. 没有值得说的洞察时输出空数组 []
+4. action.kind=link 时 url 只能从以下页面选择：{', '.join(sorted(URL_WHITELIST))}
+5. action.kind=tool 时 tool 只能从白名单选择：{tool_hints}；
+   params 只能用标量值（字符串/数字/布尔）；不确定目标时宁可给 null 或 link，不要编造工具参数
+6. followup 必填：写成用户口吻的具体问题，如“帮我拆解这周该做的第一步”
+7. 没有值得说的洞察时输出空数组 []
 
 数据：
 {json.dumps(data, ensure_ascii=False, indent=2)}
 
 {memory_text}"""
+
+
+def _sanitize_action(action):
+    """校验 AI 给出的动作：link 走 URL 白名单，tool 走工具白名单，非法降级 None"""
+    from core.suggestions import SUGGESTION_TOOLS
+
+    if not isinstance(action, dict):
+        return None
+    kind = action.get('kind') or ('tool' if action.get('tool') else 'link')
+    label = str(action.get('label', '查看'))[:6]
+
+    if kind == 'tool':
+        tool = str(action.get('tool') or '')
+        params = action.get('params')
+        if tool not in SUGGESTION_TOOLS or not isinstance(params, dict) or not params:
+            return None
+        # params 仅允许标量，防注入嵌套结构
+        if not all(isinstance(v, (str, int, float, bool)) for v in params.values()):
+            return None
+        return {'kind': 'tool', 'label': label, 'tool': tool, 'params': params,
+                'confirm': SUGGESTION_TOOLS[tool],
+                'summary': str(action.get('summary') or f'执行：{label}')[:100]}
+
+    url = action.get('url')
+    if kind == 'link' and url in URL_WHITELIST:
+        return {'kind': 'link', 'label': label, 'url': url}
+    return None
 
 
 def parse_insights(raw):
@@ -164,16 +201,11 @@ def parse_insights(raw):
         icon = item.get('icon', 'plan')
         if icon not in ICON_WHITELIST:
             icon = 'plan'
-        action = item.get('action')
-        if isinstance(action, dict) and action.get('url'):
-            url = action['url']
-            if url not in URL_WHITELIST:
-                action = None
-            else:
-                action = {'label': str(action.get('label', '查看'))[:4], 'url': url}
-        else:
-            action = None
-        valid.append({'text': text_val, 'icon': icon, 'action': action})
+        action = _sanitize_action(item.get('action'))
+        followup = str(item.get('followup') or '').strip()[:100] or \
+            f'关于这条洞察：“{text_val[:40]}”，帮我具体分析并给出下一步'
+        valid.append({'text': text_val, 'icon': icon, 'action': action,
+                      'followup': followup})
         if len(valid) >= 2:
             break
 
@@ -194,7 +226,11 @@ def build_fallback_insights(data):
             text += f'，投入约 {hours:.0f} 小时'
         if time_last > 0 and time_this > time_last:
             text += '，比上周更专注了'
-        insights.append({'text': text, 'icon': 'plan', 'action': None})
+        insights.append({
+            'text': text, 'icon': 'plan',
+            'action': {'kind': 'link', 'label': '看活动', 'url': '/activities/'},
+            'followup': f'{text}，帮我看看还有哪些可以本周收尾',
+        })
 
     streaks = data.get('habit_streaks', [])
     if streaks and streaks[0]['streak'] >= 3:
@@ -202,7 +238,8 @@ def build_fallback_insights(data):
         insights.append({
             'text': f'「{s["name"]}」已连续 {s["streak"]} 天，坚持就是胜利',
             'icon': 'habit',
-            'action': {'label': '习惯', 'url': '/activities/recurring/'},
+            'action': {'kind': 'link', 'label': '习惯', 'url': '/activities/recurring/'},
+            'followup': f'「{s["name"]}」已连续 {s["streak"]} 天，帮我看看怎么让它更容易坚持',
         })
 
     return insights[:2]
