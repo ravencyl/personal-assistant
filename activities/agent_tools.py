@@ -98,7 +98,7 @@ def _resolve_by_id(user, target_id):
 
 @agent_tool('activities.query', '按条件查询活动列表',
             'participant（参与者姓名，“和某人一起的活动”用这个，模糊不区分大小写）、'
-            'keyword（主题关键词，“旅游相关/吃饭的”这类用这个，跨名称描述标签模糊搜）、'
+            'keyword（主题关键词，“旅游相关/吃饭的”这类用这个，跨名称描述参与者标签模糊搜）、'
             'name（活动名称关键词）、status、tag（精确标签名，不确定时用 keyword 代替）、'
             'date_from、date_to（YYYY-MM-DD），均可选，可组合')
 def tool_query(user, params):

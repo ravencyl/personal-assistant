@@ -362,6 +362,10 @@ def activity_list(request):
         tag_link_params['keyword'] = keyword_filter
     tag_link_qs = urlencode(tag_link_params)
 
+    # 清除搜索链接：保留其他筛选参数（不含 keyword）
+    search_clear_params = {k: v for k, v in tag_link_params.items() if k != 'keyword'}
+    search_clear_qs = urlencode(search_clear_params)
+
     # 首页问候头部：时段问候 + 日期星期 + 今日摘要
     hour = timezone.localtime().hour
     if hour < 6:
@@ -392,6 +396,9 @@ def activity_list(request):
         'status_filter': status_filter,
         'status_choices': Activity.STATUS_CHOICES,
         'tag_filter': tag_filter,
+        'keyword_filter': keyword_filter,
+        'match_count': matched.count() if has_filter else 0,
+        'search_clear_qs': search_clear_qs,
         'all_tags': _user_tag_names(request.user),
         'tag_link_qs': tag_link_qs,
         'filters_active': filters_active,

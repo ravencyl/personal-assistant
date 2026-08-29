@@ -177,3 +177,71 @@ class AddExpenseAutoTargetTest(TestCase):
         # 费用统计口径包含桶内费用（按用户聚合）
         total = Expense.objects.filter(user=self.user).aggregate(s=Sum('amount'))['s']
         self.assertEqual(total, Decimal('10'))
+
+
+class ActivitySearchTest(TestCase):
+    """活动搜索：跨标题/描述/参与者/标签关键词匹配（filter_activities + 列表页）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def _filter_names(self, **params):
+        from activities.utils import filter_activities
+        return set(filter_activities(self.user, params).values_list('name', flat=True))
+
+    def test_keyword_matches_name_description_tag_participant(self):
+        """同一关键词应跨名称/描述/标签/参与者四个字段命中"""
+        from activities.models import Participant
+        a1 = Activity.objects.create(user=self.user, name='团建策划')
+        a2 = Activity.objects.create(user=self.user, name='会议', description='季度团建复盘')
+        a3 = Activity.objects.create(user=self.user, name='爬山')
+        a3.tags.add('团建活动')
+        a4 = Activity.objects.create(user=self.user, name='晚餐')
+        p = Participant.objects.create(user=self.user, name='团建达人小王')
+        a4.participants.add(p)
+        other = Activity.objects.create(user=self.user, name='无关活动')
+
+        names = self._filter_names(keyword='团建')
+        self.assertEqual(names, {'团建策划', '会议', '爬山', '晚餐'})
+        self.assertNotIn(other.name, names)
+
+    def test_keyword_case_insensitive_and_blank(self):
+        """英文关键词大小写不敏感；空白关键词不过滤"""
+        Activity.objects.create(user=self.user, name='Team Building 年度活动')
+        self.assertEqual(self._filter_names(keyword='team'), {'Team Building 年度活动'})
+        self.assertEqual(self._filter_names(keyword='  ')
+                         , {'Team Building 年度活动'})
+
+    def test_list_page_search_view_and_tree_ancestors(self):
+        """列表页搜索：命中子活动保留祖先链展示，未命中活动隐藏，显示命中提示"""
+        parent = Activity.objects.create(user=self.user, name='新西兰之旅')
+        child = Activity.objects.create(user=self.user, name='订机票', parent=parent,
+                                        description='新西兰航空')
+        Activity.objects.create(user=self.user, name='本地跑步')
+
+        response = self.client.get('/activities/?keyword=新西兰')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('订机票', content)      # 命中（描述）
+        self.assertIn('新西兰之旅', content)  # 祖先链保留
+        self.assertNotIn('本地跑步', content)
+        self.assertIn('命中', content)          # 命中数提示
+
+    def test_list_page_search_combines_with_status_filter(self):
+        """搜索 + 状态筛选叠加，且关键词回填到搜索框"""
+        Activity.objects.create(user=self.user, name='团建爬山', status='done')
+        Activity.objects.create(user=self.user, name='团建聚餐', status='planned')
+
+        response = self.client.get('/activities/?keyword=团建&status=done')
+        content = response.content.decode()
+        self.assertIn('团建爬山', content)
+        self.assertNotIn('团建聚餐', content)
+        self.assertIn('name="keyword" value="团建"', content)  # 搜索框回填
+
+    def test_list_page_search_no_match(self):
+        """无命中时不报错，展示空列表"""
+        Activity.objects.create(user=self.user, name='存在活动')
+        response = self.client.get('/activities/?keyword=完全不存在的关键词xyz')
+        self.assertEqual(response.status_code, 200)

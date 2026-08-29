@@ -189,7 +189,7 @@ def filter_activities(user, params):
     """按条件筛选活动，返回 queryset（列表视图与 Agent 查询工具共用）
 
     params 支持：status / tag / date_from / date_to / name /
-    participant（参与者，模糊）/ keyword（名称/描述/标签跨字段模糊），非法值静默忽略。
+    participant（参与者，模糊）/ keyword（名称/描述/参与者/标签跨字段模糊），非法值静默忽略。
     日期筛选与列表页一致：按活动开始日期是否落在区间内。
     """
     qs = visible_qs(Activity, user).prefetch_related('tags')
@@ -219,6 +219,7 @@ def filter_activities(user, params):
             models.Q(name__icontains=keyword)
             | models.Q(description__icontains=keyword)
             | models.Q(tags__name__icontains=keyword)
+            | models.Q(participants__name__icontains=keyword)
         ).distinct()
     return qs
 
