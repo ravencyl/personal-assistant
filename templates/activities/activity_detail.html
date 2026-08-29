@@ -80,7 +80,7 @@
     <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">累计费用</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">&#165;{{ activity.total_cost }}</p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">&#165;{{ activity.total_cost|floatformat:"-2" }}</p>
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">费用条目</p>
@@ -88,7 +88,7 @@
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">子任务</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ children|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个</span></p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个</span></p>
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">参与者</p>
@@ -319,7 +319,7 @@
 
     <!-- 子任务 -->
     <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">子任务（{{ children|length }}）</h2>
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">子任务（<span id="subtask-count">{{ children|length }}</span>）</h2>
         <!-- 快速记一笔：一句话解析后预览确认创建子任务 -->
         <div class="mb-4">
             <div class="flex gap-2">
@@ -343,55 +343,75 @@
                 </div>
             </div>
         </div>
-        {% if children %}
-        <!-- 时间轴展示：按可用日期从早到晚，无日期排最后 -->
-        <div class="relative mt-1">
-            <!-- 时间轴竖线 -->
-            <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-[var(--border-strong)]"></div>
-            <ol>
-                {% for child in children %}
-                <li class="relative pl-6 {% if not forloop.last %}pb-5{% endif %}">
-                    <!-- 节点圆点（随状态着色） -->
-                    <span class="absolute left-0 top-[5px] w-2 h-2 rounded-full
-                        {% if child.status == 'in_progress' %}bg-[var(--accent)]
-                        {% elif child.status == 'done' %}bg-zinc-300
-                        {% elif child.status == 'cancelled' %}bg-zinc-400
-                        {% else %}bg-zinc-200{% endif %}"></span>
-                    <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
-                    <div class="flex flex-col md:flex-row md:items-baseline gap-0.5 sm:gap-4">
-                        <span class="text-xs {% if child.timeline_year %}text-[var(--text-muted)]{% else %}text-[var(--text-muted)]{% endif %} md:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
-                        <div class="min-w-0 flex-1">
-                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-[var(--text)] hover:text-[var(--text-secondary)] break-words">{{ child.name }}</a>
-                                {% include "activities/_status_badge.html" with status=child.status label=child.get_status_display %}
-                                {% if child.expenses_total %}<span class="text-xs text-[var(--text-muted)]">&#165;{{ child.expenses_total }}</span>{% endif %}
-                                <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</a>
-                            </div>
-                            {% if child.tags.all %}
-                            <div class="mt-1 flex flex-wrap gap-1">
-                                {% for tag in child.tags.all %}
-                                <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-                            {% if child.participants.all %}
-                            <p class="mt-1 text-xs text-[var(--text-secondary)]">
-                                <span class="text-[var(--text-muted)]">@</span>
-                                {% for p in child.participants.all %}{% if not forloop.first %}、{% endif %}{{ p.name }}{% endfor %}
-                            </p>
-                            {% endif %}
-                            {% if child.start_date and child.end_date and child.start_date != child.end_date %}
-                            <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ child.start_date|date:"m-d" }} ~ {{ child.end_date|date:"m-d" }}</p>
-                            {% endif %}
-                        </div>
+        <!-- 手动创建子任务：内联展开/收起，与上方「一句话创建」AI 入口并存 -->
+        <div class="mb-4">
+            <button type="button" id="sub-manual-toggle"
+                    class="tap-target inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--border-strong)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
+                <span id="sub-manual-toggle-icon">+</span> 手动添加子任务
+            </button>
+            <p id="sub-manual-ok" class="hidden mt-2 text-xs text-[var(--text-secondary)]"></p>
+            <!-- novalidate：关掉浏览器原生必填气泡，改由下方行内错误提示接管（required 仅作为语义标记） -->
+            <form id="sub-manual-form" class="hidden mt-3 pt-3 border-t border-[var(--border)]" novalidate>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3">
+                    <div class="md:col-span-2">
+                        <label for="sub-manual-name" class="block text-xs text-[var(--text-muted)] mb-1">名称 <span class="text-[var(--text-secondary)]">*</span></label>
+                        <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="子任务名称" autocomplete="off"
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
-                </li>
-                {% endfor %}
-            </ol>
+                    <div>
+                        <label for="sub-manual-start" class="block text-xs text-[var(--text-muted)] mb-1">开始日期</label>
+                        <input type="date" id="sub-manual-start" name="start_date"
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
+                    </div>
+                    <div>
+                        <label for="sub-manual-end" class="block text-xs text-[var(--text-muted)] mb-1">结束日期</label>
+                        <input type="date" id="sub-manual-end" name="end_date"
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
+                    </div>
+                    <div>
+                        <label for="sub-manual-status" class="block text-xs text-[var(--text-muted)] mb-1">状态</label>
+                        <select id="sub-manual-status" name="status"
+                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
+                            {% for value, label in status_choices %}
+                            <option value="{{ value }}" {% if value == 'planned' %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="sub-manual-amount" class="block text-xs text-[var(--text-muted)] mb-1">费用金额</label>
+                        <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选"
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                    </div>
+                    <div>
+                        <label for="sub-manual-tags" class="block text-xs text-[var(--text-muted)] mb-1">标签</label>
+                        <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off"
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                        <datalist id="sub-manual-tag-options">
+                            {% for tag_name in tag_suggestions %}<option value="{{ tag_name }}"></option>{% endfor %}
+                        </datalist>
+                    </div>
+                    <div>
+                        <label for="sub-manual-participants" class="block text-xs text-[var(--text-muted)] mb-1">参与者</label>
+                        <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off"
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                        <datalist id="sub-manual-participant-options">
+                            {% for p_name in participant_suggestions %}<option value="{{ p_name }}"></option>{% endfor %}
+                        </datalist>
+                    </div>
+                    <div class="md:col-span-4 flex items-center gap-2">
+                        <button type="submit" id="sub-manual-submit"
+                                class="tap-target rounded-full bg-zinc-900 text-white text-xs font-medium px-4 py-2 hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed">创建子任务</button>
+                        <button type="button" id="sub-manual-cancel"
+                                class="tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">取消</button>
+                    </div>
+                </div>
+                <p id="sub-manual-error" class="hidden mt-2 text-xs font-semibold text-zinc-800"></p>
+                <p class="mt-2 text-xs text-[var(--text-muted)]">除名称外均可留空；标签与参与者用逗号分隔，新名称会自动创建</p>
+            </form>
         </div>
-        {% else %}
-        <p class="text-sm text-[var(--text-muted)]">暂无子任务，可在上方输入名称快速添加</p>
-        {% endif %}
+        <div id="subtask-list">
+            {% include "activities/_subactivity_items.html" %}
+        </div>
     </div>
 
     <!-- 操作历史（辅助信息，低调展示；默认折叠，点击展开） -->
@@ -553,6 +573,93 @@ function cancelEdit() {
         }).catch(function () {
             confirmBtn.disabled = false;
             confirmBtn.textContent = '确认创建子任务';
+            showError('网络异常，请重试');
+        });
+    });
+})();
+
+(function () {
+    // ==================== 手动内联创建子任务（原生 fetch + JSON，无 hx-*）====================
+    var form = document.getElementById('sub-manual-form');
+    if (!form) return;
+    var toggleBtn = document.getElementById('sub-manual-toggle');
+    var toggleIcon = document.getElementById('sub-manual-toggle-icon');
+    var cancelBtn = document.getElementById('sub-manual-cancel');
+    var submitBtn = document.getElementById('sub-manual-submit');
+    var errEl = document.getElementById('sub-manual-error');
+    var okEl = document.getElementById('sub-manual-ok');
+    var listEl = document.getElementById('subtask-list');
+    var countEl = document.getElementById('subtask-count');
+    var statEl = document.getElementById('subtask-stat');
+    var csrf = document.querySelector('meta[name="csrf-token"]').content;
+    var createUrl = '{% url "activities:subactivity_manual_create" activity.id %}';
+
+    function field(name) { return form.querySelector('[name="' + name + '"]'); }
+
+    function setOpen(open) {
+        form.classList.toggle('hidden', !open);
+        toggleIcon.textContent = open ? '−' : '+';
+        if (open) field('name').focus();
+    }
+
+    function showError(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    function showOk(msg) { okEl.textContent = msg; okEl.classList.remove('hidden'); }
+    function hideMessages() { errEl.classList.add('hidden'); okEl.classList.add('hidden'); }
+
+    function resetSubmitBtn() {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '创建子任务';
+    }
+
+    toggleBtn.addEventListener('click', function () {
+        hideMessages();
+        setOpen(form.classList.contains('hidden'));
+    });
+    cancelBtn.addEventListener('click', function () { setOpen(false); hideMessages(); });
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        hideMessages();
+        var name = field('name').value.trim();
+        // 前端先拦一道空名称（后端同样校验）
+        if (!name) { showError('请填写子任务名称'); field('name').focus(); return; }
+        var payload = {
+            name: name,
+            start_date: field('start_date').value,
+            end_date: field('end_date').value,
+            status: field('status').value,
+            amount: field('amount').value,
+            tags: field('tags').value,
+            participants: field('participants').value
+        };
+        if (payload.start_date && payload.end_date && payload.end_date < payload.start_date) {
+            showError('结束日期不能早于开始日期');
+            return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = '创建中…';
+        fetch(createUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).then(function (r) {
+            return r.json().then(
+                function (d) { return { ok: r.ok, data: d }; },
+                function () { return { ok: false, data: {} }; }
+            );
+        }).then(function (res) {
+            resetSubmitBtn();
+            if (!res.ok) { showError(res.data.error || '创建失败，请稍后重试'); return; }
+            // 局部刷新子任务列表与计数，避开整页重载闪烁
+            if (res.data.children_html) listEl.innerHTML = res.data.children_html;
+            if (countEl) countEl.textContent = res.data.children_count;
+            if (statEl) statEl.textContent = res.data.children_count;
+            form.reset();
+            field('status').value = 'planned';
+            setOpen(false);
+            showOk('已创建子任务「' + res.data.name + '」');
+        }).catch(function () {
+            resetSubmitBtn();
             showError('网络异常，请重试');
         });
     });

@@ -1,3 +1,4 @@
+import json
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -245,3 +246,111 @@ class ActivitySearchTest(TestCase):
         Activity.objects.create(user=self.user, name='存在活动')
         response = self.client.get('/activities/?keyword=完全不存在的关键词xyz')
         self.assertEqual(response.status_code, 200)
+
+
+class SubactivityManualCreateTest(TestCase):
+    """活动详情页内联手动创建子任务（subactivity_manual_create 端点）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.other = User.objects.create_user('other', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.parent = Activity.objects.create(user=self.user, name='新西兰之旅')
+
+    def _post(self, payload, activity=None):
+        target = activity or self.parent
+        return self.client.post(
+            f'/activities/{target.id}/subactivities/manual-create/',
+            data=json.dumps(payload), content_type='application/json')
+
+    def test_manual_create_with_all_fields(self):
+        """正常创建：日期/状态/费用/标签/参与者全部落库，并返回局部刷新片段"""
+        resp = self._post({'name': '订机票', 'start_date': '2026-09-10',
+                           'end_date': '2026-09-12', 'status': 'in_progress',
+                           'amount': '1200.50', 'tags': '出行, 预订',
+                           'participants': '小王，小李'})
+        self.assertEqual(resp.status_code, 200)
+        child = Activity.objects.get(name='订机票')
+        self.assertEqual(child.parent_id, self.parent.id)
+        self.assertEqual(child.status, 'in_progress')
+        self.assertEqual(child.start_date.isoformat(), '2026-09-10')
+        self.assertEqual(child.end_date.isoformat(), '2026-09-12')
+        self.assertEqual({t.name for t in child.tags.all()}, {'出行', '预订'})
+        self.assertEqual({p.name for p in child.participants.all()}, {'小王', '小李'})
+        self.assertEqual(Expense.objects.get(activity=child).amount, Decimal('1200.50'))
+        data = resp.json()
+        self.assertEqual(data['children_count'], 1)
+        self.assertIn('订机票', data['children_html'])
+
+    def test_optional_fields_can_be_blank(self):
+        """只填名称也能创建：状态默认 planned，无费用/标签/参与者"""
+        resp = self._post({'name': '买保险', 'start_date': '', 'end_date': '',
+                           'amount': '', 'tags': '', 'participants': ''})
+        self.assertEqual(resp.status_code, 200)
+        child = Activity.objects.get(name='买保险')
+        self.assertEqual(child.status, 'planned')
+        self.assertIsNone(child.start_date)
+        self.assertFalse(Expense.objects.filter(activity=child).exists())
+
+    def test_empty_name_rejected(self):
+        """名称为空被后端拦截，且不产生任何数据"""
+        for bad in ('', '   ', None):
+            resp = self._post({'name': bad})
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn('名称', resp.json()['error'])
+        self.assertEqual(Activity.objects.filter(parent=self.parent).count(), 0)
+
+    def test_invalid_dates_and_amount_rejected(self):
+        """结束早于开始、非法日期、非法金额均返回 400 友好文案"""
+        resp = self._post({'name': 'x', 'start_date': '2026-09-12', 'end_date': '2026-09-10'})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('结束日期', resp.json()['error'])
+        self.assertEqual(self._post({'name': 'x', 'start_date': 'not-a-date'}).status_code, 400)
+        self.assertEqual(self._post({'name': 'x', 'amount': '-5'}).status_code, 400)
+        self.assertEqual(self._post({'name': 'x', 'amount': 'abc'}).status_code, 400)
+        self.assertEqual(self._post({'name': 'x', 'status': 'bogus'}).status_code, 200)  # 非法状态回落 planned
+        self.assertEqual(Activity.objects.filter(parent=self.parent).count(), 1)
+
+    def test_other_users_activity_returns_404(self):
+        """无权访问他人活动（get_visible）→ 404，且不创建数据"""
+        foreign = Activity.objects.create(user=self.other, name='别人的活动')
+        resp = self._post({'name': '插不进去'}, activity=foreign)
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(Activity.objects.filter(name='插不进去').exists())
+
+    def test_ownership_inherits_parent(self):
+        """超管创建子任务，归属仍是父活动 owner（子活动继承父活动 user）"""
+        User.objects.create_superuser('root', password='root')
+        admin_client = Client()
+        admin_client.login(username='root', password='root')
+        resp = admin_client.post(
+            f'/activities/{self.parent.id}/subactivities/manual-create/',
+            data=json.dumps({'name': '租用车'}), content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Activity.objects.get(name='租用车').user_id, self.user.id)
+
+    def test_logs_written_for_parent_and_child(self):
+        """父子两条活动日志，与 add_subactivity / activity_quick_sub 口径一致"""
+        from activities.models import ActivityLog
+        self.assertEqual(self._post({'name': '办签证'}).status_code, 200)
+        child = Activity.objects.get(name='办签证')
+        parent_logs = ActivityLog.objects.filter(activity=self.parent, action='sub_created')
+        child_logs = ActivityLog.objects.filter(activity=child, action='created')
+        self.assertEqual(parent_logs.count(), 1)
+        self.assertIn('办签证', parent_logs[0].summary)
+        self.assertEqual(child_logs.count(), 1)
+        self.assertIn(self.parent.name, child_logs[0].summary)
+
+    def test_detail_page_renders_collapsed_manual_form(self):
+        """详情页渲染内联表单（默认折叠）且与 AI 快速入口并存"""
+        Activity.objects.create(user=self.user, name='已有子任务', parent=self.parent)
+        resp = self.client.get(f'/activities/{self.parent.id}/')
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertIn('手动添加子任务', content)
+        self.assertIn('id="sub-manual-form" class="hidden', content)
+        self.assertIn('novalidate', content)  # 行内错误接管浏览器原生必填气泡
+        self.assertIn('快速记一笔子任务', content)   # AI 入口保留
+        self.assertIn('已有子任务', content)
+        self.assertIn('sub-manual-tag-options', content)  # 标签 autocomplete 建议

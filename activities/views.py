@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -13,6 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import models
 from django.db.models import Count, Sum
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -417,14 +419,11 @@ def activity_list(request):
     })
 
 
-@login_required
-def activity_detail(request, activity_id):
-    """活动详情（含子任务时间轴、费用明细与操作日志）"""
-    # 自动将 start_date 已到的 planned 活动改为 in_progress
-    auto_start_activities(request.user)
-    activity = get_visible(Activity, request.user, id=activity_id)
+def _subactivity_timeline(activity):
+    """子任务时间轴数据：按可用日期（开始优先，其次结束）从早到晚，无日期排最后
 
-    # 子任务按时间轴排序：可用日期（开始优先，其次结束）从早到晚，无日期排最后
+    详情页首次渲染与内联手动创建端点的局部刷新共用。
+    """
     children = list(activity.children.prefetch_related('tags', 'participants').all())
     children.sort(key=lambda c: ((c.start_date or c.end_date) is None,
                                  c.start_date or c.end_date or date.min))
@@ -434,6 +433,17 @@ def activity_detail(request, activity_id):
         child.timeline_year = d.strftime('%Y') if d else ''
         # 子活动的费用合计（自身 Expense + 后代 Expense，用于时间轴展示）
         child.expenses_total = child.total_cost
+    return children
+
+
+@login_required
+def activity_detail(request, activity_id):
+    """活动详情（含子任务时间轴、费用明细与操作日志）"""
+    # 自动将 start_date 已到的 planned 活动改为 in_progress
+    auto_start_activities(request.user)
+    activity = get_visible(Activity, request.user, id=activity_id)
+
+    children = _subactivity_timeline(activity)
 
     # 费用明细
     expenses = list(activity.expenses.all())
@@ -463,6 +473,10 @@ def activity_detail(request, activity_id):
         'budget_label': budget_label,
         'related_articles': related.get('articles', []),
         'related_notes': related.get('notes', []),
+        # 手动内联创建子任务表单的 autocomplete 建议
+        'tag_suggestions': _user_tag_names(request.user),
+        'participant_suggestions': list(Participant.objects.filter(
+            user=activity.user).values_list('name', flat=True).order_by('name')),
     })
 
 
@@ -620,6 +634,118 @@ def activity_quick_sub(request, activity_id):
         'id': child.id,
         'name': child.name,
         'url': reverse('activities:activity_detail', args=[child.id]),
+    })
+
+
+def _split_name_input(value):
+    """内联表单的标签/参与者输入 → 去重列表（兼容逗号/顿号分隔与 # @ 前缀）"""
+    if isinstance(value, str):
+        items = re.split(r'[,，、]', value)
+    elif isinstance(value, (list, tuple)):
+        items = value
+    else:
+        return []
+    names, seen = [], set()
+    for item in items:
+        name = str(item).strip().lstrip('#@').strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name[:100])
+    return names[:10]
+
+
+def _parse_date_input(value):
+    """内联表单日期输入 → date；空值返回 None，非法值抛 ValueError"""
+    text = str(value or '').strip()
+    if not text:
+        return None
+    return date.fromisoformat(text[:10])
+
+
+@login_required
+@require_POST
+def subactivity_manual_create(request, activity_id):
+    """详情页内联手动表单创建子任务（JSON，支持日期/状态/费用/标签/参与者）
+
+    与 AI 快速入口 activity_quick_sub 的区别：字段由用户显式填写，校验失败返回
+    400 + 友好文案（不静默丢弃），费用记在子任务自己名下便于时间轴直接展示。
+    """
+    activity = get_visible(Activity, request.user, id=activity_id)
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+
+    name = str(data.get('name') or '').strip()
+    if not name:
+        return JsonResponse({'error': '子任务名称不能为空'}, status=400)
+
+    try:
+        start_date = _parse_date_input(data.get('start_date'))
+        end_date = _parse_date_input(data.get('end_date'))
+    except ValueError:
+        return JsonResponse({'error': '日期格式不正确，请重新选择'}, status=400)
+    if start_date and end_date and end_date < start_date:
+        return JsonResponse({'error': '结束日期不能早于开始日期'}, status=400)
+
+    status = str(data.get('status') or 'planned')
+    if status not in dict(Activity.STATUS_CHOICES):
+        status = 'planned'
+
+    amount = None
+    raw_amount = data.get('amount')
+    if raw_amount not in (None, ''):
+        try:
+            # 用字符串构造 Decimal，避免 float 二进制的0000000001尾差写进库
+            amount = Decimal(str(raw_amount).strip())
+        except InvalidOperation:
+            return JsonResponse({'error': '费用金额格式不正确'}, status=400)
+        if amount < 0:
+            return JsonResponse({'error': '费用金额不能为负数'}, status=400)
+
+    child = Activity.objects.create(
+        user=activity.user,          # 归属继承父活动
+        name=name[:255],
+        parent=activity,
+        start_date=start_date,
+        end_date=end_date,
+        status=status,
+    )
+    if amount:
+        Expense.objects.create(
+            activity=child,
+            user=activity.user,
+            amount=amount,
+            category='other',
+            paid_at=timezone.localdate(),
+            note=f'子任务「{child.name}」费用',
+        )
+    tags = _split_name_input(data.get('tags'))
+    if tags:
+        child.tags.add(*tags)
+    participant_names = _split_name_input(data.get('participants'))
+    if participant_names:
+        child.participants.set([
+            Participant.objects.get_or_create(user=activity.user, name=n)[0]
+            for n in participant_names
+        ])
+
+    log_activity(request.user, activity, 'sub_created', f'创建子任务「{child.name}」')
+    log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
+
+    # 返回重渲染后的子任务列表片段，供前端局部刷新（避开整页重载闪烁）
+    children = _subactivity_timeline(activity)
+    return JsonResponse({
+        'id': child.id,
+        'name': child.name,
+        'url': reverse('activities:activity_detail', args=[child.id]),
+        'children_count': len(children),
+        'children_html': render_to_string('activities/_subactivity_items.html', {
+            'activity': activity,
+            'children': children,
+        }, request=request),
     })
 
 

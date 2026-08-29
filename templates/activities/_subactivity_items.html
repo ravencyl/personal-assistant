@@ -1,0 +1,54 @@
+{% comment %}
+子任务时间轴列表片段。
+活动详情页首次渲染与内联手动创建端点（subactivity_manual_create）局部刷新共用，
+上下文：children（已由 _subactivity_timeline 填充 timeline_label / expenses_total）。
+{% endcomment %}
+{% if children %}
+<!-- 时间轴展示：按可用日期从早到晚，无日期排最后 -->
+<div class="relative mt-1">
+    <!-- 时间轴竖线 -->
+    <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-[var(--border-strong)]"></div>
+    <ol>
+        {% for child in children %}
+        <li class="relative pl-6 {% if not forloop.last %}pb-5{% endif %}">
+            <!-- 节点圆点（随状态着色） -->
+            <span class="absolute left-0 top-[5px] w-2 h-2 rounded-full
+                {% if child.status == 'in_progress' %}bg-[var(--accent)]
+                {% elif child.status == 'done' %}bg-zinc-300
+                {% elif child.status == 'cancelled' %}bg-zinc-400
+                {% else %}bg-zinc-200{% endif %}"></span>
+            <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
+            <div class="flex flex-col md:flex-row md:items-baseline gap-0.5 sm:gap-4">
+                <span class="text-xs {% if child.timeline_year %}text-[var(--text-muted)]{% else %}text-[var(--text-muted)]{% endif %} md:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-[var(--text)] hover:text-[var(--text-secondary)] break-words">{{ child.name }}</a>
+                        {% include "activities/_status_badge.html" with status=child.status label=child.get_status_display %}
+                        {% if child.expenses_total %}<span class="text-xs text-[var(--text-muted)]">&#165;{{ child.expenses_total|floatformat:"-2" }}</span>{% endif %}
+                        <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</a>
+                    </div>
+                    {% if child.tags.all %}
+                    <div class="mt-1 flex flex-wrap gap-1">
+                        {% for tag in child.tags.all %}
+                        <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if child.participants.all %}
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">
+                        <span class="text-[var(--text-muted)]">@</span>
+                        {% for p in child.participants.all %}{% if not forloop.first %}、{% endif %}{{ p.name }}{% endfor %}
+                    </p>
+                    {% endif %}
+                    {% if child.start_date and child.end_date and child.start_date != child.end_date %}
+                    <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ child.start_date|date:"m-d" }} ~ {{ child.end_date|date:"m-d" }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+</div>
+{% else %}
+<p class="text-sm text-[var(--text-muted)]">暂无子任务，可用上方「一句话创建」或「手动添加子任务」</p>
+{% endif %}
