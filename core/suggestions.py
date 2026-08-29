@@ -738,36 +738,26 @@ _connect_invalidation_signals()
 
 
 # ────────────────────────────────────────────────
-# 每日规划（今日安排）——独立于建议规则引擎，纯规则、不缓存，
+# 每日规划（打卡与提醒）——独立于建议规则引擎，纯规则、不缓存，
 # 由 daily_view 每次请求调用一次，避免重复查询。
 # ────────────────────────────────────────────────
 
 def generate_daily_plan(user):
-    """生成 Daily 页「今日安排」结构化数据（纯规则，零 AI）
+    """生成 Daily 页「打卡与提醒」结构化数据（纯规则，零 AI）
+
+    只放下面活动卡片区覆盖不到的三类信息；今日发生的活动本身不在此列出，
+    避免与 daily_view 的「今日进行中」卡片重复（同一活动上下各出现一次）。
 
     返回 dict：
-    - due_today:    待办活动列表
-    - habits:       循环活动今日实例列表
+    - habits:         循环活动今日实例列表（打卡状态）
     - subtask_groups: 未完成子活动 Top 5，按父活动分组
-    - reminders:    待触发提醒列表
-    - is_empty:     四组全部为空
+    - reminders:      待触发提醒列表
+    - is_empty:       三组全部为空
     """
-    from django.db.models import Q
     from activities.models import Activity
-    from activities.utils import exclude_daily_bucket
     from core.models import Reminder
 
     today = timezone.localdate()
-
-    due_today = list(
-        exclude_daily_bucket(Activity.objects.filter(user=user)).filter(
-            Q(start_date__lte=today, end_date__gte=today)
-            | Q(start_date=today)
-            | Q(end_date=today)
-        ).filter(
-            recurring_source__isnull=True,
-        ).exclude(status__in=('done', 'cancelled')).order_by('start_date')[:10]
-    )
 
     habits = list(Activity.objects.filter(
         user=user,
@@ -796,9 +786,8 @@ def generate_daily_plan(user):
     ).order_by('trigger_at')[:5])
 
     return {
-        'due_today': due_today,
         'habits': habits,
         'subtask_groups': subtask_groups,
         'reminders': reminders,
-        'is_empty': not (due_today or habits or subtask_groups or reminders),
+        'is_empty': not (habits or subtask_groups or reminders),
     }
