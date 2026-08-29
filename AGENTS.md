@@ -117,6 +117,19 @@ REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 4. **标签建议**：`_user_tag_names(request.user)` 返回可见范围内已使用过的标签，供表单 autocomplete
 5. **快速输入**：`parse_quick_input_view` 先调 AI（Qoder agent），失败降级为 `parsing.parse_quick_input` 规则解析
 
+## 默认发布流程（长期规则，无需向用户确认）
+
+**每次代码改动完成并通过验证后，自动连续执行「提交 Git → 推送远程 → 部署生产 → 线上验证」四步。**
+
+1. **前置条件**：本次改动自测通过（`python manage.py test` 相关模块全绿 + `python manage.py check` 无 issue）才进入提交流程；验证失败先修复再走流程，禁止提交坏代码。
+2. **提交 Git**：`git add -A` + 语义化 commit message（`feat/fix/chore(scope): 中文摘要`，正文列出关键变更点）。
+3. **推送远程**：`git push origin main`；网络超时失败时保留本地提交并在汇报中明确提示「待手动 push」，不静默跳过。
+4. **部署生产**：按 deploy-personal-assistant skill 既定流程——rsync 同步代码（排除 venv/.git/.env/db.sqlite3/media/staticfiles/.qoder*）→ 有新迁移时服务器执行 `migrate` → `collectstatic --noinput` → `systemctl restart gunicorn` → `is-active` 确认。
+5. **线上验证**：curl 检查受影响页面/端点状态码符合预期（登录 200、鉴权页 302、POST 无 CSRF 403 等），必要时查 gunicorn 日志确认无新异常。
+6. **结果汇报**：一次性给出 commit hash、push 状态、部署步骤结果、线上验证结论；无迁移时说明「本次无需 migrate」。
+
+**例外（仍需先询问用户）**：数据库结构破坏性变更、改动生产 `.env`、清理/覆盖生产数据、任何不可逆的服务器操作。
+
 ## 常用命令
 
 ```bash
