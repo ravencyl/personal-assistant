@@ -6,6 +6,8 @@
 import re
 from datetime import date, timedelta
 
+from core.utils import week_monday
+
 WEEK_MAP = {'一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6}
 
 # 仅识别无歧义的状态词（避免「完成总结」这类误命中）
@@ -118,7 +120,7 @@ def parse_quick_input(text, today=None):
     for m in re.finditer(r'(下周|这周|本周)([一二三四五六日天])|(?<![下这本])周([一二三四五六日天])', text):
         prefix = m.group(1)
         target = WEEK_MAP[m.group(2) or m.group(3)]
-        monday = today - timedelta(days=today.weekday())
+        monday = week_monday(today)
         if prefix == '下周':
             d = monday + timedelta(days=7 + target)
         else:

@@ -5,6 +5,8 @@
 
 {% block extra_head %}
 <script src="{% static 'js/pinyin-pro.js' %}"></script>
+<!-- 快速输入解析通道（原生 fetch + JSON，禁挂 hx-*） -->
+<script src="{% static 'js/quick-parse.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -302,11 +304,6 @@
         var qBtn = document.getElementById('form-quick-btn');
         var qMsg = document.getElementById('form-quick-msg');
 
-        function getCookie(name) {
-            var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
-            return m ? decodeURIComponent(m[1]) : '';
-        }
-
         function showMsg(text, isError) {
             qMsg.textContent = text;
             qMsg.className = 'mt-2 text-sm ' + (isError ? 'text-zinc-800 font-semibold' : 'text-zinc-900');
@@ -327,24 +324,19 @@
             qMsg.classList.add('hidden');
             qBtn.disabled = true;
             qBtn.textContent = '解析中…';
-            var fd = new FormData();
-            fd.append('text', text);
-            fetch('{% url "activities:parse_quick_input" %}', {
-                method: 'POST',
-                body: fd,
-                headers: { 'X-CSRFToken': getCookie('csrftoken') },
-            }).then(function (r) {
-                return r.json().then(function (d) { return { ok: r.ok, data: d } });
-            }).then(function (res) {
+            function done() {
                 qBtn.disabled = false;
                 qBtn.textContent = '解析';
-                if (!res.ok) { showMsg(res.data.error || '解析失败，请重试', true); return; }
-                fillForm(res.data);
-                showMsg('已填入表单，请确认后保存' + (res.data.source === 'ai' ? '（AI 识别）' : '（规则识别）'), false);
-            }).catch(function () {
-                qBtn.disabled = false;
-                qBtn.textContent = '解析';
-                showMsg('网络异常，请重试', true);
+            }
+            PaQuickParse.parse(text, {
+                parseUrl: '{% url "activities:parse_quick_input" %}',
+                onOk: function (d) {
+                    done();
+                    fillForm(d);
+                    showMsg('已填入表单，请确认后保存' + (d.source === 'ai' ? '（AI 识别）' : '（规则识别）'), false);
+                },
+                onErr: function (m) { done(); showMsg(m, true); },
+                onNetErr: function () { done(); showMsg('网络异常，请重试', true); },
             });
         }
 

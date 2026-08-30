@@ -796,13 +796,6 @@
                 active.click();
             }
         });
-
-        // HTMX 交换后重置高亮
-        document.body.addEventListener('htmx:afterSwap', function(e) {
-            if (e.target.id === 'search-results') {
-                // 结果更新后重置高亮
-            }
-        });
     })();
     </script>
     {% endif %}

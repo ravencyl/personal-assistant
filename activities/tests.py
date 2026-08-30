@@ -1,9 +1,13 @@
 import json
+import os
+import re
+import tempfile
 from decimal import Decimal
 from datetime import timedelta
 from io import StringIO
 
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.management import call_command
@@ -12,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import Activity, Expense, Participant
+from activities.models import Activity, Attachment, Expense, Participant
 from activities.utils import (budget_status, get_daily_bucket, DAILY_BUCKET_NAME,
                               resolve_participants)
 
@@ -591,3 +595,93 @@ class DailyViewStatusTest(TestCase):
                                 status='in_progress')
         ctx = self.client.get(reverse('activities:daily')).context
         self.assertEqual([a.name for a in ctx['ongoing']], ['新西兰之旅'])
+
+
+class QuickParseWiringTest(TestCase):
+    """快速记一笔前端通道：三处入口都复用 static/js/quick-parse.js
+
+    init()/parse() 传的是元素 id 字符串，模板改了 id 就会静默失效
+    （getElementById 返回 null → 交互没反应且无报错），这里把
+    「配置里引用的 id 必须真实存在于同一页面」钉成测试。
+    """
+
+    # init() 里取值是元素 id 的选项（URL/文案类选项跳过）
+    ID_KEYS = ('input', 'parseBtn', 'confirmBtn', 'closeBtn', 'editBtn',
+               'preview', 'previewBody', 'errEl', 'sourceEl')
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='新西兰之旅')
+
+    def _assert_wired(self, html, call_marker, check_ids=True):
+        self.assertIn('js/quick-parse.js', html, '共用模块未加载')
+        # 普通 <script src> 必须在 head，早于页面里的调用
+        self.assertLess(html.index('js/quick-parse.js'), html.index(call_marker),
+                        '共用模块必须在调用之前加载')
+        if not check_ids:
+            return
+        start = html.index(call_marker)
+        block = html[start:html.index('});', start)]
+        ids = {}
+        for key in self.ID_KEYS:
+            m = re.search(r'\b%s:\s*[\'"]([^\'"]+)[\'"]' % key, block)
+            if m:
+                ids[key] = m.group(1)
+        self.assertTrue(ids, f'未找到任何元素 id 配置：{block[:200]}')
+        for key, value in ids.items():
+            self.assertIn(f'id="{value}"', html,
+                          f'配置 {key}: {value!r} 在页面上没有对应元素')
+
+    def test_activity_list_page(self):
+        html = self.client.get(reverse('activities:activity_list')).content.decode()
+        self._assert_wired(html, 'PaQuickParse.init(')
+
+    def test_detail_page_subtask_quick_entry(self):
+        html = self.client.get(
+            reverse('activities:activity_detail', args=[self.activity.id])).content.decode()
+        self._assert_wired(html, 'PaQuickParse.init(')
+
+    def test_form_page_reuses_parse_channel(self):
+        """创建页只做「解析 → 回填表单」，共用 fetch 通道但不自己拼 CSRF"""
+        html = self.client.get(reverse('activities:activity_create')).content.decode()
+        self._assert_wired(html, 'PaQuickParse.parse(', check_ids=False)
+        self.assertNotIn('function getCookie', html, '页面仍在自己解析 cookie 取 CSRF')
+
+
+@override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
+class AttachmentUploadTest(TestCase):
+    """附件上传：详情页是整页 POST（无 hx-*），必须回跳而不是把 JSON 渲染成页面"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='新西兰之旅')
+        self.url = reverse('activities:attachment_upload', args=[self.activity.id])
+
+    def _file(self):
+        return SimpleUploadedFile('行程单.txt', b'hello', content_type='text/plain')
+
+    def test_plain_form_upload_redirects_back(self):
+        resp = self.client.post(self.url, {'file': self._file()})
+        self.assertEqual(resp.status_code, 302)
+        self.assertRedirects(resp, reverse('activities:activity_detail', args=[self.activity.id]))
+        attachment = Attachment.objects.get(activity=self.activity)
+        self.assertEqual(attachment.filename, '行程单.txt')
+        self.assertTrue(any('已上传' in m.message for m in resp.wsgi_request._messages))
+
+    def test_fetch_upload_returns_json(self):
+        resp = self.client.post(self.url, {'file': self._file()},
+                               HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['filename'], '行程单.txt')
+        self.assertFalse(data['is_image'])
+
+    def test_missing_file_keeps_page_and_shows_error(self):
+        resp = self.client.post(self.url, {})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(Attachment.objects.count(), 0)
+        self.assertTrue(any('请选择文件' in m.message for m in resp.wsgi_request._messages))

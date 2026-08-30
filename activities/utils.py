@@ -7,10 +7,11 @@ import re
 from datetime import date
 
 from django.db import models
+from django.db.models import Sum
 from django.utils import timezone
 
 from core.utils import visible_qs
-from .models import Activity, ActivityLog, Participant
+from .models import Activity, ActivityLog, Expense, Participant
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,35 @@ def normalize_input(data, today):
             if values:
                 out[key] = values[:10]
     return out
+
+
+# 活动筛选参数名（与 filter_activities 支持的键对齐；name 只给 Agent 查询工具用，不从 URL 读）
+FILTER_PARAM_KEYS = ('status', 'tag', 'date_from', 'date_to', 'participant', 'keyword')
+
+
+def get_filter_params(request):
+    """从 URL 查询串读取活动筛选参数（列表页 / CSV / JSON 导出共用）
+
+    只做取值 + trim，合法性（状态枚举、日期格式等）统一由 filter_activities 判定；
+    排序、分页等展示类参数不属筛选，由各自视图自取。
+    """
+    return {key: (request.GET.get(key) or '').strip() for key in FILTER_PARAM_KEYS}
+
+
+def expense_totals_map(activity_ids):
+    """批量取每个活动的直接费用合计 {activity_id: Decimal}
+
+    无费用的活动不在返回字典里，调用方用 `.get(id, 0) or 0` 兼容。
+    列表页 / 导出 / attach_costs 以前各写一份同样的 groupby。
+    """
+    ids = list(activity_ids)
+    if not ids:
+        return {}
+    return dict(
+        Expense.objects.filter(activity_id__in=ids)
+        .values_list('activity_id').annotate(total=Sum('amount'))
+        .values_list('activity_id', 'total')
+    )
 
 
 def filter_activities(user, params):

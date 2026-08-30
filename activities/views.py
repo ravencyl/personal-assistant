@@ -6,7 +6,6 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
@@ -19,15 +18,19 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
-from taggit.models import Tag
 
 from .forms import ActivityForm
 from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplate, RecurringActivity, Attachment
 from .parsing import parse_quick_input
-from .utils import (edit_summary, filter_activities, log_activity,
+from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity, budget_status,
-                    exclude_daily_bucket, get_daily_bucket, resolve_participants)
-from core.utils import visible_qs, get_visible
+                    exclude_daily_bucket, get_daily_bucket, resolve_participants,
+                    expense_totals_map)
+from core.utils import (visible_qs, get_visible, wants_json, used_tag_names,
+                        week_monday, pct_change, daily_totals, WEEKDAY_LABELS,
+                        WEEKDAY_SHORT)
+from core.ai import ai_round_trip, extract_json_dict
+from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +77,7 @@ def auto_start_activities(user=None):
 
 def _user_tag_names(user):
     """可见范围内活动上使用过的全部标签名（供表单 autocomplete 建议）"""
-    activity_ids = visible_qs(Activity, user).values('id')
-    return list(Tag.objects.filter(
-        taggit_taggeditem_items__content_type=ContentType.objects.get_for_model(Activity),
-        taggit_taggeditem_items__object_id__in=activity_ids,
-    ).distinct().values_list('name', flat=True).order_by('name'))
+    return used_tag_names(Activity, visible_qs(Activity, user))
 
 
 @login_required
@@ -162,42 +161,16 @@ def _ai_parse(text, today):
     if not settings.QODER_ACCESS_TOKEN:
         return None
     try:
-        from agents.models import AgentConfig, EnvironmentConfig
-        from agents.services import get_service
-
-        agent = (AgentConfig.objects.filter(is_active=True, purpose='general').first()
-                 or AgentConfig.objects.filter(is_active=True).first())
-        env = (EnvironmentConfig.objects.filter(is_default=True).first()
-               or EnvironmentConfig.objects.first())
-        if not agent or not env:
-            return None
-
         prompt = (
             f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。今天是 {today.isoformat()}。\n'
             '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/月底/下周五请换算为绝对日期，未写年份用当年）、'
             'cost（数字，单位元）、status（planned/in_progress/done/cancelled 之一）、tags（字符串数组）、participants（字符串数组）。\n'
             f'无法识别的字段不要出现在 JSON 中。用户输入："""{text}"""'
         )
-        service = get_service()
-        session = service.create_session(agent.agent_id, env.env_id)
-        service.send_message(session['id'], prompt)
-        reply = service.wait_for_response(session['id'], timeout=20, poll_interval=1.0)
-        return _extract_json(reply)
+        return extract_json_dict(ai_round_trip(prompt, timeout=20, purpose='general'))
     except Exception as e:
         logger.warning(f'快速输入 AI 解析失败，将降级规则解析: {e}')
         return None
-
-
-def _extract_json(reply):
-    """从 AI 回复中提取首个 JSON 对象（兼容前后有说明文字/代码块的情况）"""
-    m = re.search(r'\{.*\}', reply or '', re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except (ValueError, TypeError):
-        return None
-    return data if isinstance(data, dict) else None
 
 
 @login_required
@@ -207,12 +180,13 @@ def activity_list(request):
     # 自动将 start_date 已到的 planned 活动改为 in_progress
     auto_start_activities(request.user)
 
-    status_filter = request.GET.get('status', '')
-    tag_filter = request.GET.get('tag', '').strip()
-    date_from = request.GET.get('date_from', '').strip()
-    date_to = request.GET.get('date_to', '').strip()
-    participant_filter = request.GET.get('participant', '').strip()
-    keyword_filter = request.GET.get('keyword', '').strip()
+    filters = get_filter_params(request)
+    status_filter = filters['status']
+    tag_filter = filters['tag']
+    date_from = filters['date_from']
+    date_to = filters['date_to']
+    participant_filter = filters['participant']
+    keyword_filter = filters['keyword']
     sort = request.GET.get('sort', '').strip()
 
     # 表头排序字段映射（key 为 URL 参数值，value 为模型/注解字段）
@@ -234,14 +208,7 @@ def activity_list(request):
     ))
 
     # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
-    matched = exclude_daily_bucket(filter_activities(request.user, {
-        'status': status_filter,
-        'tag': tag_filter,
-        'date_from': date_from,
-        'date_to': date_to,
-        'participant': participant_filter,
-        'keyword': keyword_filter,
-    }))
+    matched = exclude_daily_bucket(filter_activities(request.user, filters))
 
     has_filter = bool(status_filter or tag_filter or date_from or date_to
                       or participant_filter or keyword_filter)
@@ -268,13 +235,7 @@ def activity_list(request):
 
     # 用内存中的 children_map 递归计算累计费用（自身 Expense + 所有后代 Expense）
     # 先批量查每个活动的直接费用合计
-    activity_ids = [a.id for a in all_activities]
-    expense_totals = dict(
-        Expense.objects.filter(activity_id__in=activity_ids)
-        .values_list('activity_id')
-        .annotate(total=Sum('amount'))
-        .values_list('activity_id', 'total')
-    )
+    expense_totals = expense_totals_map(a.id for a in all_activities)
 
     cost_cache = {}
 
@@ -388,7 +349,7 @@ def activity_list(request):
         greeting = '下午好'
     else:
         greeting = '晚上好'
-    weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    weekdays = WEEKDAY_LABELS
     today_display = f'{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
     ongoing_count = sum(1 for a in all_activities if a.status == 'in_progress')
     today_count = sum(
@@ -468,6 +429,7 @@ def activity_detail(request, activity_id):
 
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
+        'max_upload_mb': MAX_UPLOAD_SIZE_MB,
         'children': children,
         'participants': activity.participants.all(),
         'status_choices': Activity.STATUS_CHOICES,
@@ -511,7 +473,12 @@ def activity_set_status(request, activity_id):
                 messages.success(request, f'状态已更新为「{valid[status]}」')
         if is_fragment:
             attach_costs([activity])
-            return render(request, 'activities/_daily_card.html', {'activity': activity})
+            # 局部刷新重渲染整张卡：按日期重新推导徽标，避免丢失「今日开始/今日结束」标签
+            today = timezone.localdate()
+            badge = 'today' if activity.start_date == today else (
+                'ending' if activity.end_date == today else '')
+            return render(request, 'activities/_daily_card.html',
+                          {'activity': activity, 'badge': badge})
     referer = request.META.get('HTTP_REFERER')
     if referer:
         return redirect(referer)
@@ -991,14 +958,14 @@ def activity_calendar(request):
         ctx = {'weeks': weeks, 'year': year, 'month': month}
 
     elif mode == 'week':
-        monday = ref_date - timedelta(days=ref_date.weekday())
+        monday = week_monday(ref_date)
         sunday = monday + timedelta(days=6)
         days = []
         for i in range(7):
             d = monday + timedelta(days=i)
             days.append({
                 'day': d.day,
-                'weekday': ['一', '二', '三', '四', '五', '六', '日'][i],
+                'weekday': WEEKDAY_SHORT[i],
                 'is_today': d == today,
                 'date_str': d.isoformat(),
             })
@@ -1014,7 +981,7 @@ def activity_calendar(request):
             hours.append({'hour': h, 'label': f'{h:02d}:00'})
         prev_date = d - timedelta(days=1)
         next_date = d + timedelta(days=1)
-        weekdays_cn = ['一', '二', '三', '四', '五', '六', '日']
+        weekdays_cn = WEEKDAY_SHORT
         title = f'{d.month}月{d.day}日 周{weekdays_cn[d.weekday()]}'
         ctx = {'hours': hours, 'day_date': d.isoformat(), 'today_iso': today.isoformat()}
 
@@ -1026,7 +993,7 @@ def activity_calendar(request):
         **ctx,
         'mode': mode,
         'title': title,
-        'weekdays': ['一', '二', '三', '四', '五', '六', '日'],
+        'weekdays': WEEKDAY_SHORT,
         'prev_params': prev_params,
         'next_params': next_params,
         'today_params': today_params,
@@ -1045,7 +1012,7 @@ def calendar_data(request):
         try:
             monday = date.fromisoformat(ref)
         except (ValueError, TypeError):
-            monday = today - timedelta(days=today.weekday())
+            monday = week_monday(today)
         range_start = monday
         range_end = monday + timedelta(days=6)
     elif mode == 'day':
@@ -1100,11 +1067,7 @@ def attach_costs(activities):
     """为活动列表附加费用合计/笔数/预算标注（避免 N+1）。"""
     ids = [a.id for a in activities]
     if ids:
-        totals = dict(
-            Expense.objects.filter(activity_id__in=ids)
-            .values_list('activity_id').annotate(total=Sum('amount'))
-            .values_list('activity_id', 'total')
-        )
+        totals = expense_totals_map(ids)
         counts = dict(
             Expense.objects.filter(activity_id__in=ids)
             .values_list('activity_id').annotate(cnt=Count('id'))
@@ -1156,24 +1119,24 @@ def daily_view(request):
     ))
 
     # ── 即将开始（未来 7 天） ──
-    upcoming = qs.filter(
+    upcoming = list(qs.filter(
         start_date__gt=today,
         start_date__lte=today + timedelta(days=7),
-    ).exclude(status='cancelled').order_by('start_date')[:10]
+    ).exclude(status='cancelled').order_by('start_date')[:10])
 
     # ── 近期完成（最近 3 天）：end_date 为空时退回 start_date，
     # 否则「今天开始并已打卡、没填结束日期」的活动三个区都进不去，会直接消失
-    recently_done = qs.filter(
+    recently_done = list(qs.filter(
         status='done',
     ).filter(
         models.Q(end_date__gte=today - timedelta(days=3)) |
         models.Q(end_date__isnull=True, start_date__gte=today - timedelta(days=3))
-    ).order_by('-end_date', '-start_date')[:10]
+    ).order_by('-end_date', '-start_date')[:10])
 
     # ── 进行中（全局，排除「日常开支」归属桶） ──
-    in_progress = exclude_daily_bucket(qs.filter(status='in_progress')).exclude(
+    in_progress = list(exclude_daily_bucket(qs.filter(status='in_progress')).exclude(
         id__in=[a.id for a in ongoing]
-    ).order_by('-start_date')[:10]
+    ).order_by('-start_date')[:10])
 
     # ── 统计：今日实际消费（按 paid_at 筛选） ──
     today_expense = Expense.objects.filter(
@@ -1182,10 +1145,10 @@ def daily_view(request):
     ).aggregate(s=Sum('amount'))['s'] or 0
 
     # ── 本周消费合计 ──
-    week_start = today - timedelta(days=today.weekday())
+    this_week_start = week_monday(today)
     this_week_expense = Expense.objects.filter(
         user=request.user,
-        paid_at__gte=week_start,
+        paid_at__gte=this_week_start,
     ).aggregate(s=Sum('amount'))['s'] or 0
 
     # 问候
@@ -1200,7 +1163,7 @@ def daily_view(request):
         greeting = '下午好'
     else:
         greeting = '晚上好'
-    weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    weekdays = WEEKDAY_LABELS
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
     # AI 建议
@@ -1228,6 +1191,11 @@ def daily_view(request):
         recurring_source__is_active=True,
     ).select_related('recurring_source')
 
+    # 六个分组互斥，合并后一次 attach_costs：
+    # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
+    attach_costs([*ongoing, *starting_today, *ending_today,
+                  *upcoming, *recently_done, *in_progress])
+
     # 每日摘要（cron 预生成，只读库一次）
     from core.models import DailySummary
     daily_summary = DailySummary.objects.filter(
@@ -1239,12 +1207,12 @@ def daily_view(request):
         'today': today,
         'today_display': today_display,
         'greeting': greeting,
-        'ongoing': attach_costs(list(ongoing)),
-        'starting_today': attach_costs(list(starting_today)),
-        'ending_today': attach_costs(list(ending_today)),
-        'upcoming': attach_costs(list(upcoming)),
-        'recently_done': attach_costs(list(recently_done)),
-        'in_progress': attach_costs(list(in_progress)),
+        'ongoing': ongoing,
+        'starting_today': starting_today,
+        'ending_today': ending_today,
+        'upcoming': upcoming,
+        'recently_done': recently_done,
+        'in_progress': in_progress,
         'today_expense': float(today_expense),
         'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),
@@ -1406,29 +1374,17 @@ def expense_chart_data(request):
 
     elif range_type == 'week':
         # 本周 vs 上周每日对比
-        this_week_start = today - timedelta(days=today.weekday())
+        this_week_start = week_monday(today)
         last_week_start = this_week_start - timedelta(days=7)
 
         this_week = qs.filter(paid_at__gte=this_week_start, paid_at__lte=today)
         last_week = qs.filter(paid_at__gte=last_week_start, paid_at__lt=this_week_start)
 
-        weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-        this_data = [0.0] * 7
-        last_data = [0.0] * 7
-
-        for e in this_week:
-            if e.paid_at:
-                idx = (e.paid_at - this_week_start).days
-                if 0 <= idx < 7:
-                    this_data[idx] += float(e.amount)
-        for e in last_week:
-            if e.paid_at:
-                idx = (e.paid_at - last_week_start).days
-                if 0 <= idx < 7:
-                    last_data[idx] += float(e.amount)
+        this_data = daily_totals(this_week, this_week_start)
+        last_data = daily_totals(last_week, last_week_start)
 
         return JsonResponse({
-            'labels': weekdays,
+            'labels': WEEKDAY_LABELS,
             'this_week': this_data,
             'last_week': last_data,
         })
@@ -1483,13 +1439,21 @@ def expense_chart_data(request):
 def attachment_upload(request, activity_id):
     """上传附件"""
     activity = get_visible(Activity, request.user, id=activity_id)
+    # 详情页附件表单是整页 POST（无 hx-*），非 AJAX 时必须回跳，否则浏览器直接显示 JSON
+    is_ajax = wants_json(request)
+
+    def _fail(message):
+        if is_ajax:
+            return JsonResponse({'error': message}, status=400)
+        messages.error(request, message)
+        return redirect('activities:activity_detail', activity.id)
+
     uploaded_file = request.FILES.get('file')
     if not uploaded_file:
-        return JsonResponse({'error': '请选择文件'}, status=400)
+        return _fail('请选择文件')
 
-    # 限制文件大小 10MB
-    if uploaded_file.size > 10 * 1024 * 1024:
-        return JsonResponse({'error': '文件大小不能超过 10MB'}, status=400)
+    if uploaded_file.size > MAX_UPLOAD_SIZE:
+        return _fail(f'文件大小不能超过 {MAX_UPLOAD_SIZE_MB}MB')
 
     attachment = Attachment.objects.create(
         activity=activity,
@@ -1501,10 +1465,9 @@ def attachment_upload(request, activity_id):
     )
     log_activity(request.user, activity, 'edited', f'上传附件「{attachment.filename}」')
 
-    if request.headers.get('HX-Request'):
-        return render(request, 'activities/_attachment_item.html', {
-            'attachment': attachment,
-        })
+    if not is_ajax:
+        messages.success(request, f'附件「{attachment.filename}」已上传')
+        return redirect('activities:activity_detail', activity.id)
 
     return JsonResponse({
         'id': attachment.id,
@@ -1526,7 +1489,7 @@ def attachment_delete(request, attachment_id):
     attachment.delete()
     log_activity(request.user, activity, 'edited', f'删除附件「{filename}」')
 
-    if request.headers.get('HX-Request'):
+    if wants_json(request):
         return JsonResponse({'ok': True})
 
     return redirect('activities:activity_detail', activity.id)
@@ -1535,9 +1498,9 @@ def attachment_delete(request, attachment_id):
 @login_required
 def expense_category_suggest(request, activity_id):
     """基于用户历史费用数据推荐类别排序（JSON）"""
-    activity = get_visible(Activity, request.user, id=activity_id)
+    # 仅作为可见性/存在性校验：推荐结果按当前用户费用统计，与该活动无关
+    get_visible(Activity, request.user, id=activity_id)
 
-    from django.core.cache import cache
     cache_key = f'expense_cat_dist_{request.user.id}'
     cat_dist = cache.get(cache_key)
     if cat_dist is None:
@@ -1546,7 +1509,8 @@ def expense_category_suggest(request, activity_id):
             .values('category').annotate(n=Count('id'))
             .order_by('-n')
         )
-        cache.set(cache_key, cat_dist, timeout=86400)
+        # 短 TTL：新增费用后类别建议能快速更新（长 TTL 无任何失效点，会整天不变化）
+        cache.set(cache_key, cat_dist, timeout=300)
 
     # 按历史频率排序的类别列表；无历史数据时用默认顺序
     ordered = [c['category'] for c in cat_dist]
@@ -1578,7 +1542,7 @@ def expense_report(request):
     ).aggregate(s=Sum('amount'))['s'] or 0
 
     # 本周费用合计
-    week_start = today - timedelta(days=today.weekday())
+    week_start = week_monday(today)
     this_week_total = Expense.objects.filter(
         user=request.user, paid_at__gte=week_start
     ).aggregate(s=Sum('amount'))['s'] or 0
@@ -1595,10 +1559,7 @@ def expense_report(request):
         'last_month_total': float(last_month_total),
         'this_week_total': float(this_week_total),
         'total_duration_display': total_duration_display,
-        'month_change': (
-            round((this_month_f - last_month_f) / last_month_f * 100, 1)
-            if last_month_f > 0 else None
-        ),
+        'month_change': pct_change(this_month_f, last_month_f),
     })
 
 

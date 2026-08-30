@@ -1,6 +1,12 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}活动记录 - Personal AI Assistant{% endblock %}
+
+{% block extra_head %}
+<!-- 快速记一笔共用实现（原生 fetch + JSON，禁挂 hx-*） -->
+<script src="{% static 'js/quick-parse.js' %}"></script>
+{% endblock %}
 
 {% block content %}
 <!-- 问候头部：移动端堆叠，桌面端横排 -->
@@ -389,127 +395,21 @@
 {% endif %}
 
 <script>
-(function () {
-    // ==================== 快速输入（解析 → 预览 → 确认创建） ====================
-    var input = document.getElementById('quick-input');
-    var parseBtn = document.getElementById('quick-parse-btn');
-    var confirmBtn = document.getElementById('quick-confirm-btn');
-    var editBtn = document.getElementById('quick-edit-btn');
-    var closeBtn = document.getElementById('quick-close-btn');
-    var preview = document.getElementById('quick-preview');
-    var previewBody = document.getElementById('quick-preview-body');
-    var errEl = document.getElementById('quick-error');
-    var sourceEl = document.getElementById('quick-source');
-    var parsed = null;
-    var STATUS_LABELS = { planned: '计划', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
-
-    function getCookie(name) {
-        var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
-        return m ? decodeURIComponent(m[1]) : '';
-    }
-
-    function showError(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
-    function hideError() { errEl.classList.add('hidden'); }
-    function hidePreview() { preview.classList.add('hidden'); }
-
-    function setLoading(loading, text) {
-        parseBtn.disabled = loading;
-        parseBtn.textContent = loading ? text : '解析';
-    }
-
-    function esc(s) {
-        var d = document.createElement('span');
-        d.textContent = s;
-        return d.innerHTML;
-    }
-
-    function renderPreview(d) {
-        var parts = ['<span class="font-medium text-[var(--text)]">' + esc(d.name) + '</span>'];
-        if (d.start_date) {
-            parts.push('<span class="text-[var(--text-secondary)]">' + d.start_date +
-                (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
-        }
-        if (d.cost !== undefined && d.cost !== null) {
-            parts.push('<span class="text-[var(--text-secondary)]">费用 ¥ ' + esc(String(d.cost)) + '</span>');
-        }
-        if (d.status && STATUS_LABELS[d.status]) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">' + STATUS_LABELS[d.status] + '</span>');
-        }
-        (d.tags || []).forEach(function (t) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># ' + esc(t) + '</span>');
-        });
-        (d.participants || []).forEach(function (p) {
-            parts.push('<span class="text-xs text-[var(--text-secondary)]">@ ' + esc(p) + '</span>');
-        });
-        previewBody.innerHTML = parts.join('');
-        sourceEl.textContent = d.source === 'ai' ? 'AI 识别' : '规则识别';
-        preview.classList.remove('hidden');
-    }
-
-    function doParse() {
-        var text = input.value.trim();
-        if (!text || parseBtn.disabled) return;
-        hideError();
-        hidePreview();
-        setLoading(true, '解析中…');
-        var fd = new FormData();
-        fd.append('text', text);
-        fetch('{% url "activities:parse_quick_input" %}', {
-            method: 'POST',
-            body: fd,
-            headers: { 'X-CSRFToken': getCookie('csrftoken') },
-        }).then(function (r) {
-            return r.json().then(function (d) { return { ok: r.ok, data: d } });
-        }).then(function (res) {
-            setLoading(false);
-            if (!res.ok) { showError(res.data.error || '解析失败，请重试'); return; }
-            parsed = res.data;
-            renderPreview(parsed);
-        }).catch(function () {
-            setLoading(false);
-            showError('网络异常，请重试');
-        });
-    }
-
-    parseBtn.addEventListener('click', doParse);
-    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doParse(); });
-    closeBtn.addEventListener('click', function () { hidePreview(); hideError(); parsed = null; });
-
-    // 编辑详情：携带解析结果跳转完整表单页（由创建页读取填充）
-    editBtn.addEventListener('click', function () {
-        if (!parsed) return;
-        sessionStorage.setItem('quickInputDraft', JSON.stringify(parsed));
-        window.location.href = '{% url "activities:activity_create" %}';
-    });
-
-    confirmBtn.addEventListener('click', function () {
-        if (!parsed || confirmBtn.disabled) return;
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = '创建中…';
-        fetch('{% url "activities:activity_quick_create" %}', {
-            method: 'POST',
-            body: JSON.stringify(parsed),
-            headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
-        }).then(function (r) {
-            return r.json().then(function (d) { return { ok: r.ok, data: d } });
-        }).then(function (res) {
-            if (!res.ok) {
-                confirmBtn.disabled = false;
-                confirmBtn.textContent = '确认创建';
-                showError(res.data.error || '创建失败');
-                return;
-            }
-            previewBody.innerHTML = '<span class="text-zinc-900 font-medium">已创建「' + esc(res.data.name) + '」'
-                + (res.data.note ? '（' + esc(res.data.note) + '）' : '') + '，即将刷新…</span>';
-            confirmBtn.textContent = '已创建';
-            setTimeout(function () { window.location.reload(); }, 700);
-        }).catch(function () {
-            confirmBtn.disabled = false;
-            confirmBtn.textContent = '确认创建';
-            showError('网络异常，请重试');
-        });
-    });
-})();
+// 快速输入（解析 → 预览 → 确认创建）：交互实现见 static/js/quick-parse.js
+PaQuickParse.init({
+    input: 'quick-input',
+    parseBtn: 'quick-parse-btn',
+    confirmBtn: 'quick-confirm-btn',
+    closeBtn: 'quick-close-btn',
+    editBtn: 'quick-edit-btn',
+    preview: 'quick-preview',
+    previewBody: 'quick-preview-body',
+    errEl: 'quick-error',
+    sourceEl: 'quick-source',
+    parseUrl: '{% url "activities:parse_quick_input" %}',
+    submitUrl: '{% url "activities:activity_quick_create" %}',
+    editUrl: '{% url "activities:activity_create" %}',
+});
 </script>
 
 {% if tree_mode %}

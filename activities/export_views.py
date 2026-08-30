@@ -1,50 +1,22 @@
 """活动数据导出视图（CSV + JSON）
 
-复用 activities/utils.py 中的 filter_activities 做筛选，
-core/utils.py 中的 visible_qs 做权限过滤。
+筛选与费用聚合全部复用列表页同一套函数（filter_activities / get_filter_params /
+expense_totals_map），保证「看到的」与「导出的」口径一致。
 """
 import csv
 import io
 from datetime import datetime
 
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum
 from django.http import StreamingHttpResponse, JsonResponse
 from django.utils import timezone
 
-from .models import Expense
-from .utils import filter_activities
+from .utils import filter_activities, get_filter_params, expense_totals_map
 
 
 def _get_filtered_activities(request):
-    """复用筛选逻辑，返回筛选后的活动 QuerySet"""
-    status_filter = request.GET.get('status', '').strip()
-    tag_filter = request.GET.get('tag', '').strip()
-    date_from = request.GET.get('date_from', '').strip()
-    date_to = request.GET.get('date_to', '').strip()
-    participant_filter = request.GET.get('participant', '').strip()
-    keyword_filter = request.GET.get('keyword', '').strip()
-
-    return filter_activities(request.user, {
-        'status': status_filter,
-        'tag': tag_filter,
-        'date_from': date_from,
-        'date_to': date_to,
-        'participant': participant_filter,
-        'keyword': keyword_filter,
-    })
-
-
-def _build_expense_totals(activity_ids):
-    """批量计算每个活动的费用合计"""
-    if not activity_ids:
-        return {}
-    return dict(
-        Expense.objects.filter(activity_id__in=activity_ids)
-        .values_list('activity_id')
-        .annotate(total=Sum('amount'))
-        .values_list('activity_id', 'total')
-    )
+    """复用列表页的参数读取与筛选逻辑，返回筛选后的活动 QuerySet"""
+    return filter_activities(request.user, get_filter_params(request))
 
 
 @login_required
@@ -53,7 +25,7 @@ def export_csv(request):
     qs = _get_filtered_activities(request).prefetch_related('tags', 'participants')
     activities = list(qs)
     activity_ids = [a.id for a in activities]
-    expense_totals = _build_expense_totals(activity_ids)
+    expense_totals = expense_totals_map(activity_ids)
 
     today_str = timezone.localdate().strftime('%Y%m%d')
     filename = f'activities_{today_str}.csv'
@@ -122,7 +94,7 @@ def export_json(request):
     qs = _get_filtered_activities(request).prefetch_related('tags', 'participants')
     activities = list(qs)
     activity_ids = [a.id for a in activities]
-    expense_totals = _build_expense_totals(activity_ids)
+    expense_totals = expense_totals_map(activity_ids)
 
     # 构建 children_map 用于嵌套层级
     children_map = {}

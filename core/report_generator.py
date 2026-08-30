@@ -10,6 +10,9 @@ from django.db.models import Sum, Count, Q
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 
+from core.ai import ai_round_trip
+from core.utils import pct_change
+
 logger = logging.getLogger(__name__)
 
 TYPE_LABELS = {'weekly': '周报', 'monthly': '月报', 'yearly': '年报'}
@@ -212,37 +215,6 @@ def generate_report(user, report_type, period_start, period_end):
     return markdown, data
 
 
-def ai_round_trip(prompt, timeout=60):
-    """公共 AI 会话往返：create_session → send_message → wait_for_response → finally cancel_session。
-
-    返回 AI 回复文本（可能为空串）；无可用 Agent/Environment 配置时返回 None。
-    异常向上抛出，由调用方捕获后降级处理。
-    """
-    from agents.services import get_service
-    from agents.models import AgentConfig, EnvironmentConfig
-
-    service = get_service()
-    agent_config = AgentConfig.objects.filter(is_active=True).first()
-    env_config = EnvironmentConfig.objects.filter(is_default=True).first() or EnvironmentConfig.objects.first()
-
-    if not agent_config or not env_config:
-        return None
-
-    session_data = service.create_session(
-        agent_id=agent_config.agent_id,
-        environment_id=env_config.env_id,
-    )
-    try:
-        service.send_message(session_data['id'], prompt)
-        result = service.wait_for_response(session_data['id'], timeout=timeout)
-        return result
-    finally:
-        try:
-            service.cancel_session(session_data['id'])
-        except Exception:
-            pass
-
-
 def _ai_generate_report(user, data, report_type, period_start, period_end):
     """调用 AI 生成报告分析文本"""
     type_label = TYPE_LABELS.get(report_type, '周报')
@@ -298,7 +270,7 @@ def _fallback_report(data, report_type, period_start, period_end):
     # 环比
     prev = data['prev_period_expense']
     if prev > 0:
-        change = ((data['total_expense'] - prev) / prev) * 100
+        change = pct_change(data['total_expense'], prev)
         direction = '增加' if change > 0 else '减少'
         lines.append(f'环比上周期{direction} {abs(change):.1f}%（上周期 ¥{prev:.0f}）')
 
@@ -358,7 +330,7 @@ def _fallback_yearly_report(data, period_start, period_end):
     # 同比
     prev = data['prev_period_expense']
     if prev > 0:
-        change = ((data['total_expense'] - prev) / prev) * 100
+        change = pct_change(data['total_expense'], prev)
         direction = '增加' if change > 0 else '减少'
         lines.append(f'费用同比上年{direction} {abs(change):.1f}%（上年 ¥{prev:.0f}）')
         lines.append('')

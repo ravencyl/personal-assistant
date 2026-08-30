@@ -4,20 +4,14 @@ import json
 import logging
 
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 from core.agent_registry import ToolError, get_tool, make_action_token
 from core.models import SuggestionState
-from core.suggestions import SUGGESTION_TOOLS
+from core.suggestions import SUGGESTION_TOOLS, invalidate_user_caches
 
 logger = logging.getLogger(__name__)
-
-
-def _invalidate(user_id):
-    cache.delete(f'suggestions_{user_id}')
-    cache.delete(f'suggestion_states_{user_id}')
 
 
 @login_required
@@ -38,8 +32,7 @@ def suggestion_dismiss(request):
         fingerprint=key,
         defaults={'action': 'dismissed'},
     )
-    cache.delete(f'suggestions_{request.user.id}')
-    cache.delete(f'suggestion_states_{request.user.id}')
+    invalidate_user_caches(request.user.id)
     logger.info('关闭建议 user=%s key=%s', request.user.id, key)
     return JsonResponse({'ok': True})
 
@@ -140,7 +133,7 @@ def suggestion_tool_run(request):
     if key:
         SuggestionState.objects.update_or_create(
             user=request.user, fingerprint=key, defaults={'action': 'read'})
-        _invalidate(request.user.id)
+        invalidate_user_caches(request.user.id)
 
     reply = result.get('reply') or '操作完成'
     logger.info('建议工具执行成功 user=%s tool=%s key=%s', request.user.id, tool_name, key)

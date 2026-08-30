@@ -193,7 +193,7 @@ class ReminderModelTest(TestCase):
         triggered = check_due_reminders(self.user)
         r.refresh_from_db()
         self.assertEqual(r.status, 'fired')
-        self.assertEqual(len(triggered), 1)
+        self.assertEqual(triggered, 1)
 
     def test_reminder_not_due(self):
         """未到期的提醒不触发"""
@@ -1281,12 +1281,46 @@ class DailyPlanTest(TestCase):
 
     def test_reminders_only_pending_before_tomorrow(self):
         """只取今天内待触发（pending）的提醒，已触发或时间还在几天外的都排除"""
-        now = timezone.localtime()
+        # 基准用当天中午而非“现在”：否则晚间跑用例时 now+2h 会跨到明天，导致随机失败
         Reminder.objects.create(user=self.user, content='下午开会',
-                                trigger_at=now + timedelta(hours=2))
+                                trigger_at=self.noon + timedelta(hours=2))
         Reminder.objects.create(user=self.user, content='下周提交',
-                                trigger_at=now + timedelta(days=7))
+                                trigger_at=self.noon + timedelta(days=7))
         Reminder.objects.create(user=self.user, content='已触发过',
-                                trigger_at=now - timedelta(hours=1), status='fired')
+                                trigger_at=self.noon - timedelta(hours=1), status='fired')
         plan = generate_daily_plan(self.user)
         self.assertEqual([r.content for r in plan['reminders']], ['下午开会'])
+
+
+class SuggestionDeepLinkTest(TestCase):
+    """建议深链：action.url 带的查询参数必须真被目标视图消费
+
+    踩过一次：URL 拼 ?start_date=…，而列表页只认 date_from/date_to，
+    条件被 filter_activities 静默丢弃 → 点「查看」看到的是全量 planned 列表。
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.today = timezone.localdate()
+
+    def test_starting_tomorrow_link_only_lists_tomorrow(self):
+        """「明天有活动即将开始」的跳转链只能列出明天的活动"""
+        from core.suggestions import generate_suggestions
+
+        tomorrow = self.today + timedelta(days=1)
+        Activity.objects.create(user=self.user, name='明天开会',
+                               status='planned', start_date=tomorrow)
+        Activity.objects.create(user=self.user, name='下周出发',
+                               status='planned', start_date=tomorrow + timedelta(days=5))
+
+        suggestions = generate_suggestions(self.user)
+        link = next((s['action']['url'] for s in suggestions
+                     if str(s.get('key', '')).startswith('starting_tomorrow:')), None)
+        self.assertIsNotNone(link, f'未生成明日开始建议: {[s["text"] for s in suggestions]}')
+
+        ctx = self.client.get(link).context
+        self.assertEqual([a.name for a in ctx['activities']], ['明天开会'])

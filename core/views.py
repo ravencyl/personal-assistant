@@ -9,7 +9,7 @@ from django.http import JsonResponse
 
 from chat.models import Conversation
 from activities.models import Activity, Expense
-from core.utils import visible_qs
+from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS
 from core.search import global_search
 from core.report_generator import collect_report_data, generate_report, save_report_to_knowledge
 from knowledge.models import Article
@@ -26,7 +26,7 @@ def dashboard(request):
     conversations = visible_qs(Conversation, user)
 
     # ── 本周统计 ──
-    week_start = today - timedelta(days=today.weekday())
+    week_start = week_monday(today)
     week_activities = activities.filter(start_date__gte=week_start, start_date__lte=today)
     week_completed = week_activities.filter(status='done').count()
     week_new = week_activities.count()
@@ -60,13 +60,11 @@ def dashboard(request):
     recent_conversations = conversations.order_by('-updated_at')[:5]
 
     # ── 本周每日费用（供迷你图表使用） ──
-    weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-    daily_expense = [0.0] * 7
-    for e in Expense.objects.filter(user=user, paid_at__gte=week_start, paid_at__lte=today):
-        if e.paid_at:
-            idx = (e.paid_at - week_start).days
-            if 0 <= idx < 7:
-                daily_expense[idx] += float(e.amount)
+    weekdays = WEEKDAY_LABELS
+    daily_expense = daily_totals(
+        Expense.objects.filter(user=user, paid_at__gte=week_start, paid_at__lte=today),
+        week_start,
+    )
 
     # ── 问候 ──
     hour = timezone.localtime().hour
@@ -134,7 +132,7 @@ def weekly_report(request):
     """生成/查看本周周报"""
     user = request.user
     today = timezone.localdate()
-    week_start = today - timedelta(days=today.weekday())
+    week_start = week_monday(today)
     week_end = today
 
     # 检查是否已有本周报告

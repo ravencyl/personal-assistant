@@ -42,12 +42,6 @@ class QoderAgentService:
         response.raise_for_status()
         return response.json().get('data', [])
 
-    def get_agent(self, agent_id: str) -> dict:
-        """获取单个 Agent 详情"""
-        response = self._get_client().get(f'/agents/{agent_id}')
-        response.raise_for_status()
-        return response.json()
-
     def create_agent(self, name: str, model: str = 'auto',
                      instructions: str = '', system: str = '',
                      tools: list = None, metadata: dict = None) -> dict:
@@ -69,20 +63,6 @@ class QoderAgentService:
         response.raise_for_status()
         return response.json()
 
-    def update_agent(self, agent_id: str, version: int, **kwargs) -> dict:
-        """更新 Agent（必须携带当前 version）"""
-        payload = {'version': version}
-        payload.update(kwargs)
-
-        response = self._get_client().put(f'/agents/{agent_id}', json=payload)
-        response.raise_for_status()
-        return response.json()
-
-    def delete_agent(self, agent_id: str) -> None:
-        """删除 Agent"""
-        response = self._get_client().delete(f'/agents/{agent_id}')
-        response.raise_for_status()
-
     # ==================== Environment 操作 ====================
 
     def list_environments(self) -> list:
@@ -90,19 +70,6 @@ class QoderAgentService:
         response = self._get_client().get('/environments')
         response.raise_for_status()
         return response.json().get('data', [])
-
-    def create_environment(self, name: str, config: dict = None) -> dict:
-        """创建 Environment"""
-        payload = {'name': name, 'config': config or {'type': 'cloud'}}
-        response = self._get_client().post('/environments', json=payload)
-        response.raise_for_status()
-        return response.json()
-
-    def get_environment(self, env_id: str) -> dict:
-        """获取 Environment 详情"""
-        response = self._get_client().get(f'/environments/{env_id}')
-        response.raise_for_status()
-        return response.json()
 
     # ==================== Session 操作 ====================
 
@@ -128,12 +95,6 @@ class QoderAgentService:
         response = self._get_client().get(f'/sessions/{session_id}')
         response.raise_for_status()
         return response.json()
-
-    def list_sessions(self, limit: int = 50) -> list:
-        """列出所有 Session"""
-        response = self._get_client().get('/sessions', params={'limit': limit})
-        response.raise_for_status()
-        return response.json().get('data', [])
 
     def send_message(self, session_id: str, text: str) -> dict:
         """向 Session 发送消息"""

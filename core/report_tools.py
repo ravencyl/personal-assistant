@@ -3,6 +3,7 @@ import logging
 from datetime import date, timedelta
 from django.utils import timezone
 from core.agent_registry import agent_tool, ToolError
+from core.utils import week_monday
 from core.report_generator import generate_report, save_report_to_knowledge
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def tool_generate_report(user, params):
 
     today = timezone.localdate()
     if report_type == 'weekly':
-        period_start = today - timedelta(days=today.weekday())
+        period_start = week_monday(today)
         period_end = today
         type_label = '周报'
     elif report_type == 'monthly':

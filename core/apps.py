@@ -24,3 +24,7 @@ class CoreConfig(AppConfig):
         for model in [Activity, Article, Note]:
             post_save.connect(invalidate_related_cache, sender=model)
             post_delete.connect(invalidate_related_cache, sender=model)
+
+        # 建议缓存失效信号：数据源变更时清掉该用户的建议与建议状态
+        from core.suggestions import connect_invalidation_signals
+        connect_invalidation_signals()

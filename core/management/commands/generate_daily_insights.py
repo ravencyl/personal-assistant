@@ -11,12 +11,13 @@ import logging
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.core.cache import cache
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.models import DailyInsight
-from core.report_generator import ai_round_trip
+from core.ai import ai_round_trip
+from core.suggestions import invalidate_user_caches
+from core.utils import week_monday
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def collect_insight_data(user, today):
     from activities.models import Activity, Expense
     from core.suggestions import compute_habit_streaks
 
-    week_start = today - timedelta(days=today.weekday())
+    week_start = week_monday(today)
     last_week_start = week_start - timedelta(days=7)
 
     # 本周完成活动
@@ -313,7 +314,7 @@ class Command(BaseCommand):
                 created += 1
 
             # 清除建议缓存，确保用户下次访问可见
-            cache.delete(f'suggestions_{user.id}')
+            invalidate_user_caches(user.id)
 
         msg = f'完成：新建 {created}，更新 {updated}，跳过 {skipped}'
         if failed:

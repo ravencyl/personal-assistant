@@ -7,13 +7,13 @@
 - 容错约定：任何环节失败都降级为普通文本回复，绝不阻断对话
 """
 import hmac
-import json
 import logging
-import re
 from hashlib import sha256
 
 from django.conf import settings
 from django.utils import timezone
+
+from core.ai import extract_json_dict
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +110,8 @@ def build_protocol_prompt(today=None):
 
 def extract_intent(reply_text):
     """从 AI 回复中提取意图 JSON（兼容前后有说明文字的情况），失败返回 None"""
-    m = re.search(r'\{.*\}', reply_text or '', re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(data, dict) or not data.get('intent'):
+    data = extract_json_dict(reply_text)
+    if not data or not data.get('intent'):
         return None
     return data
 

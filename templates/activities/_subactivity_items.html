@@ -19,7 +19,7 @@
                 {% else %}bg-zinc-200{% endif %}"></span>
             <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
             <div class="flex flex-col md:flex-row md:items-baseline gap-0.5 sm:gap-4">
-                <span class="text-xs {% if child.timeline_year %}text-[var(--text-muted)]{% else %}text-[var(--text-muted)]{% endif %} md:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
+                <span class="text-xs text-[var(--text-muted)] md:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>
                 <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <a href="{% url 'activities:activity_detail' child.id %}" class="text-sm text-[var(--text)] hover:text-[var(--text-secondary)] break-words">{{ child.name }}</a>

@@ -5,7 +5,7 @@
    【色彩规则】
    - 背景纯白 #ffffff；正文黑 #18181b
    - 灰阶四级：主 #18181b / 次 #52525b / 辅 #a1a1aa / 弱化 #d4d4d8
-   - 禁用彩色、渐变、彩色图标、阴影（--shadow: none）
+   - 禁用彩色、渐变、彩色图标、阴影
 
    【字体层级】
    - 页面标题：text-2xl font-bold
@@ -50,8 +50,6 @@
     --text-muted: #a1a1aa;
     --border: rgba(0, 0, 0, 0.08);
     --border-strong: rgba(0, 0, 0, 0.15);
-    --shadow: none;
-    --shadow-hover: none;
 }
 
 /* Pill 形按钮/输入框/徽章 */
@@ -88,18 +86,6 @@ input[type="date"] {
 
 .btn-accent:hover {
     background-color: var(--accent-hover) !important;
-}
-
-/* 次按钮：透明底 + 深灰描边 */
-.btn-ghost {
-    background: transparent;
-    border: 1px solid var(--border-strong);
-    color: var(--text);
-}
-
-.btn-ghost:hover {
-    border-color: var(--text-secondary);
-    background: var(--accent-light);
 }
 
 /* 导航链接 */
@@ -145,17 +131,6 @@ a {
 }
 
 /* ===== 原有样式保留 ===== */
-
-.htmx-indicator {
-    opacity: 0;
-    transition: opacity 500ms ease-in;
-}
-.htmx-request .htmx-indicator {
-    opacity: 1;
-}
-.htmx-request.htmx-indicator {
-    opacity: 1;
-}
 
 /* Chat styles */
 .chat-message {

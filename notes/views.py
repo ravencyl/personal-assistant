@@ -2,30 +2,21 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
-from taggit.models import Tag
 
 from .forms import NoteForm
 from .models import Note
+from core.utils import used_tag_names
+from core.utils import wants_json as is_json_request
 
 logger = logging.getLogger(__name__)
 
 
 def _user_tag_names(user):
     """用户笔记中使用过的全部标签名（供筛选栏展示）"""
-    note_ids = Note.objects.filter(user=user).values('id')
-    return list(
-        Tag.objects.filter(
-            taggit_taggeditem_items__content_type=ContentType.objects.get_for_model(Note),
-            taggit_taggeditem_items__object_id__in=note_ids,
-        )
-        .distinct()
-        .values_list('name', flat=True)
-        .order_by('name')
-    )
+    return used_tag_names(Note, Note.objects.filter(user=user))
 
 
 @login_required
@@ -57,11 +48,8 @@ def note_list(request):
 @require_POST
 def note_create(request):
     """创建笔记（支持快速创建和完整创建两种入口；JSON 请求返回 JSON）"""
-    # JSON 客户端（全局快记浮层等，原生 fetch + Accept/X-Requested-With 头）
-    wants_json = (
-        request.headers.get('Accept') == 'application/json'
-        or request.headers.get('X-Requested-With') in ('XMLHttpRequest', 'fetch')
-    )
+    # JSON 客户端（全局快记浮层等，原生 fetch + Accept 头）
+    wants_json = is_json_request(request)
 
     content = (request.POST.get('content') or '').strip()
     if not content:

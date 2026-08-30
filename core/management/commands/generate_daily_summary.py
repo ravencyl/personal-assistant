@@ -14,7 +14,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.models import DailySummary
-from core.report_generator import ai_round_trip
+from core.ai import ai_round_trip
 
 logger = logging.getLogger(__name__)
 

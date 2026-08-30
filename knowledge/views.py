@@ -6,6 +6,7 @@ from taggit.models import Tag
 
 from .models import Article
 from .forms import ArticleForm
+from core.utils import used_tags
 
 
 @login_required
@@ -25,10 +26,9 @@ def article_list(request):
             models.Q(title__icontains=q) | models.Q(content__icontains=q)
         )
     
-    # 获取所有用过的标签
-    all_tags = Tag.objects.filter(
-        taggit_taggeditem_items__object_id__in=Article.objects.filter(user=request.user).values_list('id', flat=True)
-    ).distinct()
+    # 获取所有用过的标签（限定 content_type，否则 taggit 的 object_id 会跨模型撞号，
+    # 把笔记/活动的标签混进文章标签栏）
+    all_tags = used_tags(Article, Article.objects.filter(user=request.user))
     
     current_tag = Tag.objects.filter(slug=tag_slug).first() if tag_slug else None
     

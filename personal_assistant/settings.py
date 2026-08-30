@@ -120,7 +120,13 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# 附件上传限制 10MB
+# 附件上传大小上限（单一口径：视图校验与模板提示都读这个值，见 core/upload.py）
+# 注意：下面两个 Django 参数并不是上传大小限制 ——
+#   FILE_UPLOAD_MAX_MEMORY_SIZE 是文件写临时磁盘前的内存缓冲阈值，
+#   DATA_UPLOAD_MAX_MEMORY_SIZE 不计 multipart 的文件部分，只约束非文件表单数据。
+# nginx 侧的 client_max_body_size 必须 >= 本值，否则大文件在反代层就被 413 直接拦掉。
+ATTACHMENT_MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 

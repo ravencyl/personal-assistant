@@ -138,18 +138,15 @@ class DailyInsight(models.Model):
 
 
 def check_due_reminders(user):
-    """检查并触发到期的提醒，返回触发的提醒列表"""
+    """把到期仍待触发的提醒置为 fired，返回本次触发条数
+
+    不回传提醒列表：页面展示的「今日待处理提醒」由调用方自己查，
+    多发一次查询只为构造返回值没有收益。
+    """
     from django.utils import timezone
     now = timezone.now()
-    due = Reminder.objects.filter(
+    return Reminder.objects.filter(
         user=user,
         status='pending',
         trigger_at__lte=now,
-    )
-    count = due.update(status='fired')
-    if count:
-        return list(
-            Reminder.objects.filter(user=user, status='fired', trigger_at__lte=now)
-            .order_by('-trigger_at')[:count]
-        )
-    return []
+    ).update(status='fired')

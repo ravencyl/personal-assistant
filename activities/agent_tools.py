@@ -20,7 +20,8 @@ from core.utils import get_visible, visible_qs
 from .models import Activity, Expense
 from .utils import (edit_summary, filter_activities, fmt_duration, fmt_field,
                     get_daily_bucket, is_daily_bucket, log_activity,
-                    normalize_input, resolve_participants, snapshot_activity)
+                    normalize_input, resolve_participants, snapshot_activity,
+                    expense_totals_map, FILTER_PARAM_KEYS)
 
 STATUS_LABELS = dict(Activity.STATUS_CHOICES)
 
@@ -106,7 +107,7 @@ def tool_query(user, params):
     total = qs.count()
 
     link_params = {k: str(params[k]).strip()
-                   for k in ('status', 'tag', 'date_from', 'date_to', 'participant', 'keyword')
+                   for k in FILTER_PARAM_KEYS
                    if str(params.get(k) or '').strip()}
     list_qs = urlencode(link_params)
 
@@ -116,7 +117,10 @@ def tool_query(user, params):
 
     items = []
     activity_ids = []
-    for a in qs[:5]:
+    top = list(qs[:5])
+    # 列表里的费用一次性批量取（逐对象调 total_cost 属性会是 5 条聚合）
+    totals = expense_totals_map(a.id for a in top)
+    for a in top:
         d = a.start_date or a.end_date
         items.append({
             'id': a.id,
@@ -124,7 +128,7 @@ def tool_query(user, params):
             'status': a.status,
             'status_label': a.get_status_display(),
             'date_label': d.strftime('%m-%d') if d else '未设定',
-            'expense_total': float(a.total_cost or 0),
+            'expense_total': float(totals.get(a.id, 0) or 0),
             'detail_url': reverse('activities:activity_detail', args=[a.id]),
         })
         activity_ids.append(a.id)
@@ -439,8 +443,8 @@ def tool_stats(user, params):
     tags_top = [{'name': r['tags__name'], 'count': r['n']} for r in tag_rows]
 
     cost_total = qs.aggregate(s=Sum('expenses__amount'))['s'] or 0
-    # 时间花费：用户全部活动耗时汇总（一条聚合查询），人性化格式输出；受 scope 限制同 qs 口径
-    duration_total_minutes = visible_qs(Activity, user).aggregate(s=Sum('duration_minutes'))['s'] or 0
+    # 时间花费：与卡片内其他指标同口径，同样受 scope 限制
+    duration_total_minutes = qs.aggregate(s=Sum('duration_minutes'))['s'] or 0
 
     return {
         'reply': f'共 {total} 个活动，概况如下：',
@@ -463,6 +467,27 @@ def tool_stats(user, params):
 _CATEGORY_MAP = {v: k for k, v in dict(Expense.CATEGORY_CHOICES).items()}
 
 _NOTE_TOKEN_RE = re.compile(r'[\s,，。、;；:：!！?？()（）\[\]【】"\'~～·]+')
+
+
+def _resolve_category(raw, default='其他'):
+    """类别清洗：中文名或英文 key → Expense.category key，识别不了归 'other'"""
+    cat_input = str(raw or default).strip()
+    if cat_input in dict(Expense.CATEGORY_CHOICES):
+        return cat_input
+    return _CATEGORY_MAP.get(cat_input, 'other')
+
+
+def _require_positive_amount(raw, label='费用金额'):
+    """金额清洗：缺失 / 非数字 / 非正数统一抛 ToolError（由编排器转友好提示）"""
+    if raw is None:
+        raise ToolError(f'请告诉我{label}')
+    try:
+        amount = float(raw)
+    except (TypeError, ValueError):
+        raise ToolError('金额格式不正确，请输入数字')
+    if amount <= 0:
+        raise ToolError('金额必须大于 0')
+    return amount
 
 
 def _auto_expense_target(user, note):
@@ -518,20 +543,9 @@ def tool_add_expense(user, params):
         reason = 'target'
     else:
         activity, reason = _auto_expense_target(user, params.get('note'))
-    amount = params.get('amount')
-    if amount is None:
-        raise ToolError('请告诉我费用金额')
-    try:
-        amount = float(amount)
-    except (TypeError, ValueError):
-        raise ToolError('金额格式不正确，请输入数字')
-    if amount <= 0:
-        raise ToolError('金额必须大于 0')
+    amount = _require_positive_amount(params.get('amount'), '费用金额')
 
-    cat_input = str(params.get('category') or '其他').strip()
-    category = _CATEGORY_MAP.get(cat_input, 'other')
-    if cat_input in dict(Expense.CATEGORY_CHOICES):
-        category = cat_input
+    category = _resolve_category(params.get('category'))
 
     paid_at = params.get('paid_at')
     if paid_at:
@@ -635,25 +649,14 @@ def apply_split_expense(user, params):
             apply_fn=apply_split_expense)
 def tool_split_expense(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'))
-    amount = params.get('amount')
-    if amount is None:
-        raise ToolError('请告诉我费用总金额')
-    try:
-        amount = float(amount)
-    except (TypeError, ValueError):
-        raise ToolError('金额格式不正确')
-    if amount <= 0:
-        raise ToolError('金额必须大于 0')
+    amount = _require_positive_amount(params.get('amount'), '费用总金额')
 
     participants = list(activity.participants.all())
     if not participants:
         raise ToolError(f'「{activity.name}」还没有参与者，无法 AA 分账')
 
     per_person = round(amount / len(participants), 2)
-    cat_input = str(params.get('category') or '其他').strip()
-    category = _CATEGORY_MAP.get(cat_input, 'other')
-    if cat_input in dict(Expense.CATEGORY_CHOICES):
-        category = cat_input
+    category = _resolve_category(params.get('category'))
     note = str(params.get('note') or 'AA 分账').strip()[:255]
 
     return {
@@ -751,7 +754,9 @@ def apply_batch_status(user, params):
     """确认后执行：批量修改匹配活动的状态"""
     status = params.get('status')
     target_ids = params.get('target_ids', [])
-    activities = Activity.objects.filter(id__in=target_ids, user=user)
+    # 预览侧用 visible_qs 锁定 target_ids，执行侧必须同口径，
+    # 否则超管批量操作他人活动时会静默改 0 条却回复「已修改」
+    activities = visible_qs(Activity, user).filter(id__in=target_ids)
     count = 0
     for a in activities:
         old_label = dict(Activity.STATUS_CHOICES).get(a.status, a.status)
@@ -760,6 +765,11 @@ def apply_batch_status(user, params):
         log_activity(user, a, 'status_changed',
                      f'状态「{old_label}」→「{dict(Activity.STATUS_CHOICES).get(status, status)}」（通过 AI 对话批量操作）')
         count += 1
+    if count == 0:
+        return {
+            'reply': '这些活动已经不在你的可见范围内（可能已被删除或改归属），本次未修改。',
+            'changed': False,
+        }
     return {
         'reply': f'已将 {count} 个活动的状态修改为「{dict(Activity.STATUS_CHOICES).get(status, status)}」',
         'changed': True,
@@ -809,9 +819,13 @@ def tool_batch_status(user, params):
 
 def _apply_set_budget(user, params):
     """set_budget 的确认执行函数"""
-    target = params.get('target', '').strip()
     budget = Decimal(params.get('budget', '0'))
-    activity = _resolve_single(user, target)
+    # 预览时已锁定目标，执行优先按 target_id 精确定位，避免同名活动二次匹配歧义
+    target_id = params.get('target_id')
+    if target_id:
+        activity = _resolve_by_id(user, target_id)
+    else:
+        activity = _resolve_single(user, str(params.get('target') or '').strip())
     activity.budget = budget
     activity.save(update_fields=['budget', 'updated_at'])
     log_activity(user, activity, 'edited', f'设置预算 ¥{budget}（通过 AI 对话）')

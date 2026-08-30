@@ -21,6 +21,8 @@ from django.db.models import Sum
 from django.urls import reverse
 from django.utils import timezone
 
+from core.utils import week_monday, pct_change
+
 SUGGESTION_CACHE_TIMEOUT = 600  # 10 分钟
 MAX_SUGGESTIONS = 6  # 最多返回 6 条建议（规则 5 + AI 洞察 1-2）
 
@@ -120,7 +122,10 @@ def _rule_starting_tomorrow(user, today):
             'icon': 'calendar',
             'key': f'starting_tomorrow:{tomorrow.isoformat()}',
             'action': {'kind': 'link', 'label': '查看',
-                       'url': reverse('activities:activity_list') + f'?status=planned&start_date={tomorrow.isoformat()}'},
+                       # 深链参数必须是列表页真正支持的筛选字段（date_from/date_to），
+                       # 用 start_date 会被 filter_activities 静默忽略，导致点开是全量列表
+                       'url': reverse('activities:activity_list')
+                              + f'?status=planned&date_from={tomorrow.isoformat()}&date_to={tomorrow.isoformat()}'},
             'followup': f'明天有 {count} 个活动即将开始，帮我梳理一下需要提前准备什么',
         }
     return None
@@ -130,7 +135,7 @@ def _rule_weekly_expense(user, today):
     """规则 2：本周消费对比上周"""
     from activities.models import Expense
 
-    week_start = today - timedelta(days=today.weekday())
+    week_start = week_monday(today)
     last_week_start = week_start - timedelta(days=7)
     this_week_expense = Expense.objects.filter(
         user=user, paid_at__gte=week_start, paid_at__lte=today
@@ -143,7 +148,7 @@ def _rule_weekly_expense(user, today):
     last_week = float(last_week_expense)
     report_url = reverse('activities:expense_report')
     if last_week > 0:
-        change_pct = round((this_week - last_week) / last_week * 100, 1)
+        change_pct = pct_change(this_week, last_week)
         if change_pct > 20:
             return {
                 'text': f'本周消费 ¥{this_week:.0f}，比上周多了 {change_pct:.0f}%，注意控制开支',
@@ -328,11 +333,11 @@ def _rule_weekly_report(user, today):
         user=user,
         tags__name='report-weekly',
         created_at__gte=timezone.make_aware(
-            timezone.datetime.combine(today - timedelta(days=today.weekday()), timezone.datetime.min.time())
+            timezone.datetime.combine(week_monday(today), timezone.datetime.min.time())
         ),
     ).exists()
     if not has_report:
-        week_start = today - timedelta(days=today.weekday())
+        week_start = week_monday(today)
         return {
             'text': '本周报告已准备好，要看看吗？',
             'icon': 'plan',
@@ -460,7 +465,7 @@ def _rule_time_investment(user, today):
     """规则 13：时间投入分析——本周/上周完成活动的预估耗时环比"""
     from activities.models import Activity
 
-    week_start = today - timedelta(days=today.weekday())
+    week_start = week_monday(today)
     last_week_start = week_start - timedelta(days=7)
 
     this_week = Activity.objects.filter(
@@ -478,7 +483,7 @@ def _rule_time_investment(user, today):
     if last_week <= 0 or this_week <= 0:
         return None
 
-    change_pct = round((this_week - last_week) / last_week * 100, 1)
+    change_pct = pct_change(this_week, last_week)
     if abs(change_pct) < 30:
         return None
 
@@ -706,18 +711,25 @@ def _get_suggestion_states(user):
     return result
 
 
+def invalidate_user_caches(user_id):
+    """清除该用户的建议与建议交互状态缓存
+
+    视图 / 信号 / 定时命令三处统一走这里，
+    避免只清 suggestions_ 而漏掉 suggestion_states_ 导致两键不同步。
+    """
+    cache.delete(_cache_key(user_id))
+    cache.delete(_states_cache_key(user_id))
+
+
 def invalidate_suggestions_cache(sender, instance, **kwargs):
     """信号处理器：建议数据源模型保存/删除时清除该用户的建议缓存"""
     user_id = getattr(instance, 'user_id', None)
     if user_id:
-        cache.delete(_cache_key(user_id))
+        invalidate_user_caches(user_id)
 
 
-def _connect_invalidation_signals():
-    """挂载缓存失效信号"""
-    from django.apps import apps
-    if not apps.ready:
-        return
+def connect_invalidation_signals():
+    """挂载建议缓存失效信号（由 CoreConfig.ready 调用，不得在 import 期执行）"""
     from django.db.models.signals import post_save, post_delete
     from activities.models import Activity, Expense, RecurringActivity
     from core.models import Reminder
@@ -732,9 +744,6 @@ def _connect_invalidation_signals():
             invalidate_suggestions_cache, sender=model,
             dispatch_uid=f'suggestions_invalidate_delete_{model.__name__}',
         )
-
-
-_connect_invalidation_signals()
 
 
 # ────────────────────────────────────────────────

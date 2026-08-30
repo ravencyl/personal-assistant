@@ -1,6 +1,12 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}{{ activity.name }} - 活动记录{% endblock %}
+
+{% block extra_head %}
+<!-- 快速记子任务共用实现（原生 fetch + JSON，禁挂 hx-*） -->
+<script src="{% static 'js/quick-parse.js' %}"></script>
+{% endblock %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-4 sm:space-y-6" data-page-activity="{{ activity.name }}">
@@ -207,8 +213,6 @@
         </h2>
 
         <!-- 图片附件网格 -->
-        {% with has_images=0 %}
-        {% for att in attachments %}{% if att.is_image %}{% with has_images=1 %}{% endwith %}{% endif %}{% endfor %}
         {% for att in attachments %}
             {% if att.is_image %}
             <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(25%-0.5625rem)] mb-3 align-top">
@@ -228,7 +232,6 @@
             </div>
             {% endif %}
         {% endfor %}
-        {% endwith %}
 
         <!-- 非图片文件列表 -->
         {% for att in attachments %}
@@ -255,13 +258,14 @@
 
         <!-- 上传表单 -->
         <form method="post" action="{% url 'activities:attachment_upload' activity.id %}" enctype="multipart/form-data"
-              class="mt-3 flex items-center gap-2">
+              class="mt-3 flex flex-wrap items-center gap-2">
             {% csrf_token %}
             <input type="file" name="file" required
                    class="text-sm text-[var(--text-secondary)] file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-[var(--accent-light)] file:text-[var(--text)] hover:file:bg-[var(--border)]">
             <button type="submit" class="text-xs px-3 py-1.5 rounded-full bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90">
                 上传
             </button>
+            <span class="text-xs text-[var(--text-muted)]">单文件不超过 {{ max_upload_mb }}MB</span>
         </form>
     </section>
 
@@ -445,7 +449,6 @@ var editingExpenseId = null;
 
 function editExpense(id, amount, category, paid_at, note) {
     editingExpenseId = id;
-    expenseForm.action = '{% url "activities:expense_create" activity.id %}'.replace(/\d+/, id) + '/edit/';
     expenseForm.action = '/activities/expenses/' + id + '/edit/';
     expenseForm.querySelector('[name="amount"]').value = amount;
     expenseForm.querySelector('[name="category"]').value = category;
@@ -465,117 +468,21 @@ function cancelEdit() {
     expenseCancelBtn.classList.add('hidden');
 }
 
+// 单独 IIFE：共用脚本没加载成功时也不影响下方内联表单逻辑
 (function () {
-    // ==================== 子任务快速记一笔 ====================
-    var input = document.getElementById('sub-quick-input');
-    var parseBtn = document.getElementById('sub-quick-parse-btn');
-    var confirmBtn = document.getElementById('sub-quick-confirm-btn');
-    var closeBtn = document.getElementById('sub-quick-close-btn');
-    var preview = document.getElementById('sub-quick-preview');
-    var previewBody = document.getElementById('sub-quick-preview-body');
-    var errEl = document.getElementById('sub-quick-error');
-    var sourceEl = document.getElementById('sub-quick-source');
-    var parsed = null;
-    var STATUS_LABELS = { planned: '计划', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
-
-    function getCookie(name) {
-        var m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
-        return m ? decodeURIComponent(m[1]) : '';
-    }
-
-    function showError(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
-    function hideError() { errEl.classList.add('hidden'); }
-    function hidePreview() { preview.classList.add('hidden'); }
-
-    function setLoading(loading, text) {
-        parseBtn.disabled = loading;
-        parseBtn.textContent = loading ? text : '解析';
-    }
-
-    function esc(s) {
-        var d = document.createElement('span');
-        d.textContent = s;
-        return d.innerHTML;
-    }
-
-    function renderPreview(d) {
-        var parts = ['<span class="font-medium text-[var(--text)]">' + esc(d.name) + '</span>'];
-        if (d.start_date) {
-            parts.push('<span class="text-[var(--text-secondary)]">' + d.start_date +
-                (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
-        }
-        if (d.cost !== undefined && d.cost !== null) {
-            parts.push('<span class="text-[var(--text-secondary)]">费用 ¥ ' + esc(String(d.cost)) + '</span>');
-        }
-        if (d.status && STATUS_LABELS[d.status]) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">' + STATUS_LABELS[d.status] + '</span>');
-        }
-        (d.tags || []).forEach(function (t) {
-            parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># ' + esc(t) + '</span>');
-        });
-        (d.participants || []).forEach(function (p) {
-            parts.push('<span class="text-xs text-[var(--text-secondary)]">@ ' + esc(p) + '</span>');
-        });
-        previewBody.innerHTML = parts.join('');
-        sourceEl.textContent = d.source === 'ai' ? 'AI 识别' : '规则识别';
-        preview.classList.remove('hidden');
-    }
-
-    function doParse() {
-        var text = input.value.trim();
-        if (!text || parseBtn.disabled) return;
-        hideError();
-        hidePreview();
-        setLoading(true, '解析中…');
-        var fd = new FormData();
-        fd.append('text', text);
-        fetch('{% url "activities:parse_quick_input" %}', {
-            method: 'POST',
-            body: fd,
-            headers: { 'X-CSRFToken': getCookie('csrftoken') },
-        }).then(function (r) {
-            return r.json().then(function (d) { return { ok: r.ok, data: d } });
-        }).then(function (res) {
-            setLoading(false);
-            if (!res.ok) { showError(res.data.error || '解析失败，请重试'); return; }
-            parsed = res.data;
-            renderPreview(parsed);
-        }).catch(function () {
-            setLoading(false);
-            showError('网络异常，请重试');
-        });
-    }
-
-    parseBtn.addEventListener('click', doParse);
-    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doParse(); });
-    closeBtn.addEventListener('click', function () { hidePreview(); hideError(); parsed = null; });
-
-    confirmBtn.addEventListener('click', function () {
-        if (!parsed || confirmBtn.disabled) return;
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = '创建中…';
-        fetch('{% url "activities:activity_quick_sub" activity.id %}', {
-            method: 'POST',
-            body: JSON.stringify(parsed),
-            headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
-        }).then(function (r) {
-            return r.json().then(function (d) { return { ok: r.ok, data: d } });
-        }).then(function (res) {
-            if (!res.ok) {
-                confirmBtn.disabled = false;
-                confirmBtn.textContent = '确认创建子任务';
-                showError(res.data.error || '创建失败');
-                return;
-            }
-            previewBody.innerHTML = '<span class="text-zinc-900 font-medium">已创建子任务「' + esc(res.data.name) + '」'
-                + (res.data.note ? '（' + esc(res.data.note) + '）' : '') + '，即将刷新…</span>';
-            confirmBtn.textContent = '已创建';
-            setTimeout(function () { window.location.reload(); }, 700);
-        }).catch(function () {
-            confirmBtn.disabled = false;
-            confirmBtn.textContent = '确认创建子任务';
-            showError('网络异常，请重试');
-        });
+    PaQuickParse.init({
+        input: 'sub-quick-input',
+        parseBtn: 'sub-quick-parse-btn',
+        confirmBtn: 'sub-quick-confirm-btn',
+        closeBtn: 'sub-quick-close-btn',
+        preview: 'sub-quick-preview',
+        previewBody: 'sub-quick-preview-body',
+        errEl: 'sub-quick-error',
+        sourceEl: 'sub-quick-source',
+        parseUrl: '{% url "activities:parse_quick_input" %}',
+        submitUrl: '{% url "activities:activity_quick_sub" activity.id %}',
+        confirmText: '确认创建子任务',
+        createdLabel: '已创建子任务',
     });
 })();
 
