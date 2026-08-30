@@ -1141,11 +1141,16 @@ def daily_view(request):
     ongoing_ids = [a.id for a in ongoing]
 
     # ── 今日开始/结束（排除已在 ongoing 中的，避免重复） ──
+    # 与 ongoing 同口径排掉 done：今日已完成的事归入「近期完成」，不占用「今日进行中/今日结束」
     starting_today = list(qs.filter(start_date=today).exclude(
         status='cancelled'
+    ).exclude(
+        status='done'
     ).exclude(id__in=ongoing_ids))
     ending_today = list(qs.filter(end_date=today).exclude(
         status='cancelled'
+    ).exclude(
+        status='done'
     ).exclude(id__in=ongoing_ids).exclude(
         id__in=[a.id for a in starting_today]
     ))
@@ -1156,11 +1161,14 @@ def daily_view(request):
         start_date__lte=today + timedelta(days=7),
     ).exclude(status='cancelled').order_by('start_date')[:10]
 
-    # ── 近期完成（最近 3 天） ──
+    # ── 近期完成（最近 3 天）：end_date 为空时退回 start_date，
+    # 否则「今天开始并已打卡、没填结束日期」的活动三个区都进不去，会直接消失
     recently_done = qs.filter(
         status='done',
-        end_date__gte=today - timedelta(days=3),
-    ).order_by('-end_date')[:10]
+    ).filter(
+        models.Q(end_date__gte=today - timedelta(days=3)) |
+        models.Q(end_date__isnull=True, start_date__gte=today - timedelta(days=3))
+    ).order_by('-end_date', '-start_date')[:10]
 
     # ── 进行中（全局，排除「日常开支」归属桶） ──
     in_progress = exclude_daily_bucket(qs.filter(status='in_progress')).exclude(

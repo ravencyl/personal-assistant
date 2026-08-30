@@ -88,7 +88,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - 匹配键为 `name.strip().lower()`（同时忽略 `@` 前缀），因此手输 `yyx` 会归到已存在的 `YYX`，不再产生大小写变体重复联系人
 - **AI 路径绝不自动新建联系人**；`skipped` 非空时必须在 `reply` / JSON `note` 中告知用户「哪个名字没加」，不得静默丢弃
 - `activities.update` 全未命中时保持原参与者不变（「未找到」不等于「清空」），预览卡片与实际写库口径必须一致
-- 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）
+- 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）；写法不同的同人（如 `Joe` → `Joe Yan`）用 `--map "别名:保留名"` 显式合并，保留名不存在直接报错，绝不静默新建
 
 ## 前端约定
 

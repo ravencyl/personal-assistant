@@ -8,6 +8,7 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.urls import reverse
 from django.utils import timezone
 from django.db.models import Sum
 
@@ -524,3 +525,69 @@ class MergeParticipantsCommandTest(TestCase):
             call_command('merge_participants', '--user', 'nobody', stdout=StringIO())
         Participant.objects.filter(id=self.dup.id).delete()
         self.assertIn('无需处理', self._run())
+
+    def test_map_merges_alias_with_explicit_target(self):
+        """--map「Joe:Joe Yan」：写法不同的同人也能合并，活动关联迁移到保留名"""
+        keep = Participant.objects.create(user=self.user, name='Joe Yan')
+        alias = Participant.objects.create(user=self.user, name='Joe')
+        activity = Activity.objects.create(user=self.user, name='周会')
+        activity.participants.set([alias])
+
+        self.assertIn('保留「Joe Yan」', self._run('--map', 'joe:Joe Yan'))
+        text = self._run('--map', 'Joe:Joe Yan', '--apply')
+        self.assertIn('已合并', text)
+        self.assertFalse(Participant.objects.filter(id=alias.id).exists())
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['Joe Yan'])
+        self.assertTrue(Participant.objects.filter(id=keep.id).exists())
+
+    def test_map_requires_existing_target(self):
+        """保留名不存在时直接报错，避免拼错名字静默新建联系人"""
+        Participant.objects.create(user=self.user, name='Joe')
+        with self.assertRaises(CommandError) as cm:
+            call_command('merge_participants', '--map', 'Joe:Joe Yawn', stdout=StringIO())
+        self.assertIn('没有名为「Joe Yawn」', str(cm.exception))
+
+    def test_map_skips_unknown_alias_and_dedupes_plan(self):
+        """别名不存在时只提示不报错；与自动检测重叠时同一行只合并一次"""
+        text = self._run('--map', 'Nobody:YYX')
+        self.assertIn('没有匹配到别名', text)
+        self.assertEqual(self._run('--map', 'yyx:YYX').count('合并「yyx」'), 1)
+
+
+class DailyViewStatusTest(TestCase):
+    """Daily 页分区口径：已完成的活动不占用「今日进行中/今日结束」，由「近期完成」承载"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.today = timezone.localdate()
+
+    def test_done_activities_are_out_of_today_sections(self):
+        Activity.objects.create(user=self.user, name='今日已打卡',
+                                start_date=self.today, status='done')
+        Activity.objects.create(user=self.user, name='跨度今日完成',
+                                start_date=self.today - timedelta(days=1),
+                                end_date=self.today, status='done')
+        Activity.objects.create(user=self.user, name='今日取消',
+                                start_date=self.today, status='cancelled')
+        Activity.objects.create(user=self.user, name='今日待办',
+                                start_date=self.today, status='planned')
+
+        ctx = self.client.get(reverse('activities:daily')).context
+        # 单日 planned 活动归 ongoing（既有口径），done/cancelled 不再出现在今日各区
+        self.assertEqual([a.name for a in ctx['ongoing']], ['今日待办'])
+        self.assertEqual([a.name for a in ctx['starting_today']], [])
+        self.assertEqual([a.name for a in ctx['ending_today']], [])
+        self.assertEqual(ctx['ongoing_count'], 1)
+        self.assertEqual({a.name for a in ctx['recently_done']},
+                         {'今日已打卡', '跨度今日完成'})
+
+    def test_span_activity_still_in_ongoing(self):
+        """未完成的跳天活动仍在「今日进行中」，不受本次收紧影响"""
+        Activity.objects.create(user=self.user, name='新西兰之旅',
+                                start_date=self.today - timedelta(days=1),
+                                end_date=self.today + timedelta(days=1),
+                                status='in_progress')
+        ctx = self.client.get(reverse('activities:daily')).context
+        self.assertEqual([a.name for a in ctx['ongoing']], ['新西兰之旅'])
