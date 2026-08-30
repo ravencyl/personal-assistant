@@ -73,6 +73,23 @@ def query_activities(user, params):
 
 **写操作必须记录日志**：所有活动写操作调用 `log_activity(user, activity, action, summary)`。
 
+## 参与者写入规则
+
+参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
+
+```python
+# AI 自动识别路径（对话 create/update、快速输入、一句话子任务）：只匹配已有，匹配不到就跳过
+participants, skipped, _created = resolve_participants(user, names)
+
+# 用户显式填写路径（内联手动表单、活动编辑页）：先大小写不敏感复用已有写法，确实没有才新建
+participants, _skipped, created = resolve_participants(user, names, create_missing=True)
+```
+
+- 匹配键为 `name.strip().lower()`（同时忽略 `@` 前缀），因此手输 `yyx` 会归到已存在的 `YYX`，不再产生大小写变体重复联系人
+- **AI 路径绝不自动新建联系人**；`skipped` 非空时必须在 `reply` / JSON `note` 中告知用户「哪个名字没加」，不得静默丢弃
+- `activities.update` 全未命中时保持原参与者不变（「未找到」不等于「清空」），预览卡片与实际写库口径必须一致
+- 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）
+
 ## 前端约定
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、习惯打卡（`daily.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互

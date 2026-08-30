@@ -10,7 +10,7 @@ from django.db import models
 from django.utils import timezone
 
 from core.utils import visible_qs
-from .models import Activity, ActivityLog
+from .models import Activity, ActivityLog, Participant
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,46 @@ def is_daily_bucket(activity):
 def exclude_daily_bucket(qs):
     """从活动查询集中排除归属桶（列表页/每日简报展示用；费用统计不排除）"""
     return qs.exclude(name=DAILY_BUCKET_NAME, description__contains=DAILY_BUCKET_MARKER)
+
+
+# ==================== 参与者解析 ====================
+
+def resolve_participants(user, names, create_missing=False):
+    """按姓名解析参与者对象（不区分大小写、忽略首尾空白与 @ 前缀）
+
+    create_missing=False（AI 自动识别路径）：只填已存在的参与者，匹配不到就跳过，
+    避免把「yyx」这类大小写变体建成新联系人。
+    create_missing=True（用户手动填写路径）：先复用已有写法，确实没有才新建，
+    因此手输 yyx 会归到已存在的 YYX 而不是新开一条。
+
+    返回 (participants, skipped_names, created_names)。
+    """
+    wanted, seen = [], set()
+    for raw in names or []:
+        name = str(raw).strip().lstrip('@').strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            wanted.append(name)
+    if not wanted:
+        return [], [], []
+
+    index = {}
+    for p in Participant.objects.filter(user=user):
+        index.setdefault(p.name.strip().lower(), p)
+
+    participants, skipped, created = [], [], []
+    for name in wanted:
+        p = index.get(name.lower())
+        if p is None and create_missing:
+            p = Participant.objects.create(user=user, name=name)
+            index[name.lower()] = p
+            created.append(p.name)
+        if p is None:
+            skipped.append(name)
+            continue
+        if p not in participants:
+            participants.append(p)
+    return participants, skipped, created
 
 
 def log_activity(user, activity, action, summary=''):

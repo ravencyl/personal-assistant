@@ -629,7 +629,8 @@
                     return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; });
                 }).then(function (res2) {
                     if (!res2.ok) { setStatus(actStatus, res2.data.error || '创建失败，请重试'); return; }
-                    setStatus(actStatus, '活动「' + res2.data.name + '」已创建');
+                    setStatus(actStatus, '活动「' + res2.data.name + '」已创建'
+                        + (res2.data.note ? '（' + res2.data.note + '）' : ''));
                     actInput.value = '';
                     document.dispatchEvent(new CustomEvent('activities:changed'));
                 }).catch(function (err) {

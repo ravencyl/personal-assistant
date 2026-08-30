@@ -26,7 +26,7 @@ from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplat
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, log_activity,
                     normalize_input, snapshot_activity, budget_status,
-                    exclude_daily_bucket, get_daily_bucket)
+                    exclude_daily_bucket, get_daily_bucket, resolve_participants)
 from core.utils import visible_qs, get_visible
 
 logger = logging.getLogger(__name__)
@@ -105,6 +105,13 @@ def parse_quick_input_view(request):
     return JsonResponse(data)
 
 
+def _participant_skip_text(skipped):
+    """自动识别未命中参与者的单行提示（给前端 toast 用，无跳过时为空串）"""
+    if not skipped:
+        return ''
+    return f"参与者「{'、'.join(skipped)}」不存在，未添加"
+
+
 @login_required
 @require_POST
 def activity_quick_create(request):
@@ -134,18 +141,19 @@ def activity_quick_create(request):
         )
     if data.get('tags'):
         activity.tags.add(*data['tags'])
+    # 快速输入属自动识别：只填已有参与者，匹配不到不新建
+    skipped = []
     if data.get('participants'):
-        participants = [
-            Participant.objects.get_or_create(user=request.user, name=name)[0]
-            for name in data['participants']
-        ]
-        activity.participants.set(participants)
+        participants, skipped, _created = resolve_participants(request.user, data['participants'])
+        if participants:
+            activity.participants.set(participants)
     log_activity(request.user, activity, 'created', '通过快速输入创建')
 
     return JsonResponse({
         'id': activity.id,
         'name': activity.name,
         'url': reverse('activities:activity_detail', args=[activity.id]),
+        'note': _participant_skip_text(skipped),
     })
 
 
@@ -621,12 +629,12 @@ def activity_quick_sub(request, activity_id):
         )
     if data.get('tags'):
         child.tags.add(*data['tags'])
+    # 一句话创建属自动识别：只填已有参与者，匹配不到不新建
+    skipped = []
     if data.get('participants'):
-        participants = [
-            Participant.objects.get_or_create(user=activity.user, name=name)[0]
-            for name in data['participants']
-        ]
-        child.participants.set(participants)
+        participants, skipped, _created = resolve_participants(activity.user, data['participants'])
+        if participants:
+            child.participants.set(participants)
     log_activity(request.user, activity, 'sub_created', f'创建子任务「{child.name}」')
     log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
 
@@ -634,6 +642,7 @@ def activity_quick_sub(request, activity_id):
         'id': child.id,
         'name': child.name,
         'url': reverse('activities:activity_detail', args=[child.id]),
+        'note': _participant_skip_text(skipped),
     })
 
 
@@ -726,11 +735,12 @@ def subactivity_manual_create(request, activity_id):
     if tags:
         child.tags.add(*tags)
     participant_names = _split_name_input(data.get('participants'))
+    created = []
     if participant_names:
-        child.participants.set([
-            Participant.objects.get_or_create(user=activity.user, name=n)[0]
-            for n in participant_names
-        ])
+        # 内联表单为用户显式填写：先按大小写不敏感复用已有写法，确实没有才新建
+        participants, _skipped, created = resolve_participants(
+            activity.user, participant_names, create_missing=True)
+        child.participants.set(participants)
 
     log_activity(request.user, activity, 'sub_created', f'创建子任务「{child.name}」')
     log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
@@ -741,6 +751,7 @@ def subactivity_manual_create(request, activity_id):
         'id': child.id,
         'name': child.name,
         'url': reverse('activities:activity_detail', args=[child.id]),
+        'note': f"已新建参与者「{'、'.join(created)}」" if created else '',
         'children_count': len(children),
         'children_html': render_to_string('activities/_subactivity_items.html', {
             'activity': activity,

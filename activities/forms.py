@@ -2,7 +2,8 @@ from django import forms
 
 from core.forms import PlainTagField
 
-from .models import Activity, Participant
+from .models import Activity
+from .utils import resolve_participants
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
@@ -69,13 +70,11 @@ class ActivityForm(forms.ModelForm):
         return cleaned
 
     def save_participants(self, activity):
-        """解析参与者输入：姓名不存在则自动创建，并全量替换关联"""
+        """解析参与者输入：先不区分大小写复用已有写法，确实没有才新建，并全量替换关联"""
         raw = self.cleaned_data.get('participants_input', '')
         names = [n.strip() for n in raw.replace('，', ',').split(',') if n.strip()]
-        participants = []
-        for name in names:
-            p, _ = Participant.objects.get_or_create(user=self.user, name=name)
-            participants.append(p)
+        participants, _skipped, _created = resolve_participants(
+            self.user, names, create_missing=True)
         activity.participants.set(participants)
 
     def save_children(self, activity):

@@ -17,10 +17,10 @@ from django.utils import timezone
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
-from .models import Activity, Participant, Expense
+from .models import Activity, Expense
 from .utils import (edit_summary, filter_activities, fmt_duration, fmt_field,
                     get_daily_bucket, is_daily_bucket, log_activity,
-                    normalize_input, snapshot_activity)
+                    normalize_input, resolve_participants, snapshot_activity)
 
 STATUS_LABELS = dict(Activity.STATUS_CHOICES)
 
@@ -214,17 +214,18 @@ def tool_create(user, params):
         )
     if data.get('tags'):
         activity.tags.add(*data['tags'])
+    # 自动识别只填已有参与者（大小写不敏感），匹配不到不新建，避免 yyx/YYX 这类重复联系人
+    skipped_participants = []
     if data.get('participants'):
-        participants = [
-            Participant.objects.get_or_create(user=user, name=name)[0]
-            for name in data['participants']
-        ]
-        activity.participants.set(participants)
+        participants, skipped_participants, _created = resolve_participants(user, data['participants'])
+        if participants:
+            activity.participants.set(participants)
     log_activity(user, activity, 'created', '通过 AI 对话创建')
 
     suffix = f'，归属于「{parent.name}」' if parent else ''
     return {
-        'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}',
+        'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}'
+                 + _participant_skip_note(skipped_participants),
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
@@ -239,6 +240,14 @@ _UPDATE_FIELD_LABELS = [
     ('name', '名称'), ('start_date', '开始日期'), ('end_date', '结束日期'),
     ('status', '状态'), ('duration_minutes', '耗时（分钟）'),
 ]
+
+
+def _participant_skip_note(skipped):
+    """自动识别未命中的参与者提示（不阻断流程，仅附在回复末尾）"""
+    if not skipped:
+        return ''
+    return (f"\n\n⚠️ 参与者「{'、'.join(skipped)}」不在你的参与者列表里，未添加；"
+            '需要的话可在活动页手动添加。')
 
 
 def _update_preview(user, params):
@@ -268,10 +277,16 @@ def _update_preview(user, params):
         changes.append({'field': field, 'label': label,
                         'old': fmt_field(field, old_v), 'new': fmt_field(field, data[field])})
 
+    participant_skipped = []
     for key, label in (('tags', '标签'), ('participants', '参与者')):
         if key in data:
             old_set = set(activity.tags.names()) if key == 'tags' else \
                 set(activity.participants.values_list('name', flat=True))
+            if key == 'participants':
+                # 预览就要反映真实结果：未命中的名字不会出现，全部未命中时保持原参与者不变
+                matched, participant_skipped, _created = resolve_participants(user, data[key])
+                data[key] = [p.name for p in matched] if (matched or not data[key]) \
+                    else list(old_set)
             new_set = set(data[key])
             if old_set != new_set:
                 added = sorted(new_set - old_set)
@@ -285,7 +300,7 @@ def _update_preview(user, params):
                 changes.append({'field': key, 'label': label,
                                 'old': '、'.join(sorted(old_set)) or '空',
                                 'new': new_desc + f"（{' '.join(detail)}）"})
-    return activity, data, changes
+    return activity, data, changes, participant_skipped
 
 
 def apply_update(user, params):
@@ -305,12 +320,12 @@ def apply_update(user, params):
     activity.save()
     if 'tags' in data:
         activity.tags.set(*data['tags'])
+    skipped_participants = []
     if 'participants' in data:
-        participants = [
-            Participant.objects.get_or_create(user=user, name=name)[0]
-            for name in data['participants']
-        ]
-        activity.participants.set(participants)
+        participants, skipped_participants, _created = resolve_participants(user, data['participants'])
+        # 全部未命中时不动现有参与者（避免把「未找到」误做成「清空」）
+        if participants or not data['participants']:
+            activity.participants.set(participants)
 
     summary = edit_summary(old, activity)
     if activity.duration_minutes != old_duration:
@@ -319,7 +334,8 @@ def apply_update(user, params):
     summary = summary or '无实质变更'
     log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
     return {
-        'reply': f'已更新「{activity.name}」：{summary}',
+        'reply': f'已更新「{activity.name}」：{summary}'
+                 + _participant_skip_note(skipped_participants),
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
@@ -331,16 +347,17 @@ def apply_update(user, params):
             'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 duration_minutes 耗时分钟数）；先出预览，用户确认后生效',
             apply_fn=apply_update)
 def tool_update(user, params):
-    activity, data, changes = _update_preview(user, params)
+    activity, data, changes, skipped = _update_preview(user, params)
     if not changes:
         return {
-            'reply': f'没有识别到「{activity.name}」需要修改的内容，请告诉我要改哪些字段',
+            'reply': f'没有识别到「{activity.name}」需要修改的内容，请告诉我要改哪些字段'
+                     + _participant_skip_note(skipped),
             'card': 'activity',
             'activity_ids': [activity.id],
             'card_data': _activity_card_data(activity),
         }
     return {
-        'reply': f'我准备对「{activity.name}」做以下修改，请确认：',
+        'reply': f'我准备对「{activity.name}」做以下修改，请确认：' + _participant_skip_note(skipped),
         'card': 'confirm',
         'activity_ids': [activity.id],
         'card_data': {'kind': 'update', 'name': activity.name,

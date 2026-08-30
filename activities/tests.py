@@ -1,13 +1,19 @@
 import json
+from decimal import Decimal
+from datetime import timedelta
+from io import StringIO
+
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.utils import timezone
-from decimal import Decimal
-from datetime import timedelta
 from django.db.models import Sum
-from activities.models import Activity, Expense
-from activities.utils import budget_status, get_daily_bucket, DAILY_BUCKET_NAME
+
+from activities.models import Activity, Expense, Participant
+from activities.utils import (budget_status, get_daily_bucket, DAILY_BUCKET_NAME,
+                              resolve_participants)
 
 
 class BudgetStatusTest(TestCase):
@@ -354,3 +360,167 @@ class SubactivityManualCreateTest(TestCase):
         self.assertIn('快速记一笔子任务', content)   # AI 入口保留
         self.assertIn('已有子任务', content)
         self.assertIn('sub-manual-tag-options', content)  # 标签 autocomplete 建议
+
+
+class ResolveParticipantsTest(TestCase):
+    """参与者解析：大小写不敏感匹配已有名单，自动识别路径不新建"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.other = User.objects.create_user('other', password='test')
+        self.yyx = Participant.objects.create(user=self.user, name='YYX', note='杨雨闲')
+
+    def test_case_insensitive_match_without_create(self):
+        matched, skipped, created = resolve_participants(self.user, ['yyx', ' Yyx ', '@YYX'])
+        self.assertEqual(matched, [self.yyx])
+        self.assertEqual((skipped, created), ([], []))
+        self.assertEqual(Participant.objects.filter(user=self.user).count(), 1)
+
+    def test_unknown_name_is_skipped(self):
+        matched, skipped, created = resolve_participants(self.user, ['路人甲'])
+        self.assertEqual(matched, [])
+        self.assertEqual(skipped, ['路人甲'])
+        self.assertEqual(created, [])
+        self.assertEqual(Participant.objects.count(), 1)
+
+    def test_create_missing_reuses_existing_spelling(self):
+        matched, skipped, created = resolve_participants(
+            self.user, ['yyx', '小李'], create_missing=True)
+        self.assertEqual([p.name for p in matched], ['YYX', '小李'])
+        self.assertEqual(created, ['小李'])
+        self.assertEqual(skipped, [])
+        self.assertFalse(Participant.objects.filter(name='yyx').exists())
+
+    def test_blank_input(self):
+        self.assertEqual(resolve_participants(self.user, []), ([], [], []))
+        self.assertEqual(resolve_participants(self.user, None), ([], [], []))
+        self.assertEqual(resolve_participants(self.user, ['  ', '']), ([], [], []))
+
+    def test_other_users_participants_are_invisible(self):
+        matched, skipped, _created = resolve_participants(self.other, ['YYX'])
+        self.assertEqual(matched, [])
+        self.assertEqual(skipped, ['YYX'])
+
+
+class ParticipantAgentToolTest(TestCase):
+    """AI 对话创建/修改活动：只填已有参与者，不自动新建联系人"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.yyx = Participant.objects.create(user=self.user, name='YYX')
+
+    def test_create_tool_skips_unknown_participant(self):
+        from core.agent_registry import get_tool
+        result = get_tool('activities.create')['fn'](self.user, {
+            'name': '和 yyx 吃饭', 'participants': ['yyx', '路人甲']})
+        activity = Activity.objects.get(id=result['activity_ids'][0])
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+        self.assertIn('路人甲', result['reply'])
+        self.assertIn('未添加', result['reply'])
+
+    def test_update_tool_does_not_clear_when_nothing_matches(self):
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        activity.participants.set([self.yyx])
+        from core.agent_registry import get_tool
+        tool = get_tool('activities.update')
+
+        preview = tool['fn'](self.user, {'target': '周末游', 'participants': ['路人甲']})
+        self.assertIn('未添加', preview['reply'])
+
+        applied = tool['apply'](self.user, {'target_id': activity.id, 'participants': ['路人甲']})
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
+        self.assertIn('未添加', applied['reply'])
+
+    def test_update_tool_replaces_with_matched_only(self):
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        li = Participant.objects.create(user=self.user, name='小李')
+        activity.participants.set([li])
+        from core.agent_registry import get_tool
+        tool = get_tool('activities.update')
+        tool['apply'](self.user, {'target_id': activity.id, 'participants': ['yyx']})
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
+
+
+class ParticipantQuickEndpointTest(TestCase):
+    """快速创建 / 一句话子任务：未命中的参与者跳过并在响应 note 中说明"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.yyx = Participant.objects.create(user=self.user, name='YYX')
+        self.parent = Activity.objects.create(user=self.user, name='新西兰之旅')
+
+    def test_quick_create_skips_unknown(self):
+        resp = self.client.post(
+            '/activities/quick-create/',
+            data=json.dumps({'name': '周末聚餐', 'participants': ['yyx', '路人甲']}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        activity = Activity.objects.get(name='周末聚餐')
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
+        self.assertIn('路人甲', resp.json()['note'])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+
+    def test_quick_sub_skips_unknown(self):
+        resp = self.client.post(
+            f'/activities/{self.parent.id}/quick-sub/',
+            data=json.dumps({'name': '订门票', 'participants': ['路人甲']}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        child = Activity.objects.get(name='订门票')
+        self.assertEqual(child.participants.count(), 0)
+        self.assertIn('路人甲', resp.json()['note'])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+
+    def test_manual_form_normalizes_case_before_creating(self):
+        """内联手动表单：手输 yyx 归到已有 YYX，真正的新名字才新建"""
+        resp = self.client.post(
+            f'/activities/{self.parent.id}/subactivities/manual-create/',
+            data=json.dumps({'name': '接机', 'participants': 'yyx, 小王'}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        child = Activity.objects.get(name='接机')
+        self.assertEqual({p.name for p in child.participants.all()}, {'YYX', '小王'})
+        self.assertFalse(Participant.objects.filter(name='yyx').exists())
+        self.assertIn('小王', resp.json()['note'])
+
+
+class MergeParticipantsCommandTest(TestCase):
+    """merge_participants：默认 dry-run，--apply 才合并"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.keep = Participant.objects.create(user=self.user, name='YYX', note='杨雨闲')
+        self.dup = Participant.objects.create(user=self.user, name='yyx')
+        self.activity = Activity.objects.create(user=self.user, name='桐庐周末游')
+        self.activity.participants.set([self.dup])
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('merge_participants', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_changes_nothing(self):
+        text = self._run()
+        self.assertIn('保留「YYX」', text)
+        self.assertIn('合并「yyx」', text)
+        self.assertIn('dry-run', text)
+        self.assertTrue(Participant.objects.filter(id=self.dup.id).exists())
+        self.assertEqual(list(self.activity.participants.values_list('name', flat=True)), ['yyx'])
+
+    def test_apply_merges_relations_and_deletes_dup(self):
+        text = self._run('--apply')
+        self.assertIn('已合并 1 条', text)
+        self.assertFalse(Participant.objects.filter(id=self.dup.id).exists())
+        self.assertEqual(list(self.activity.participants.values_list('name', flat=True)), ['YYX'])
+        self.assertEqual(Participant.objects.filter(user=self.user).count(), 1)
+
+    def test_user_filter_and_no_duplicates(self):
+        with self.assertRaises(CommandError):
+            call_command('merge_participants', '--user', 'nobody', stdout=StringIO())
+        Participant.objects.filter(id=self.dup.id).delete()
+        self.assertIn('无需处理', self._run())

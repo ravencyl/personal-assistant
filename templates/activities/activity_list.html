@@ -499,7 +499,8 @@
                 showError(res.data.error || '创建失败');
                 return;
             }
-            previewBody.innerHTML = '<span class="text-zinc-900 font-medium">已创建「' + esc(res.data.name) + '」，即将刷新…</span>';
+            previewBody.innerHTML = '<span class="text-zinc-900 font-medium">已创建「' + esc(res.data.name) + '」'
+                + (res.data.note ? '（' + esc(res.data.note) + '）' : '') + '，即将刷新…</span>';
             confirmBtn.textContent = '已创建';
             setTimeout(function () { window.location.reload(); }, 700);
         }).catch(function () {
