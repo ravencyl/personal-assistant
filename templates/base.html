@@ -334,6 +334,8 @@
             viewList.classList.toggle('hidden', show);
             viewChat.classList.toggle('hidden', !show);
             viewChat.classList.toggle('flex', show);
+            // 隐藏期间量不到高度（见模板末尾 paFitTextarea 的注释），展开后补拟合一次
+            if (show && window.paFitTextarea) window.paFitTextarea(input);
         }
 
         function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
@@ -359,14 +361,25 @@
                 .catch(function () { messagesEl.innerHTML = '<p class="text-center text-sm text-zinc-800 font-semibold py-4">消息加载失败，请重试</p>'; });
         }
 
+        // 快记 FAB 跟聊天面板几何重叠（两个浮窗都锚定 right-4，面板底边只比快记 FAB
+        // 顶边高 12px），展开时正好盖住面板右下角的「发送」按钮大半块。两个面板本来就
+        // 互斥，所以聊天面板展开期间把快记 FAB 让开（用 inline display 而不是 .hidden，
+        // 因为 FAB 自带 flex，跟 Tailwind 的 hidden 同层谁赢取决于生成顺序）
+        function setQuickFabHidden(hidden) {
+            var fab = document.getElementById('quick-toggle-btn');
+            if (fab) fab.style.display = hidden ? 'none' : '';
+        }
+
         // 展开/收起面板（与快记浮层互斥，同时只开一个）
         document.getElementById('chat-toggle-btn').addEventListener('click', function () {
             panel.classList.toggle('hidden');
-            if (!panel.classList.contains('hidden')) {
+            var open = !panel.classList.contains('hidden');
+            if (open) {
                 var qp = document.getElementById('quick-panel');
                 if (qp) qp.classList.add('hidden');
                 input.focus();
             }
+            setQuickFabHidden(open);
         });
 
         // 选择历史对话（事件委托，兼容动态新增项）
@@ -466,6 +479,7 @@
             text = (text || '').trim();
             if (!text) return;
             panel.classList.remove('hidden');
+            setQuickFabHidden(true);
             var qp = document.getElementById('quick-panel');
             if (qp) qp.classList.add('hidden');
             var proceed = function (id) {
@@ -779,6 +793,10 @@
     // 放在模板末尾，所以对话详情页（走 HTMX 的表单）与全站聊天浮窗都能用。
     window.paFitTextarea = function (ta) {
         if (!ta || ta.tagName !== 'TEXTAREA') return;
+        // 元素还没被渲染时（浮窗面板初始是 display:none）scrollHeight 恒为 0，直接写回去
+        // 会把输入框压成 0 高、placeholder 裁掉半截。这里跳过，让 rows=1 的自然高度生效，
+        // 面板展开时由 showChatView 补一次拟合
+        if (!ta.getClientRects().length) return;
         ta.style.height = 'auto';
         ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
     };

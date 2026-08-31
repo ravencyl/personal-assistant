@@ -9,7 +9,8 @@
 2. 未注册工具的意图（ask）与纯自然语言回复都要能原样透传给用户
 3. 含 `{}` 但无 intent 的自然语言不得被误当成协议 JSON
 4. 等 AI 的超时必须显著小于 gunicorn --timeout（否则 worker 在响应途中被杀）
-5. 对话输入框的 Enter 只能换行、不得提交（误发一条要等几十秒，代价高）
+5. 对话输入框的 Enter 只能换行、不得提交（误发一条要等几十秒，代价高），
+   且多行框的高度自适应不能在未渲染状态下把高度算成 0
 """
 import re
 from pathlib import Path
@@ -165,3 +166,28 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
         self.assertEqual(base.count('function paFitTextarea'), 0)
         self.assertEqual(base.count('ta.style.height = \'auto\';'), 1, '自适应逻辑只能有一份')
         self.assertIn('data-auto-grow', base)
+
+    def test_auto_grow_never_runs_on_unrendered_textarea(self):
+        """未渲染的 textarea 不能参与高度计算（实测踩过：浮窗输入框被压成 0 高）
+
+        浮窗面板初始是 display:none，此时 scrollHeight 恒为 0，页面加载时跑那一遍
+        初始化会把 #chat-input 的 style.height 写成 0px，placeholder 直接裁掉半截。
+        """
+        base = self._tpl('base.html')
+        fit = base.split('window.paFitTextarea = function', 1)[1].split('};', 1)[0]
+        self.assertIn('getClientRects', fit, '缺少「元素是否已渲染」的守卫')
+        self.assertLess(fit.find('getClientRects'), fit.find('ta.style.height = Math.min'),
+                        '守卫必须在写高度之前，否则 0 已经写回去了')
+        # 面板展开时要补一次拟合，否则被守卫跳过后就再没人算高度
+        show_view = base.split('function showChatView', 1)[1].split('}', 1)[0]
+        self.assertIn('paFitTextarea', show_view, '面板展开后没补高度拟合')
+
+    def test_quick_fab_yields_while_chat_panel_is_open(self):
+        """快记 FAB 会盖住浮窗的「发送」按钮，聊天面板展开期间必须让开
+
+        两个浮窗都锚定 right-4，实测面板底边只比快记 FAB 顶边高 12px，重叠 23px；
+        既然只能点按钮发送，就不能让按钮被另一个 FAB 盖住大半。
+        """
+        base = self._tpl('base.html')
+        self.assertIn('function setQuickFabHidden', base)
+        self.assertEqual(base.count('setQuickFabHidden('), 3, '1 定义 + 2 展开入口（FAB 点击 / paChatAsk）')
