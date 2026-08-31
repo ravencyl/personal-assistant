@@ -131,15 +131,29 @@ python manage.py generate_daily_insights [--dry-run]
 
 生产环境使用 nginx + gunicorn 部署。
 
+### gunicorn 注意事项
+
+启动命令必须带 `--timeout 120`（或任何大于最长 AI 调用超时的值）：
+
+```bash
+gunicorn --workers 3 --timeout 120 --bind unix:/var/www/personal-website/gunicorn.sock \
+  personal_assistant.wsgi:application
+```
+
+理由：周报/月报、每日洞察等页面在请求内同步调用 AI（`core/ai.py` 最长 `timeout=90`）。gunicorn 同步 worker 的看门狗只在请求间隙收到心跳，因此**只要单次 AI 调用超过 gunicorn timeout，worker 就被 SIGKILL**，用户看到 502、日志里出现 `WORKER TIMEOUT` + `SystemExit`（默认 timeout 是 30s，实测 `GET /reports/weekly/` 要 30s 左右，必被杀）。改完 unit 记得 `systemctl daemon-reload && systemctl restart gunicorn`。
+
 ### nginx 配置要点
 
 - `/static/` 直接服务静态文件（含 manifest.json、sw.js）
 - `/media/` 直接服务用户上传文件（附件、知识库文件）
+- **`client_max_body_size` 必须 ≥ `settings.ATTACHMENT_MAX_UPLOAD_SIZE`（当前 10MB）**，线上取 `12m`：不设时 nginx 默认 1m，超过 1MB 的附件会在网关层直接返回 413（HTML 错误页，Django 那句「文件过大，上限 10MB」的友好提示根本没机会执行）；留 2MB 余量是为了让 Django 校验先触发
 - 其余请求代理到 gunicorn
 
 ```nginx
+client_max_body_size 12m;
+
 location /static/ {
-    alias /path/to/个人助手/static/;
+    alias /path/to/个人助手/staticfiles/;
 }
 
 location /media/ {
