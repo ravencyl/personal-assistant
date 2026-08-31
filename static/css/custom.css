@@ -216,12 +216,6 @@ a {
     }
 }
 
-/* 键盘选中态：仅用描边，不引入新颜色、不用阴影 */
-.daily-card-focus {
-    outline: 2px solid var(--border-strong);
-    outline-offset: 2px;
-}
-
 /* 悬停操作区：桌面有 hover 时随 .group 悬停显示；触屏/移动端常驻可见 */
 .hover-actions {
     opacity: 0;

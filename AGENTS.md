@@ -134,7 +134,8 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - **唯一分端断点**：`md:`（768px，与导航层一致）。结构性显隐只用成对块：桌面元素 `hidden md:flex` / `hidden md:block`，移动元素 `md:hidden`。禁止新增 `sm:` 结构性断点；`sm:p-*` / `sm:text-*` / `sm:gap-*` 等纯尺寸渐进类不属于结构，保留。640-768px 平板竖屏跟随桌面布局（预期行为）。
 - **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 fetch 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。
 - **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发聊天浮窗 `r is not a function` 错误）。
-- **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.daily-card-focus`（键盘选中描边态）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
+- **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
+- **禁用全局键盘快捷键**：用户因误触（尤其 AI 对话时）已要求移除全部键盘快捷键（Daily J/K/D/I/P/X/E、Cmd+K 搜索、Esc 关闭、搜索结果方向键导航等）。输入框内的 Enter 提交/发送属于正常表单行为，保留；新增功能禁止再挂 `document` 级 `keydown` 全局监听。
 
 ## 配置
 

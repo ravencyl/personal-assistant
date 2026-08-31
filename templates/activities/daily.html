@@ -77,9 +77,6 @@
 </section>
 {% endif %}
 
-<!-- 桌面快捷键提示 -->
-<div class="hidden md:flex items-center gap-3 text-xs text-[var(--text-muted)] mb-4">J/K 选择 · D 完成 · I 进行中 · P 计划 · X 取消 · E 记费用</div>
-
 <!-- 统计卡片 -->
 <div class="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
     <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
@@ -570,7 +567,7 @@ function toggleSection(sectionId) {
 </script>
 
 <script>
-// Daily 卡片快捷操作：状态切换、内联记费用、桌面快捷键（事件委托挂 document，兼容替换后的新节点）
+// Daily 卡片快捷操作：状态切换、内联记费用（事件委托挂 document，兼容替换后的新节点）
 (function () {
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     var csrf = csrfMeta ? csrfMeta.content : '';
@@ -578,7 +575,6 @@ function toggleSection(sectionId) {
     function setCardStatus(card, target) {
         if (!card || !card.dataset.statusUrl || card.dataset.busy === '1') return;
         card.dataset.busy = '1';
-        var hadFocus = card.classList.contains('daily-card-focus');
         fetch(card.dataset.statusUrl, {
             method: 'POST',
             headers: { 'X-CSRFToken': csrf, 'HX-Request': 'true' },
@@ -591,7 +587,6 @@ function toggleSection(sectionId) {
             holder.innerHTML = html.trim();
             var newCard = holder.querySelector('.daily-card');
             if (newCard) {
-                if (hadFocus) newCard.classList.add('daily-card-focus');
                 card.replaceWith(newCard);
             } else {
                 card.outerHTML = html;
@@ -683,66 +678,6 @@ function toggleSection(sectionId) {
             }
         });
     });
-
-    // 桌面快捷键：仅精确指针 + 桌面宽度下启用
-    if (window.matchMedia && window.matchMedia('(hover:hover) and (pointer:fine) and (min-width:768px)').matches) {
-        var focusedId = null;
-
-        function visibleCards() {
-            return Array.prototype.filter.call(document.querySelectorAll('.daily-card[data-activity-id]'), function (c) {
-                return c.offsetParent !== null;
-            });
-        }
-
-        function setFocus(card) {
-            Array.prototype.forEach.call(document.querySelectorAll('.daily-card-focus'), function (c) {
-                c.classList.remove('daily-card-focus');
-            });
-            if (!card) {
-                focusedId = null;
-                return;
-            }
-            card.classList.add('daily-card-focus');
-            focusedId = card.dataset.activityId;
-            card.scrollIntoView({ block: 'nearest' });
-        }
-
-        document.addEventListener('keydown', function (e) {
-            if (e.ctrlKey || e.metaKey || e.altKey) return;
-            var t = e.target;
-            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-            var overlay = document.getElementById('search-overlay');
-            if (overlay && !overlay.classList.contains('hidden')) return;
-            var panel = document.getElementById('chat-panel');
-            if (panel && !panel.classList.contains('hidden')) return;
-
-            var cards = visibleCards();
-            if (!cards.length) return;
-            var key = (e.key || '').toLowerCase();
-
-            if (key === 'j' || key === 'k' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                var dir = (key === 'j' || e.key === 'ArrowDown') ? 1 : -1;
-                var idx = -1;
-                for (var i = 0; i < cards.length; i++) {
-                    if (cards[i].dataset.activityId === focusedId) { idx = i; break; }
-                }
-                var next = idx < 0 ? (dir === 1 ? 0 : cards.length - 1)
-                                   : Math.min(cards.length - 1, Math.max(0, idx + dir));
-                setFocus(cards[next]);
-                return;
-            }
-
-            var card = focusedId ? document.querySelector('.daily-card[data-activity-id="' + focusedId + '"]') : null;
-            if (!card) return;
-            if (e.key === 'Escape') { setFocus(null); return; }
-            if (key === 'd') { e.preventDefault(); setCardStatus(card, 'done'); }
-            else if (key === 'i') { e.preventDefault(); setCardStatus(card, 'in_progress'); }
-            else if (key === 'p') { e.preventDefault(); setCardStatus(card, 'planned'); }
-            else if (key === 'x') { e.preventDefault(); setCardStatus(card, 'cancelled'); }
-            else if (key === 'e') { e.preventDefault(); toggleExpenseForm(card); }
-        });
-    }
 })();
 </script>
 {% endblock %}

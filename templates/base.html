@@ -74,6 +74,12 @@
                     </div>
                     <div class="flex items-center space-x-3">
                         {% if user.is_authenticated %}
+                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                                搜索
+                            </button>
                             <span class="hidden md:inline text-sm text-[var(--text-secondary)]">{{ user.username }}</span>
                             <a href="{% url 'logout' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">退出</a>
                         {% else %}
@@ -218,7 +224,7 @@
         <div id="quick-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
             <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
                 <span class="font-medium text-[var(--text)]">快记</span>
-                <button type="button" id="quick-close-btn" class="tap-target text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-2" title="关闭（Esc）">&times;</button>
+                <button type="button" id="quick-close-btn" class="tap-target text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-2" title="关闭">&times;</button>
             </div>
             <!-- Tab 切换（纯 JS） -->
             <div class="flex gap-2 px-4 pt-3">
@@ -486,13 +492,6 @@
             panel.classList.contains('hidden') ? openPanel() : closePanel();
         });
         document.getElementById('quick-close-btn').addEventListener('click', closePanel);
-        document.addEventListener('keydown', function (e) {
-            if (e.key !== 'Escape' || panel.classList.contains('hidden')) return;
-            // 搜索面板展开时让其自身的 Esc 守卫优先，避免同时关闭两层
-            var so = document.getElementById('search-overlay');
-            if (so && !so.classList.contains('hidden')) return;
-            closePanel();
-        });
 
         // ── Tab 切换（纯 JS） ──
         var tabBtns = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-tab]'));
@@ -692,7 +691,7 @@
     </script>
 
     {% if user.is_authenticated %}
-    <!-- 全局搜索面板（Cmd+K / Ctrl+K）——外层 hidden md:block 限定仅桌面端渲染，内层 hidden 仍由 JS classList 控制 -->
+    <!-- 全局搜索面板（桌面导航栏「搜索」按钮打开）——外层 hidden md:block 限定仅桌面端渲染，内层 hidden 仍由 JS classList 控制 -->
     <div class="hidden md:block">
     <div id="search-overlay" class="fixed inset-0 z-[60] hidden" style="background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);">
         <div class="mx-auto mt-[15vh] max-w-lg px-4">
@@ -709,7 +708,6 @@
                            hx-trigger="keyup changed delay:300ms"
                            hx-target="#search-results"
                            hx-include="this">
-                    <kbd class="hidden md:inline text-[10px] text-[var(--text-muted)] bg-zinc-100 rounded px-1.5 py-0.5">ESC</kbd>
                 </div>
                 <!-- 搜索结果 -->
                 <div id="search-results" class="max-h-[50vh] overflow-y-auto p-2">
@@ -731,7 +729,7 @@
     </div>
     </div>
     <script>
-    // Cmd+K / Ctrl+K 全局搜索快捷键（仅桌面端：浮窗外层被 hidden md:block 限定，JS 逻辑不受影响）
+    // 全局搜索面板：仅由导航栏按钮点击 / 点击遮罩关闭，无键盘快捷键（避免全站误触）
     (function() {
         var overlay = document.getElementById('search-overlay');
         var input = document.getElementById('search-input');
@@ -755,45 +753,11 @@
             }
         }
 
-        document.addEventListener('keydown', function(e) {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-                e.preventDefault();
-                toggleSearch();
-            }
-            if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
-                overlay.classList.add('hidden');
-            }
-        });
+        document.getElementById('search-toggle-btn').addEventListener('click', toggleSearch);
 
         overlay.addEventListener('click', function(e) {
             if (e.target === overlay) {
                 overlay.classList.add('hidden');
-            }
-        });
-
-        // 键盘导航（上/下箭头选择结果，Enter 打开）
-        overlay.addEventListener('keydown', function(e) {
-            var items = overlay.querySelectorAll('.search-result-item');
-            if (!items.length) return;
-
-            var active = overlay.querySelector('.search-result-item.bg-zinc-50');
-            var idx = Array.from(items).indexOf(active);
-
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                if (active) active.classList.remove('bg-zinc-50');
-                idx = (idx + 1) % items.length;
-                items[idx].classList.add('bg-zinc-50');
-                items[idx].scrollIntoView({ block: 'nearest' });
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                if (active) active.classList.remove('bg-zinc-50');
-                idx = idx <= 0 ? items.length - 1 : idx - 1;
-                items[idx].classList.add('bg-zinc-50');
-                items[idx].scrollIntoView({ block: 'nearest' });
-            } else if (e.key === 'Enter' && active) {
-                e.preventDefault();
-                active.click();
             }
         });
     })();
