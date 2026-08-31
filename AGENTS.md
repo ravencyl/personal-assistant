@@ -111,7 +111,22 @@ def query_activities(user, params):
 - 对话默认绑的 Agent 由 `chat/views.py::CHAT_AGENT_PURPOSE` 控制（当前 `knowledge`：平台上手工配过、工具集含 WebSearch/WebFetch/ImageSearch 且 `always_allow`）。给对话换 Agent 改这个常量，**不要靠 `.first()` 的排序碰运气**
 - 超时链：`nginx proxy_read_timeout(180s) ≥ gunicorn --timeout(180s) > chat.AI_WAIT_TIMEOUT(90s)`；改完要同步 `DEPLOY.md`，`AiTimeoutChainTest` 会拿文档里的值做断言
 
-回归锁在 `chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）。
+### 把对话结论落库（写工具的口径）
+
+用户说“把刚才那段结论存下来”时，有两个出口（模型看得到整个 session，所以正文汇总它自己干，服务端只落库）：
+
+| 工具 | 意图 | 适用 |
+|------|------|------|
+| `knowledge.create` | `knowledge_create` | 成体系的资料、清单、总结（落 `Article`，回复给文章链接） |
+| `activities.update` + `description` | `update` | 只属于某个活动的备注、结论、待定项 |
+
+- **覆盖型写入必须显式声明**：`activities.update` 的 `description` **默认追加**到原描述末尾，整段替换要传 `description_mode="replace"`。因为模型看不到活动原描述全文，给它一个默认覆盖等于给了一个“一句话冲掉用户长文本”的按钮（预览卡上追加会写明“保留原文”）
+- 创建类工具（`*.create`）**立即生效**，不出确认卡；`update` / `delete` 这类会改或毁已有数据的必须走“预览 → `apply_fn` 确认执行”两步流（见 `activities` 的 P1 区）
+- 描述变更要进 `ActivityLog`，所以 `fmt_field('description', ...)` **截断到 40 字**；新增长文本字段上日志同理，整段贴进时间线会爆布局
+- AI 回复在模板里是**纯文本**（`{{ msg.content }}`，既不走 markdown 也不走 urlize），所以给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 会变成一串 `%E7%BE%8E...`
+- 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
+
+回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
 
 ## 参与者写入规则
 

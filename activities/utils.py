@@ -145,7 +145,13 @@ def fmt_field(field, value):
         return '空'
     if field == 'status':
         return dict(Activity.STATUS_CHOICES).get(value, str(value))
-    return str(value)
+    text = str(value)
+    if field == 'description':
+        # 描述可能很长：变更摘要/活动日志里只留头一段（折行压成空格），
+        # 整段贴进日志会撑爆时间线，也能避免被当作 AI 回复全文输出
+        flat = ' '.join(text.split())
+        return flat if len(flat) <= 40 else f'{flat[:40]}…'
+    return text
 
 
 def diff_part(label, old_set, new_set):

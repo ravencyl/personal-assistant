@@ -1489,3 +1489,32 @@ class CrossAppVisibilityTest(TestCase):
             self.client.get(reverse('notes:note_edit', args=[self.note.id])).status_code, 200)
         self.assertEqual(
             self.client.get(reverse('knowledge:article_detail', args=[self.article.slug])).status_code, 200)
+
+
+class AgentRegistryConsistencyTest(TestCase):
+    """注册表自洽性回归锁
+
+    起因：意图协议是根据 INTENT_TOOL_MAP + 注册表动态生成的，如果某个意图绑定了
+    未注册的工具（改名/漏写 decorator/模块没被自动发现），协议会静默跳过它 ——
+    线上表现只是「AI 不会做这件事」，且不报任何错，极难定位。
+    """
+
+    def test_every_intent_maps_to_registered_tool(self):
+        from core.agent_registry import INTENT_TOOL_MAP, get_tool
+        missing = [(intent, name) for intent, name in INTENT_TOOL_MAP.items()
+                   if get_tool(name) is None]
+        self.assertEqual(missing, [], f'这些意图绑定了未注册的工具：{missing}')
+
+    def test_every_registered_tool_is_reachable_from_chat(self):
+        """未绑意图的工具在对话里永远调不到；确实要只给内部用的，改这条断言并注明理由"""
+        from core.agent_registry import INTENT_TOOL_MAP, _REGISTRY
+        bound = set(INTENT_TOOL_MAP.values())
+        self.assertEqual(sorted(set(_REGISTRY) - bound), [])
+
+    def test_prompt_advertises_conversation_to_store_capabilities(self):
+        """对话结论落库的两个出口都要在协议里可见：存知识库、写活动描述"""
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('knowledge_create', prompt)
+        self.assertIn('存成一篇知识库文章', prompt)
+        self.assertIn('默认追加到原描述末尾', prompt)

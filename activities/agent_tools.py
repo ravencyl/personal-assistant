@@ -223,9 +223,47 @@ def tool_create(user, params):
 # ==================== P1：两步确认流（update / delete）====================
 
 _UPDATE_FIELD_LABELS = [
-    ('name', '名称'), ('start_date', '开始日期'), ('end_date', '结束日期'),
+    ('name', '名称'), ('description', '描述'),
+    ('start_date', '开始日期'), ('end_date', '结束日期'),
     ('status', '状态'), ('duration_minutes', '耗时（分钟）'),
 ]
+
+
+def _abbrev(text, limit=40):
+    """长文本预览（折行压成空格，超长截断）"""
+    flat = ' '.join(str(text or '').split())
+    if not flat:
+        return '空'
+    return flat if len(flat) <= limit else f'{flat[:limit]}…'
+
+
+def _update_data(activity, params):
+    """预览与确认执行**共用**的待写字段清洗（单一口径，避免两边算出不同结果）
+
+    返回 (data, desc_mode)，desc_mode ∈ {'', 'append', 'replace'}。
+    描述不走 normalize_input（那是结构化字段的清洗口径，长文本会被直接丢弃），
+    并且**默认追加**到原描述末尾：模型一般看不到活动原有描述全文，
+    直接覆盖会把用户已写的长文本整段冲掉；要整段替换必须显式传 description_mode=replace。
+    """
+    p = dict(params)
+    p.pop('target', None)
+    p.pop('target_id', None)
+    # name 在协议中兼任定位关键词：与目标名一致时不作为改名
+    if str(p.get('name') or '').strip() == activity.name:
+        p.pop('name', None)
+    data = normalize_input(p, timezone.localdate())
+
+    desc = str(p.get('description') or '').strip()
+    desc_mode = ''
+    if desc:
+        old = (activity.description or '').strip()
+        if str(p.get('description_mode') or '').strip().lower() == 'replace' or not old:
+            data['description'] = desc
+            desc_mode = 'replace'
+        else:
+            data['description'] = f'{old}\n\n{desc}'
+            desc_mode = 'append'
+    return data, desc_mode
 
 
 def _participant_skip_note(skipped):
@@ -239,11 +277,7 @@ def _participant_skip_note(skipped):
 def _update_preview(user, params):
     """预览阶段：定位目标 + 清洗参数 + 生成变更 diff（不写库）"""
     activity = _resolve_single(user, params.get('target') or params.get('name'))
-    # name 在协议中兼任定位关键词：与目标名一致时不作为改名
-    p = dict(params)
-    if str(p.get('name') or '').strip() == activity.name:
-        p.pop('name', None)
-    data = normalize_input(p, timezone.localdate())
+    data, desc_mode = _update_data(activity, params)
 
     changes = []
     for field, label in _UPDATE_FIELD_LABELS:
@@ -259,6 +293,16 @@ def _update_preview(user, params):
             # 人性化格式展示，如「1 小时 30 分钟」
             changes.append({'field': field, 'label': label,
                             'old': fmt_duration(old_v), 'new': fmt_duration(data[field])})
+            continue
+        if field == 'description':
+            # 长正文只展头一段；追加时要写清“保留原文”，避免用户误读成覆盖
+            if desc_mode == 'append':
+                changes.append({'field': field, 'label': label,
+                                'old': _abbrev(old_v),
+                                'new': f'（保留原文，在后追加）{_abbrev(params.get("description"))}'})
+            else:
+                changes.append({'field': field, 'label': label,
+                                'old': _abbrev(old_v), 'new': _abbrev(data[field])})
             continue
         changes.append({'field': field, 'label': label,
                         'old': fmt_field(field, old_v), 'new': fmt_field(field, data[field])})
@@ -292,15 +336,12 @@ def _update_preview(user, params):
 def apply_update(user, params):
     """确认后执行：应用变更字段 + 日志记录 diff（通过 AI 对话）"""
     activity = _resolve_by_id(user, params.get('target_id'))
-    p = dict(params)
-    p.pop('target', None)
-    if str(p.get('name') or '').strip() == activity.name:
-        p.pop('name', None)
-    data = normalize_input(p, timezone.localdate())
+    # 与预览走同一个清洗入参，保证确认卡上展示的就是最终落库的内容
+    data, _desc_mode = _update_data(activity, params)
 
     old = snapshot_activity(activity)
     old_duration = activity.duration_minutes
-    for field in ('name', 'start_date', 'end_date', 'status', 'duration_minutes'):
+    for field in ('name', 'description', 'start_date', 'end_date', 'status', 'duration_minutes'):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()
@@ -329,8 +370,10 @@ def apply_update(user, params):
     }
 
 
-@agent_tool('activities.update', '修改指定活动的字段（名称/日期/费用/状态/标签/参与者/耗时）',
-            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 duration_minutes 耗时分钟数）；先出预览，用户确认后生效',
+@agent_tool('activities.update', '修改指定活动的字段（名称/描述/日期/状态/标签/参与者/耗时）',
+            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 duration_minutes 耗时分钟数、'
+            'description 描述：把一段结论/备注写进活动时传它，**默认追加到原描述末尾**，'
+            '整段替换需再传 description_mode="replace"）；先出预览，用户确认后生效',
             apply_fn=apply_update)
 def tool_update(user, params):
     activity, data, changes, skipped = _update_preview(user, params)

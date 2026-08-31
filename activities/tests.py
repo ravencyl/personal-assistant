@@ -1175,3 +1175,81 @@ class StartDueActivitiesTest(TestCase):
         self.assertEqual([a.id for a in changed], [due.id])
         self.assertEqual(due.status, 'in_progress')
         self.assertEqual(ActivityLog.objects.count(), 0)
+
+
+class UpdateDescriptionAgentToolTest(TestCase):
+    """AI 把对话结论写进活动描述：默认追加，显式 description_mode=replace 才整段覆盖
+
+    这条口径的由来：模型看不到活动原有描述的全文，允许它直接覆盖等于给了一个
+    「一句话冲掉用户长文本」的按钮，所以覆盖必须显式声明。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.user = User.objects.create_user('testuser', password='test')
+        self.tool = get_tool('activities.update')
+
+    def test_append_keeps_original_description(self):
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游',
+                                           description='原计划：住山脚民宿')
+        result = self.tool['apply'](self.user, {
+            'target_id': activity.id, 'description': '结论：高铁比自驾省 3 小时'})
+        activity.refresh_from_db()
+        self.assertIn('原计划：住山脚民宿', activity.description)
+        self.assertIn('结论：高铁比自驾省 3 小时', activity.description)
+        self.assertTrue(result['changed'])
+
+    def test_replace_mode_overwrites(self):
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游',
+                                           description='旧描述')
+        self.tool['apply'](self.user, {'target_id': activity.id, 'description': '全新描述',
+                                       'description_mode': 'replace'})
+        activity.refresh_from_db()
+        self.assertEqual(activity.description, '全新描述')
+
+    def test_empty_description_treated_as_replace(self):
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游')
+        self.tool['apply'](self.user, {'target_id': activity.id, 'description': '第一条备注'})
+        activity.refresh_from_db()
+        self.assertEqual(activity.description, '第一条备注')
+
+    def test_preview_shows_append_and_writes_nothing(self):
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游',
+                                           description='原计划：住山脚民宿')
+        preview = self.tool['fn'](self.user, {'target': '桐庐周末游',
+                                              'description': '结论：高铁更快'})
+        self.assertEqual(preview['card'], 'confirm')
+        change = next(c for c in preview['card_data']['changes'] if c['field'] == 'description')
+        # 确认卡必须说清「保留原文」，否则用户会以为要被覆盖
+        self.assertIn('保留原文', change['new'])
+        self.assertIn('原计划', change['old'])
+        activity.refresh_from_db()
+        self.assertEqual(activity.description, '原计划：住山脚民宿')   # 预览不写库
+
+    def test_long_description_is_abbreviated_in_change_and_log(self):
+        long_old = '长' * 120
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游',
+                                           description=long_old)
+        self.tool['apply'](self.user, {'target_id': activity.id, 'description': '补一句结论'})
+        log = ActivityLog.objects.filter(activity=activity).order_by('-id').first()
+        self.assertIn('描述', log.summary)
+        self.assertNotIn(long_old, log.summary)   # 整段原文不贴进日志
+        self.assertIn('…', log.summary)
+        self.assertLess(len(log.summary), 200)
+
+    def test_prompt_advertises_description_capability(self):
+        """协议里要写清能改描述、且默认是追加——否则模型只会继续回避这个字段"""
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('description 描述', prompt)
+        self.assertIn('默认追加到原描述末尾', prompt)
+        self.assertIn('description_mode="replace"', prompt)
+
+    def test_other_fields_keep_untouched_on_description_only_update(self):
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游',
+                                           start_date=date(2026, 9, 5),
+                                           duration_minutes=90)
+        self.tool['apply'](self.user, {'target_id': activity.id, 'description': '只改描述'})
+        activity.refresh_from_db()
+        self.assertEqual(activity.start_date, date(2026, 9, 5))
+        self.assertEqual(activity.duration_minutes, 90)
