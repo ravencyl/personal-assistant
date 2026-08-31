@@ -158,6 +158,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、习惯打卡（`daily.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
 - **模板结构**：`templates/` 下按 app 分目录（`templates/activities/`、`templates/chat/` 等），继承 `base.html`
+- **上下文键不得占用框架保留名**：视图 context 里禁用 `messages`（`django.contrib.messages` 的 flash 变量，`base.html` 顶部提示条在读它）、`user`、`perms`、`request`。曾把 Message queryset 放进 `messages`，基模板就按 `Message.__str__`（「[role] 正文前 50 字」）把整段对话历史渲染到页面顶部，看着像调试信息泄漏，同时 flash 提示静默失效；现在用 `chat_messages`，`chat/tests.py::ConversationDetailContextTest` 会扫模板兼断言
 - **样式**：Tailwind CSS v4 + CSS 变量（`--text`、`--bg`、`--border` 等），响应式布局（移动端堆叠 + 桌面端横排）
 - **状态色单一来源**：活动状态的配色只写在 `static/css/custom.css` 的 `--status-<status>` 变量里，模板用 `.status-bg--`（圆点/色条/日历块）/ `.status-fg--`（图标）/ `.status-fg-on--`（色块上的文字）/ `.badge-status--`（徽章）+ `{{ activity.status }}`，**禁止再写按状态分支的 `bg-zinc-*` / `text-zinc-*`**，也禁止在视图/接口里下发 hex（曾有 4 份映射，done 与 cancelled 深浅互为颠倒；`activities/tests.py::StatusDisplaySingleSourceTest` 会守住这一点）
 - **静态文件**：手写 CSS 在 `static/css/`，PWA 资源（`manifest.json`、`sw.js`）在 `static/` 根目录
