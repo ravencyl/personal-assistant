@@ -17,9 +17,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
 
 from chat import views as chat_views
+from chat.models import Conversation, Message
 from core.agent_registry import (INTENT_TOOL_MAP, build_protocol_prompt,
                                  extract_intent, orchestrator)
 
@@ -191,3 +193,55 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
         base = self._tpl('base.html')
         self.assertIn('function setQuickFabHidden', base)
         self.assertEqual(base.count('setQuickFabHidden('), 3, '1 定义 + 2 展开入口（FAB 点击 / paChatAsk）')
+
+
+class ConversationDetailContextTest(TestCase):
+    """对话详情不得占用模板上下文里的 messages
+
+    线上真实反馈（2026-08-31 用户截图）：/chat/<id>/ 顶部出现一整排「[user] …」
+    「[assistant] …」卡片，看着像调试信息泄漏。根因不是有人写了调试模板，而是视图
+    把 Message queryset 塞进了 `messages` 这个键 —— 它是 django.contrib.messages
+    注入的 flash 变量，base.html 的提示条 {% for message in messages %}{{ message }}
+    于是按 Message.__str__（「[role] 正文前 50 字」）把整段历史渲染了出来；
+    代价还包括这个页面的 flash 提示全部失效。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('chatuser', password='pw')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_ctx',
+                                               agent_id='agent_ctx', title='测试对话')
+        Message.objects.create(conversation=self.conv, role='user',
+                               content='我有一个疑问，情侣之间对话应该是怎么样子的'
+                                       '有时候会被对方投诉说我不尊重他的对话')
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content='这个问题的核心其实不是话术')
+        self.client.login(username='chatuser', password='pw')
+        self.url = f'/chat/{self.conv.id}/'
+
+    def test_history_is_not_dumped_with_role_brackets(self):
+        """页面不得出现 Message.__str__ 形式的「[user] / [assistant]」文本"""
+        html = self.client.get(self.url).content.decode()
+        self.assertNotIn('[user]', html)
+        self.assertNotIn('[assistant]', html)
+
+    def test_history_still_renders_normally(self):
+        """改名不能把正常渲染一起改掉：正文、中文角色标签都要在"""
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '这个问题的核心其实不是话术')
+        self.assertContains(resp, 'AI 助手')
+
+    def test_messages_key_is_left_to_the_flash_framework(self):
+        """上下文里的 messages 必须是 flash 存储而不是 Message queryset"""
+        resp = self.client.get(self.url)
+        self.assertNotIsInstance(resp.context['messages'], QuerySet,
+                                 'messages 被视图占用了，base.html 的 flash 块会渲染历史消息')
+        self.assertIsInstance(resp.context['chat_messages'], QuerySet)
+
+    def test_no_chat_template_iterates_bare_messages(self):
+        """模板层兜底：只允许 base.html 的 flash 块读裸 messages"""
+        templates = (Path(__file__).resolve().parent.parent / 'templates').rglob('*.html')
+        offenders = [str(t) for t in templates
+                     if re.search(r'{%\s*for\s+\w+\s+in\s+messages\s*%}', t.read_text(encoding='utf-8'))
+                     and t.name != 'base.html']
+        self.assertEqual(offenders, [], f'这些模板又占了裸 messages：{offenders}')

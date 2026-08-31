@@ -67,12 +67,17 @@ def conversation_list(request):
 
 @login_required
 def conversation_detail(request, conversation_id):
-    """对话详情"""
+    """对话详情
+
+    上下文键必须用 chat_messages：`messages` 是 django.contrib.messages 注入的
+    flash 变量，base.html 的提示条循环读它。视图用同名键塞 Message queryset 会把
+    它顶掉，基模板就按 Message.__str__（「[user] 正文前 50 字」）把整段历史渲染到
+    页面顶部，看起来像调试信息泄漏到线上（2026-08-31 用户截图反馈）。
+    """
     conversation = get_visible(Conversation, request.user, id=conversation_id)
-    messages = conversation.messages.all()
     return render(request, 'chat/conversation_detail.html', {
         'conversation': conversation,
-        'messages': messages,
+        'chat_messages': conversation.messages.all(),
     })
 
 

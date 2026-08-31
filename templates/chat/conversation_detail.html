@@ -14,9 +14,9 @@
     </form>
 </div>
 
-<!-- Messages -->
+<!-- Messages（变量名带 chat_ 前缀：裸 messages 会被 base.html 的 flash 提示条当成 Django 消息框架变量消费） -->
 <div id="messages" class="space-y-4 mb-6">
-    {% for msg in messages %}
+    {% for msg in chat_messages %}
     <div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
         <div class="rounded-lg p-4 {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
             <div class="flex items-center gap-2 mb-1">
