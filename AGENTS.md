@@ -94,6 +94,25 @@ def query_activities(user, params):
 
 **写操作必须记录日志**：所有活动写操作调用 `log_activity(user, activity, action, summary)`。
 
+## 对话能力的两类分流（改首帧协议前必读）
+
+云端 Agent（Qoder）本身就带着联网工具，**能不能用全看我们的 prompt 让不让用**。首帧协议把每条消息分成两类：
+
+| 类型 | 输出形式 | 谁处理 |
+|------|----------|--------|
+| （1）操作站点数据 | `{"intent", "params", "reply"}` JSON | 编排器分发 `@agent_tool` |
+| （2）通用问答（需要外部/最新信息） | **自然语言直答**（模型自己先调 WebSearch/WebFetch） | 编排器「非 JSON 透传」分支 |
+
+`ask` 是（2）类的显式意图，**故意不注册工具**（`INTENT_TOOL_MAP` 里没有），`tool_name` 为空 → 原样把 `reply` 给用户，系统不再动作。
+
+- **新能力默认要注册成工具走（1）类**；只有“系统确实不需要动作”时才归到（2）类，否则会被误伤（`knowledge.search` 抢答通用问题导致只会回“没有找到”就是这么来的）
+- 工具返回的 `reply` **直接给用户看、不会再送回模型**：文案只写口语结论，不得夹带对模型的指令或提示词片段
+- `knowledge.search` 只能查用户自己存的文章，**不得当通用问答的兜底**；本地未命中不得以“没有找到”结尾，要引导到联网
+- 对话默认绑的 Agent 由 `chat/views.py::CHAT_AGENT_PURPOSE` 控制（当前 `knowledge`：平台上手工配过、工具集含 WebSearch/WebFetch/ImageSearch 且 `always_allow`）。给对话换 Agent 改这个常量，**不要靠 `.first()` 的排序碰运气**
+- 超时链：`nginx proxy_read_timeout(180s) ≥ gunicorn --timeout(180s) > chat.AI_WAIT_TIMEOUT(90s)`；改完要同步 `DEPLOY.md`，`AiTimeoutChainTest` 会拿文档里的值做断言
+
+回归锁在 `chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）。
+
 ## 参与者写入规则
 
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：

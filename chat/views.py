@@ -18,6 +18,17 @@ from core.utils import visible_qs, get_visible, visible_child_qs, get_visible_ch
 
 logger = logging.getLogger(__name__)
 
+# 等云端 AI 回一轮的上限（秒）。必须显著小于 gunicorn --timeout（180s），
+# 否则 worker 会在响应途中被看门狗杀掉（历史上因这个进过 502）。
+AI_WAIT_TIMEOUT = 90
+
+# 新建对话默认用哪个 Agent（按 purpose 选，不再“取最近更新的那个”）。
+# knowledge-agent 是用户在 Qoder 平台上手工配置过的那一个（version 6）：
+# 工具集含 WebSearch/WebFetch/ImageSearch 且 permission_policy=always_allow（联网工具
+# 不需人工批准，否则会话会卡在等授权）、instructions 里写了助手人设。
+# AgentConfig.Meta.ordering = ['-updated_at']，靠 .first() 选会在每次 init_agents 后静默换人。
+CHAT_AGENT_PURPOSE = 'knowledge'
+
 
 @login_required
 def conversation_list(request):
@@ -80,8 +91,9 @@ def create_conversation(request):
     """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）"""
     agent_id = request.POST.get('agent_id')
     if not agent_id:
-        # 使用第一个可用的 agent
-        agent_config = AgentConfig.objects.filter(is_active=True).first()
+        # 默认绑定固定用途的 Agent（见 CHAT_AGENT_PURPOSE 注释）
+        agent_config = (AgentConfig.objects.filter(is_active=True, purpose=CHAT_AGENT_PURPOSE).first()
+                        or AgentConfig.objects.filter(is_active=True).first())
         if not agent_config:
             return JsonResponse({'error': '没有可用的 Agent 配置'}, status=400)
         agent_id = agent_config.agent_id
@@ -192,7 +204,7 @@ def send_message(request, conversation_id):
                 raise
             # 409：session 正忙（通常是首帧协议指令还在处理）；等它结束再重发
             logger.info(f'会话 {conversation.id} 发送 409，等待上一轮结束后重发')
-            service.wait_for_response(conversation.session_id, timeout=60)
+            service.wait_for_response(conversation.session_id, timeout=AI_WAIT_TIMEOUT)
             service.send_message(conversation.session_id, ai_content)
         conversation.status = 'processing'
         conversation.save(update_fields=['status', 'updated_at'])
@@ -238,8 +250,13 @@ def _build_knowledge_context(user, text):
 
 
 def _collect_response(service, conversation):
-    """等待 AI 响应 → 编排器解析意图并执行工具 → 落库，返回 (Message|None, 活动是否变更)"""
-    assistant_text = service.wait_for_response(conversation.session_id, timeout=120)
+    """等待 AI 响应 → 编排器解析意图并执行工具 → 落库，返回 (Message|None, 活动是否变更)
+
+    等 AI 的上限统一用一个常量，且**必须显著小于 gunicorn 的 --timeout（180s）**：
+    通用问答现在会走联网工具（WebSearch/WebFetch 多轮），耗时比意图分类长很多，
+    两者相等或倒挂时 worker 会被看门狗在响应途中杀掉（线上已因这个挂过一次 502）。
+    """
+    assistant_text = service.wait_for_response(conversation.session_id, timeout=AI_WAIT_TIMEOUT)
 
     assistant_msg = None
     changed = False

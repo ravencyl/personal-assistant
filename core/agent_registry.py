@@ -4,6 +4,8 @@
   core.apps.ready() 自动发现，新增能力无需改动核心对话逻辑
 - 意图协议：首帧指令 prompt 由注册表 + INTENT_TOOL_MAP 动态生成；
   AI 回复解析为 {"intent", "params", "reply"} JSON 后分发执行
+- 两类消息分流：操作站点数据→意图协议 JSON；通用问答/需要外部信息→模型自己
+  调云端联网工具（WebSearch/WebFetch）后以自然语言回，由本编排器的“非 JSON 透传”分支接手
 - 容错约定：任何环节失败都降级为普通文本回复，绝不阻断对话
 """
 import hmac
@@ -91,11 +93,18 @@ def build_protocol_prompt(today=None):
         lines.append(line)
 
     return (
-        f'你是「个人助手」站点的活动管理助手。今天是 {today.isoformat()}。\n'
-        '对用户的每条消息，判断意图并只输出一个 JSON 对象（不要解释、不要 markdown 代码块）：\n'
+        f'你是「个人助手」站点的智能助手。今天是 {today.isoformat()}。\n'
+        '你有两类本事，不要混淆：\n'
+        '  （1）操作这台站点上的数据（活动/费用/备忘/提醒/知识库/记忆/报告）——这类请求走下面的意图协议；\n'
+        '  （2）回答与站点数据无关的通用问题（常识、资讯、攻略、行程建议、“最新/最近”类时效问题）——'
+        '这类问题**不要套 JSON**：直接调用你的联网工具（WebSearch / WebFetch）查证，'
+        '然后用自然语言回答，结尾列出你实际参考的链接；没查到就直说没查到，不要用记忆硬编。\n\n'
+        '对第（1）类消息，判断意图并只输出一个 JSON 对象（不要解释、不要 markdown 代码块）：\n'
         '{"intent": "<意图>", "params": {...}, "reply": "<给用户看的自然语言>"}\n\n'
         '可用意图：\n' + '\n'.join(lines) + '\n'
-        '- chitchat：普通闲聊或无法归类的消息，只需 reply。\n\n'
+        '- chitchat：寒暄、感谢、以及不需要外部信息的开放闲聊，只需 reply。\n'
+        '- ask：需要外部/最新信息才能答的问题。优先按第（2）类直接联网回答；'
+        '若你已查好、只回填给系统展示，才输出 {"intent":"ask","reply":"<完整答案>"}。\n\n'
         '规则：\n'
         '1. 相对日期（明天/下周五/月底等）一律换算为 YYYY-MM-DD 绝对日期，未写年份用当年。\n'
         '2. 写操作意图（create / status_change）的 reply 中不要宣布已执行完成，系统会代为执行。\n'
@@ -104,7 +113,10 @@ def build_protocol_prompt(today=None):
         '5. 当你从用户的消息中了解到值得长期记住的信息（偏好、目标、个人事实、关系等），'
         '在 JSON 中附加 "memory" 字段（可省略）：\n'
         '   "memory": [{"content": "记忆内容", "category": "preference|fact|goal|relationship|habit|other", "importance": 1-10}]\n'
-        '   只记录有长期价值的信息，不要记录临时性请求或操作指令。'
+        '   只记录有长期价值的信息，不要记录临时性请求或操作指令。\n'
+        '6. 意图归属：“世界/时效/攻略/建议”这类问题**不要用 knowledge_search 交差**，'
+        '它只能在用户自己存的文章里检索；本地没命中也不得回一句「没有找到」就结束，'
+        '改走联网回答（必要时先自己查，再顺手告诉用户知识库里没有）。'
     )
 
 
@@ -132,6 +144,8 @@ class ChatOrchestrator:
             params = {}
 
         tool_name = INTENT_TOOL_MAP.get(intent)
+        # chitchat / ask（未注册工具的意图）：直接把 reply 透给用户，
+        # 这就是「通用问答逃生舱」：模型已在自己那一侧用联网工具查完，系统不需要再动作
         if intent == 'chitchat' or not tool_name:
             return reply or (ai_text or '').strip(), None, False
 

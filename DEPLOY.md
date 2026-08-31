@@ -133,24 +133,42 @@ python manage.py generate_daily_insights [--dry-run]
 
 ### gunicorn 注意事项
 
-启动命令必须带 `--timeout 120`（或任何大于最长 AI 调用超时的值）：
+启动命令必须带 `--timeout 180`：
 
 ```bash
-gunicorn --workers 3 --timeout 120 --bind unix:/var/www/personal-website/gunicorn.sock \
+gunicorn --workers 3 --timeout 180 --bind unix:/var/www/personal-website/gunicorn.sock \
   personal_assistant.wsgi:application
 ```
 
-理由：周报/月报、每日洞察等页面在请求内同步调用 AI（`core/ai.py` 最长 `timeout=90`）。gunicorn 同步 worker 的看门狗只在请求间隙收到心跳，因此**只要单次 AI 调用超过 gunicorn timeout，worker 就被 SIGKILL**，用户看到 502、日志里出现 `WORKER TIMEOUT` + `SystemExit`（默认 timeout 是 30s，实测 `GET /reports/weekly/` 要 30s 左右，必被杀）。改完 unit 记得 `systemctl daemon-reload && systemctl restart gunicorn`。
+理由：周报/月报、每日洞察、AI 对话等页面在请求内同步调用 AI（`core/ai.py` 最长 `timeout=90`，对话等一轮 `chat/views.py::AI_WAIT_TIMEOUT=90`）。gunicorn 同步 worker 的看门狗只在请求间隙收到心跳，因此**只要单次 AI 调用超过 gunicorn timeout，worker 就被 SIGKILL**，用户看到 502、日志里出现 `WORKER TIMEOUT` + `SystemExit`（默认 30s 时实测 `GET /reports/weekly/` 要 30.3s，必被杀）。改完 unit 记得 `systemctl daemon-reload && systemctl restart gunicorn`。
+
+### 超时链口径（改任何一个都要同时看其余两个）
+
+```
+nginx proxy_read_timeout (180s)  ≥  gunicorn --timeout (180s)  >  AI_WAIT_TIMEOUT / ai_round_trip timeout (90s)
+```
+
+外大内小：AI 真的跑满时应该是**应用层先超时并降级回一句普通回复**，而不是网关/看门狗把进程杀掉（后者用户只能看到 502）。AI 对话已开启联网工具（WebSearch/WebFetch 多轮），单轮耗时比纯意图分类长很多，这三个值不对齐时必现随机失败。`chat/tests.py::AiTimeoutChainTest` 会拿本文的 `--timeout` 做断言。
 
 ### nginx 配置要点
 
 - `/static/` 直接服务静态文件（含 manifest.json、sw.js）
 - `/media/` 直接服务用户上传文件（附件、知识库文件）
 - **`client_max_body_size` 必须 ≥ `settings.ATTACHMENT_MAX_UPLOAD_SIZE`（当前 10MB）**，线上取 `12m`：不设时 nginx 默认 1m，超过 1MB 的附件会在网关层直接返回 413（HTML 错误页，Django 那句「文件过大，上限 10MB」的友好提示根本没机会执行）；留 2MB 余量是为了让 Django 校验先触发
+- **`proxy_read_timeout 180s`**（默认 60s）：AI 页面超过 60s 时 nginx 会先断开并返回 504，比 gunicorn 看门狗更早失败会把真实错因遮住
 - 其余请求代理到 gunicorn
 
 ```nginx
 client_max_body_size 12m;
+
+location / {
+    proxy_pass http://unix:/var/www/personal-website/gunicorn.sock;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 180s;
+}
 
 location /static/ {
     alias /path/to/个人助手/staticfiles/;
