@@ -4,11 +4,12 @@
 于是「去美国出差要准备什么」这类问题被吸进 knowledge_search，本地没命中就直接回
 「没有找到与…相关的知识库文章」，而云端 Agent 其实早就挂着 WebSearch/WebFetch 却从不被调用。
 
-这里锁住四件事，防止再次退化：
+这里锁住五件事，防止再次退化：
 1. 协议里必须有「通用问题→联网直答」的出口，且不再自称「活动管理助手」
 2. 未注册工具的意图（ask）与纯自然语言回复都要能原样透传给用户
 3. 含 `{}` 但无 intent 的自然语言不得被误当成协议 JSON
 4. 等 AI 的超时必须显著小于 gunicorn --timeout（否则 worker 在响应途中被杀）
+5. 对话输入框的 Enter 只能换行、不得提交（误发一条要等几十秒，代价高）
 """
 import re
 from pathlib import Path
@@ -109,3 +110,58 @@ class AiTimeoutChainTest(SimpleTestCase):
         src = (Path(__file__).resolve().parent / 'views.py').read_text(encoding='utf-8')
         hardcoded = re.findall(r'wait_for_response\([^)]*timeout=\d', src)
         self.assertEqual(hardcoded, [], f'写死的等待上限：{hardcoded}')
+
+
+class ChatInputEnterBehaviorTest(SimpleTestCase):
+    """对话输入框：Enter 只做换行，提交只允许点「发送」按钮
+
+    起因：输入框原本是单行 input，对话页还显式绑了 Enter → requestSubmit()，
+    打字打字就误发一条（AI 一轮要等几十秒，误发代价高）。改成 textarea 后
+    Enter 天然换行、也不会隐式提交表单。这里锁住结构，防止以后又改回 input
+    或重新加回 Enter 监听。
+    """
+
+    ENTER_SUBMIT = re.compile(r"(?:key|keyCode|which)\s*(?:===|==)\s*['\"]?(?:Enter|13)")
+
+    def _tpl(self, *parts):
+        return (Path(__file__).resolve().parent.parent / 'templates' / Path(*parts)).read_text(
+            encoding='utf-8')
+
+    def test_both_chat_inputs_are_multiline_textareas(self):
+        """两个输入框都必须是 textarea：单行 input 物理上换不了行"""
+        page = self._tpl('chat', 'conversation_detail.html')
+        base = self._tpl('base.html')
+        self.assertIn('id="message-input"', page)
+        self.assertIn('id="chat-input"', base)
+        self.assertIn('<textarea name="content" id="message-input"', page)
+        self.assertIn('<textarea name="content" id="chat-input"', base)
+        for html in (page, base):
+            self.assertNotIn('<input type="text" name="content"', html)
+
+    def test_no_enter_key_submit_handler_anywhere_in_chat_inputs(self):
+        for parts in (('chat', 'conversation_detail.html'), ('base.html',)):
+            html = self._tpl(*parts)
+            self.assertEqual(self.ENTER_SUBMIT.findall(html), [],
+                             f'{parts} 里又出现了 Enter 提交逻辑')
+
+    def test_placeholder_tells_user_enter_is_newline(self):
+        """行为变了要写进提示，否则用户会以为发送键坏了"""
+        page = self._tpl('chat', 'conversation_detail.html')
+        self.assertIn('Enter 换行', page)
+
+    def test_multiline_input_css_caps_height_and_disables_drag_resize(self):
+        """高度由 paFitTextarea 接管：必须关掉手动拖拽并限高，否则会撑坏浮窗布局"""
+        css = (Path(__file__).resolve().parent.parent / 'static' / 'css' / 'custom.css') \
+            .read_text(encoding='utf-8')
+        self.assertIn('.chat-input', css)
+        block = css.split('.chat-input', 1)[1].split('}', 1)[0]
+        self.assertIn('resize: none', block)
+        self.assertIn('max-height', block)
+
+    def test_single_auto_grow_implementation_shared_by_both_inputs(self):
+        """对话页与浮窗共用同一个自适应实现，不允许各写一份"""
+        base = self._tpl('base.html')
+        self.assertIn('window.paFitTextarea', base)
+        self.assertEqual(base.count('function paFitTextarea'), 0)
+        self.assertEqual(base.count('ta.style.height = \'auto\';'), 1, '自适应逻辑只能有一份')
+        self.assertIn('data-auto-grow', base)

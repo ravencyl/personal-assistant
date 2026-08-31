@@ -244,3 +244,13 @@ a {
         max-height: calc(100dvh - 11rem);
     }
 }
+
+/* 对话多行输入框：Enter 只换行、不提交（只允许点「发送」按钮）。
+   高度由 base.html 的 paFitTextarea 跟随内容增长，到顶后在框内滚动；
+   resize:none 关掉手动拖拽，避免拖出破坏浮窗布局的大框 */
+.chat-input {
+    resize: none;
+    overflow-y: auto;
+    max-height: 160px;
+    line-height: 1.5;
+}

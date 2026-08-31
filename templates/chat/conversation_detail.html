@@ -58,13 +58,13 @@
       hx-target="#messages"
       hx-swap="beforeend"
       hx-on::before-request="document.getElementById('loading').classList.remove('hidden')"
-      hx-on::after-request="document.getElementById('loading').classList.add('hidden'); document.getElementById('message-input').value = ''; window.scrollTo(0, document.body.scrollHeight);">
+      hx-on::after-request="document.getElementById('loading').classList.add('hidden'); (function(){var el=document.getElementById('message-input'); el.value=''; if (window.paFitTextarea) window.paFitTextarea(el);})(); window.scrollTo(0, document.body.scrollHeight);">
     {% csrf_token %}
-    <div class="flex gap-3">
-        <input type="text" name="content" id="message-input"
-            placeholder="输入消息..."
-            class="flex-1 rounded-lg border border-[var(--border-strong)] px-4 py-3 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]"
-            autocomplete="off" autofocus>
+    <div class="flex items-end gap-3">
+        {# 多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮 #}
+        <textarea name="content" id="message-input" rows="1" data-auto-grow autofocus
+            placeholder="输入消息...（Enter 换行，点「发送」提交）"
+            class="chat-input flex-1 rounded-lg border border-[var(--border-strong)] px-4 py-3 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]"></textarea>
         <button type="submit"
             class="rounded-lg bg-[var(--accent)] px-4 py-3 sm:px-6 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
             发送
@@ -75,16 +75,4 @@
 <!-- 底部预留空间：确保滚动到底时发送按钮位于右下角 AI 浮窗 FAB 固定区域之上（移动端 FAB 占视口底部 96~144px，表单底边距底 112+80=192px；桌面端 FAB 占 16~64px，表单底边距底 32+80=112px） -->
 <div class="h-20" aria-hidden="true"></div>
 
-{% endblock %}
-
-{% block extra_js %}
-<script>
-// Enter 发送（Shift+Enter 换行不支持，单行输入）
-document.getElementById('message-input').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        document.getElementById('message-form').requestSubmit();
-    }
-});
-</script>
 {% endblock %}

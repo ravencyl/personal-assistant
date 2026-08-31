@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'personal-assistant-v8';
+const CACHE_VERSION = 'personal-assistant-v9';
 
 // 预缓存的核心静态资源（已自托管，不再依赖 CDN）
 const PRECACHE_URLS = [

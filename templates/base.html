@@ -196,10 +196,12 @@
                 </div>
                 <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
                 <div id="chat-loading" class="hidden px-4 pb-1 text-xs text-[var(--text-muted)] animate-pulse">AI 正在思考...</div>
-                <form id="chat-form" class="flex gap-2 p-3 border-t border-[var(--border)]">
+                <form id="chat-form" class="flex items-end gap-2 p-3 border-t border-[var(--border)]">
                     {% csrf_token %}
-                    <input type="text" name="content" id="chat-input" placeholder="输入消息..."
-                           autocomplete="off" class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
+                    {# 多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮 #}
+                    <textarea name="content" id="chat-input" rows="1" data-auto-grow
+                              placeholder="输入消息..."
+                              class="chat-input flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]"></textarea>
                     <button type="submit" class="rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">发送</button>
                 </form>
             </div>
@@ -336,6 +338,12 @@
 
         function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
+        // 清空输入框（要连带重置自适应高度，否则发完一条后框子停在拉长状态）
+        function clearInput() {
+            input.value = '';
+            if (window.paFitTextarea) window.paFitTextarea(input);
+        }
+
         var lastConvId = null;
 
         function openConversation(id, title) {
@@ -404,7 +412,7 @@
                 })
                 .then(function (html) {
                     messagesEl.insertAdjacentHTML('beforeend', html);
-                    input.value = '';
+                    clearInput();
                     // 对话中变更了活动数据：移除后端附带的标记并广播事件，宿主页面据此提示刷新
                     var marker = messagesEl.querySelector('[data-activity-changed]');
                     if (marker) {
@@ -442,12 +450,13 @@
                 .finally(function () { newBtn.disabled = false; newBtn.textContent = '+ 新对话'; });
         });
 
-        // 发送消息
+        // 发送消息（表单里只有一个提交按钮，因此只由点「发送」或 HTMX 触发；
+        // 输入框是 textarea，Enter 天然就是换行，不会隐式提交）
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             var content = input.value.trim();
             if (!content || !form.dataset.action) return;
-            input.value = '';
+            clearInput();
             postMessage(content);
         });
 
@@ -763,6 +772,21 @@
     })();
     </script>
     {% endif %}
+
+    <script>
+    // 多行输入框高度自适应：对话输入框改成 Enter 换行后，不跟着长高就会把内容藏起来，
+    // 而 rows 给大了又会留一大片空白。超过 max-height 后靠 CSS 内部滚动。
+    // 放在模板末尾，所以对话详情页（走 HTMX 的表单）与全站聊天浮窗都能用。
+    window.paFitTextarea = function (ta) {
+        if (!ta || ta.tagName !== 'TEXTAREA') return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    };
+    document.querySelectorAll('textarea[data-auto-grow]').forEach(function (ta) {
+        ta.addEventListener('input', function () { window.paFitTextarea(ta); });
+        window.paFitTextarea(ta);
+    });
+    </script>
 
     {% block extra_js %}{% endblock %}
 </body>
