@@ -23,11 +23,12 @@
    - 普通信息展示无容器、无边框（.app-card/.card 已改为透明无界）
    - 需要边界的交互区域统一使用 .panel 类
 
-   【状态映射】
-   - 进行中 = 黑底白字（bg-zinc-900 text-white）
-   - 计划中 = 浅灰底中灰字（bg-zinc-100 text-zinc-500）
-   - 已完成 = 更浅灰底浅灰字（bg-zinc-50 text-zinc-400）
-   - 已取消 = 灰字删除线（text-zinc-400 line-through）
+   【状态映射】（唯一定义处 = 下方 --status-* 变量与四个工具类）
+   - 进行中 = 最深（黑），计划 = 中灰，已完成 = 浅灰，已取消 = 最浅灰 + 删除线
+   - 模板只写 `.status-bg--{{ status }}`（圆点/色条/日历块）、
+     `.status-fg--{{ status }}`（图标描边）、`.badge-status--{{ status }}`（徽章）、
+     `.status-fg-on--{{ status }}`（色块上的文字色），
+     禁止再按状态写 bg-zinc-* / text-zinc-* 分支（曾有 4 套映射，done 与 cancelled 深浅互为颠倒）
 
    【分端约定】
    - 唯一分端断点：md:（768px），与导航层现状一致；640-768px 平板竖屏跟随桌面布局（预期行为）
@@ -51,6 +52,37 @@
     --border: rgba(0, 0, 0, 0.08);
     --border-strong: rgba(0, 0, 0, 0.15);
 }
+
+/* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
+   日历与图表靠 `var(--status-<status>)` 引用，不再各存一份 hex）*/
+:root {
+    --status-planned: #a1a1aa;
+    --status-in_progress: #18181b;
+    --status-done: #d4d4d8;
+    --status-cancelled: #e4e4e7;
+}
+
+/* 背景用状态色：小圆点、顶部色条、日历色块 */
+.status-bg--planned { background: var(--status-planned); }
+.status-bg--in_progress { background: var(--status-in_progress); }
+.status-bg--done { background: var(--status-done); }
+.status-bg--cancelled { background: var(--status-cancelled); }
+
+/* 线条色用状态色：Daily 卡左侧状态图标（svg 靠 currentColor）*/
+.status-fg--planned { color: var(--status-planned); }
+.status-fg--in_progress { color: var(--status-in_progress); }
+.status-fg--done { color: var(--status-done); }
+.status-fg--cancelled { color: var(--status-cancelled); }
+
+/* 状态色块之上的文字色，与 .status-bg--* 成对使用（日历色块等）*/
+.status-fg-on--planned, .status-fg-on--in_progress { color: #ffffff; }
+.status-fg-on--done, .status-fg-on--cancelled { color: #71717a; }
+
+/* 状态徽章（搭配 _status_badge.html 的通用形状类使用）*/
+.badge-status--planned { background: #f4f4f5; color: #52525b; }
+.badge-status--in_progress { background: var(--status-in_progress); color: #ffffff; }
+.badge-status--done { background: #fafafa; color: var(--text-muted); }
+.badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
 /* Pill 形按钮/输入框/徽章 */
 button, .btn, input[type="submit"],

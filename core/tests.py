@@ -1,11 +1,15 @@
-from django.test import TestCase, Client
+from django.test import TestCase, Client, RequestFactory
 from django.contrib.auth.models import User
 from django.urls import reverse
 from unittest.mock import patch
 from activities.models import Activity, Expense, RecurringActivity
 from knowledge.models import Article
 from notes.models import Note
-from core.cross_link import get_related_content, _tag_intersection_scores, _token_fallback
+from chat.models import Conversation, Message
+from django.http import Http404
+from core.utils import (visible_child_qs, get_visible_child, q_or,
+                        char_overlap_ratio)
+from core.cross_link import get_related_content, _tag_intersection_scores
 from core.search import global_search
 from datetime import timedelta
 from django.utils import timezone
@@ -219,6 +223,58 @@ class ReminderModelTest(TestCase):
         self.assertEqual(response.status_code, 302)
         r.refresh_from_db()
         self.assertEqual(r.status, 'dismissed')
+
+
+class ReminderDoneStatusTest(TestCase):
+    """L8：「已完成」写 done，与系统自动触发的 fired 分开
+
+    两者曾共用 fired：点完「已完成」条目仍留在 Daily「提醒」区（该区按 trigger_at
+    筛今日、按 fired 取数，状态没变就看不出差异），浮窗红点也分不了
+    「提醒过了」与「用户做完了」。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def fired_reminder(self, content='带伞'):
+        reminder = Reminder.objects.create(
+            user=self.user, content=content,
+            trigger_at=timezone.now() - timedelta(minutes=5))
+        check_due_reminders(self.user)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, 'fired')
+        return reminder
+
+    def test_done_endpoint_writes_done_not_fired(self):
+        reminder = self.fired_reminder()
+        self.assertEqual(self.client.post(
+            f'/reminders/{reminder.id}/done/').status_code, 302)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, 'done')
+
+    def test_done_leaves_daily_pending_list(self):
+        reminder = self.fired_reminder()
+        self.assertIn('带伞', self.client.get(reverse('activities:daily')).content.decode())
+        self.client.post(f'/reminders/{reminder.id}/done/')
+        self.assertNotIn('带伞', self.client.get(reverse('activities:daily')).content.decode())
+
+    def test_widget_badge_counts_today_fired_and_stops_at_done(self):
+        from chat.context_processors import chat_widget
+        request = RequestFactory().get('/')
+        request.user = self.user
+        reminder = self.fired_reminder()
+        self.assertEqual(chat_widget(request)['pending_reminder_count'], 1)
+        self.client.post(f'/reminders/{reminder.id}/done/')
+        self.assertEqual(chat_widget(request)['pending_reminder_count'], 0)
+
+    def test_complete_tool_treats_done_as_processed(self):
+        from core.agent_registry import get_tool
+        reminder = self.fired_reminder(content='办签证')
+        self.client.post(f'/reminders/{reminder.id}/done/')
+        result = get_tool('reminders.complete')['fn'](self.user, {'target': '办签证'})
+        self.assertIn('之前已经处理过了', result['reply'])
 
 
 class ReminderAgentToolTest(TestCase):
@@ -1324,3 +1380,112 @@ class SuggestionDeepLinkTest(TestCase):
 
         ctx = self.client.get(link).context
         self.assertEqual([a.name for a in ctx['activities']], ['明天开会'])
+
+
+class VisibilityHelperTest(TestCase):
+    """可见性工具函数（H4/M8 收敛后的唯一口径）
+
+    规则：浏览/管理/搜索类走 visible_qs（超管见全部）；
+    子模型（自身无 user 字段）走 visible_child_qs，不能再手写 __user= 分支。
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user('owner', password='p')
+        self.other = User.objects.create_user('other', password='p')
+        self.conv = Conversation.objects.create(
+            user=self.owner, session_id='sess_owner', agent_id='agent_1', title='标题')
+        self.msg = Message.objects.create(
+            conversation=self.conv, role='user', content='会话里的关键词内容')
+
+    def test_visible_child_qs_scopes_by_parent(self):
+        self.assertEqual(
+            list(visible_child_qs(Message, self.owner, 'conversation')), [self.msg])
+        self.assertEqual(
+            list(visible_child_qs(Message, self.other, 'conversation')), [])
+
+    def test_superuser_sees_child_of_other_user(self):
+        admin = User.objects.create_superuser('root', password='p')
+        self.assertEqual(
+            list(visible_child_qs(Message, admin, 'conversation')), [self.msg])
+
+    def test_get_visible_child_404_for_non_owner(self):
+        with self.assertRaises(Http404):
+            get_visible_child(Message, self.other, 'conversation', id=self.msg.id)
+        self.assertEqual(
+            get_visible_child(Message, self.owner, 'conversation', id=self.msg.id), self.msg)
+
+    def test_q_or_matches_any_field(self):
+        a = Activity.objects.create(user=self.owner, name='骑行计划')
+        a.tags.add('运动')
+        Activity.objects.create(user=self.owner, name='工作总结')
+        qs = Activity.objects.filter(q_or(('name', 'tags__name'), '运动'))
+        self.assertEqual(list(qs), [a])
+
+    def test_char_overlap_ratio_two_modes_differ(self):
+        """单向覆盖率 vs 双向相似度：a 短 b 长时两者不同，因此保留两个 mode 而不是强行合并"""
+        self.assertEqual(char_overlap_ratio('ab', 'abc', mode='contains'), 1.0)
+        self.assertAlmostEqual(char_overlap_ratio('ab', 'abc'), 2 / 3)
+        # contains 逐位计数：重复字符各自计入（'aab' 三个字符都出现在 'ab' 里）
+        self.assertEqual(char_overlap_ratio('aab', 'ab', mode='contains'), 1.0)
+        self.assertEqual(char_overlap_ratio('', 'abc'), 0.0)
+
+
+class GlobalSearchVisibilityTest(TestCase):
+    """全局搜索各模块必须同一可见性口径（H4 的实证：笔记/消息曾落后于其他模块）"""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('owner', password='p')
+        self.note = Note.objects.create(user=self.owner, content='他人的笔记关键词')
+        self.conv = Conversation.objects.create(
+            user=self.owner, session_id='sess_other_note', agent_id='agent_1')
+        Message.objects.create(conversation=self.conv, role='user',
+                               content='他人的消息关键词')
+
+    def test_superuser_finds_other_users_notes_and_messages(self):
+        admin = User.objects.create_superuser('root', password='p')
+        results = global_search(admin, '关键词')
+        self.assertIn(self.note.id, [n.id for n in results['notes']])
+        self.assertEqual(len(results['messages']), 1)
+
+    def test_regular_user_still_isolated(self):
+        stranger = User.objects.create_user('stranger', password='p')
+        results = global_search(stranger, '关键词')
+        self.assertEqual(sum(len(v) for v in results.values()), 0)
+
+
+class CrossAppVisibilityTest(TestCase):
+    """H4：笔记 / 文章页的可见性必须与活动模块同一口径（均经 core/utils）
+
+    以前这两个 app 是“仅本人可见”，活动是“超管全可见”，同一个超管在不同
+    页面上看到的数据范围不一致。
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user('owner', password='p')
+        self.note = Note.objects.create(user=self.owner, content='超管可见的笔记')
+        self.article = Article.objects.create(
+            user=self.owner, title='超管可见的文章', content='正文')
+        self.client = Client()
+        self.admin = User.objects.create_superuser('root', password='p')
+        self.stranger = User.objects.create_user('stranger', password='p')
+
+    def test_superuser_lists_other_users_content(self):
+        self.client.login(username='root', password='p')
+        self.assertContains(self.client.get(reverse('notes:note_list')), '超管可见的笔记')
+        self.assertContains(self.client.get(reverse('knowledge:article_list')), '超管可见的文章')
+
+    def test_stranger_cannot_reach_single_objects(self):
+        self.client.login(username='stranger', password='p')
+        self.assertEqual(
+            self.client.get(reverse('notes:note_edit', args=[self.note.id])).status_code, 404)
+        self.assertEqual(
+            self.client.get(reverse('knowledge:article_edit', args=[self.article.pk])).status_code, 404)
+        self.assertEqual(
+            self.client.get(reverse('knowledge:article_detail', args=[self.article.slug])).status_code, 404)
+
+    def test_superuser_can_open_other_users_objects(self):
+        self.client.login(username='root', password='p')
+        self.assertEqual(
+            self.client.get(reverse('notes:note_edit', args=[self.note.id])).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse('knowledge:article_detail', args=[self.article.slug])).status_code, 200)

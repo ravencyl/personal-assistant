@@ -66,7 +66,7 @@
         </div>
         {% for a in recent_activities %}
         <a href="{% url 'activities:activity_detail' a.id %}" class="flex items-center gap-2 py-2 border-b border-[var(--border)] last:border-0 hover:bg-[var(--accent-light)] -mx-2 px-2 rounded-lg transition-colors">
-            <span class="h-1.5 w-1.5 rounded-full shrink-0 {% if a.status == 'in_progress' %}bg-zinc-900{% elif a.status == 'done' %}bg-zinc-300{% elif a.status == 'cancelled' %}bg-zinc-200{% else %}bg-zinc-500{% endif %}"></span>
+            <span class="h-1.5 w-1.5 rounded-full shrink-0 status-bg--{{ a.status }}"></span>
             <span class="text-sm text-[var(--text)] truncate flex-1">{{ a.name }}</span>
             <span class="text-xs text-[var(--text-muted)] shrink-0">{{ a.updated_at|timesince }} 前</span>
         </a>

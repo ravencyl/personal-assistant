@@ -1,7 +1,22 @@
 from datetime import timedelta
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from django.shortcuts import get_object_or_404
+
+
+def q_or(fields, term):
+    """一个词跨多列的 OR 模糊匹配（全站唯一的 Q 拼接器）
+
+    fields 为 lookup 前缀元组，如 ('name', 'tags__name')。
+    全局搜索 / 活动筛选 / 跨模块关联兜底共用，避免同一件“多列命中任一即算”
+    的事在三处各拼一遍 Q（字段集合容易漏改）。
+    是否分词由调用方决定（本函数只负责拼 Q）。
+    """
+    q = models.Q()
+    for field in fields:
+        q |= models.Q(**{f'{field}__icontains': term})
+    return q
 
 
 def visible_qs(model, user):
@@ -15,6 +30,42 @@ def visible_qs(model, user):
 def get_visible(model, user, **kwargs):
     """按可见性规则取单对象，不存在或无权时 404"""
     return get_object_or_404(visible_qs(model, user), **kwargs)
+
+
+def visible_child_qs(model, user, parent_lookup):
+    """子模型（自身没有 user 字段）按父记录归属过滤，父记录走同一套可见性规则
+
+    parent_lookup 是指向父模型的关系名，如 Message 用 'conversation'。
+    以前这类查询在手写的 filter(xxx__user=request.user) 与 visible_qs 之间二选一，
+    结果是超管能搜到别人的活动却搜不到别人会话里的消息（口径不一）。
+    """
+    parent_model = model._meta.get_field(parent_lookup).related_model
+    return model.objects.filter(
+        **{f'{parent_lookup}__in': visible_qs(parent_model, user)}
+    )
+
+
+def get_visible_child(model, user, parent_lookup, **kwargs):
+    """visible_child_qs 的单对象版，不存在或无权时 404"""
+    return get_object_or_404(visible_child_qs(model, user, parent_lookup), **kwargs)
+
+
+def get_visible_or_json(model, user, message='对象不存在或已删除', **kwargs):
+    """get_visible 的 JSON 端点版：不可见时返回 JsonResponse(404) 而不是抛 Http404
+
+    返回 (obj, None) 或 (None, response)：
+        template, resp = get_visible_or_json(ActivityTemplate, request.user, id=pk)
+        if resp is not None:
+            return resp
+    存在意义是让“需要 JSON 错误体”的端点也能复用同一套可见性口径，
+    而不是每个视图里手写一份 filter(...).first() + 404 JSON。
+    """
+    from django.http import Http404, JsonResponse
+
+    try:
+        return get_visible(model, user, **kwargs), None
+    except Http404:
+        return None, JsonResponse({'error': message}, status=404)
 
 
 def wants_json(request):
@@ -81,3 +132,20 @@ def pct_change(current, previous, digits=1):
     if prev <= 0:
         return None
     return round((float(current or 0) - prev) / prev * 100, digits)
+
+
+def char_overlap_ratio(a, b, mode='symmetric'):
+    """字符重叠率（全站唯一的「两段文本像不像」实现）
+
+    mode='symmetric'：交集大小 / 两者较大的字符集，衡量双向相似度（建议行的目标进展匹配用）。
+    mode='contains' ：a 中出现在 b 里的字符数 / len(a)，衡量 a 是否已被 b 覆盖（记忆查重）。
+
+    两种口径此前分别写在 core/suggestions 与 memory/services 里，语义并不等价（双向 vs 单向），
+    因此收敛为一个函数的两个 mode，而不是强行统一——那会悄悄改变判定结果。
+    """
+    if not a or not b:
+        return 0.0
+    if mode == 'contains':
+        return sum(1 for c in a if c in b) / len(a)
+    set_a, set_b = set(a), set(b)
+    return len(set_a & set_b) / max(len(set_a), len(set_b), 1)

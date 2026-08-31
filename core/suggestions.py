@@ -21,7 +21,7 @@ from django.db.models import Sum
 from django.urls import reverse
 from django.utils import timezone
 
-from core.utils import week_monday, pct_change
+from core.utils import week_monday, pct_change, char_overlap_ratio
 
 SUGGESTION_CACHE_TIMEOUT = 600  # 10 分钟
 MAX_SUGGESTIONS = 6  # 最多返回 6 条建议（规则 5 + AI 洞察 1-2）
@@ -421,11 +421,8 @@ def _rule_goal_progress(user, today):
         goal_text = goal.content.lower()
         matched = None
         for name, act_id, status in active_activities:
-            name_lower = name.lower()
-            # 字符重叠率匹配
-            common = len(set(goal_text) & set(name_lower))
-            similarity = common / max(len(set(goal_text)), len(set(name_lower)), 1)
-            if similarity > 0.4:
+            # 字符重叠率匹配（共用实现，memory 查重用的是单向 contains 口径）
+            if char_overlap_ratio(goal_text, name.lower()) > 0.4:
                 matched = (name, act_id, status)
                 break
         if matched:

@@ -16,7 +16,7 @@
 
     <!-- 头部卡片：标题 + 进度条 + 快捷状态 -->
     <div class="app-card overflow-hidden">
-        <div class="h-1.5 {% if activity.status == 'done' %}bg-zinc-900{% elif activity.status == 'in_progress' %}bg-[var(--accent)]{% elif activity.status == 'cancelled' %}bg-zinc-400{% else %}bg-zinc-200{% endif %}"></div>
+        <div class="h-1.5 status-bg--{{ activity.status }}"></div>
         <div class="p-4 sm:p-6">
             <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div class="min-w-0">
@@ -227,7 +227,7 @@
                 </div>
                 <div class="p-1.5 bg-[var(--bg-card)]">
                     <p class="text-xs text-[var(--text-muted)] truncate">{{ att.filename }}</p>
-                    <p class="text-xs text-[var(--text-muted)]">{{ att.size_display }}</p>
+                    <p class="text-xs text-[var(--text-muted)]">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</p>
                 </div>
             </div>
             {% endif %}
@@ -242,7 +242,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 <a href="{{ att.file.url }}" target="_blank" class="text-sm text-[var(--text)] hover:underline truncate">{{ att.filename }}</a>
-                <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{{ att.size_display }}</span>
+                <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</span>
             </div>
             <form method="post" action="{% url 'activities:attachment_delete' att.id %}" onsubmit="return confirm('确定删除？')">
                 {% csrf_token %}

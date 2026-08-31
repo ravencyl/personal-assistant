@@ -6,8 +6,7 @@
 update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
 import re
-from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.db.models import Count, Q, Sum
@@ -17,9 +16,11 @@ from django.utils import timezone
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
-from .models import Activity, Expense
-from .utils import (edit_summary, filter_activities, fmt_duration, fmt_field,
-                    get_daily_bucket, is_daily_bucket, log_activity,
+from .models import Activity
+from .services import (InputError, add_expense, clean_amount, clean_category,
+                       create_activity_from_parsed)
+from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
+                    fmt_duration, fmt_field, get_daily_bucket, log_activity,
                     normalize_input, resolve_participants, snapshot_activity,
                     expense_totals_map, FILTER_PARAM_KEYS)
 
@@ -202,34 +203,15 @@ def tool_create(user, params):
     if parent_name:
         parent = visible_qs(Activity, user).filter(name__icontains=parent_name).first()
 
-    cost_value = data.pop('cost', 0)
-    activity = Activity.objects.create(
-        user=user,
-        name=data['name'],
-        start_date=data.get('start_date'),
-        end_date=data.get('end_date'),
-        status=data.get('status', 'planned'),
-        parent=parent,
-    )
-    if cost_value and float(cost_value) > 0:
-        Expense.objects.create(
-            activity=activity, user=user, amount=cost_value,
-            category='other', note='通过 AI 对话创建',
-        )
-    if data.get('tags'):
-        activity.tags.add(*data['tags'])
+    # 建对象 → 记费用 → 打标签 → 解析参与者 → 写日志，全部走 services（与视图快速入口同一份实现）
     # 自动识别只填已有参与者（大小写不敏感），匹配不到不新建，避免 yyx/YYX 这类重复联系人
-    skipped_participants = []
-    if data.get('participants'):
-        participants, skipped_participants, _created = resolve_participants(user, data['participants'])
-        if participants:
-            activity.participants.set(participants)
-    log_activity(user, activity, 'created', '通过 AI 对话创建')
+    result = create_activity_from_parsed(user, data, parent=parent, source='AI 对话')
+    activity = result['activity']
 
     suffix = f'，归属于「{parent.name}」' if parent else ''
     return {
         'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}'
-                 + _participant_skip_note(skipped_participants),
+                 + _participant_skip_note(result['skipped']),
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
@@ -464,30 +446,21 @@ def tool_stats(user, params):
 
 # ==================== P2：费用工具 ====================
 
-_CATEGORY_MAP = {v: k for k, v in dict(Expense.CATEGORY_CHOICES).items()}
-
 _NOTE_TOKEN_RE = re.compile(r'[\s,，。、;；:：!！?？()（）\[\]【】"\'~～·]+')
 
 
-def _resolve_category(raw, default='其他'):
-    """类别清洗：中文名或英文 key → Expense.category key，识别不了归 'other'"""
-    cat_input = str(raw or default).strip()
-    if cat_input in dict(Expense.CATEGORY_CHOICES):
-        return cat_input
-    return _CATEGORY_MAP.get(cat_input, 'other')
-
-
 def _require_positive_amount(raw, label='费用金额'):
-    """金额清洗：缺失 / 非数字 / 非正数统一抛 ToolError（由编排器转友好提示）"""
-    if raw is None:
+    """金额清洗：缺失 / 非数字 / 非正数统一抛 ToolError（由编排器转友好提示）
+
+    具体清洗在 services.clean_amount（与视图入口同一份 Decimal 口径），
+    这里只把 InputError 换成 Agent 语义的 ToolError；缺失时给引导式文案。
+    """
+    if raw is None or not str(raw).strip():
         raise ToolError(f'请告诉我{label}')
     try:
-        amount = float(raw)
-    except (TypeError, ValueError):
-        raise ToolError('金额格式不正确，请输入数字')
-    if amount <= 0:
-        raise ToolError('金额必须大于 0')
-    return amount
+        return clean_amount(raw, label=label, positive=True, required=True)
+    except InputError as e:
+        raise ToolError(str(e))
 
 
 def _auto_expense_target(user, note):
@@ -520,7 +493,7 @@ def _auto_expense_target(user, note):
         for t in tokens:
             q |= Q(name__icontains=t)
         kw_qs = base.filter(q).distinct()
-        kw_qs = kw_qs.exclude(pk__in=[a.pk for a in kw_qs if is_daily_bucket(a)])
+        kw_qs = exclude_daily_bucket(kw_qs)
         if kw_qs.count() == 1:
             return kw_qs.first(), 'keyword'
 
@@ -545,35 +518,27 @@ def tool_add_expense(user, params):
         activity, reason = _auto_expense_target(user, params.get('note'))
     amount = _require_positive_amount(params.get('amount'), '费用金额')
 
-    category = _resolve_category(params.get('category'))
-
-    paid_at = params.get('paid_at')
-    if paid_at:
-        try:
-            date.fromisoformat(str(paid_at)[:10])
-            paid_at = str(paid_at)[:10]
-        except ValueError:
-            paid_at = None
-    else:
-        paid_at = None
-
-    note = str(params.get('note') or '').strip()[:255]
-
-    expense = Expense.objects.create(
-        activity=activity, user=user, amount=amount,
-        category=category, paid_at=paid_at, note=note,
+    note = str(params.get('note') or '').strip()
+    # 写库统一走 services.add_expense：未传/空/非法日期一律落今天（与其他「记一笔」入口同口径）
+    expense = add_expense(
+        activity, user, amount,
+        category=clean_category(params.get('category')),
+        paid_at=params.get('paid_at'),
+        note=note,
     )
     log_activity(user, activity, 'edited',
-                 f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}（通过 AI 对话）')
+                 f'添加费用 ¥{expense.amount} [{expense.get_category_display()}]'
+                 + (f' {note}' if note else '') + '（通过 AI 对话）')
 
+    display = f'¥{expense.amount}'
     if reason == 'target':
-        reply = f'已为「{activity.name}」添加费用 ¥{amount}（{expense.get_category_display()}）'
+        reply = f'已为「{activity.name}」添加费用 {display}（{expense.get_category_display()}）'
     elif reason == 'date':
-        reply = f'已自动归入当日进行中的活动「{activity.name}」，添加费用 ¥{amount}（{expense.get_category_display()}）'
+        reply = f'已自动归入当日进行中的活动「{activity.name}」，添加费用 {display}（{expense.get_category_display()}）'
     elif reason == 'keyword':
-        reply = f'已根据备注匹配到活动「{activity.name}」，添加费用 ¥{amount}（{expense.get_category_display()}）'
+        reply = f'已根据备注匹配到活动「{activity.name}」，添加费用 {display}（{expense.get_category_display()}）'
     else:
-        reply = f'未找到明确归属的活动，已记入「{activity.name}」：费用 ¥{amount}（{expense.get_category_display()}）'
+        reply = f'未找到明确归属的活动，已记入「{activity.name}」：费用 {display}（{expense.get_category_display()}）'
 
     return {
         'reply': reply,
@@ -621,17 +586,16 @@ def tool_list_expenses(user, params):
 def apply_split_expense(user, params):
     """确认后执行：将总金额 AA 分给所有参与者，每人生成一笔费用"""
     activity = _resolve_by_id(user, params.get('target_id'))
-    amount = float(params['amount'])
-    per_person = float(params['per_person'])
-    category = params.get('category', 'other')
-    note = params.get('note', 'AA 分账')
+    amount = _require_positive_amount(params.get('amount'), '费用总金额')
+    per_person = _require_positive_amount(params.get('per_person'), '人均金额')
+    category = clean_category(params.get('category'))
+    note = str(params.get('note') or 'AA 分账')
 
     participants = list(activity.participants.all())
     for p in participants:
-        Expense.objects.create(
-            activity=activity, user=user, amount=per_person,
-            category=category, note=f'{note}（{p.name}）',
-        )
+        # 分账拆出的多笔不填消费日期：拆分不等于今天又花了钱
+        add_expense(activity, user, per_person, category=category, clear_date=True,
+                    note=f'{note}（{p.name}）')
     log_activity(user, activity, 'edited',
                  f'AA 分账 ¥{amount} → {len(participants)} 人，每人 ¥{per_person}（通过 AI 对话）')
 
@@ -655,8 +619,8 @@ def tool_split_expense(user, params):
     if not participants:
         raise ToolError(f'「{activity.name}」还没有参与者，无法 AA 分账')
 
-    per_person = round(amount / len(participants), 2)
-    category = _resolve_category(params.get('category'))
+    per_person = float(round(amount / len(participants), 2))
+    category = clean_category(params.get('category'))
     note = str(params.get('note') or 'AA 分账').strip()[:255]
 
     return {
@@ -666,7 +630,8 @@ def tool_split_expense(user, params):
         'card_data': {
             'kind': 'split_expense',
             'name': activity.name,
-            'amount': amount,
+            # 金额走 float：card_data / action.params 会被 json 序列化落库，Decimal 不是原生类型
+            'amount': float(amount),
             'per_person': per_person,
             'participant_count': len(participants),
             'participants': [p.name for p in participants],
@@ -819,7 +784,8 @@ def tool_batch_status(user, params):
 
 def _apply_set_budget(user, params):
     """set_budget 的确认执行函数"""
-    budget = Decimal(params.get('budget', '0'))
+    # 预览与执行共用一份清洗：旧写法直接 Decimal() 遇到脏数据会抛普通异常，退化成「操作失败」
+    budget = _require_positive_amount(params.get('budget'), '预算金额')
     # 预览时已锁定目标，执行优先按 target_id 精确定位，避免同名活动二次匹配歧义
     target_id = params.get('target_id')
     if target_id:
@@ -846,15 +812,7 @@ def tool_set_budget(user, params):
     if not target:
         raise ToolError('请告诉我要为哪个活动设置预算')
 
-    budget = params.get('budget')
-    if budget is None:
-        raise ToolError('请告诉我预算金额')
-    try:
-        budget = Decimal(str(budget))
-        if budget <= 0:
-            raise ToolError('预算金额必须大于 0')
-    except (InvalidOperation, ValueError, TypeError):
-        raise ToolError('预算金额格式不正确')
+    budget = _require_positive_amount(params.get('budget'), '预算金额')
 
     activity = _resolve_single(user, target)
 

@@ -2,27 +2,31 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 from .forms import NoteForm
 from .models import Note
-from core.utils import used_tag_names
+from core.utils import used_tag_names, visible_qs, get_visible
 from core.utils import wants_json as is_json_request
 
 logger = logging.getLogger(__name__)
 
 
 def _user_tag_names(user):
-    """用户笔记中使用过的全部标签名（供筛选栏展示）"""
-    return used_tag_names(Note, Note.objects.filter(user=user))
+    """可见笔记中使用过的全部标签名（供筛选栏展示）
+
+    走 visible_qs 而不是 filter(user=)：超级用户要能看到全部笔记的标签，
+    与活动模块同一口径（AGENTS.md 数据可见性规则）。
+    """
+    return used_tag_names(Note, visible_qs(Note, user))
 
 
 @login_required
 def note_list(request):
     """笔记列表页，支持标签筛选和关键词搜索"""
-    qs = Note.objects.filter(user=request.user)
+    qs = visible_qs(Note, request.user)
 
     # 标签筛选
     tag_filter = request.GET.get('tag', '').strip()
@@ -84,7 +88,7 @@ def note_create(request):
 @login_required
 def note_edit(request, note_id):
     """编辑笔记"""
-    note = get_object_or_404(Note, id=note_id, user=request.user)
+    note = get_visible(Note, request.user, id=note_id)
 
     if request.method == 'POST':
         form = NoteForm(request.POST, instance=note)
@@ -98,7 +102,7 @@ def note_edit(request, note_id):
     return render(request, 'notes/note_list.html', {
         'edit_note': note,
         'edit_form': form,
-        'notes': Note.objects.filter(user=request.user).prefetch_related('tags'),
+        'notes': visible_qs(Note, request.user).prefetch_related('tags'),
         'all_tags': _user_tag_names(request.user),
     })
 
@@ -107,7 +111,7 @@ def note_edit(request, note_id):
 @require_POST
 def note_delete(request, note_id):
     """删除笔记"""
-    note = get_object_or_404(Note, id=note_id, user=request.user)
+    note = get_visible(Note, request.user, id=note_id)
     note.delete()
     messages.success(request, '备忘录已删除')
     return redirect('notes:note_list')
@@ -117,7 +121,7 @@ def note_delete(request, note_id):
 @require_POST
 def note_toggle_pin(request, note_id):
     """切换置顶状态"""
-    note = get_object_or_404(Note, id=note_id, user=request.user)
+    note = get_visible(Note, request.user, id=note_id)
     note.pinned = not note.pinned
     note.save(update_fields=['pinned', 'updated_at'])
     status = '已置顶' if note.pinned else '已取消置顶'

@@ -3,10 +3,17 @@ from django.conf import settings
 
 
 class Reminder(models.Model):
-    """定时提醒"""
+    """定时提醒
+
+    状态机：pending →（到期自动触发）→ fired →（用户点「已完成」）→ done；
+    任何阶段都可被 dismissed（忽略）。fired 与 done 必须可区分：
+    前者是「系统提醒过了但用户还没处理」（Daily 待处理列表靠它取数），
+    后者是「用户确认做完」，曾共用 fired → 点完「已完成」次日之前它一直在列表里。
+    """
     STATUS_CHOICES = [
         ('pending', '待触发'),
         ('fired', '已触发'),
+        ('done', '已完成'),
         ('dismissed', '已忽略'),
     ]
 

@@ -9,7 +9,7 @@
     <div class="mt-2.5 flex h-2 rounded-full overflow-hidden bg-zinc-100">
         {% for s in card.status_dist %}
         {% if s.count %}
-        <div class="{% if s.status == 'in_progress' %}bg-zinc-900{% elif s.status == 'done' %}bg-zinc-400{% elif s.status == 'cancelled' %}bg-zinc-300{% else %}bg-zinc-500{% endif %}"
+        <div class="status-bg--{{ s.status }}"
              style="width: {{ s.pct }}%" title="{{ s.label }} {{ s.count }}"></div>
         {% endif %}
         {% endfor %}
@@ -17,7 +17,7 @@
     <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-500">
         {% for s in card.status_dist %}
         <span class="inline-flex items-center gap-1">
-            <span class="w-1.5 h-1.5 rounded-full {% if s.status == 'in_progress' %}bg-zinc-900{% elif s.status == 'done' %}bg-zinc-400{% elif s.status == 'cancelled' %}bg-zinc-300{% else %}bg-zinc-500{% endif %}"></span>
+            <span class="w-1.5 h-1.5 rounded-full status-bg--{{ s.status }}"></span>
             {{ s.label }} {{ s.count }}
         </span>
         {% endfor %}

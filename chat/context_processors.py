@@ -1,5 +1,6 @@
 from .models import Conversation
 from core.utils import visible_qs
+from django.db.models import Q
 from django.utils import timezone
 
 # 浮窗中展示的最近对话数量
@@ -15,12 +16,14 @@ def chat_widget(request):
         Conversation, request.user,
     ).exclude(status='archived')[:WIDGET_CONVERSATION_LIMIT]
 
-    # 到期未处理的提醒计数（用于浮窗红点）
+    # 浮窗红点：口径 = Daily「提醒」区里能看到的待处理条数
+    # （到期还没触发的 pending + 今天已触发未处理的 fired；done/dismissed 已处理不计，
+    #   几天前 fired 却从未处理的老提醒也不计，否则留下永远消不掉的红点）
     from core.models import Reminder
-    pending_count = Reminder.objects.filter(
-        user=request.user,
-        status='pending',
-        trigger_at__lte=timezone.now(),
+    now = timezone.now()
+    pending_count = Reminder.objects.filter(user=request.user).filter(
+        Q(status='pending', trigger_at__lte=now)
+        | Q(status='fired', trigger_at__date=timezone.localdate())
     ).count()
 
     return {

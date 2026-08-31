@@ -64,10 +64,11 @@ def tool_set_reminder(user, params):
 
 
 @agent_tool('reminders.list_reminders', '查看提醒列表',
-            'status（可选，默认 pending：待触发/fired：已触发/dismissed：已忽略）')
+            'status（可选，默认 pending：待触发/fired：已触发未处理/done：已完成/dismissed：已忽略）')
 def tool_list_reminders(user, params):
     status = params.get('status', 'pending').strip()
-    if status not in ('pending', 'fired', 'dismissed'):
+    valid = dict(Reminder.STATUS_CHOICES)
+    if status not in valid:
         status = 'pending'
 
     reminders = Reminder.objects.filter(user=user, status=status).order_by('trigger_at')[:10]
@@ -100,14 +101,16 @@ def tool_complete_reminder(user, params):
         target = str(params.get('target') or '').strip()
         if not target:
             raise ToolError('请告诉我提醒 ID 或内容关键词')
+        # 把 done 也纳入匹配：否则用户说「那条已完成的提醒已完成」会得到「没找到」，
+        # 不如由下方分支明确告知「之前已处理过」
         matches = Reminder.objects.filter(user=user, content__icontains=target,
-                                          status__in=('pending', 'fired'))
+                                          status__in=('pending', 'fired', 'done'))
         if matches.count() > 1:
             raise ToolError(f'匹配到 {matches.count()} 条提醒，请说得更具体些')
         reminder = matches.first()
     if not reminder:
         raise ToolError('没有找到这条提醒，可能已处理或删除')
-    if reminder.status == 'dismissed':
+    if reminder.status in ('dismissed', 'done'):
         return {'reply': f'提醒「{reminder.content}」之前已经处理过了'}
 
     reminder.status = 'dismissed'

@@ -11,12 +11,8 @@
     <ol>
         {% for child in children %}
         <li class="relative pl-6 {% if not forloop.last %}pb-5{% endif %}">
-            <!-- 节点圆点（随状态着色） -->
-            <span class="absolute left-0 top-[5px] w-2 h-2 rounded-full
-                {% if child.status == 'in_progress' %}bg-[var(--accent)]
-                {% elif child.status == 'done' %}bg-zinc-300
-                {% elif child.status == 'cancelled' %}bg-zinc-400
-                {% else %}bg-zinc-200{% endif %}"></span>
+            <!-- 节点圆点（颜色只在 custom.css 的 .status-bg--* 里定义）-->
+            <span class="absolute left-0 top-[5px] w-2 h-2 rounded-full status-bg--{{ child.status }}"></span>
             <!-- 小屏：日期与信息上下排列；桌面：日期居左列 -->
             <div class="flex flex-col md:flex-row md:items-baseline gap-0.5 sm:gap-4">
                 <span class="text-xs text-[var(--text-muted)] md:w-16 shrink-0 tabular-nums">{{ child.timeline_label }}</span>

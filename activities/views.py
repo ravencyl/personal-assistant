@@ -2,7 +2,6 @@ import json
 import logging
 import re
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -25,54 +24,17 @@ from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity, budget_status,
                     exclude_daily_bucket, get_daily_bucket, resolve_participants,
-                    expense_totals_map, record_parsed_cost)
-from core.utils import (visible_qs, get_visible, wants_json, used_tag_names,
-                        week_monday, pct_change, daily_totals, WEEKDAY_LABELS,
-                        WEEKDAY_SHORT)
+                    expense_totals_map)
+from .services import (InputError, add_expense, clean_amount, clean_category,
+                       clean_paid_at, create_activity_from_parsed,
+                       start_due_activities)
+from core.utils import (visible_qs, get_visible, get_visible_or_json, wants_json,
+                        used_tag_names, week_monday, pct_change, daily_totals,
+                        WEEKDAY_LABELS, WEEKDAY_SHORT)
 from core.ai import ai_round_trip, extract_json_dict
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
 
 logger = logging.getLogger(__name__)
-
-
-def auto_start_activities(user=None):
-    """将 start_date 已到但状态仍为 planned 的活动自动改为 in_progress。
-
-    仅在状态为 planned 时变更，不覆盖用户手动设置的其他状态。
-    每次变更都会写入 ActivityLog（操作人为 system）。
-    返回变更数量。
-    """
-    today = timezone.localdate()
-    qs = Activity.objects.filter(
-        status='planned',
-        start_date__lte=today,
-        start_date__isnull=False,
-    )
-    if user is not None:
-        qs = qs.filter(user=user)
-
-    count = 0
-    for activity in qs:
-        activity.status = 'in_progress'
-        activity.save(update_fields=['status', 'updated_at'])
-        try:
-            from django.contrib.auth import get_user_model
-            system_user = get_user_model().objects.filter(username='system').first()
-            if system_user:
-                ActivityLog.objects.create(
-                    user=system_user,
-                    activity=activity,
-                    activity_name=activity.name,
-                    action='status_changed',
-                    summary=f'系统自动调整：计划→进行中（开始日期 {activity.start_date} 已到）',
-                )
-        except Exception as e:
-            logger.warning(f'自动状态变更日志写入失败 [{activity.name}]: {e}')
-        count += 1
-
-    if count:
-        logger.info(f'自动状态变更: {count} 个活动 planned → in_progress')
-    return count
 
 
 def _user_tag_names(user):
@@ -123,32 +85,14 @@ def activity_quick_create(request):
     if not data.get('name'):
         return JsonResponse({'error': '活动名称不能为空'}, status=400)
 
-    activity = Activity.objects.create(
-        user=request.user,
-        name=data['name'],
-        start_date=data.get('start_date'),
-        end_date=data.get('end_date'),
-        status=data.get('status', 'planned'),
-        budget=data.get('budget'),
-        duration_minutes=data.get('duration_minutes'),
-    )
-    # 解析出的花费记为一笔支出（与新建表单「本次费用」同一口径）
-    record_parsed_cost(activity, request.user, data.get('cost'))
-    if data.get('tags'):
-        activity.tags.add(*data['tags'])
-    # 快速输入属自动识别：只填已有参与者，匹配不到不新建
-    skipped = []
-    if data.get('participants'):
-        participants, skipped, _created = resolve_participants(request.user, data['participants'])
-        if participants:
-            activity.participants.set(participants)
-    log_activity(request.user, activity, 'created', '通过快速输入创建')
+    result = create_activity_from_parsed(request.user, data, source='快速输入')
+    activity = result['activity']
 
     return JsonResponse({
         'id': activity.id,
         'name': activity.name,
         'url': reverse('activities:activity_detail', args=[activity.id]),
-        'note': _participant_skip_text(skipped),
+        'note': _participant_skip_text(result['skipped']),
     })
 
 
@@ -156,8 +100,8 @@ def _week_anchor_text(today):
     """生成给模型看的日历对照表（周一为一周起点）
 
     模型自己推周基准时会错开整周（实测把周日的「下周五」推到了下下周五）。
-    直接把本周/下周的绝对日期列出来比任何文字约定都稳定，
-    口径与 parsing.parse_quick_input 的周解析一致。
+    直接把上周/本周/下周的绝对日期列出来比任何文字约定都稳定，
+    口径与 parsing.parse_quick_input 的周解析一致（包括「上周X」往回取）。
     早于今天的日期逐格标「已过去」：只靠文字约定「顺延」时模型仍会把活动排到今天
     （实测周日的「周六聚餐」返回 08-30），标在单元格上才能驱动它改用下周同一天。
     """
@@ -170,11 +114,13 @@ def _week_anchor_text(today):
     return (f'今天是 {today.isoformat()}（{WEEKDAY_LABELS[today.weekday()]}）。'
             '自然周从周一开始、周日结束（周日属于当前这一周，不是下一周的开始）。'
             '相对日期必须照下面的日期表换算，不要自己推断周基准：\n'
+            f'上周：{",".join(cell(-7, i) for i in range(7))}\n'
             f'本周：{",".join(cell(0, i) for i in range(7))}\n'
             f'下周：{",".join(cell(7, i) for i in range(7))}\n'
-            '「下周X」只能取下一行；没写「下周」的裸「周X」取本周，'
+            '「下周X」取下一行，「上周X」取上一行；没写前缀的裸「周X」取本周，'
             '但本周那行标了「已过去」的同星期日不可用，改用下周那行同一天。'
-            '任何情况下 start_date 不得早于今天。')
+            '往回看的说法（昨天/前天/N天前/上周X）按字面取那个过去日期——'
+            '补记的花费必须落在花钱那天；除此之外 start_date 不得早于今天。')
 
 
 def _ai_parse(text, today):
@@ -185,7 +131,7 @@ def _ai_parse(text, today):
         prompt = (
             f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。\n'
             f'{_week_anchor_text(today)}\n'
-            '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/月底/下周五请换算为绝对日期，未写年份用当年）、'
+            '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/昨天/上周六/月底/下周五请换算为绝对日期，未写年份用当年）、'
             'cost（数字，单位元，指已经花掉的钱，不是预算上限）、budget（数字，单位元，仅当用户明说预算时返回）、'
             'status（planned/in_progress/done/cancelled 之一）、duration_minutes（整数）、'
             'tags（字符串数组）、participants（字符串数组）。\n'
@@ -201,8 +147,8 @@ def _ai_parse(text, today):
 @ensure_csrf_cookie
 def activity_list(request):
     """活动列表（默认树形结构可折叠，筛选/排序时为平铺列表）"""
-    # 自动将 start_date 已到的 planned 活动改为 in_progress
-    auto_start_activities(request.user)
+    # 到期活动自动转进行中（与 cron 同一份判定，见 services.start_due_activities）
+    start_due_activities(request.user)
 
     filters = get_filter_params(request)
     status_filter = filters['status']
@@ -432,8 +378,8 @@ def _subactivity_timeline(activity):
 @login_required
 def activity_detail(request, activity_id):
     """活动详情（含子任务时间轴、费用明细与操作日志）"""
-    # 自动将 start_date 已到的 planned 活动改为 in_progress
-    auto_start_activities(request.user)
+    # 到期活动自动转进行中（与 cron 同一份判定，见 services.start_due_activities）
+    start_due_activities(request.user)
     activity = get_visible(Activity, request.user, id=activity_id)
 
     children = _subactivity_timeline(activity)
@@ -534,7 +480,7 @@ def activity_create(request):
     return render(request, 'activities/activity_form.html', {
         'form': form,
         'title': '新建活动',
-        'all_participants': list(Participant.objects.filter(user=request.user).values_list('name', flat=True)),
+        'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
         'all_tags': _user_tag_names(request.user),
     })
 
@@ -576,15 +522,12 @@ def add_subactivity(request, activity_id):
     if not name:
         messages.error(request, '子活动名称不能为空')
     else:
-        child = Activity.objects.create(
-            user=activity.user,
-            name=name,
-            parent=activity,
-            end_date=timezone.localdate(),
-        )
-        log_activity(request.user, activity, 'sub_created', f'创建子任务「{name}」')
-        log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
-        messages.success(request, f'子活动「{name}」已创建')
+        # 与其余创建路径走同一个 services（仅多一个「今天结束」的默认值），
+        # 子任务创建与双条日志（sub_created + created）由 services 统一发出
+        result = create_activity_from_parsed(
+            request.user, {'name': name, 'end_date': timezone.localdate()},
+            parent=activity)
+        messages.success(request, f"子活动「{result['activity'].name}」已创建")
     referer = request.META.get('HTTP_REFERER')
     if referer:
         return redirect(referer)
@@ -604,38 +547,17 @@ def activity_quick_sub(request, activity_id):
     if not data.get('name'):
         return JsonResponse({'error': '子任务名称不能为空'}, status=400)
 
-    child = Activity.objects.create(
-        user=activity.user,
-        name=data['name'],
-        parent=activity,
-        start_date=data.get('start_date'),
-        end_date=data.get('end_date'),
-        status=data.get('status', 'planned'),
-    )
-    if data.get('cost') and float(data['cost']) > 0:
-        Expense.objects.create(
-            activity=activity,
-            user=activity.user,
-            amount=data['cost'],
-            category='other',
-            note=f'子任务「{child.name}」费用',
-        )
-    if data.get('tags'):
-        child.tags.add(*data['tags'])
-    # 一句话创建属自动识别：只填已有参与者，匹配不到不新建
-    skipped = []
-    if data.get('participants'):
-        participants, skipped, _created = resolve_participants(activity.user, data['participants'])
-        if participants:
-            child.participants.set(participants)
-    log_activity(request.user, activity, 'sub_created', f'创建子任务「{child.name}」')
-    log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
+    # 与手动内联表单同口径：花费记在子任务自己名下（时间轴按子任务展示费用），
+    # 而不是记到父活动上；一句创建属自动识别，不新建参与者。
+    result = create_activity_from_parsed(request.user, data, parent=activity,
+                                        source='一句话创建')
+    child = result['activity']
 
     return JsonResponse({
         'id': child.id,
         'name': child.name,
         'url': reverse('activities:activity_detail', args=[child.id]),
-        'note': _participant_skip_text(skipped),
+        'note': _participant_skip_text(result['skipped']),
     })
 
 
@@ -697,15 +619,11 @@ def subactivity_manual_create(request, activity_id):
         status = 'planned'
 
     amount = None
-    raw_amount = data.get('amount')
-    if raw_amount not in (None, ''):
-        try:
-            # 用字符串构造 Decimal，避免 float 二进制的0000000001尾差写进库
-            amount = Decimal(str(raw_amount).strip())
-        except InvalidOperation:
-            return JsonResponse({'error': '费用金额格式不正确'}, status=400)
-        if amount < 0:
-            return JsonResponse({'error': '费用金额不能为负数'}, status=400)
+    try:
+        # 用字符串构造 Decimal，避免 float 二进制的 0000000001 尾差写进库
+        amount = clean_amount(data.get('amount'), label='费用金额')
+    except InputError as e:
+        return JsonResponse({'error': str(e)}, status=400)
 
     child = Activity.objects.create(
         user=activity.user,          # 归属继承父活动
@@ -716,14 +634,8 @@ def subactivity_manual_create(request, activity_id):
         status=status,
     )
     if amount:
-        Expense.objects.create(
-            activity=child,
-            user=activity.user,
-            amount=amount,
-            category='other',
-            paid_at=timezone.localdate(),
-            note=f'子任务「{child.name}」费用',
-        )
+        # 0 与空值同样视为「本次没花钱」，不建 0 元记录
+        add_expense(child, activity.user, amount, note=f'子任务「{child.name}」费用')
     tags = _split_name_input(data.get('tags'))
     if tags:
         child.tags.add(*tags)
@@ -759,35 +671,22 @@ def expense_create(request, activity_id):
     """为活动添加费用条目"""
     activity = get_visible(Activity, request.user, id=activity_id)
     try:
-        amount = float(request.POST.get('amount', 0))
-    except (TypeError, ValueError):
-        return JsonResponse({'error': '金额格式不正确'}, status=400)
-    if amount < 0:
-        return JsonResponse({'error': '金额不能为负数'}, status=400)
-
-    category = request.POST.get('category', 'other')
-    if category not in dict(Expense.CATEGORY_CHOICES):
-        category = 'other'
-
-    paid_at = request.POST.get('paid_at', '').strip() or timezone.localdate().isoformat()
-    if paid_at:
-        try:
-            date.fromisoformat(paid_at)
-        except ValueError:
-            paid_at = timezone.localdate().isoformat()
-
-    note = request.POST.get('note', '').strip()[:255]
-
-    expense = Expense.objects.create(
-        activity=activity,
-        user=request.user,
-        amount=amount,
-        category=category,
-        paid_at=paid_at,
-        note=note,
-    )
+        # 空金额不再静默建 0 元记录（与快记入口同一口径）
+        expense = add_expense(
+            activity, request.user,
+            request.POST.get('amount'),
+            category=request.POST.get('category'),
+            paid_at=request.POST.get('paid_at'),
+            note=request.POST.get('note'),
+            positive=True,
+        )
+        if expense is None:
+            raise InputError('金额不能为空')
+    except InputError as e:
+        return JsonResponse({'error': str(e)}, status=400)
     log_activity(request.user, activity, 'edited',
-                 f'添加费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
+                 f'添加费用 ¥{expense.amount} [{expense.get_category_display()}]'
+                 + (f' {expense.note}' if expense.note else ''))
 
     if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
         agg = activity.expenses.aggregate(total=Sum('amount'), cnt=Count('id'))
@@ -810,13 +709,6 @@ def expense_quick_create(request):
 
     活动 id 可选；缺省记入「日常开支」归属桶。校验逻辑与 expense_create 一致。
     """
-    try:
-        amount = float(request.POST.get('amount', ''))
-    except (TypeError, ValueError):
-        return JsonResponse({'error': '请输入正确的金额'}, status=400)
-    if amount < 0:
-        return JsonResponse({'error': '金额不能为负数'}, status=400)
-
     activity_id = (request.POST.get('activity_id') or '').strip()
     if activity_id:
         activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
@@ -825,28 +717,22 @@ def expense_quick_create(request):
     else:
         activity = get_daily_bucket(request.user)
 
-    category = request.POST.get('category', 'other')
-    if category not in dict(Expense.CATEGORY_CHOICES):
-        category = 'other'
-
-    paid_at = request.POST.get('paid_at', '').strip() or timezone.localdate().isoformat()
     try:
-        date.fromisoformat(paid_at)
-    except ValueError:
-        paid_at = timezone.localdate().isoformat()
-
-    note = request.POST.get('note', '').strip()[:255]
-
-    expense = Expense.objects.create(
-        activity=activity,
-        user=request.user,
-        amount=amount,
-        category=category,
-        paid_at=paid_at,
-        note=note,
-    )
+        expense = add_expense(
+            activity, request.user,
+            request.POST.get('amount'),
+            category=request.POST.get('category'),
+            paid_at=request.POST.get('paid_at'),
+            note=request.POST.get('note'),
+            positive=True,
+        )
+        if expense is None:
+            raise InputError('费用金额不能为空')
+    except InputError as e:
+        return JsonResponse({'error': str(e)}, status=400)
     log_activity(request.user, activity, 'edited',
-                 f'快记费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
+                 f'快记费用 ¥{expense.amount} [{expense.get_category_display()}]'
+                 + (f' {expense.note}' if expense.note else ''))
 
     agg = activity.expenses.aggregate(total=Sum('amount'), cnt=Count('id'))
     return JsonResponse({
@@ -866,32 +752,19 @@ def expense_edit(request, expense_id):
     expense = get_visible(Expense, request.user, id=expense_id)
     activity = expense.activity
     try:
-        amount = float(request.POST.get('amount', 0))
-    except (TypeError, ValueError):
-        return JsonResponse({'error': '金额格式不正确'}, status=400)
-    if amount < 0:
-        return JsonResponse({'error': '金额不能为负数'}, status=400)
-
-    category = request.POST.get('category', 'other')
-    if category not in dict(Expense.CATEGORY_CHOICES):
-        category = 'other'
-
-    paid_at = request.POST.get('paid_at', '').strip() or None
-    if paid_at:
-        try:
-            date.fromisoformat(paid_at)
-        except ValueError:
-            paid_at = None
-
-    note = request.POST.get('note', '').strip()[:255]
+        amount = clean_amount(request.POST.get('amount'), label='金额', required=True)
+    except InputError as e:
+        return JsonResponse({'error': str(e)}, status=400)
 
     expense.amount = amount
-    expense.category = category
-    expense.paid_at = paid_at
-    expense.note = note
+    expense.category = clean_category(request.POST.get('category'))
+    # 日期被清空就真清空（invalid=None），不静默回落今天
+    expense.paid_at = clean_paid_at(request.POST.get('paid_at'), invalid=None)
+    expense.note = request.POST.get('note', '').strip()[:255]
     expense.save()
     log_activity(request.user, activity, 'edited',
-                 f'编辑费用 ¥{amount} [{expense.get_category_display()}]{" " + note if note else ""}')
+                 f'编辑费用 ¥{amount} [{expense.get_category_display()}]'
+                 + (f' {expense.note}' if expense.note else ''))
 
     if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
         return JsonResponse({
@@ -1020,6 +893,8 @@ def activity_calendar(request):
         'mode': mode,
         'title': title,
         'weekdays': WEEKDAY_SHORT,
+        # 图例与色块同源：选项与顺序取 STATUS_CHOICES，颜色取 custom.css 的 --status-*
+        'status_choices': Activity.STATUS_CHOICES,
         'prev_params': prev_params,
         'next_params': next_params,
         'today_params': today_params,
@@ -1065,13 +940,7 @@ def calendar_data(request):
         models.Q(end_date__gte=range_start) | models.Q(end_date__isnull=True, start_date__gte=range_start)
     ).prefetch_related('tags')
 
-    color_map = {
-        'planned': '#a1a1aa',
-        'in_progress': '#18181b',
-        'done': '#d4d4d8',
-        'cancelled': '#e4e4e7',
-    }
-
+    # 颜色不在这层定义：前端直接按 status 取 custom.css 的 var(--status-<status>)
     data = []
     for a in activities:
         data.append({
@@ -1081,7 +950,6 @@ def calendar_data(request):
             'end_date': (a.end_date or a.start_date).isoformat(),
             'status': a.status,
             'status_label': a.get_status_display(),
-            'color': color_map.get(a.status, '#a1a1aa'),
             'url': reverse('activities:activity_detail', args=[a.id]),
             'tags': list(a.tags.names()),
         })
@@ -1164,13 +1032,14 @@ def daily_view(request):
         id__in=[a.id for a in ongoing]
     ).order_by('-start_date')[:10])
 
-    # ── 统计：今日实际消费（按 paid_at 筛选） ──
+    # ── 统计：今日实际消费 / 本周消费（按 paid_at 筛选）──
+    # 这两个是「我花了多少」的个人指标，故意只算本人费用（不走 visible_qs）；
+    # 页面上的活动列表则统一跟 visible_qs 口径。参见 AGENTS.md「两个可见性口径」。
     today_expense = Expense.objects.filter(
         user=request.user,
         paid_at=today,
     ).aggregate(s=Sum('amount'))['s'] or 0
 
-    # ── 本周消费合计 ──
     this_week_start = week_monday(today)
     this_week_expense = Expense.objects.filter(
         user=request.user,
@@ -1199,6 +1068,8 @@ def daily_view(request):
     # 提醒：先触发到期提醒，再查询今日已触发但未处理的
     from core.models import Reminder, check_due_reminders
     check_due_reminders(request.user)
+    # 提醒 / 每日摘要：都是「为当前用户生成」的个人内容，仅本人可见（同上口径说明）
+    # 只取 fired：已触发但用户还没处理（点「已完成」后转 done，当场移出本列表）
     pending_reminders = Reminder.objects.filter(
         user=request.user,
         status='fired',
@@ -1209,9 +1080,8 @@ def daily_view(request):
     from core.suggestions import generate_daily_plan
     today_plan = generate_daily_plan(request.user)
 
-    # 循环活动今日实例
-    today_instances = Activity.objects.filter(
-        user=request.user,
+    # 循环活动今日实例（活动列表分区，与上方各组同口径走 qs）
+    today_instances = qs.filter(
         recurring_source__isnull=False,
         start_date=today,
         recurring_source__is_active=True,
@@ -1255,7 +1125,7 @@ def daily_view(request):
 @login_required
 def template_list(request):
     """模板列表页面"""
-    templates = ActivityTemplate.objects.filter(user=request.user)
+    templates = visible_qs(ActivityTemplate, request.user)
     return render(request, 'activities/template_list.html', {
         'templates': templates,
     })
@@ -1303,13 +1173,11 @@ def template_create(request):
 @require_POST
 def template_delete(request, template_id):
     """删除模板"""
-    template = ActivityTemplate.objects.filter(
-        id=template_id,
-        user=request.user
-    ).first()
-    if not template:
-        return JsonResponse({'error': '模板不存在'}, status=404)
-    
+    template, resp = get_visible_or_json(
+        ActivityTemplate, request.user, message='模板不存在', id=template_id)
+    if resp is not None:
+        return resp
+
     template.delete()
     return JsonResponse({'ok': True})
 
@@ -1318,12 +1186,10 @@ def template_delete(request, template_id):
 @require_POST
 def activity_from_template(request, template_id):
     """从模板创建活动（含预设子任务 + 标签）"""
-    template = ActivityTemplate.objects.filter(
-        id=template_id,
-        user=request.user
-    ).first()
-    if not template:
-        return JsonResponse({'error': '模板不存在'}, status=404)
+    template, resp = get_visible_or_json(
+        ActivityTemplate, request.user, message='模板不存在', id=template_id)
+    if resp is not None:
+        return resp
     
     try:
         data = json.loads(request.body or '{}')
@@ -1508,7 +1374,7 @@ def attachment_upload(request, activity_id):
 @require_POST
 def attachment_delete(request, attachment_id):
     """删除附件"""
-    attachment = get_object_or_404(Attachment, id=attachment_id, user=request.user)
+    attachment = get_visible(Attachment, request.user, id=attachment_id)
     activity = attachment.activity
     filename = attachment.filename
     attachment.file.delete()  # 删除物理文件

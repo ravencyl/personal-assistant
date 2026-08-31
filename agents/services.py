@@ -43,17 +43,15 @@ class QoderAgentService:
         return response.json().get('data', [])
 
     def create_agent(self, name: str, model: str = 'auto',
-                     instructions: str = '', system: str = '',
+                     instructions: str = '',
                      tools: list = None, metadata: dict = None) -> dict:
-        """创建新 Agent"""
+        """创建新 Agent（提示词只走 instructions，平台无独立的 system 字段）"""
         payload = {
             'name': name,
             'model': model,
         }
         if instructions:
             payload['instructions'] = instructions
-        if system:
-            payload['system'] = system
         if tools:
             payload['tools'] = tools
         if metadata:
@@ -90,6 +88,8 @@ class QoderAgentService:
         response.raise_for_status()
         return response.json()
 
+    # 以下三个（get_session / get_session_events / extract_assistant_text）无外部调用者，
+    # 但都被 wait_for_response 组合使用，不属于可删的死代码。
     def get_session(self, session_id: str) -> dict:
         """获取 Session 详情"""
         response = self._get_client().get(f'/sessions/{session_id}')

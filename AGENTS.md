@@ -30,12 +30,33 @@ qs = visible_qs(Activity, request.user)
 
 # 单对象获取：不存在或无权时返回 404
 activity = get_visible(Activity, request.user, id=activity_id)
+
+# 子模型（自身没有 user 字段，如 Message → Conversation.user）
+qs = visible_child_qs(Message, request.user, 'conversation')
+msg = get_visible_child(Message, request.user, 'conversation', id=message_id)
+
+# JSON 端点需要 404 错误体时（返回 (obj, response)，二者只有一个非 None）
+obj, resp = get_visible_or_json(ActivityTemplate, request.user, id=template_id)
+if resp is not None:
+    return resp
 ```
 
 - `is_superuser=True`：可见全部用户数据，可编辑/删除
 - 普通用户：仅可见 `user=request.user` 的数据
-- **所有视图必须使用 `visible_qs` 或 `get_visible`**，禁止直接 `Model.objects.all()`
+- **所有视图必须使用上面四个函数之一**，禁止 `Model.objects.all()`、禁止手写 `filter(..., user=request.user)` / `is_superuser` 分支做权限判断（无权时统一 404，不用 403）
 - 子活动继承父活动的归属（`user` 不变）
+
+### 两个例外口径（有意为之，不是漏改）
+
+按“这堆数据是谁的”划分，而不是按“在哪个 app”划分：
+
+| 口径 | 适用 | 写法 |
+|------|------|------|
+| 个人指标 | 花费合计、预算消耗等“我花了多少”的统计数字 | `filter(user=request.user)`（超管也不混他人数据） |
+| 个人上下文 | 记忆注入/AI 检索、提醒、每日摘要、建议生成 | `filter(user=<当前用户>)`，`memory/services.py` 有说明 |
+| 可见范围 | 列表页、日历、Daily 的活动分区、全局搜索、模板、笔记/文章/记忆页面 | `visible_qs` / `get_visible` |
+
+新增检索入口必须复用 `core.utils.q_or(fields, term)`（一个词跨多列 OR）与 `knowledge.utils.tokenize`；相似度判定复用 `core.utils.char_overlap_ratio(a, b, mode=...)`（`symmetric` 双向相似、`contains` 单向覆盖，两者不等价，勿合并）。
 
 ## Agent 工具协议
 
@@ -89,12 +110,22 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - **AI 路径绝不自动新建联系人**；`skipped` 非空时必须在 `reply` / JSON `note` 中告知用户「哪个名字没加」，不得静默丢弃
 - `activities.update` 全未命中时保持原参与者不变（「未找到」不等于「清空」），预览卡片与实际写库口径必须一致
 - 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）；写法不同的同人（如 `Joe` → `Joe Yan`）用 `--map "别名:保留名"` 显式合并，保留名不存在直接报错，绝不静默新建
+- **名字相似不构成合并依据**：只有用户明确确认“是同一个人”才能写 `--map`。已确认的反例：线上 `id=28「Joey」` 与 `id=9「Joe Yan」` 是两个不同的人，不得处理
+
+## 提醒状态口径
+
+`core.models.Reminder.status`：`pending`（待触发）→ `fired`（已触发但用户未处理）→ `done`（用户确认做完），任何阶段可 `dismissed`（忽略）。
+
+- 自动触发只写 `fired`（`check_due_reminders`，仅改 `pending`，不覆盖用户手动设置的状态）
+- Daily「提醒」区与浮窗红点只取 **fired**；`done`/`dismissed` 属于已处理，不得再出现
+- 新增状态取值时同步 `core/reminder_tools.py` 的白名单（现在直接读 `STATUS_CHOICES`）与 `ReminderDoneStatusTest`
 
 ## 前端约定
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、习惯打卡（`daily.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
 - **模板结构**：`templates/` 下按 app 分目录（`templates/activities/`、`templates/chat/` 等），继承 `base.html`
 - **样式**：Tailwind CSS v4 + CSS 变量（`--text`、`--bg`、`--border` 等），响应式布局（移动端堆叠 + 桌面端横排）
+- **状态色单一来源**：活动状态的配色只写在 `static/css/custom.css` 的 `--status-<status>` 变量里，模板用 `.status-bg--`（圆点/色条/日历块）/ `.status-fg--`（图标）/ `.status-fg-on--`（色块上的文字）/ `.badge-status--`（徽章）+ `{{ activity.status }}`，**禁止再写按状态分支的 `bg-zinc-*` / `text-zinc-*`**，也禁止在视图/接口里下发 hex（曾有 4 份映射，done 与 cancelled 深浅互为颠倒；`activities/tests.py::StatusDisplaySingleSourceTest` 会守住这一点）
 - **静态文件**：手写 CSS 在 `static/css/`，PWA 资源（`manifest.json`、`sw.js`）在 `static/` 根目录
 - **django-htmx 中间件**：已全局启用，视图可用 `request.htmx` 判断是否为 HTMX 请求
 
@@ -132,7 +163,20 @@ REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 2. **渲染目标**：视图返回标准 Django `render()` / `JsonResponse()`，HTMX 交互由模板层 `hx-*` 属性控制（主要在 `activity_list.html` 的筛选表单和列表区域）
 3. **装饰器顺序**：`@login_required` → `@ensure_csrf_cookie`（如需）→ `@require_POST`（写操作）
 4. **标签建议**：`_user_tag_names(request.user)` 返回可见范围内已使用过的标签，供表单 autocomplete
-5. **快速输入**：`parse_quick_input_view` 先调 AI（Qoder agent），失败降级为 `parsing.parse_quick_input` 规则解析
+5. **快速输入**：`parse_quick_input_view` 先调 AI（Qoder agent），失败降级为 `parsing.parse_quick_input` 规则解析。两条路径的相对日期口径必须一致（含昨天/前天/大前天/N天前/上周X 这类**往回看**的说法，补记的花费要落在花钱那天）：改一边要同步 `_week_anchor_text` 与 `RelativeDateParsingTest`
+6. **写路径走 `activities/services.py`**：创建活动（含子任务）与记费用一律调 `create_activity_from_parsed` / `add_expense`，视图与 Agent 工具只做取参、鉴权、渲染；禁止在视图/工具里直接 `Activity.objects.create` 或 `Expense.objects.create`
+
+### 写入口径（services 已统一，新增入口不得偏离）
+
+| 项 | 口径 |
+|------|------|
+| 金额 | `clean_amount` → `Decimal` 两位小数（禁 `float`）；空值不记这笔；「记一笔」入口传 `positive=True` 拒 0 元 |
+| 已花的钱 vs 预算 | cost → `Expense`；budget → `Activity.budget`，不得互写 |
+| 消费日期 | 创建：未传/空/非法 → 今天；`clear_date=True` → 留空（仅 AA 分账等派生记录）；编辑：空 → 真清空 |
+| 类别 | `clean_category` 同时接受英文 key 与中文显示名（反查 `Expense.CATEGORY_CHOICES`，不另存别名表），识别不了 → `other` |
+| 校验失败 | services 抛 `InputError`；视图转 400 + 同文案，Agent 工具转 `ToolError` |
+| 子任务归属 | `user` 继承父活动所有者（超管建的下级仍归原主人）；日志固定两条：父 `sub_created` + 子 `created` |
+| 花费 vs 预算字段 | 一句话解析出的 cost 走 `record_parsed_cost`：空/0/非法静默跳过，绝不阻断创建 |
 
 ## 默认发布流程（长期规则，无需向用户确认）
 
@@ -146,6 +190,15 @@ REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 6. **结果汇报**：一次性给出 commit hash、push 状态、部署步骤结果、线上验证结论；无迁移时说明「本次无需 migrate」。
 
 **例外（仍需先询问用户）**：数据库结构破坏性变更、改动生产 `.env`、清理/覆盖生产数据、任何不可逆的服务器操作。
+
+## 运维专用端点（无 UI 入口，不得当死代码删除）
+
+| 端点 | 方法/权限 | 用途 |
+|------|-----------|------|
+| `/api/agents/status/` | GET · `staff_member_required` | 人工 curl 确认 Qoder Cloud API 连通性与当前 base_url |
+| `/api/agents/sync/` | POST · `staff_member_required` | 把平台侧 Agent / Environment 回灌到本地 `AgentConfig`/`EnvironmentConfig`（平台改过名字或版本后手工同步） |
+
+两者均无模板/JS/cron 调用者，改动页面前不会命中，但删掉会打破运维习惯。新增同类端点时请一并在本表里登记并写清调用方。
 
 ## 常用命令
 

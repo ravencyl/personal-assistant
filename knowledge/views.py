@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models
@@ -6,13 +6,13 @@ from taggit.models import Tag
 
 from .models import Article
 from .forms import ArticleForm
-from core.utils import used_tags
+from core.utils import used_tags, visible_qs, get_visible
 
 
 @login_required
 def article_list(request):
     """文章列表，支持标签筛选和关键词搜索"""
-    articles = Article.objects.filter(user=request.user)
+    articles = visible_qs(Article, request.user)
     
     # 标签筛选
     tag_slug = request.GET.get('tag')
@@ -28,7 +28,7 @@ def article_list(request):
     
     # 获取所有用过的标签（限定 content_type，否则 taggit 的 object_id 会跨模型撞号，
     # 把笔记/活动的标签混进文章标签栏）
-    all_tags = used_tags(Article, Article.objects.filter(user=request.user))
+    all_tags = used_tags(Article, visible_qs(Article, request.user))
     
     current_tag = Tag.objects.filter(slug=tag_slug).first() if tag_slug else None
     
@@ -43,7 +43,7 @@ def article_list(request):
 @login_required
 def article_detail(request, slug):
     """文章详情"""
-    article = get_object_or_404(Article, slug=slug, user=request.user)
+    article = get_visible(Article, request.user, slug=slug)
 
     # 跨模块关联推荐
     from core.cross_link import get_related_content
@@ -80,7 +80,7 @@ def article_create(request):
 @login_required
 def article_edit(request, pk):
     """编辑文章"""
-    article = get_object_or_404(Article, pk=pk, user=request.user)
+    article = get_visible(Article, request.user, pk=pk)
     
     if request.method == 'POST':
         form = ArticleForm(request.POST, instance=article)
@@ -101,7 +101,7 @@ def article_edit(request, pk):
 @login_required
 def article_delete(request, pk):
     """删除文章"""
-    article = get_object_or_404(Article, pk=pk, user=request.user)
+    article = get_visible(Article, request.user, pk=pk)
     
     if request.method == 'POST':
         title = article.title

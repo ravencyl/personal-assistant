@@ -8,7 +8,6 @@
 """
 import logging
 import re
-from datetime import timedelta
 
 from django.db.models import F
 from django.utils import timezone
@@ -46,6 +45,9 @@ def retrieve_memories(user, query='', limit=10):
     - query 非空时：关键词 icontains 匹配 content
     - query 为空时：按 importance DESC, updated_at DESC 取 Top N
     - 更新命中记忆的 access_count + last_accessed（异步，失败不阻断）
+
+    只取本人记忆（不按 visible_qs 放宽）：注入的是“正在对话的这个人的上下文”，
+    与页面浏览类的“超管见全部”是两个口径。
     """
     from .models import Memory
 
@@ -105,18 +107,20 @@ def format_memory_for_injection(memories):
 # ────────────────────────────────────────────────
 
 def _is_similar_content(user, content, threshold=0.8):
-    """检查是否已存在相似内容的记忆（简单字符重叠率判断）"""
+    """检查是否已存在相似内容的记忆
+
+    注意这里的 filter(user=user) 不是可见性漏改：注入 / 查重属于「这个人的个人
+    上下文」，超级用户也不应把别人的记忆灌进自己的对话；页面浏览类的“超管见全部”
+    只适用于视图（memory/views.py 走 visible_qs）。
+    """
+    from core.utils import char_overlap_ratio
     from .models import Memory
 
     existing = Memory.objects.filter(user=user).values_list('content', flat=True)[:100]
     for existing_content in existing:
-        # 简单字符级重叠率
         if len(content) < 3 or len(existing_content) < 3:
             continue
-        # 如果新内容的大部分字符都出现在已有内容中
-        common = sum(1 for c in content if c in existing_content)
-        ratio = common / len(content)
-        if ratio > threshold:
+        if char_overlap_ratio(content, existing_content, mode='contains') > threshold:
             return True
     return False
 

@@ -10,6 +10,16 @@ from core.utils import week_monday
 
 WEEK_MAP = {'一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6}
 
+# 相对日期词 → 距今天的天数（包含过去侧：补记录靠它落在正确那一天）
+RELATIVE_DAY_OFFSETS = {
+    '大后天': 3, '后天': 2, '明天': 1, '今天': 0,
+    '昨天': -1, '前天': -2, '大前天': -3,
+}
+
+# 星期的周偏移前缀（裸「周X」另处理：已过则顺延到下周）
+WEEK_PREFIX_OFFSETS = {'下下周': 14, '下周': 7, '这周': 0, '本周': 0,
+                       '上周': -7, '上上周': -14}
+
 # 仅识别无歧义的状态词（避免「完成总结」这类误命中）
 STATUS_KEYWORDS = [
     ('done', ('已完成',)),
@@ -111,22 +121,26 @@ def parse_quick_input(text, today=None):
         d = _valid_date(today.year, int(m.group(1)), int(m.group(2)))
         if d:
             add_dates([d], m.span())
-    # 相对日期
-    for m in re.finditer(r'大后天|后天|明天|今天', text):
-        offset = {'今天': 0, '明天': 1, '后天': 2, '大后天': 3}[m.group(0)]
-        add_dates([today + timedelta(days=offset)], m.span())
-    for m in re.finditer(r'(\d{1,2})\s*天后', text):
-        add_dates([today + timedelta(days=int(m.group(1)))], m.span())
-    # 下周X / 这周X / 本周X / 裸周X（裸周X已过则顺延到下周；带前缀的由第一分支匹配）
-    for m in re.finditer(r'(下周|这周|本周)([一二三四五六日天])|(?<![下这本])周([一二三四五六日天])', text):
+    # 相对日期（向后看与向前看同口径：补记录「昨天/前天花了多少」这类输入
+    # 不能丢日期，否则费用落不到当天，今日/本周统计就少一笔）
+    for m in re.finditer(r'大后天|大前天|后天|前天|明天|今天|昨天', text):
+        add_dates([today + timedelta(days=RELATIVE_DAY_OFFSETS[m.group(0)])], m.span())
+    for m in re.finditer(r'(\d{1,2})\s*天[后前]', text):
+        n = int(m.group(1))
+        add_dates([today + timedelta(days=n if m.group(0).endswith('后') else -n)],
+                  m.span())
+    # 下周X / 上周X / 这周X / 裸周X（裸周X已过则顺延到下周；带前缀的由第一分支匹配）
+    for m in re.finditer(
+            r'(下下周|下周|上上周|上周|这周|本周)([一二三四五六日天])'
+            r'|(?<![下这本上])周([一二三四五六日天])', text):
         prefix = m.group(1)
         target = WEEK_MAP[m.group(2) or m.group(3)]
         monday = week_monday(today)
-        if prefix == '下周':
-            d = monday + timedelta(days=7 + target)
+        if prefix:
+            d = monday + timedelta(days=WEEK_PREFIX_OFFSETS[prefix] + target)
         else:
             d = monday + timedelta(days=target)
-            if not prefix and d < today:
+            if d < today:
                 d += timedelta(days=7)
         add_dates([d], m.span())
     # 月底

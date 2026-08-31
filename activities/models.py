@@ -254,11 +254,6 @@ class RecurringActivity(models.Model):
         '每月几号', null=True, blank=True,
         help_text='1-28（仅每月时有效）'
     )
-    status = models.CharField(
-        '状态', max_length=20,
-        choices=Activity.STATUS_CHOICES,
-        default='planned'
-    )
     is_active = models.BooleanField('启用', default=True)
     last_generated_date = models.DateField('上次生成日期', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

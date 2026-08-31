@@ -3,7 +3,7 @@ import logging
 
 import httpx
 
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -14,7 +14,7 @@ from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (build_protocol_prompt, get_tool,
                                  make_action_token, orchestrator)
-from core.utils import visible_qs, get_visible
+from core.utils import visible_qs, get_visible, visible_child_qs, get_visible_child
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,10 @@ def conversation_list(request):
     # 搜索对话历史
     query = request.GET.get('q', '').strip()
     if query:
-        # 搜索消息内容，找到匹配的对话
-        message_qs = Message.objects.filter(content__icontains=query)
-        if not request.user.is_superuser:
-            message_qs = message_qs.filter(conversation__user=request.user)
+        # 搜消息内容：按会话可见范围过滤（超管能搜到他人会话里的消息），
+        # 不再手写 is_superuser 分支判断
+        message_qs = visible_child_qs(Message, request.user, 'conversation').filter(
+            content__icontains=query)
         matching_conv_ids = message_qs.values_list('conversation_id', flat=True).distinct()
         # 同时搜索对话标题
         conversations = conversations.filter(
@@ -282,8 +282,7 @@ def _collect_response(service, conversation):
 @require_POST
 def confirm_action(request, message_id):
     """两步确认流：校验 HMAC 令牌后执行待确认动作（update / delete）"""
-    message = get_object_or_404(Message, id=message_id,
-                                conversation__user=request.user)
+    message = get_visible_child(Message, request.user, 'conversation', id=message_id)
     payload = message.payload or {}
     action = payload.get('action') or {}
 

@@ -5,13 +5,11 @@
 import logging
 import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
 
 from django.db import models
 from django.db.models import Sum
-from django.utils import timezone
 
-from core.utils import visible_qs
+from core.utils import visible_qs, q_or
 from .models import Activity, ActivityLog, Expense, Participant
 
 logger = logging.getLogger(__name__)
@@ -24,23 +22,37 @@ DAILY_BUCKET_NAME = '日常开支'
 DAILY_BUCKET_MARKER = '系统归属桶：无活动语境的费用记入此处'
 
 
+def daily_bucket_q():
+    """归属桶的唯一识别条件（标题 + 描述里的 marker）
+
+    取桶 / 内存判定 / 查询集排除三处必须共用这一个条件：以前取桶只按 name、
+    排除按 name+marker，用户手工建一个同名活动就会被静默收养成系统桶，
+    既出现在列表里又充当费用归属对象。
+    """
+    return models.Q(name=DAILY_BUCKET_NAME, description__contains=DAILY_BUCKET_MARKER)
+
+
 def get_daily_bucket(user):
-    """惰性创建/复用该用户的「日常开支」归属桶活动"""
-    bucket, _created = Activity.objects.get_or_create(
+    """惰性创建/复用该用户的「日常开支」归属桶活动
+
+    按 marker 查找而不是按 name get_or_create：命中不到就新建一条带 marker 的，
+    用户自建的同名普通活动不会被当成系统桶。
+    """
+    bucket = Activity.objects.filter(user=user).filter(daily_bucket_q()).first()
+    if bucket is not None:
+        return bucket
+    return Activity.objects.create(
         user=user,
         name=DAILY_BUCKET_NAME,
-        defaults={
-            'description': DAILY_BUCKET_MARKER,
-            'status': 'in_progress',
-            'start_date': None,
-            'end_date': None,
-        },
+        description=DAILY_BUCKET_MARKER,
+        status='in_progress',
+        start_date=None,
+        end_date=None,
     )
-    return bucket
 
 
 def is_daily_bucket(activity):
-    """判断活动是否为「日常开支」归属桶"""
+    """判断活动是否为「日常开支」归属桶（daily_bucket_q 的内存版同口径，由测试交叉校验）"""
     return (
         activity.name == DAILY_BUCKET_NAME
         and DAILY_BUCKET_MARKER in (activity.description or '')
@@ -49,7 +61,7 @@ def is_daily_bucket(activity):
 
 def exclude_daily_bucket(qs):
     """从活动查询集中排除归属桶（列表页/每日简报展示用；费用统计不排除）"""
-    return qs.exclude(name=DAILY_BUCKET_NAME, description__contains=DAILY_BUCKET_MARKER)
+    return qs.exclude(daily_bucket_q())
 
 
 # ==================== 参与者解析 ====================
@@ -265,24 +277,6 @@ def expense_totals_map(activity_ids):
     )
 
 
-def record_parsed_cost(activity, user, cost, *, note='快速输入创建'):
-    """把一句话解析出来的花费记为该活动的一笔支出
-
-    语义是「已经花掉的钱」，与 Activity.budget（预算上限）不是一回事，不得写进 budget。
-    快速创建接口与新建表单的「本次费用」共用此入口，保证两条路径口径一致。
-    金额非法或 <=0 时返回 None（静默跳过）。
-    """
-    try:
-        amount = Decimal(str(cost)).quantize(Decimal('0.01'))
-    except (TypeError, ValueError, InvalidOperation):
-        return None
-    if amount <= 0:
-        return None
-    return Expense.objects.create(
-        activity=activity, user=user, amount=amount, category='other', note=note,
-    )
-
-
 def filter_activities(user, params):
     """按条件筛选活动，返回 queryset（列表视图与 Agent 查询工具共用）
 
@@ -313,12 +307,8 @@ def filter_activities(user, params):
         qs = qs.filter(participants__name__icontains=participant).distinct()
     keyword = str(params.get('keyword') or '').strip()
     if keyword:
-        qs = qs.filter(
-            models.Q(name__icontains=keyword)
-            | models.Q(description__icontains=keyword)
-            | models.Q(tags__name__icontains=keyword)
-            | models.Q(participants__name__icontains=keyword)
-        ).distinct()
+        qs = qs.filter(q_or(('name', 'description', 'tags__name',
+                             'participants__name'), keyword)).distinct()
     return qs
 
 

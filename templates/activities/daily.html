@@ -290,7 +290,7 @@
         </h2>
         <div class="space-y-2">
             {% for a in ongoing %}
-            {% include "activities/_daily_card.html" with activity=a badge="ongoing" %}
+            {% include "activities/_daily_card.html" with activity=a badge="" %}
             {% endfor %}
             {% for a in starting_today %}
             {% include "activities/_daily_card.html" with activity=a badge="today" %}
@@ -323,7 +323,7 @@
         </h2>
         <div class="space-y-2 collapsible-content" id="content-in_progress">
             {% for a in in_progress %}
-            {% include "activities/_daily_card.html" with activity=a badge="in_progress" %}
+            {% include "activities/_daily_card.html" with activity=a badge="" %}
             {% endfor %}
         </div>
     </section>
@@ -341,7 +341,7 @@
         </h2>
         <div class="space-y-2 collapsible-content" id="content-upcoming">
             {% for a in upcoming %}
-            {% include "activities/_daily_card.html" with activity=a badge="upcoming" %}
+            {% include "activities/_daily_card.html" with activity=a badge="" %}
             {% endfor %}
         </div>
     </section>
@@ -359,7 +359,7 @@
         </h2>
         <div class="space-y-2 collapsible-content" id="content-recently_done">
             {% for a in recently_done %}
-            {% include "activities/_daily_card.html" with activity=a badge="done" %}
+            {% include "activities/_daily_card.html" with activity=a badge="" %}
             {% endfor %}
         </div>
     </section>

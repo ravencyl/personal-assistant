@@ -232,3 +232,32 @@ class MemoryViewsTest(TestCase):
         self.client.login(username='admin', password='adminpass')
         resp = self.client.get(reverse('memory:memory_list'))
         self.assertContains(resp, '别人的记忆')
+
+    def test_superuser_can_edit_and_delete_other_users_memory(self):
+        """管理动作跟“超管见全部”同一口径（不再只限于自己的行）"""
+        other = User.objects.create_user('other2', password='otherpass')
+        m = Memory.objects.create(user=other, content='待整理的记忆', category='fact')
+        User.objects.create_superuser('admin2', password='adminpass2')
+        self.client.login(username='admin2', password='adminpass2')
+
+        resp = self.client.post(reverse('memory:memory_edit', args=[m.id]), {
+            'content': '已整理', 'category': 'fact', 'importance': '6',
+        })
+        self.assertEqual(resp.status_code, 302)
+        m.refresh_from_db()
+        self.assertEqual(m.content, '已整理')
+
+        resp = self.client.post(reverse('memory:memory_delete', args=[m.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Memory.objects.filter(id=m.id).exists())
+
+    def test_non_owner_gets_404_not_403(self):
+        """无权访问统一 404（AGENTS.md），原来的手写 403 JSON 是第四套写法"""
+        User.objects.create_user('stranger', password='strangerpass')
+        self.client.login(username='stranger', password='strangerpass')
+
+        resp = self.client.get(reverse('memory:memory_edit', args=[self.m1.id]))
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.post(reverse('memory:memory_delete', args=[self.m1.id]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(Memory.objects.filter(id=self.m1.id).exists())

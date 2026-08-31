@@ -1,9 +1,11 @@
 from django import forms
 
 from core.forms import PlainTagField
+from core.utils import visible_qs
 
 from .models import Activity
-from .utils import record_parsed_cost, resolve_participants
+from .services import record_parsed_cost
+from .utils import resolve_participants
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
@@ -59,8 +61,9 @@ class ActivityForm(forms.ModelForm):
         self.fields['start_date'].required = False
         self.fields['end_date'].required = False
         self.fields['duration_minutes'].required = False
-        # 父活动只能选自己的数据
-        self.fields['parent'].queryset = Activity.objects.filter(user=user)
+        # 父活动候选走统一可见性口径（超管不把活动限在自己名下，否则下拉缺项）
+        self.fields['parent'].queryset = (
+            visible_qs(Activity, user) if user is not None else Activity.objects.none())
         if self.instance.pk:
             self.fields['parent'].queryset = self.fields['parent'].queryset.exclude(pk=self.instance.pk)
             # 编辑时回显已关联的参与者

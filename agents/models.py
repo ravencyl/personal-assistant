@@ -8,7 +8,6 @@ class AgentConfig(models.Model):
     description = models.TextField(blank=True)
     model = models.CharField(max_length=32, default='auto')
     instructions = models.TextField(blank=True)
-    system_prompt = models.TextField(blank=True)
     tools = models.JSONField(default=list, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     version = models.IntegerField(default=1)

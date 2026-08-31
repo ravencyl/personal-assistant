@@ -16,11 +16,13 @@ from core.utils import visible_qs
 
 logger = logging.getLogger(__name__)
 
-# 三个可互相推荐的模型标识 → (app_label, model_name)
+# 三个可互相推荐的模型标识 → (app_label, model_name, 分词兜底搜索字段)
+# 字段集合放在这里而不是在 _token_fallback 里按模型名分支判断，
+# 避免同一份模型映射在本文件里被表达两遍。
 _TARGETS = {
-    'activities': ('activities', 'Activity'),
-    'articles':   ('knowledge',  'Article'),
-    'notes':      ('notes',      'Note'),
+    'activities': ('activities', 'Activity', ('name', 'description')),
+    'articles':   ('knowledge',  'Article', ('title', 'content')),
+    'notes':      ('notes',      'Note',    ('content',)),
 }
 
 
@@ -60,7 +62,7 @@ def get_related_content(user, source_model, source_instance, limit=5):
 
     result = {}
     for key in target_keys:
-        app_label, model_name = _TARGETS[key]
+        app_label, model_name, _fields = _TARGETS[key]
         target_model = _get_model(app_label, model_name)
         target_qs = visible_qs(target_model, user)
 
@@ -75,7 +77,7 @@ def get_related_content(user, source_model, source_instance, limit=5):
             if text:
                 exclude_ids = {it['object'].id for it in items}
                 items.extend(_token_fallback(
-                    text, target_model, target_qs,
+                    text, _TARGETS[key][2], target_qs,
                     exclude_ids=exclude_ids,
                     limit=limit - len(items),
                 ))
@@ -127,9 +129,10 @@ def _get_text_for_fallback(instance):
     return ''
 
 
-def _token_fallback(text, target_model, target_qs, exclude_ids=None, limit=5):
-    """标签交集不足时，用分词 + icontains 模糊匹配补足"""
+def _token_fallback(text, search_fields, target_qs, exclude_ids=None, limit=5):
+    """标签交集不足时，用分词 + icontains 模糊匹配补足（字段集由 _TARGETS 给定）"""
     from knowledge.utils import tokenize
+    from core.utils import q_or
 
     tokens = tokenize(text, max_tokens=3)
     if not tokens:
@@ -139,17 +142,8 @@ def _token_fallback(text, target_model, target_qs, exclude_ids=None, limit=5):
         target_qs = target_qs.exclude(id__in=exclude_ids)
 
     q = models.Q()
-    model_name = target_model.__name__
-    if model_name == 'Article':
-        for token in tokens:
-            q |= models.Q(title__icontains=token) | models.Q(content__icontains=token)
-    elif model_name == 'Note':
-        for token in tokens:
-            q |= models.Q(content__icontains=token)
-    else:
-        # Activity
-        for token in tokens:
-            q |= models.Q(name__icontains=token) | models.Q(description__icontains=token)
+    for token in tokens:
+        q |= q_or(search_fields, token)
 
     return [{'object': obj, 'score': 1} for obj in target_qs.filter(q).distinct()[:limit]]
 

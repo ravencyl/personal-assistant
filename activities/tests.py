@@ -5,7 +5,9 @@ import tempfile
 from decimal import Decimal
 from datetime import date, timedelta
 from io import StringIO
+from pathlib import Path
 
+from django.conf import settings
 from django.test import TestCase, Client, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
@@ -16,10 +18,15 @@ from django.urls import reverse
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import Activity, Attachment, Expense, Participant
+from activities.models import (Activity, ActivityLog, Attachment, Expense, Participant,
+                               ActivityTemplate)
 from activities.parsing import parse_quick_input
+from activities.services import (InputError, add_expense, clean_category,
+                                 create_activity_from_parsed, record_parsed_cost,
+                                 start_due_activities)
 from activities.utils import (budget_status, get_daily_bucket, DAILY_BUCKET_NAME,
-                              resolve_participants)
+                              DAILY_BUCKET_MARKER, daily_bucket_q, is_daily_bucket,
+                              exclude_daily_bucket, resolve_participants)
 
 
 class BudgetStatusTest(TestCase):
@@ -165,7 +172,7 @@ class AddExpenseAutoTargetTest(TestCase):
         result = self.tool['fn'](self.user, {'target': '露营', 'amount': 120, 'category': '购物'})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity_id, activity.id)
-        self.assertEqual(result['reply'], f'已为「周末露营」添加费用 ¥120.0（购物）')
+        self.assertEqual(result['reply'], f'已为「周末露营」添加费用 ¥120.00（购物）')
 
     def test_no_target_date_overlap_unique(self):
         """无 target 时当日/昨日日期重叠的唯一进行中活动优先命中"""
@@ -822,3 +829,349 @@ class AiParseWeekAnchorTest(TestCase):
         self.assertIn('不得早于今天', anchor)
         # 今天本身不算已过去，不然「今天开会」会被推走
         self.assertNotIn('周日=2026-08-30（已过去）', anchor)
+
+
+class RelativeDateParsingTest(TestCase):
+    """规则解析补上往回看的相对日期（AI 不可用时的降级路径）
+
+    此前只认今天/明天/后天/N天后：「昨天打车28元」会整条丢掉日期，
+    费用落不到花钱那天 → 今日/本周消费统计少一笔。「上周X」旧口径会被
+    当成裸「周X」推到下周去，方向刚好相反。
+    """
+
+    today = date(2026, 8, 31)      # 周一
+
+    def parsed(self, text, today=None):
+        return parse_quick_input(text, today or self.today)
+
+    def test_past_relative_words(self):
+        for word, iso in (('昨天', '2026-08-30'), ('前天', '2026-08-29'),
+                          ('大前天', '2026-08-28')):
+            result = self.parsed(f'{word}开会')
+            self.assertEqual(result.get('start_date'), iso, word)
+            self.assertEqual(result.get('end_date'), iso, word)
+
+    def test_n_days_before_and_after(self):
+        self.assertEqual(self.parsed('3天后出发')['start_date'], '2026-09-03')
+        self.assertEqual(self.parsed('5天前买的机票')['start_date'], '2026-08-26')
+
+    def test_past_day_expense_keeps_date_and_amount(self):
+        result = self.parsed('昨天打车28元')
+        self.assertEqual(result['cost'], 28.0)
+        self.assertEqual(result['start_date'], '2026-08-30')
+
+    def test_last_week_dates_go_back(self):
+        self.assertEqual(self.parsed('上周六爬山')['start_date'], '2026-08-29')
+        self.assertEqual(self.parsed('上周日野餐')['start_date'], '2026-08-30')
+        self.assertEqual(self.parsed('上上周五开会')['start_date'], '2026-08-21')
+
+    def test_future_paths_unchanged(self):
+        self.assertEqual(self.parsed('下周三开会')['start_date'], '2026-09-09')
+        self.assertEqual(self.parsed('本周五团建')['start_date'], '2026-09-04')
+        # 裸「周X」未过 → 取本周，已过 → 顺延下周（旧口径保留）
+        self.assertEqual(self.parsed('周三例会')['start_date'], '2026-09-02')
+        self.assertEqual(self.parsed('周六', date(2026, 8, 30))['start_date'], '2026-09-05')
+
+    def test_anchor_table_covers_last_week_too(self):
+        """AI 锚点表与规则解析同口径，否则降级前后给出的日期不同"""
+        from activities.views import _week_anchor_text
+        anchor = _week_anchor_text(self.today)
+        for phrase in ('上周六', '上周日', '下周三'):
+            expected = self.parsed(phrase)['start_date']
+            self.assertIn(f'={expected}', anchor, phrase)
+        self.assertIn('不得早于今天', anchor)
+
+
+class DailyBucketSingleDefinitionTest(TestCase):
+    """「日常开支」归属桶单一判定（H5）
+
+    取桶 / 内存判定 / 查询集排除必须共用 marker 条件。以前取桶只按 name，
+    用户自建一个同名活动就会被静默收养成系统桶。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('bucketuser', password='p')
+
+    def test_user_created_same_name_activity_is_not_adopted(self):
+        mine = Activity.objects.create(user=self.user, name=DAILY_BUCKET_NAME,
+                                       description='我自己建的记账活动')
+        bucket = get_daily_bucket(self.user)
+        self.assertNotEqual(bucket.id, mine.id)
+        self.assertIn(DAILY_BUCKET_MARKER, bucket.description)
+        # 用户自建那条仍是普通活动，不会被当成桶排除
+        listed = list(exclude_daily_bucket(Activity.objects.filter(user=self.user)))
+        self.assertEqual(listed, [mine])
+
+    def test_bucket_reused_across_calls(self):
+        first = get_daily_bucket(self.user)
+        self.assertEqual(get_daily_bucket(self.user).id, first.id)
+        self.assertEqual(
+            Activity.objects.filter(user=self.user, description__contains=DAILY_BUCKET_MARKER).count(), 1)
+
+    def test_in_memory_check_agrees_with_queryset_condition(self):
+        """内存版与 Q 版不能走形（三处口径曾经不一致的根因）"""
+        bucket = get_daily_bucket(self.user)
+        same_name_no_marker = Activity.objects.create(user=self.user, name=DAILY_BUCKET_NAME)
+        other_name_with_marker = Activity.objects.create(
+            user=self.user, name='其他活动', description=DAILY_BUCKET_MARKER)
+        for act in (bucket, same_name_no_marker, other_name_with_marker):
+            self.assertEqual(
+                is_daily_bucket(act),
+                Activity.objects.filter(pk=act.pk).filter(daily_bucket_q()).exists(),
+                f'活动 {act.pk} 的内存判定与查询集口径不一致')
+
+    def test_auto_expense_keyword_branch_skips_system_bucket(self):
+        """关键词兜底不得把系统桶当命中目标（仍走「桶兜底」分支）"""
+        from activities.agent_tools import _auto_expense_target
+        bucket = get_daily_bucket(self.user)
+        target, reason = _auto_expense_target(self.user, '日常开支 打车')
+        self.assertEqual(target.id, bucket.id)
+        self.assertEqual(reason, 'bucket')
+
+
+class TemplateVisibilityTest(TestCase):
+    """模板 JSON 端点走统一可见性口径（M8）：不再各自手写 filter().first() + 404"""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('owner', password='p')
+        self.client = Client()
+        self.template = ActivityTemplate.objects.create(
+            user=self.owner, name='周末outing', default_children=[])
+
+    def test_superuser_can_delete_other_users_template(self):
+        admin = User.objects.create_superuser('root', password='p')
+        self.client.login(username='root', password='p')
+        resp = self.client.post(
+            reverse('activities:template_delete', args=[self.template.id]))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertFalse(ActivityTemplate.objects.filter(id=self.template.id).exists())
+
+    def test_other_user_gets_404_json(self):
+        User.objects.create_user('stranger', password='p')
+        self.client.login(username='stranger', password='p')
+        resp = self.client.post(
+            reverse('activities:template_delete', args=[self.template.id]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', json.loads(resp.content))
+        self.assertTrue(ActivityTemplate.objects.filter(id=self.template.id).exists())
+
+    def test_superuser_can_instantiate_other_users_template(self):
+        admin = User.objects.create_superuser('root', password='p')
+        self.client.login(username='root', password='p')
+        resp = self.client.post(
+            reverse('activities:activity_from_template', args=[self.template.id]),
+            data=json.dumps({'name': '本周 outing'}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertTrue(Activity.objects.filter(user=admin, name='本周 outing').exists())
+
+
+class WritePathServiceTest(TestCase):
+    """M1 写路径收敛：创建与记费用只留 services 一份实现
+
+    锁住收敛后的四条口径：空值/0 的金额语义、日期的单一回落、
+    类别清洗复用 CATEGORY_CHOICES、子活动归属继承父活动。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.admin = User.objects.create_superuser('root', password='p')
+        self.activity = Activity.objects.create(user=self.user, name='桐庐周末游')
+        self.client = Client()
+
+    def test_empty_amount_records_nothing(self):
+        for raw in ('', None, '   '):
+            self.assertIsNone(add_expense(self.activity, self.user, raw), repr(raw))
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_zero_amount_semantics_per_entry(self):
+        # 「记一笔」类入口：0 元没有意义 → 直接报错
+        with self.assertRaises(InputError):
+            add_expense(self.activity, self.user, 0, positive=True)
+        # 解析类入口：0 视为「本次没花钱」→ 静默跳过，不建 0 元记录
+        self.assertIsNone(record_parsed_cost(self.activity, self.user, '0'))
+        self.assertIsNone(record_parsed_cost(self.activity, self.user, '-5'))
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_paid_at_single_fallback_rule(self):
+        """日期只有一套规则：未传/空/非法 → 今天；clear_date 仅用于派生记录"""
+        today = timezone.localdate()
+        self.assertEqual(add_expense(self.activity, self.user, 10).paid_at, today)
+        self.assertEqual(add_expense(self.activity, self.user, 10, paid_at='').paid_at, today)
+        self.assertEqual(add_expense(self.activity, self.user, 10, paid_at='昨天').paid_at,
+                         today)
+        self.assertEqual(add_expense(self.activity, self.user, 10,
+                                    paid_at='2026-08-01').paid_at, date(2026, 8, 1))
+        self.assertIsNone(add_expense(self.activity, self.user, 10, clear_date=True).paid_at)
+
+    def test_category_accepts_display_name_and_key(self):
+        """中文显示名直接由 CATEGORY_CHOICES 反查，不另存别名表"""
+        self.assertEqual(clean_category('餐饮'), 'food')
+        self.assertEqual(clean_category('food'), 'food')
+        self.assertEqual(clean_category('住宿'), 'accommodation')
+        self.assertEqual(clean_category('不存在的类别'), 'other')
+        self.assertEqual(clean_category(''), 'other')
+
+    def test_child_created_by_superuser_keeps_parent_owner(self):
+        """AGENTS.md：子活动归属继承父活动，超管建的下级仍归原主人"""
+        parent = Activity.objects.create(user=self.user, name='新西兰之旅')
+        result = create_activity_from_parsed(self.admin, {'name': '订机票'},
+                                            parent=parent, source='AI 对话')
+        child = result['activity']
+        self.assertEqual(child.user_id, self.user.id)
+        logged = set(ActivityLog.objects.values_list('activity_id', 'action', 'user_id'))
+        self.assertIn((parent.id, 'sub_created', self.admin.id), logged)
+        self.assertIn((child.id, 'created', self.admin.id), logged)
+
+    def test_quick_sub_cost_lands_on_child_not_parent(self):
+        """一句话建子任务：花费记在子任务名下（与内联手动表单同口径）"""
+        parent = Activity.objects.create(user=self.user, name='新西兰之旅')
+        self.client.login(username='testuser', password='test')
+        resp = self.client.post(
+            reverse('activities:activity_quick_sub', args=[parent.id]),
+            data=json.dumps({'name': '办签证', 'cost': 350}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 200, resp.content)
+        child = Activity.objects.get(name='办签证')
+        self.assertEqual(Expense.objects.filter(activity=child).count(), 1)
+        self.assertEqual(Expense.objects.filter(activity=parent).count(), 0)
+        self.assertEqual(Expense.objects.get(activity=child).amount, Decimal('350.00'))
+
+    def test_add_subactivity_endpoint_keeps_both_logs(self):
+        """快捷建子任务改走 services 后，仍要写父+子两条日志且只建一个对象"""
+        parent = Activity.objects.create(user=self.user, name='意大利之旅')
+        self.client.login(username='testuser', password='test')
+        resp = self.client.post(reverse('activities:add_subactivity', args=[parent.id]),
+                               {'name': '租车'})
+        self.assertEqual(resp.status_code, 302)
+        child = Activity.objects.get(name='租车')
+        self.assertEqual(child.parent_id, parent.id)
+        self.assertEqual(child.user_id, self.user.id)
+        self.assertEqual(child.end_date, timezone.localdate())
+        self.assertEqual(sorted(ActivityLog.objects.values_list('action', flat=True)),
+                         ['created', 'sub_created'])
+
+    def test_quick_expense_endpoint_requires_amount(self):
+        """全局快记：空金额不再静默建 0 元记录，正常记入默认落今天"""
+        self.client.login(username='testuser', password='test')
+        resp = self.client.post(reverse('activities:expense_quick_create'), {'amount': ''})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('error', resp.json())
+        self.assertEqual(Expense.objects.count(), 0)
+
+        resp = self.client.post(reverse('activities:expense_quick_create'),
+                               {'amount': '28.5', 'category': '餐饮', 'note': '午饭'})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        expense = Expense.objects.get()
+        self.assertEqual(expense.amount, Decimal('28.50'))
+        self.assertEqual(expense.category, 'food')
+        self.assertEqual(expense.activity.name, DAILY_BUCKET_NAME)
+        self.assertEqual(expense.paid_at, timezone.localdate())
+
+
+class StatusDisplaySingleSourceTest(TestCase):
+    """M3 状态展示统一：颜色只在 custom.css 定义一处
+
+    收敛前同一组状态有 4 份颜色映射（徽章、圆点/色条、日历 JS、Daily 图标），
+    done 与 cancelled 的深浅在日历与徽章之间正好相反。这里锁住两件事：
+    CSS 必须为每个 STATUS_CHOICES 取值补齐工具类，模板与 JSON 不得再存一份映射。
+    """
+
+    # 历史坏味道：在状态分支里直接写 Tailwind 灰阶类
+    LEGACY_COLOR_BRANCH = re.compile(r"status\s*==\s*'[^']+'\s*%>[^%]*?-(zinc|gray|neutral)-\d00")
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def css(self):
+        return (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(
+            encoding='utf-8')
+
+    def test_css_defines_every_status_utility(self):
+        """新增状态取值时不得漏配色：四个工具类与变量都需存在"""
+        css = self.css()
+        for value, _label in Activity.STATUS_CHOICES:
+            self.assertIn(f'--status-{value}:', css)
+            for prefix in ('status-bg--', 'status-fg--', 'status-fg-on--', 'badge-status--'):
+                self.assertIn(f'.{prefix}{value}', css, f'{prefix}{value} 缺定义')
+
+    def test_templates_have_no_legacy_status_color_branch(self):
+        templates_dir = Path(settings.BASE_DIR) / 'templates'
+        offenders = [str(t.relative_to(templates_dir)) for t in templates_dir.rglob('*.html')
+                     if self.LEGACY_COLOR_BRANCH.search(t.read_text(encoding='utf-8'))]
+        self.assertEqual(offenders, [])
+
+    def test_badge_and_bar_render_from_status_class(self):
+        activity = Activity.objects.create(user=self.user, name='桐庐周末游',
+                                           status='in_progress')
+        html = self.client.get(
+            reverse('activities:activity_detail', args=[activity.id])).content.decode()
+        self.assertIn('badge-status--in_progress', html)
+        self.assertIn('status-bg--in_progress', html)
+
+    def test_calendar_payload_carries_status_not_color(self):
+        """颜色不在接口层下发，否则前端与后端各一份必然漂移"""
+        Activity.objects.create(user=self.user, name='桐庐周末游', status='done',
+                               start_date=timezone.localdate())
+        item = self.client.get(reverse('activities:calendar_data')).json()['activities'][0]
+        self.assertEqual(item['status'], 'done')
+        self.assertNotIn('color', item)
+
+    def test_calendar_legend_covers_every_status(self):
+        html = self.client.get(reverse('activities:activity_calendar')).content.decode()
+        for value, label in Activity.STATUS_CHOICES:
+            self.assertIn(f'status-bg--{value}', html)
+            self.assertIn(label, html)
+
+
+class StartDueActivitiesTest(TestCase):
+    """L10 到期自动转进行中：cron 与页面访问共用一份判定，dry-run 不漂移
+
+    收敛前 filter 写了两份（命令的 --dry-run 可能与真实执行不一致），
+    且命令调的是 views 里的函数（写路径反向依赖视图层）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.system = User.objects.create_user('system', password='p')
+
+    def test_due_planned_starts_while_future_and_cancelled_stay(self):
+        due = Activity.objects.create(user=self.user, name='今天开始', status='planned',
+                                      start_date=timezone.localdate())
+        future = Activity.objects.create(user=self.user, name='下周开始', status='planned',
+                                         start_date=timezone.localdate() + timedelta(days=7))
+        cancelled = Activity.objects.create(user=self.user, name='已取消', status='cancelled',
+                                            start_date=timezone.localdate())
+        changed = start_due_activities(self.user)
+        self.assertEqual([a.id for a in changed], [due.id])
+        for a in (due, future, cancelled):
+            a.refresh_from_db()
+        self.assertEqual(
+            [due.status, future.status, cancelled.status],
+            ['in_progress', 'planned', 'cancelled'])
+        log = ActivityLog.objects.get(activity=due)
+        self.assertEqual((log.user_id, log.action), (self.system.id, 'status_changed'))
+
+    def test_dry_run_previews_the_same_set_without_writing(self):
+        due = Activity.objects.create(user=self.user, name='今天开始', status='planned',
+                                      start_date=timezone.localdate())
+        preview = start_due_activities(dry_run=True)
+        self.assertEqual([a.id for a in preview], [due.id])
+        due.refresh_from_db()
+        self.assertEqual(due.status, 'planned')
+        self.assertEqual(ActivityLog.objects.count(), 0)
+        # 真实执行必须是同一批（否则 --dry-run 的结果不可信）
+        self.assertEqual([a.id for a in start_due_activities()], [a.id for a in preview])
+
+    def test_missing_system_user_skips_log_but_still_starts(self):
+        """容错铁律：日志这类非核心操作失败只告警，不阻断主流程"""
+        due = Activity.objects.create(user=self.user, name='今天开始', status='planned',
+                                      start_date=timezone.localdate())
+        self.system.delete()
+        changed = start_due_activities()
+        due.refresh_from_db()
+        self.assertEqual([a.id for a in changed], [due.id])
+        self.assertEqual(due.status, 'in_progress')
+        self.assertEqual(ActivityLog.objects.count(), 0)

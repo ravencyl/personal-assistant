@@ -36,7 +36,6 @@ def sync_agents(request):
                 'name': agent_data.get('name', ''),
                 'model': agent_data.get('model', 'auto'),
                 'instructions': agent_data.get('instructions', ''),
-                'system_prompt': agent_data.get('system', ''),
                 'tools': agent_data.get('tools', []),
                 'metadata': agent_data.get('metadata', {}),
                 'version': agent_data.get('version', 1),

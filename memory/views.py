@@ -6,26 +6,19 @@
 import logging
 
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, redirect
 from django.views.decorators.http import require_POST
 
+from core.utils import visible_qs, get_visible
 from .models import Memory
 
 logger = logging.getLogger(__name__)
 
 
-def _user_memories(user):
-    """按用户隔离：超级用户见全部，普通用户仅见自己的"""
-    if user.is_superuser:
-        return Memory.objects.all()
-    return Memory.objects.filter(user=user)
-
-
 @login_required
 def memory_list(request):
     """记忆列表页（支持类别筛选 + 搜索）"""
-    memories = _user_memories(request.user)
+    memories = visible_qs(Memory, request.user)
 
     # 类别筛选
     category = request.GET.get('category', '').strip()
@@ -59,10 +52,7 @@ def memory_list(request):
 @login_required
 def memory_edit(request, memory_id):
     """编辑记忆（HTMX 局部渲染）"""
-    memory = get_object_or_404(Memory, id=memory_id)
-    # 权限检查
-    if not request.user.is_superuser and memory.user != request.user:
-        return JsonResponse({'error': '无权操作'}, status=403)
+    memory = get_visible(Memory, request.user, id=memory_id)
 
     if request.method == 'POST':
         # 提交编辑
@@ -82,7 +72,7 @@ def memory_edit(request, memory_id):
 
         if request.htmx:
             # HTMX 返回列表片段
-            memories = _user_memories(request.user).order_by('-importance', '-updated_at')
+            memories = visible_qs(Memory, request.user).order_by('-importance', '-updated_at')
             return render(request, 'memory/_memory_items.html', {
                 'memories': memories,
                 'query': '',
@@ -101,15 +91,12 @@ def memory_edit(request, memory_id):
 @require_POST
 def memory_delete(request, memory_id):
     """删除记忆"""
-    memory = get_object_or_404(Memory, id=memory_id)
-    # 权限检查
-    if not request.user.is_superuser and memory.user != request.user:
-        return JsonResponse({'error': '无权操作'}, status=403)
+    memory = get_visible(Memory, request.user, id=memory_id)
 
     memory.delete()
 
     if request.htmx:
-        memories = _user_memories(request.user).order_by('-importance', '-updated_at')
+        memories = visible_qs(Memory, request.user).order_by('-importance', '-updated_at')
         return render(request, 'memory/_memory_items.html', {
             'memories': memories,
             'query': '',

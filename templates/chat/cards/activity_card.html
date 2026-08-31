@@ -1,6 +1,6 @@
 {% comment %}对话内单活动卡片：数据来自 msg.payload.card_data（快照，历史消息可回放）{% endcomment %}
 <div class="mt-2 rounded-xl border border-zinc-200 bg-white overflow-hidden text-left">
-    <div class="h-1 {% if card.status == 'done' %}bg-zinc-400{% elif card.status == 'in_progress' %}bg-zinc-900{% elif card.status == 'cancelled' %}bg-zinc-300{% else %}bg-zinc-500{% endif %}"></div>
+    <div class="h-1 status-bg--{{ card.status }}"></div>
     <div class="p-3">
         <div class="flex items-center justify-between gap-2">
             <a href="{{ card.detail_url }}" class="font-medium text-sm text-zinc-900 hover:text-zinc-600 truncate">{{ card.name }}</a>
@@ -22,7 +22,7 @@
             {% if card.children_count <= 3 %}
             {% for c in card.children %}
             <div class="flex items-center gap-1.5 text-xs py-0.5">
-                <span class="w-1.5 h-1.5 rounded-full shrink-0 {% if c.status == 'in_progress' %}bg-zinc-900{% elif c.status == 'done' %}bg-zinc-400{% elif c.status == 'cancelled' %}bg-zinc-300{% else %}bg-zinc-500{% endif %}"></span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
                 <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
                 {% if c.date_label %}<span class="text-zinc-400 ml-auto shrink-0 tabular-nums">{{ c.date_label }}</span>{% endif %}
             </div>
@@ -33,7 +33,7 @@
                 <div class="mt-1">
                     {% for c in card.children %}
                     <div class="flex items-center gap-1.5 text-xs py-0.5">
-                        <span class="w-1.5 h-1.5 rounded-full shrink-0 {% if c.status == 'in_progress' %}bg-zinc-900{% elif c.status == 'done' %}bg-zinc-400{% elif c.status == 'cancelled' %}bg-zinc-300{% else %}bg-zinc-500{% endif %}"></span>
+                        <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
                         <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
                         {% if c.date_label %}<span class="text-zinc-400 ml-auto shrink-0 tabular-nums">{{ c.date_label }}</span>{% endif %}
                     </div>

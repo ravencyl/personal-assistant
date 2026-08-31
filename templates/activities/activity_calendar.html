@@ -100,12 +100,11 @@
     </div>
     {% endif %}
 
-    <!-- 图例 -->
+    <!-- 图例：选项与顺序来自 STATUS_CHOICES，颜色来自 custom.css 的 .status-bg--* -->
     <div class="mt-4 flex flex-wrap items-center gap-4 text-xs text-[var(--text-secondary)]">
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#18181b"></span>进行中</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#a1a1aa"></span>计划</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#d4d4d8"></span>已完成</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#e4e4e7"></span>已取消</span>
+        {% for value, label in status_choices %}
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded status-bg--{{ value }}"></span>{{ label }}</span>
+        {% endfor %}
     </div>
 </div>
 
@@ -150,8 +149,8 @@
             items.forEach(function (a) {
                 var block = document.createElement('a');
                 block.href = a.url;
-                block.className = 'block rounded-lg p-3 hover:opacity-90 transition-opacity ' + ((a.status === 'in_progress' || a.status === 'planned') ? 'text-white' : 'text-zinc-500');
-                block.style.backgroundColor = a.color;
+                block.className = 'block rounded-lg p-3 hover:opacity-90 transition-opacity status-fg-on--' + a.status;
+                block.style.backgroundColor = 'var(--status-' + a.status + ')';
                 block.innerHTML = '<div class="text-sm font-medium truncate">' + a.name + '</div>' +
                     '<div class="text-[11px] opacity-80 mt-1">' + a.status_label + '</div>';
                 container.appendChild(block);
@@ -166,13 +165,13 @@
                 byDate[ds].forEach(function (a) {
                     var block = document.createElement('a');
                     block.href = a.url;
-                    var textCls = (a.status === 'in_progress' || a.status === 'planned') ? 'text-white' : 'text-zinc-500';
+                    var textCls = 'status-fg-on--' + a.status;
                     if (mode === 'week') {
                         block.className = 'block rounded px-1.5 py-0.5 text-[11px] ' + textCls + ' truncate hover:opacity-80 mb-1';
                     } else {
                         block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs ' + textCls + ' truncate hover:opacity-80 transition-opacity';
                     }
-                    block.style.backgroundColor = a.color;
+                    block.style.backgroundColor = 'var(--status-' + a.status + ')';
                     block.title = a.name + ' (' + a.status_label + ')';
                     block.textContent = a.name;
                     el.appendChild(block);
