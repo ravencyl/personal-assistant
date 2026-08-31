@@ -317,16 +317,33 @@
             qMsg.className = 'mt-2 text-sm ' + (isError ? 'text-zinc-800 font-semibold' : 'text-zinc-900');
         }
 
+        // 解析可回填的字段，连同页面加载时的默认值快照：
+        // 上一次由解析填、这次结果里没提到的字段要还原成默认值，否则「预算 500」会残留到下一个活动
+        var PARSE_FIELDS = {
+            name: 'id_name', start_date: 'id_start_date', end_date: 'id_end_date',
+            status: 'id_status', budget: 'id_budget', duration_minutes: 'id_duration_minutes',
+            cost: 'id_parsed_cost'
+        };
+        var FORM_DEFAULTS = {}, lastFilled = [];
+        Object.keys(PARSE_FIELDS).forEach(function (k) {
+            var el = document.getElementById(PARSE_FIELDS[k]);
+            if (el) FORM_DEFAULTS[k] = el.value;
+        });
+
         function fillForm(d) {
-            if (d.name) document.getElementById('id_name').value = d.name;
-            if (d.start_date) document.getElementById('id_start_date').value = d.start_date;
-            if (d.end_date) document.getElementById('id_end_date').value = d.end_date;
-            if (d.status) document.getElementById('id_status').value = d.status;
-            // 预算写字段、费用记支出，两者不能互换（cost 填到 budget 会把已花的钱说成上限）
-            if (d.budget !== undefined && d.budget !== null) document.getElementById('id_budget').value = d.budget;
-            if (d.duration_minutes) document.getElementById('id_duration_minutes').value = d.duration_minutes;
-            var costEl = document.getElementById('id_parsed_cost');
-            if (costEl && d.cost !== undefined && d.cost !== null) costEl.value = d.cost;
+            Object.keys(PARSE_FIELDS).forEach(function (k) {
+                var el = document.getElementById(PARSE_FIELDS[k]);
+                if (!el) return;   // 编辑页无 id_parsed_cost
+                var v = d[k];
+                if (v !== undefined && v !== null && v !== '') {
+                    el.value = v;
+                    if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
+                } else if (lastFilled.indexOf(k) !== -1) {
+                    // 只回滚解析填过的值，用户手输的不动
+                    el.value = FORM_DEFAULTS[k];
+                    lastFilled = lastFilled.filter(function (x) { return x !== k; });
+                }
+            });
             if (d.tags) window.__chipsInputs.tags.setNames(d.tags);
             if (d.participants) window.__chipsInputs.participants.setNames(d.participants);
         }
