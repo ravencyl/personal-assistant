@@ -17,10 +17,11 @@ STATUS_KEYWORDS = [
     ('cancelled', ('已取消',)),
 ]
 
+# 金额提取：`kind` 区分「预算」（上限）与「费用/花了」（已花）；裸「X 元」没有 kind → 按已花处理
 COST_PATTERN = re.compile(
-    r'(?:预算|费用|花费|花销|开销|金额|花了)[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)\s*(千|万|元)?'
+    r'(?P<kind>预算|费用|花费|花销|开销|金额|花了)[^0-9]{0,6}(?P<num>[0-9]+(?:\.[0-9]+)?)\s*(?P<unit>千|万|元)?'
 )
-COST_YUAN_PATTERN = re.compile(r'([0-9]+(?:\.[0-9]+)?)\s*元')
+COST_YUAN_PATTERN = re.compile(r'(?P<num>[0-9]+(?:\.[0-9]+)?)\s*(?P<unit>元)')
 
 
 def _overlap(span, spans):
@@ -66,18 +67,18 @@ def parse_quick_input(text, today=None):
             spans.append(hit)
             break
 
-    # 4. 费用：「预算/费用…数字 + 千/万/元」或「数字元」
+    # 4. 金额：「预算 X」写预算上限，其余写已花费用（两者语义不同，绝不互写）
     cost_match = COST_PATTERN.search(text)
     if not cost_match:
         cost_match = COST_YUAN_PATTERN.search(text)
     if cost_match and not _overlap(cost_match.span(), spans):
-        cost = float(cost_match.group(1))
-        unit = cost_match.group(2) if cost_match.lastindex and cost_match.lastindex >= 2 else None
-        if unit == '千':
+        g = cost_match.groupdict()
+        cost = float(g['num'])
+        if g.get('unit') == '千':
             cost *= 1000
-        elif unit == '万':
+        elif g.get('unit') == '万':
             cost *= 10000
-        result['cost'] = cost
+        result['budget' if g.get('kind') == '预算' else 'cost'] = cost
         spans.append(cost_match.span())
 
     # 5. 日期收集（按文本出现顺序），识别后占位避免重复匹配

@@ -1,4 +1,4 @@
-django>=5.0,<5.2
+django>=5.0,<6.0
 django-htmx
 redis>=5.0
 httpx[http2]>=0.27

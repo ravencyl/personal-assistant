@@ -3,7 +3,7 @@ from django import forms
 from core.forms import PlainTagField
 
 from .models import Activity
-from .utils import resolve_participants
+from .utils import record_parsed_cost, resolve_participants
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
@@ -22,6 +22,20 @@ class ActivityForm(forms.ModelForm):
             'placeholder': '多个名称用逗号分隔，将随活动一并创建（可选）',
         }),
         help_text='输入子任务名称，保存时自动创建为子活动',
+    )
+    # 与「预算上限」区分开：这里是从一句话里识别出的已花金额，保存时记为一笔支出
+    parsed_cost = forms.DecimalField(
+        label='本次费用',
+        required=False,
+        max_digits=10,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={
+            'class': INPUT_CLS,
+            'placeholder': '可选，已经花掉的钱',
+            'step': '0.01',
+            'min': '0',
+        }),
+        help_text='保存时记为该活动的第一笔支出（区别于上方预算上限）',
     )
 
     class Meta:
@@ -60,6 +74,9 @@ class ActivityForm(forms.ModelForm):
             required=False,
             widget=forms.HiddenInput,
         )
+        # 编辑页不单独记账：详情页已有费用明细区，重复提供入口会造成二次计费
+        if self.instance.pk:
+            del self.fields['parsed_cost']
 
     def clean(self):
         cleaned = super().clean()
@@ -88,3 +105,12 @@ class ActivityForm(forms.ModelForm):
                 parent=activity,
             ))
         return children
+
+    def save_cost(self, activity):
+        """把「本次费用」记为一笔支出，返回新建的 Expense（未填则 None）
+
+        编辑页没有这个字段（__init__ 已移除），因此只会在新建时生效。
+        """
+        return record_parsed_cost(activity, activity.user,
+                                  self.cleaned_data.get('parsed_cost'),
+                                  note='新建时录入')

@@ -97,6 +97,10 @@
             if (d.cost !== undefined && d.cost !== null) {
                 parts.push('<span class="text-[var(--text-secondary)]">费用 ¥ ' + esc(String(d.cost)) + '</span>');
             }
+            // 预算与费用分列展示：前者是上限（写字段），后者是已花（记支出），混显示会直接误导确认
+            if (d.budget !== undefined && d.budget !== null) {
+                parts.push('<span class="text-[var(--text-secondary)]">预算 ¥ ' + esc(String(d.budget)) + '</span>');
+            }
             if (d.status && STATUS_LABELS[d.status]) {
                 parts.push('<span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">' + STATUS_LABELS[d.status] + '</span>');
             }

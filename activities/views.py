@@ -25,7 +25,7 @@ from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity, budget_status,
                     exclude_daily_bucket, get_daily_bucket, resolve_participants,
-                    expense_totals_map)
+                    expense_totals_map, record_parsed_cost)
 from core.utils import (visible_qs, get_visible, wants_json, used_tag_names,
                         week_monday, pct_change, daily_totals, WEEKDAY_LABELS,
                         WEEKDAY_SHORT)
@@ -129,15 +129,11 @@ def activity_quick_create(request):
         start_date=data.get('start_date'),
         end_date=data.get('end_date'),
         status=data.get('status', 'planned'),
+        budget=data.get('budget'),
+        duration_minutes=data.get('duration_minutes'),
     )
-    if data.get('cost') and float(data['cost']) > 0:
-        Expense.objects.create(
-            activity=activity,
-            user=request.user,
-            amount=data['cost'],
-            category='other',
-            note='快速输入创建',
-        )
+    # 解析出的花费记为一笔支出（与新建表单「本次费用」同一口径）
+    record_parsed_cost(activity, request.user, data.get('cost'))
     if data.get('tags'):
         activity.tags.add(*data['tags'])
     # 快速输入属自动识别：只填已有参与者，匹配不到不新建
@@ -156,15 +152,43 @@ def activity_quick_create(request):
     })
 
 
+def _week_anchor_text(today):
+    """生成给模型看的日历对照表（周一为一周起点）
+
+    模型自己推周基准时会错开整周（实测把周日的「下周五」推到了下下周五）。
+    直接把本周/下周的绝对日期列出来比任何文字约定都稳定，
+    口径与 parsing.parse_quick_input 的周解析一致。
+    早于今天的日期逐格标「已过去」：只靠文字约定「顺延」时模型仍会把活动排到今天
+    （实测周日的「周六聚餐」返回 08-30），标在单元格上才能驱动它改用下周同一天。
+    """
+    monday = week_monday(today)
+
+    def cell(offset, i):
+        d = monday + timedelta(days=offset + i)
+        return f'{WEEKDAY_LABELS[i]}={d.isoformat()}' + ('（已过去）' if d < today else '')
+
+    return (f'今天是 {today.isoformat()}（{WEEKDAY_LABELS[today.weekday()]}）。'
+            '自然周从周一开始、周日结束（周日属于当前这一周，不是下一周的开始）。'
+            '相对日期必须照下面的日期表换算，不要自己推断周基准：\n'
+            f'本周：{",".join(cell(0, i) for i in range(7))}\n'
+            f'下周：{",".join(cell(7, i) for i in range(7))}\n'
+            '「下周X」只能取下一行；没写「下周」的裸「周X」取本周，'
+            '但本周那行标了「已过去」的同星期日不可用，改用下周那行同一天。'
+            '任何情况下 start_date 不得早于今天。')
+
+
 def _ai_parse(text, today):
     """调用 Qoder general agent 解析快速输入；未配置/超时/异常时返回 None（由调用方降级）"""
     if not settings.QODER_ACCESS_TOKEN:
         return None
     try:
         prompt = (
-            f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。今天是 {today.isoformat()}。\n'
+            f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。\n'
+            f'{_week_anchor_text(today)}\n'
             '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/月底/下周五请换算为绝对日期，未写年份用当年）、'
-            'cost（数字，单位元）、status（planned/in_progress/done/cancelled 之一）、tags（字符串数组）、participants（字符串数组）。\n'
+            'cost（数字，单位元，指已经花掉的钱，不是预算上限）、budget（数字，单位元，仅当用户明说预算时返回）、'
+            'status（planned/in_progress/done/cancelled 之一）、duration_minutes（整数）、'
+            'tags（字符串数组）、participants（字符串数组）。\n'
             f'无法识别的字段不要出现在 JSON 中。用户输入："""{text}"""'
         )
         return extract_json_dict(ai_round_trip(prompt, timeout=20, purpose='general'))
@@ -497,10 +521,12 @@ def activity_create(request):
             form.save_m2m()
             form.save_participants(activity)
             children = form.save_children(activity)
+            expense = form.save_cost(activity)
             log_activity(request.user, activity, 'created')
             for child in children:
                 log_activity(request.user, child, 'created', f'随父活动「{activity.name}」一并创建')
-            messages.success(request, f'活动「{activity.name}」已创建')
+            messages.success(request, f'活动「{activity.name}」已创建'
+                           + (f'，已记入费用 ¥{expense.amount}' if expense else ''))
             return redirect('activities:activity_detail', activity.id)
     else:
         form = ActivityForm(user=request.user)

@@ -81,6 +81,14 @@
                     {{ form.duration_minutes }}
                     {% if form.duration_minutes.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.duration_minutes.errors.0 }}</p>{% endif %}
                 </div>
+                {% if form.parsed_cost %}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.parsed_cost.label }}</label>
+                    {{ form.parsed_cost }}
+                    <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.parsed_cost.help_text }}</p>
+                    {% if form.parsed_cost.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.parsed_cost.errors.0 }}</p>{% endif %}
+                </div>
+                {% endif %}
             </div>
 
             <div>
@@ -314,6 +322,11 @@
             if (d.start_date) document.getElementById('id_start_date').value = d.start_date;
             if (d.end_date) document.getElementById('id_end_date').value = d.end_date;
             if (d.status) document.getElementById('id_status').value = d.status;
+            // 预算写字段、费用记支出，两者不能互换（cost 填到 budget 会把已花的钱说成上限）
+            if (d.budget !== undefined && d.budget !== null) document.getElementById('id_budget').value = d.budget;
+            if (d.duration_minutes) document.getElementById('id_duration_minutes').value = d.duration_minutes;
+            var costEl = document.getElementById('id_parsed_cost');
+            if (costEl && d.cost !== undefined && d.cost !== null) costEl.value = d.cost;
             if (d.tags) window.__chipsInputs.tags.setNames(d.tags);
             if (d.participants) window.__chipsInputs.participants.setNames(d.participants);
         }

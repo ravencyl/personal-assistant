@@ -3,7 +3,7 @@ import os
 import re
 import tempfile
 from decimal import Decimal
-from datetime import timedelta
+from datetime import date, timedelta
 from io import StringIO
 
 from django.test import TestCase, Client, override_settings
@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.db.models import Sum
 
 from activities.models import Activity, Attachment, Expense, Participant
+from activities.parsing import parse_quick_input
 from activities.utils import (budget_status, get_daily_bucket, DAILY_BUCKET_NAME,
                               resolve_participants)
 
@@ -685,3 +686,139 @@ class AttachmentUploadTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(Attachment.objects.count(), 0)
         self.assertTrue(any('请选择文件' in m.message for m in resp.wsgi_request._messages))
+
+
+class CostVsBudgetParsingTest(TestCase):
+    """「预算 X」与「费用/花了 X」是两个口径
+
+    以前两者都归入 cost，“团建预算500”会被记成一笔 500 元支出（预算≠花掉的钱）。
+    """
+
+    TODAY = date(2026, 8, 31)   # 周一
+
+    def test_budget_keyword_writes_budget_not_cost(self):
+        result = parse_quick_input('下周五团建预算500元', self.TODAY)
+        self.assertEqual(result['budget'], 500.0)
+        self.assertNotIn('cost', result)
+
+    def test_spent_keywords_write_cost(self):
+        for text, amount in [('聚餐费用2千', 2000.0), ('花了300', 300.0), ('打车500元', 500.0)]:
+            result = parse_quick_input(text, self.TODAY)
+            self.assertEqual(result.get('cost'), amount, text)
+            self.assertNotIn('budget', result)
+
+
+class CostVsBudgetEndpointsTest(TestCase):
+    """预算写字段、费用记支出，两条入口（快速创建 / 新建表单）口径一致"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def test_quick_create_splits_budget_and_expense(self):
+        resp = self.client.post(
+            reverse('activities:activity_quick_create'),
+            data=json.dumps({'name': '团建', 'budget': 500, 'cost': 120}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        activity = Activity.objects.get(name='团建')
+        self.assertEqual(activity.budget, Decimal('500.00'))
+        self.assertEqual(activity.expenses.count(), 1)
+        expense = activity.expenses.first()
+        self.assertEqual(expense.amount, Decimal('120.00'))
+        self.assertEqual(expense.category, 'other')
+
+    def test_quick_create_budget_only_writes_no_expense(self):
+        self.client.post(
+            reverse('activities:activity_quick_create'),
+            data=json.dumps({'name': '只说了预算', 'budget': 800}),
+            content_type='application/json')
+        activity = Activity.objects.get(name='只说了预算')
+        self.assertEqual(activity.budget, Decimal('800.00'))
+        self.assertEqual(Expense.objects.filter(activity=activity).count(), 0)
+
+    def _post_create(self, payload):
+        """提交新建表单（status 是必填项，模板靠 select 默认值带上）
+
+        重定向响应没有 context，校验失败信息要先判空，否则断言语句本身会抛 TypeError。
+        """
+        resp = self.client.post(reverse('activities:activity_create'), {
+            'participants_input': '', 'new_children': '', 'tags': '',
+            'status': 'planned', **payload,
+        })
+        errors = resp.context['form'].errors if resp.context is not None else None
+        self.assertEqual(resp.status_code, 302, errors)
+        return resp
+
+    def test_create_form_persisted_cost_becomes_expense(self):
+        """表单里的「本次费用」不得写进 budget，而是记一笔支出"""
+        self._post_create({'name': '周末行程', 'start_date': '2026-09-05',
+                           'parsed_cost': '330.50'})
+        activity = Activity.objects.get(name='周末行程')
+        self.assertIsNone(activity.budget)
+        self.assertEqual(Expense.objects.filter(activity=activity).count(), 1)
+        self.assertEqual(Expense.objects.get(activity=activity).amount, Decimal('330.50'))
+
+    def test_create_form_budget_field_still_independent(self):
+        self._post_create({'name': '有预算没花钱', 'budget': '1000', 'parsed_cost': ''})
+        activity = Activity.objects.get(name='有预算没花钱')
+        self.assertEqual(activity.budget, Decimal('1000.00'))
+        self.assertEqual(Expense.objects.filter(activity=activity).count(), 0)
+
+    def test_zero_or_negative_cost_is_not_recorded(self):
+        for i, raw in enumerate(('0', '-5')):
+            self._post_create({'name': f'不记账{i}', 'parsed_cost': raw})
+            activity = Activity.objects.get(name=f'不记账{i}')
+            self.assertIsNone(activity.budget, f'{raw} 不能被转成预算上限')
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_edit_page_does_not_offer_cost_field(self):
+        """编辑页不能再记“第一笔支出”，避免二次计费（详情页已有费用区）"""
+        activity = Activity.objects.create(user=self.user, name='已存在')
+        html = self.client.get(reverse('activities:activity_edit', args=[activity.id])).content.decode()
+        # 页面脚本里引用了 id_parsed_cost（创建/编辑共用同一模板），断言必须是输入元素本身
+        self.assertNotIn('name="parsed_cost"', html)
+        self.assertNotIn('本次费用', html)
+        create_html = self.client.get(reverse('activities:activity_create')).content.decode()
+        self.assertIn('name="parsed_cost"', create_html, '创建页丢了「本次费用」入口')
+
+
+class AiParseWeekAnchorTest(TestCase):
+    """给 AI 的提示必须自带日历对照表，不能让它自己推周基准
+
+    实测云端模型把周日（2026-08-30）的「下周五」推到了下下周五，
+    而规则解析给的是 09-04；表格注入后两边口径对齐（已拿真实模型回环验证）。
+    """
+
+    def test_anchor_table_matches_rule_parser_for_next_weekday(self):
+        from activities.views import _week_anchor_text
+        for today in (date(2026, 8, 30), date(2026, 8, 31), date(2026, 9, 4), date(2026, 9, 6)):
+            anchor = _week_anchor_text(today)
+            expected = parse_quick_input('下周五', today)['start_date']
+            self.assertIn(f'周五={expected}', anchor,
+                          f'{today}（{today.strftime("%a")}）的锚点表与规则解析不一致')
+
+    def test_anchor_declares_monday_as_week_start(self):
+        from activities.views import _week_anchor_text
+        anchor = _week_anchor_text(date(2026, 8, 30))
+        self.assertIn('周一开始', anchor)
+        self.assertIn('本周：周一=2026-08-24', anchor)
+        self.assertIn('下周：周一=2026-08-31', anchor)
+
+    def test_past_dates_flagged_for_bare_weekday_postpone(self):
+        """裸「周X」已过时，表格要把本周那个日期标成已过去，否则模型会把活动排到过去
+
+        只写文字约定时实测会返回「今天」（周日说「周六」→ 08-30），单元格标注才能驱动顺延。
+        """
+        from activities.views import _week_anchor_text
+        today = date(2026, 8, 30)      # 周日，本周周六（08-29）已过
+        anchor = _week_anchor_text(today)
+        self.assertIn('周六=2026-08-29（已过去）', anchor)
+        # 规则解析顺延后的目标日期必须能在下周行里找到
+        expected = parse_quick_input('周六', today)['start_date']
+        self.assertEqual(expected, '2026-09-05')
+        self.assertIn(f'周六={expected}', anchor)
+        self.assertIn('不得早于今天', anchor)
+        # 今天本身不算已过去，不然「今天开会」会被推走
+        self.assertNotIn('周日=2026-08-30（已过去）', anchor)

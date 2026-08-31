@@ -5,6 +5,7 @@
 import logging
 import re
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from django.db import models
 from django.db.models import Sum
@@ -199,9 +200,18 @@ def normalize_input(data, today):
     cost = data.get('cost')
     if cost is not None and cost != '':
         try:
-            cost = float(cost)
+            cost = round(float(cost), 2)
             if cost >= 0:
                 out['cost'] = cost
+        except (TypeError, ValueError):
+            pass
+    # budget 是「预算上限」（写 Activity.budget），与 cost（记一笔支出）两回事，不能合并
+    budget = data.get('budget')
+    if budget is not None and budget != '':
+        try:
+            budget = round(float(budget), 2)
+            if budget >= 0:
+                out['budget'] = budget
         except (TypeError, ValueError):
             pass
     status = data.get('status')
@@ -252,6 +262,24 @@ def expense_totals_map(activity_ids):
         Expense.objects.filter(activity_id__in=ids)
         .values_list('activity_id').annotate(total=Sum('amount'))
         .values_list('activity_id', 'total')
+    )
+
+
+def record_parsed_cost(activity, user, cost, *, note='快速输入创建'):
+    """把一句话解析出来的花费记为该活动的一笔支出
+
+    语义是「已经花掉的钱」，与 Activity.budget（预算上限）不是一回事，不得写进 budget。
+    快速创建接口与新建表单的「本次费用」共用此入口，保证两条路径口径一致。
+    金额非法或 <=0 时返回 None（静默跳过）。
+    """
+    try:
+        amount = Decimal(str(cost)).quantize(Decimal('0.01'))
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+    if amount <= 0:
+        return None
+    return Expense.objects.create(
+        activity=activity, user=user, amount=amount, category='other', note=note,
     )
 
 
