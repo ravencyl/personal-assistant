@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="三磊">
+  <!-- 印章版（PWA / App 图标）：底色走 currentColor，三枚石为负形。
+       右下那枚中心留孔 —— 空的这一枚是三磊。 -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="currentColor"/>
+  <g fill="#ffffff">
+    <rect x="25" y="16" width="14" height="14" rx="6"/>
+    <rect x="16" y="34" width="14" height="14" rx="6"/>
+    <rect x="34" y="34" width="14" height="14" rx="6"/>
+  </g>
+  <circle cx="41" cy="41" r="4" fill="currentColor"/>
+</svg>

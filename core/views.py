@@ -1,11 +1,12 @@
 from datetime import date, timedelta
 
+from django.contrib.staticfiles import finders
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Sum
 from django.utils import timezone
-from django.views.decorators.http import require_POST
-from django.http import JsonResponse
+from django.views.decorators.http import require_POST, require_safe
+from django.http import Http404, HttpResponse, JsonResponse
 
 from chat.models import Conversation
 from activities.models import Activity, Expense
@@ -312,3 +313,34 @@ def report_send_to_chat(request):
     )
 
     return JsonResponse({'success': True, 'conversation_id': conversation.id})
+
+
+@require_safe
+def service_worker(request):
+    """站点根作用域的 Service Worker。
+
+    用 require_safe（GET + HEAD）而不是 require_GET：后者会把 HEAD 拒成 405，
+    而 `curl -I https://ravenclaw.top/sw.js` 正是发布后验证响应头的手段。
+
+    浏览器把 SW 能控制的范围限制在「脚本 URL 所在的目录」，所以注册地址必须挂在根：
+    原先注册的是 {% static 'sw.js' %} = /static/sw.js，最大作用域就只有 /static/，
+    页面导航（/activities/daily/ 等）根本不被拦，sw.js 里的离线降级分支一直是死代码。
+
+    文件本体仍然在 static/sw.js（跟着 collectstatic 走），这里只是换个 URL 直出，
+    免得为它单独改生产 nginx 配置。
+
+    Cache-Control: no-store 是这个视图存在意义的一部分 —— 这个响应自身要是被缓存了，
+    就又回到「发布后滞后一次」的老问题上（sw.js 内部同样有「绝不缓存自己」的对应约定）。
+    """
+    sw_path = finders.find('sw.js')
+    if not sw_path:
+        raise Http404('sw.js 不存在，确认 static/sw.js 已随代码部署')
+
+    with open(sw_path, 'rb') as fh:
+        body = fh.read()
+
+    response = HttpResponse(body, content_type='application/javascript')
+    response['Cache-Control'] = 'no-store'
+    # 脚本已在根目录，这个头不是必需；留着以防日后改回子路径注册时踩坑
+    response['Service-Worker-Allowed'] = '/'
+    return response

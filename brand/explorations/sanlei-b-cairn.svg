@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="三磊">
+  <!-- 三石相叠 = 玛尼堆 / 路标。最上一枚空心，是三磊。 -->
+  <g fill="currentColor">
+    <rect x="8" y="40" width="48" height="16" rx="8"/>
+    <rect x="16" y="24" width="32" height="14" rx="7"/>
+  </g>
+  <rect x="26" y="10" width="12" height="10" rx="5"
+        fill="none" stroke="currentColor" stroke-width="4"/>
+</svg>

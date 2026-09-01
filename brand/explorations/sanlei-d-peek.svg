@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="三磊">
+  <!-- 品字三石，右下那枚歪头、孔里一颗瞳孔 —— 会偷看的是三磊。
+       瞳孔必须留在孔洞净空（39..49）内，否则与描边粘成一团。 -->
+  <g fill="currentColor">
+    <rect x="22" y="10" width="20" height="20" rx="8"/>
+    <rect x="10" y="34" width="20" height="20" rx="8"/>
+  </g>
+  <g transform="rotate(-8 44 44)">
+    <rect x="36.5" y="36.5" width="15" height="15" rx="6"
+          fill="none" stroke="currentColor" stroke-width="5"/>
+    <circle cx="46" cy="42" r="2.5" fill="currentColor"/>
+  </g>
+</svg>

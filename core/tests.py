@@ -1634,9 +1634,151 @@ class BrandAssetTest(TestCase):
         self.assertIn('alt="{{ SITE_NAME }}"', lockup_tags[0])
         self.assertTrue((self.STATIC / 'img' / 'logo-lockup.png').is_file())
 
+    def test_manifest_scope_covers_the_whole_site(self):
+        """manifest 挂在 /static/ 下，不显式写 scope 时默认作用域就是 /static/，
+        而 start_url 是 / —— 两者不一致时 Chrome 直接判「start_url 不在作用域内」，
+        站点根本装不上 PWA。跟 Service Worker 的作用域是同一类坑。"""
+        manifest = self._manifest()
+        self.assertEqual(manifest.get('scope'), '/', "manifest 必须显式声明 scope: '/'")
+        self.assertTrue(manifest['start_url'].startswith(manifest['scope']),
+                        'start_url 必须落在 scope 内，否则安装会被浏览器拦下')
+
     def test_rendered_login_page_serves_brand_assets(self):
         resp = self.client.get(reverse('login'))
         # 不断言前导斜杠：那取决于 STATIC_URL 写法，这里要验的是「资源真被渲染进去了」
         for asset in ('img/logo-lockup.png', 'img/logo-mark.png',
                       'icons/favicon-32.png', 'icons/apple-touch-icon.png'):
             self.assertContains(resp, asset, msg_prefix=f'登录页没引用 {asset}')
+
+
+class ServiceWorkerTest(TestCase):
+    """Service Worker 根作用域与缓存策略回归锁
+
+    「发布后样式滞后一次」要同时守住两个坑，修一个不够：
+      1. 脚本必须从站点根 /sw.js 下发 —— SW 可控作用域上限就是它脚本 URL 的目录，
+         挂在 /static/ 下就管不到任何页面（离线降级分支会变成死代码）。
+      2. 脚本自己绝不能被缓存 —— 否则浏览器每次更新检查拿回的都是旧脚本，
+         升 CACHE_VERSION 也不会生效（旧版就是被自家的静态资源 cache-first 分支坑在这里）。
+
+    另外作用域扩到根之后，这个文件会拦到全站请求，所以 GET-only / 只缓存顶层导航
+    这两条也得跟着锁住：不然表单 POST（mode 也是 navigate）会被允许重放，
+    HTMX 片段（Accept: text/html,*/*）会被当成页面缓存掉。
+    """
+
+    def _sw_source(self):
+        return (Path(settings.BASE_DIR) / 'static' / 'sw.js').read_text(encoding='utf-8')
+
+    def _fetch_handler(self):
+        """只取 fetch 监听器那一段：PRECACHE_URLS 里也有 /static/css/，在全文里找会拿错位置"""
+        src = self._sw_source()
+        return src[src.index("addEventListener('fetch'"):]
+
+    def _branch(self, marker):
+        """截出某个 `if (…marker…) { … }` 分支本体，到它的 return; 为止。
+        不截的话固定窗口会溢到下一个分支，把「本分支用了 networkFirst」误判成「全文都用了」。"""
+        handler = self._fetch_handler()
+        start = handler.index(marker)
+        body = handler[start:]
+        return body[:body.index('return;') + len('return;')]
+
+    def test_sw_served_from_site_root_and_public(self):
+        """登录页也要能装 SW，这个路由不能挂 @login_required"""
+        self.assertEqual(reverse('service_worker'), '/sw.js')
+        resp = self.client.get('/sw.js')
+        self.assertEqual(resp.status_code, 200, '未登录也被 200，不是被踢去登录页')
+        self.assertIn('javascript', resp['Content-Type'])
+
+    def test_sw_answers_head_for_deploy_checks(self):
+        """发布后靠 `curl -I /sw.js` 验响应头，HEAD 必须是 200（require_GET 会拒成 405）；
+        同时方法限制不能形同虚设，POST 得被拦下"""
+        head = self.client.head('/sw.js')
+        self.assertEqual(head.status_code, 200, 'HEAD 被拒说明用错了 require_GET，应该是 require_safe')
+        self.assertIn('no-store', head['Cache-Control'])
+        self.assertEqual(self.client.post('/sw.js').status_code, 405)
+
+    def test_sw_response_is_not_cacheable(self):
+        resp = self.client.get('/sw.js')
+        self.assertIn('no-store', resp['Cache-Control'],
+                      'no-store 必须在这个视图里显式给，不能指望 nginx 兜')
+        self.assertEqual(resp['Service-Worker-Allowed'], '/')
+
+    def test_root_route_serves_the_static_file_itself(self):
+        """根路径下发的必须是 static/sw.js 本体：拷第二份就一定会漂移"""
+        body = self.client.get('/sw.js').content.decode()
+        self.assertEqual(body.strip(), self._sw_source().strip())
+        self.assertRegex(body, r"CACHE_VERSION = 'personal-assistant-v\d+")
+
+    def test_rendered_page_registers_root_sw_and_unregisters_legacy(self):
+        html = self.client.get(reverse('login')).content.decode()
+        self.assertIn("serviceWorker.register('/sw.js')", html,
+                      '注册必须是渲染后的根路径，不能改回 /static/sw.js')
+        self.assertNotIn("'/static/sw.js'", html, '不得以任何形式把 /static/sw.js 当注册地址')
+        # 迁移动作必须枚举后按 scope 筛。单数版 getRegistration('/static/') 在遗留注册
+        # 被清掉之后会返回根注册，拿它 unregister 等于每次开页自删根注册，
+        # SW 从此不再接管导航（本地实测中真的因此导致离线降级失效）
+        self.assertIn('getRegistrations()', html, '迁移必须枚举全部注册')
+        self.assertIn("reg.scope.indexOf('/static/')", html, '迁移必须按 scope 精确认领遗留注册')
+        self.assertNotIn("getRegistration('/static/')", html,
+                         '不得用单数版 getRegistration 做迁移，会误注销根注册')
+
+    def test_sw_excludes_itself_before_any_respond_with(self):
+        handler = self._fetch_handler()
+        self.assertRegex(handler, r"pathname === '/sw\.js'", 'SW 必须放行自己的脚本请求')
+        # 位置也要锁：自放行要是写到某个 respondWith 之后，对已命中分支的请求等于没写
+        self.assertLess(handler.index("'/sw.js'"), handler.index('respondWith'))
+
+    def test_sw_skips_non_get_before_any_respond_with(self):
+        handler = self._fetch_handler()
+        self.assertRegex(handler, r"request\.method !== 'GET'")
+        self.assertLess(handler.index("'GET'"), handler.index('respondWith'))
+
+    def test_page_offline_fallback_is_navigation_only(self):
+        handler = self._fetch_handler()
+        self.assertIn("request.mode === 'navigate'", handler)
+        # 旧版还用了「Accept 含 text/html」当判据，而 HTMX 片段请求正好也带这个头，
+        # 会被当成页面缓存。锁机制而不是锁 text/html 子串：离线降级页的 Content-Type 合法含它
+        self.assertNotIn("headers.get('accept')", handler,
+                         '不得用 Accept 判 HTML，会误伤 HTMX 片段请求')
+
+    def test_css_and_js_are_not_cache_first(self):
+        """CSS/JS 走 cache-first 的话，改样式就又要靠「记得升版本号」，这条正是本次要根除的"""
+        branch = self._branch('/static/css/')
+        self.assertIn('networkFirst(', branch, 'CSS/JS 分支必须网络优先')
+        self.assertNotIn('cacheFirst(', branch, 'CSS/JS 不得回到 cache-first')
+        # 相邻的「其余静态资源」分支仍应是 cache-first（图标体积稳定，不需要每问一次网络）
+        self.assertIn('cacheFirst(', self._branch("startsWith('/static/')"))
+
+    def test_media_is_not_cached(self):
+        """/media/ 必须直接 return：用户上传同名覆盖文件后不该继续看到旧内容"""
+        line = next(l for l in self._fetch_handler().splitlines() if "'/media/'" in l)
+        self.assertIn('return', line)
+        self.assertNotIn('respondWith', line, '/media/ 不得被拦接缓存')
+
+    def _cache_put_body(self):
+        """cachePut 函数体，剔掉注释行：上面的注释里就提了 caches.open，
+        不剔掉做位置比较时会把注释文本当成代码，假失败"""
+        src = self._sw_source()
+        start = src.index('function cachePut')
+        body = src[start:src.index('\n}', start) + 2]
+        return '\n'.join(l for l in body.splitlines() if not l.strip().startswith('//'))
+
+    def test_runtime_refill_survives_body_handoff(self):
+        """运行时回填的两条时序约束，违反任何一条都是静默失败
+
+        本地实测时两条全踩过：写完之后缓存里始终只有 precache 那几条，
+        页面导航 HTML 根本进不了缓存，导致离线兜底形同虚设。
+          1. response.clone() 必须同步做。留到 caches.open().then() 里，回调跑起来时
+             原响应已经被 respondWith 接手开始往页面流，clone() 直接抛
+             「TypeError: Response body is already used」。
+          2. put 必须挂在 event.waitUntil() 上，否则 SW 可能在写入前被回收。
+        """
+        body = self._cache_put_body()
+        self.assertIn('response.clone()', body)
+        self.assertLess(body.index('response.clone()'), body.index('caches.open('),
+                        'clone() 必须在进入 caches.open 的异步回调之前同步做完')
+        self.assertLess(body.index('response.clone()'), body.index('.then('),
+                        'clone() 不能写在 .then 回调里')
+        self.assertIn('event.waitUntil(', body, '回填必须挂在 waitUntil 上')
+        self.assertRegex(body, r'cache\.put\(request, clone\)', '交给 cache.put 的必须是那个 clone')
+        self.assertNotIn('cache.put(request, response', body,
+                         '不能把原响应本身交给 cache.put')

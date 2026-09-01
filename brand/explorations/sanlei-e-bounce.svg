@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="三磊">
+  <!-- 两枚落地，一枚带速度线蹦进来 —— 刚到的那个是三磊。 -->
+  <g fill="currentColor">
+    <rect x="12" y="40" width="18" height="18" rx="7"/>
+    <rect x="34" y="40" width="18" height="18" rx="7"/>
+  </g>
+  <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round">
+    <path d="M20 22 L28 18"/>
+    <path d="M17 30 L26 27"/>
+  </g>
+  <g transform="rotate(14 44 18)">
+    <rect x="36.25" y="10.25" width="15.5" height="15.5" rx="6"
+          fill="none" stroke="currentColor" stroke-width="4.5"/>
+  </g>
+</svg>

@@ -716,9 +716,23 @@
     </script>
 
     <script>
+    // 注册 URL 必须是站点根下的 /sw.js（由 core.views.service_worker 直出 static/sw.js），
+    // 不能改回静态资源目录里那个路径：SW 可控作用域的上限就是它脚本 URL 所在的
+    // 目录，挂在 /static/ 下就管不到任何页面导航，脚本里的离线降级分支会变成死代码。
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-            navigator.serviceWorker.register('{% static "sw.js" %}');
+            navigator.serviceWorker.register('{% url 'service_worker' %}');
+            // 一次性迁移：旧版注册在 /static/sw.js 上（作用域只有 /static/）。
+            // 必须枚举全部注册后按 scope 精确认领。不能图省事用单数版 getRegistration
+            // 拿窄作用域那个再去 unregister —— 那个 API 返回的是「覆盖给定 URL 的最长
+            // 作用域注册」，遗留注册被清干净之后，覆盖 /static/ 的最长作用域就只剩根
+            // 注册，等于每次开页都把刚注册的 /sw.js 注销掉：SW 再也不接管导航，
+            // 离线降级和缓存回填全部失效（本地实测真实踩到过一次）。
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(reg) {
+                    if (reg.scope.indexOf('/static/') !== -1) reg.unregister();
+                });
+            });
         });
     }
     </script>

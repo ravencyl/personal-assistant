@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="三磊">
+  <!-- 磊 = 三石。实心两枚：一磊、二磊。空心一枚：三磊（同形，不同质）。
+       颜色走 currentColor，跟随站点的 text / accent 变量。
+       注意：XML 注释内禁止出现连续两个连字符，否则整个文件解析失败。 -->
+  <g fill="currentColor">
+    <rect x="22" y="10" width="20" height="20" rx="8"/>
+    <rect x="10" y="34" width="20" height="20" rx="8"/>
+  </g>
+  <rect x="36.5" y="36.5" width="15" height="15" rx="6"
+        fill="none" stroke="currentColor" stroke-width="5"/>
+</svg>

@@ -3,7 +3,8 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from core.views import dashboard, search_api, weekly_report, monthly_report, yearly_report, report_send_to_chat
+from core.views import (dashboard, search_api, weekly_report, monthly_report, yearly_report,
+                        report_send_to_chat, service_worker)
 from activities.views import daily_view
 from core.reminder_views import reminder_dismiss, reminder_done
 from core.suggestion_views import suggestion_dismiss, suggestion_read, suggestion_tool_run
@@ -14,6 +15,10 @@ urlpatterns = [
 
     # Dashboard
     path('dashboard/', dashboard, name='dashboard'),
+
+    # PWA：Service Worker 必须在站点根路径，否则它能控制的范围只有 /static/
+    # （详见 core/views.py::service_worker）；文件本体仍在 static/sw.js
+    path('sw.js', service_worker, name='service_worker'),
 
     # Django admin
     path('admin/', admin.site.urls),
