@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}登录 · {{ SITE_NAME }}{% endblock %}
 
@@ -6,8 +7,10 @@
 <div class="flex min-h-[60vh] items-center justify-center">
     <div class="w-full max-w-md space-y-8 rounded-xl bg-[var(--bg-card)] p-8">
         <div>
-            <h2 class="text-center text-2xl font-bold text-[var(--text)]">登录</h2>
-            <p class="mt-2 text-center text-sm text-[var(--text-secondary)]">{{ SITE_NAME }}</p>
+            {# 登录页是全站唯一用完整标（图形+站名+拉丁字标）的品牌位，其余页面用导航图形标 #}
+            <img src="{% static 'img/logo-lockup.png' %}" alt="{{ SITE_NAME }}"
+                 class="mx-auto h-auto w-40" width="320" height="263">
+            <h2 class="mt-5 text-center text-2xl font-bold text-[var(--text)]">登录</h2>
         </div>
         <form class="mt-8 space-y-6" method="post">
             {% csrf_token %}

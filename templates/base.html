@@ -18,6 +18,12 @@
         }
     </style>
     <link rel="manifest" href="{% static 'manifest.json' %}">
+    {# 品牌图标统一「深色底板 + 反白图形」，资源由 brand/make_logo_assets.py 从设计源图裁切生成 #}
+    <link rel="icon" type="image/png" sizes="16x16" href="{% static 'icons/favicon-16.png' %}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/favicon-32.png' %}">
+    <link rel="icon" type="image/png" sizes="48x48" href="{% static 'icons/favicon-48.png' %}">
+    {# iOS 加到主屏只认这个文件名，且必须方角铺满（系统会再罩一层 mask） #}
+    <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
     <meta name="theme-color" content="#ffffff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -32,7 +38,11 @@
                 <div class="flex h-14 justify-between">
                     <div class="flex">
                         <div class="flex flex-shrink-0 items-center">
-                            <a href="/" class="text-lg font-semibold tracking-tight text-[var(--text)]">{{ SITE_NAME }}</a>
+                            {# 图形标本身已含站名二字，不再旁排文字；alt/aria-label 供读屏与图片加载失败时兜底 #}
+                            <a href="/" class="flex items-center" aria-label="{{ SITE_NAME }}">
+                                <img src="{% static 'img/logo-mark.png' %}" alt="{{ SITE_NAME }}"
+                                     class="h-7 w-auto" width="264" height="166">
+                            </a>
                         </div>
                         {% if user.is_authenticated %}
                         <div class="hidden md:ml-8 md:flex md:space-x-1">

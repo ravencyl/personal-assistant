@@ -1579,8 +1579,64 @@ class SiteBrandTest(TestCase):
 
     @override_settings(SITE_NAME='TESTBRAND')
     def test_brand_comes_from_settings_not_literal(self):
-        """改 settings 就能改名：导航、页面标题、登录页副标题都要跟着变"""
+        """改 settings 就能改名：页面标题、导航标 alt、登录页品牌标 alt 都要跟着变"""
         resp = self.client.get(reverse('login'))
         self.assertContains(resp, 'TESTBRAND')
         for name in self.OLD_NAMES:
             self.assertNotContains(resp, name)
+
+
+class BrandAssetTest(TestCase):
+    """品牌图资源一致性回归锁
+
+    以前 manifest 只挂了一个 icon.svg（内容是「AI」字样的旧占位图），改名换标后
+    没人发现它已经不对。这里把「模板引用的图标路径」和「manifest 声明的图标」都
+    对到磁盘上的真实文件，并保证登录页/导航用的是新资源。
+    图本身由 brand/make_logo_assets.py 从设计源图生成，不手写。
+    """
+
+    STATIC = Path(settings.BASE_DIR) / 'static'
+
+    def _manifest(self):
+        return json.loads((self.STATIC / 'manifest.json').read_text(encoding='utf-8'))
+
+    def test_manifest_icons_point_at_existing_files(self):
+        icons = self._manifest()['icons']
+        self.assertTrue(icons, 'manifest 必须声明图标')
+        for icon in icons:
+            rel = icon['src'].replace('/static/', '')
+            path = self.STATIC / rel
+            self.assertTrue(path.is_file(), f'manifest 图标不存在：{icon["src"]}')
+            # 空文件 / LFS 指针 / 误存成文本都会在这里被拦下
+            self.assertTrue(path.read_bytes().startswith(b'\x89PNG'), f'{rel} 不是 PNG')
+        purposes = ' '.join(i.get('purpose', '') for i in icons)
+        self.assertIn('maskable', purposes, '缺 maskable 图标，Android 安装会被系统任意裁切')
+        self.assertIn('any', purposes, '缺 purpose=any 图标')
+
+    def test_base_template_links_all_icon_sizes(self):
+        html = (Path(settings.BASE_DIR) / 'templates' / 'base.html').read_text(encoding='utf-8')
+        referenced = re.findall(r"\{%\s*static '([^']+)'\s*%\}", html)
+        for name in ('icons/favicon-16.png', 'icons/favicon-32.png', 'icons/favicon-48.png',
+                     'icons/apple-touch-icon.png', 'img/logo-mark.png'):
+            self.assertIn(name, referenced, f'base.html 没引用 {name}')
+            self.assertTrue((self.STATIC / name).is_file(), f'{name} 资源缺失，重跑 brand/make_logo_assets.py')
+        self.assertNotIn('icon.svg', html, '旧的「AI」占位图标已删除，不得再被引用')
+
+    def test_nav_and_login_use_logo_images(self):
+        """导航用图形标、登录页用完整标，两处 alt 都是站名（无图/读屏兜底）"""
+        base = (Path(settings.BASE_DIR) / 'templates' / 'base.html').read_text(encoding='utf-8')
+        mark_tags = [t for t in re.findall(r'<img[^>]*>', base, re.S) if 'logo-mark.png' in t]
+        self.assertTrue(mark_tags, '导航没有图形标 <img>')
+        self.assertIn('alt="{{ SITE_NAME }}"', mark_tags[0], '导航图形标 alt 必须是站名')
+        login = (Path(settings.BASE_DIR) / 'templates' / 'registration' / 'login.html').read_text(encoding='utf-8')
+        lockup_tags = [t for t in re.findall(r'<img[^>]*>', login, re.S) if 'logo-lockup.png' in t]
+        self.assertTrue(lockup_tags, '登录页没有完整标 <img>')
+        self.assertIn('alt="{{ SITE_NAME }}"', lockup_tags[0])
+        self.assertTrue((self.STATIC / 'img' / 'logo-lockup.png').is_file())
+
+    def test_rendered_login_page_serves_brand_assets(self):
+        resp = self.client.get(reverse('login'))
+        # 不断言前导斜杠：那取决于 STATIC_URL 写法，这里要验的是「资源真被渲染进去了」
+        for asset in ('img/logo-lockup.png', 'img/logo-mark.png',
+                      'icons/favicon-32.png', 'icons/apple-touch-icon.png'):
+            self.assertContains(resp, asset, msg_prefix=f'登录页没引用 {asset}')
