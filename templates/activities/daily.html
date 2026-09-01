@@ -10,9 +10,20 @@
     <h1 class="text-2xl sm:text-3xl font-bold text-[var(--text)] tracking-tight">{{ today_display }}</h1>
 </div>
 
+{% comment %}
+桌面端（md+）左右两列，沿用活动详情页那一套实现（声明与 .detail-cols 分组共享，见 custom.css）：
+  右列 = 今日概览（打卡与提醒 · 关键数字 · 今日进度 · 今日摘要 · 本周消费），整列随滚动常驻；
+  左列 = 主内容流（快捷入口 · 习惯打卡 · 待处理提醒 · AI 建议 · 活动分组）。
+两个列容器都不加显隐类 —— 移动端它们是普通块级元素，纵向顺序完全由 DOM 决定。
+右列整块在 DOM 里排在左列之前，所以移动端阅读顺序与改造前逐块一致；桌面端靠 order 换回右侧。
+{% endcomment %}
+<div class="daily-cols">
+<!-- 右列：今日概览（DOM 在前保证移动端顺序不变，桌面端用 order 换到右侧常驻） -->
+<div class="daily-rail">
+
 <!-- 打卡与提醒：早间（<18 点）展示，与晚间摘要按时段互斥；只放下方活动卡片没覆盖的信息 -->
 {% if show_today_plan %}
-<section class="collapsible-section mb-8" data-section="daily-plan">
+<section class="collapsible-section mb-8 md:mb-6" data-section="daily-plan">
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center gap-2 cursor-pointer select-none" onclick="toggleSection('daily-plan')">
         <span>打卡与提醒</span>
         <svg class="w-4 h-4 text-[var(--text-muted)] ml-auto transition-transform" id="arrow-daily-plan" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -77,24 +88,50 @@
 </section>
 {% endif %}
 
-<!-- 统计卡片 -->
-<div class="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
+<!-- 统计卡片（桌面端进右列后压回三格横排：竖排会把整列顶到需要列内滚动） -->
+<div class="grid grid-cols-3 gap-3 sm:gap-4 md:gap-2 mb-8 md:mb-6">
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 md:p-3">
         <p class="text-xs text-[var(--text-muted)] mb-1">今日活动</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">{{ ongoing_count }}</p>
+        <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{{ ongoing_count }}</p>
     </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 md:p-3">
         <p class="text-xs text-[var(--text-muted)] mb-1">进行中</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">{{ in_progress_count }}</p>
+        <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{{ in_progress_count }}</p>
     </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 md:p-3">
         <p class="text-xs text-[var(--text-muted)] mb-1">今日费用</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">{% if today_expense %}¥{{ today_expense|floatformat:"0" }}{% else %}—{% endif %}</p>
+        <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{% if today_expense %}¥{{ today_expense|floatformat:"0" }}{% else %}—{% endif %}</p>
     </div>
 </div>
 
+<!-- 今日进度：只在桌面端出现，把「还差几项」和「几条待办」提到常驻右列，点击定位左列对应区块 -->
+{% if today_instances or pending_reminders %}
+<section class="hidden md:block app-card p-4 mb-8 md:mb-6">
+    <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">今日进度</h2>
+    <div class="space-y-3">
+        {% if today_instances %}
+        <button type="button" data-jump="habits" class="block w-full text-left">
+            <span class="flex items-center justify-between text-xs mb-1.5">
+                <span class="text-[var(--text-muted)]">习惯打卡</span>
+                <span class="tabular-nums text-[var(--text-secondary)]" id="habit-progress-label">{{ habit_done_count }}/{{ habit_total_count }} 已打卡</span>
+            </span>
+            <span class="block h-1 rounded-full bg-[var(--border)] overflow-hidden" title="习惯完成率 {{ habit_done_count }}/{{ habit_total_count }}">
+                <span class="block h-full rounded-full bg-[var(--accent)] transition-all" id="habit-progress-fill" style="width: {% widthratio habit_done_count habit_total_count 100 %}%"></span>
+            </span>
+        </button>
+        {% endif %}
+        {% if pending_reminders %}
+        <button type="button" data-jump="reminders" class="flex items-center justify-between w-full text-left">
+            <span class="text-xs text-[var(--text-muted)]">待处理提醒</span>
+            <span class="text-xs tabular-nums text-[var(--text-secondary)]">{{ pending_reminders|length }} 条 →</span>
+        </button>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
 <!-- 每日摘要（cron 预生成） -->
-<section class="collapsible-section mb-8" data-section="daily-summary">
+<section class="collapsible-section mb-8 md:mb-6" data-section="daily-summary">
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center gap-2 cursor-pointer select-none" onclick="toggleSection('daily-summary')">
         <span>今日摘要</span>
         <svg class="w-4 h-4 text-[var(--text-muted)] ml-auto transition-transform" id="arrow-daily-summary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -115,7 +152,7 @@
 
 <!-- 本周消费概览 -->
 <a href="{% url 'activities:expense_report' %}"
-   class="block bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 mb-8 hover:shadow-md transition-shadow">
+   class="block bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 mb-8 md:mb-6 hover:shadow-md transition-shadow">
     <div class="flex items-center justify-between">
         <div>
             <p class="text-xs text-[var(--text-muted)] mb-1">本周消费</p>
@@ -129,6 +166,11 @@
         </div>
     </div>
 </a>
+
+</div><!-- /右列 -->
+
+<!-- 左列：主内容流 -->
+<div class="daily-main">
 
 <!-- 快捷操作 -->
 <div class="flex items-center flex-wrap gap-3 mb-8">
@@ -164,11 +206,11 @@
 
 <!-- 今日习惯打卡 -->
 {% if today_instances %}
-<section class="app-card p-4 mb-8">
+<section class="app-card p-4 mb-8" id="sec-habits">
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">今日习惯</h2>
     <div class="space-y-2">
         {% for a in today_instances %}
-        <div class="flex items-center justify-between py-1.5">
+        <div class="flex items-center justify-between py-1.5" data-habit-row>
             <span class="text-sm text-[var(--text)]">{{ a.name }}</span>
             {% if a.status == 'done' %}
             <span class="text-sm text-zinc-900 font-medium flex items-center gap-1">
@@ -195,7 +237,7 @@
 
 <!-- 待处理提醒 -->
 {% if pending_reminders %}
-<section class="app-card p-4 mb-8">
+<section class="app-card p-4 mb-8" id="sec-reminders">
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">
         提醒
         <span class="ml-1.5 text-[var(--text-muted)] font-normal normal-case">{{ pending_reminders|length }}</span>
@@ -377,6 +419,9 @@
     {% endif %}
 </div>
 
+</div><!-- /左列 -->
+</div><!-- /.daily-cols -->
+
 <script>
 // 折叠功能：点击标题切换内容显示，使用 localStorage 保存状态
 function toggleSection(sectionId) {
@@ -402,12 +447,17 @@ function toggleSection(sectionId) {
 // 页面加载时恢复折叠状态
 (function() {
     var sections = ['daily-plan', 'ai-suggestions', 'daily-summary', 'in_progress', 'upcoming', 'recently_done'];
+    // 这三个是次要长列表：桌面端两列后左列变窄、整页仍要滚很久，首屏默认只留今日相关区；
+    // 只改未手动折叠过时的默认值，移动端（matchMedia 不命中）保持与旧版一致的默认展开
+    var desktopCollapsed = ['in_progress', 'upcoming', 'recently_done'];
+    var isDesktop = window.matchMedia('(min-width: 768px)').matches;
     sections.forEach(function(sectionId) {
         var content = document.getElementById('content-' + sectionId);
         var arrow = document.getElementById('arrow-' + sectionId);
         if (!content || !arrow) return;
 
         var state = localStorage.getItem('daily_section_' + sectionId);
+        if (!state && isDesktop && desktopCollapsed.indexOf(sectionId) > -1) state = 'collapsed';
         if (state === 'collapsed') {
             content.classList.add('hidden');
             arrow.style.transform = 'rotate(-90deg)';
@@ -415,6 +465,43 @@ function toggleSection(sectionId) {
             // 默认展开
             arrow.style.transform = 'rotate(0deg)';
         }
+    });
+})();
+</script>
+
+<script>
+// 右列常驻卡 → 定位左列对应区块（沿用活动详情页 data-jump 做法，只滚动不抢焦点）
+(function () {
+    var JUMPS = { habits: 'sec-habits', reminders: 'sec-reminders' };
+    document.querySelectorAll('[data-jump]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var box = document.getElementById(JUMPS[btn.dataset.jump]);
+            if (!box) return;
+            box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    });
+})();
+
+// 打卡后刷新右列「今日进度」：进度条只靠服务端渲染的话，点完最后一个打卡会假死。
+// 计数从左侧习惯区 DOM 反推（行里还有打卡表单 = 未 done），避免在 JS 里另写一套口径
+(function () {
+    var fill = document.getElementById('habit-progress-fill');
+    var label = document.getElementById('habit-progress-label');
+    var section = document.getElementById('sec-habits');
+    if (!fill || !label || !section) return;
+
+    function refresh() {
+        var rows = section.querySelectorAll('[data-habit-row]');
+        if (!rows.length) return;
+        var done = 0;
+        rows.forEach(function (row) { if (!row.querySelector('form')) done += 1; });
+        fill.style.width = Math.round(done * 100 / rows.length) + '%';
+        label.textContent = done + '/' + rows.length + ' 已打卡';
+    }
+
+    // 打卡表单走 hx-post + outerHTML，换下来的就是本行末尾那个 span，整段重算一次即可
+    document.addEventListener('htmx:afterSwap', function (e) {
+        if (section.contains(e.target)) refresh();
     });
 })();
 </script>

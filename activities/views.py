@@ -1087,11 +1087,14 @@ def daily_view(request):
     today_plan = generate_daily_plan(request.user)
 
     # 循环活动今日实例（活动列表分区，与上方各组同口径走 qs）
-    today_instances = qs.filter(
+    # 转成 list：右列「今日进度」卡要数完成度，queryset 在模板里会被走两次
+    today_instances = list(qs.filter(
         recurring_source__isnull=False,
         start_date=today,
         recurring_source__is_active=True,
-    ).select_related('recurring_source')
+    ).select_related('recurring_source'))
+    habit_total_count = len(today_instances)
+    habit_done_count = sum(1 for a in today_instances if a.status == 'done')
 
     # 六个分组互斥，合并后一次 attach_costs：
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
@@ -1121,6 +1124,8 @@ def daily_view(request):
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
         'suggestions': suggestions,
         'today_instances': today_instances,
+        'habit_total_count': habit_total_count,
+        'habit_done_count': habit_done_count,
         'pending_reminders': pending_reminders,
         'daily_summary': daily_summary,
         'today_plan': today_plan,

@@ -217,7 +217,7 @@ a {
     }
 }
 
-/* 活动详情页两列：主内容流 + 辅助右列。
+/* 桌面端两列：主内容流 + 辅助右列（活动详情页、Daily 页共用一套声明）。
    移动端（<768px）不定义任何规则 —— 两列容器都是普通块级元素，
    纵向顺序完全由 DOM 决定（模板里 DOM 顺序即移动端预期顺序）。
    桌面端：左列自适应（minmax(0,1fr) 兜住长文本/宽表格不撑破列），
@@ -227,7 +227,8 @@ a {
    常驻的是整列而不是顶部单卡：卡片自己 sticky 时，同列的兄弟块会从它底下滚过去，
    而 .panel 没有背景色，滚到一半就会出现两块文字叠在一起。 */
 @media (min-width: 768px) {
-    .detail-cols {
+    .detail-cols,
+    .daily-cols {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 320px;
         gap: 2rem;
@@ -239,12 +240,24 @@ a {
        否则底部信息会被钉在屏幕外永远看不到。
        这里故意不加 overscroll-behavior: contain —— 列内滚到底后需要把滚动
        链回给页面，否则鼠标停在右列时整页就滚不动了。 */
-    .detail-rail {
+    .detail-rail,
+    .daily-rail {
         position: sticky;
         top: 4.5rem;
         max-height: calc(100vh - 5.5rem);
         overflow-y: auto;
         scrollbar-width: thin;
+    }
+
+    /* Daily 页的右列在 DOM 里排在主内容流之前（移动端阅读顺序才能与改造前逐块一致），
+       桌面端用 order 换回右侧。order 只在网格布局内参与计算，媒体查询外不定义
+       就完全不影响移动端的块级流。 */
+    .daily-cols .daily-main {
+        order: 1;
+    }
+
+    .daily-cols .daily-rail {
+        order: 2;
     }
 }
 

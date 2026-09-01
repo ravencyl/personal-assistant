@@ -19,7 +19,8 @@ from django.utils import timezone
 from django.db.models import Sum
 
 from activities.models import (Activity, ActivityLog, Attachment, Expense, Participant,
-                               ActivityTemplate)
+                               ActivityTemplate, RecurringActivity)
+from core.models import Reminder
 from notes.models import Note
 from activities.parsing import parse_quick_input
 from activities.services import (InputError, add_expense, clean_category,
@@ -1256,6 +1257,28 @@ class UpdateDescriptionAgentToolTest(TestCase):
         self.assertEqual(activity.duration_minutes, 90)
 
 
+def _css_rules(css, selector):
+    """取 custom.css 里所有「选择器串中出现 selector」的规则块。
+
+    返回 [{'selectors': str, 'media': 所在 @media 条件（不在媒体查询里则为空串）,
+           'body': 声明文本}]。详情页与 Daily 页的两列声明是分组共享的
+    （'.detail-cols,\n.daily-cols {'），直接字符串找 '.detail-cols {' 会找不到，
+    锁就静默空跑了，所以统一走这里。
+    """
+    blocks = []
+    for m in re.finditer(r'([^{}]+)\{([^{}]*)\}', css):
+        selectors = ' '.join(s.strip() for s in m.group(1).split(',')).strip()
+        if selector not in selectors:
+            continue
+        before = css[:m.start()]
+        media = ''
+        at = before.rfind('@media')
+        if at != -1 and before.count('{', at) > before.count('}', at):
+            media = before[at:].split('{', 1)[0].replace('@media', '').strip()
+        blocks.append({'selectors': selectors, 'media': media, 'body': m.group(2)})
+    return blocks
+
+
 class ActivityDetailDesktopLayoutTest(TestCase):
     """活动详情页桌面两列布局与概览增强回归锁
 
@@ -1347,18 +1370,20 @@ class ActivityDetailDesktopLayoutTest(TestCase):
 
     def test_columns_css_uses_single_md_breakpoint(self):
         css = self.CSS.read_text(encoding='utf-8')
-        idx = css.index('.detail-cols {')
-        media = css[:idx].rsplit('@media', 1)[-1].split('{', 1)[0].strip()
-        self.assertEqual(media, '(min-width: 768px)',
-                         '.detail-cols 必须只落在 768px 这个唯一结构断点内')
-        body = css[idx:idx + 400]
+        cols = _css_rules(css, '.detail-cols')
+        self.assertTrue(cols, 'custom.css 里两列声明丢了')
+        for block in cols:
+            self.assertEqual(block['media'], '(min-width: 768px)',
+                             '.detail-cols 必须只落在 768px 这个唯一结构断点内')
+        body = next(b['body'] for b in cols if b['selectors'] == '.detail-cols .daily-cols')
         self.assertIn('320px', body, '右列固定宽度是本次设计的一部分')
         self.assertIn('minmax(0, 1fr)', body, '左列须用 minmax(0,1fr) 兜住长内容撑破列')
         self.assertIn('align-items: start', body,
                       '网格默认 stretch 会把右列拉高，sticky 就没空间钉住')
-        rail = css[css.index('.detail-rail {'):]
-        self.assertIn('position: sticky', rail, '右列整列常驻是桌面端设计的一部分')
-        self.assertIn('max-height', rail, '矮视口下右列需列内滚动，否则底部信息看不到')
+        rail = _css_rules(css, '.detail-rail')
+        self.assertTrue(rail, 'custom.css 里右列常驻声明丢了')
+        self.assertIn('position: sticky', rail[0]['body'], '右列整列常驻是桌面端设计的一部分')
+        self.assertIn('max-height', rail[0]['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
 
     def test_subtask_progress_and_budget_remaining_rendered(self):
         """概览增强：子任务完成度进度条 + 预算余额文案"""
@@ -1372,3 +1397,203 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         html = self.client.get(f'/activities/{self.parent.id}/').content.decode()
         self.assertIn('超支 ¥200', html)
         self.assertNotIn('剩余 ¥', html)
+
+
+class DailyDesktopLayoutTest(TestCase):
+    """Daily 页桌面两列布局与右列常驻卡回归锁
+
+    为什么锁：Daily 页的两列完全靠模板里两个列容器 + CSS 在 768px 下的
+    grid/sticky/order 实现，改回单列、把某块从右列挤进左列、给移动端加了 sm:
+    结构断点，都不会报错，只在真实屏幕上退化。
+
+    移动端契约与活动详情页不同：Daily 页的右列整块在 DOM 里排在主内容流之前
+    （这样移动端阅读顺序与改造前逐块一致），桌面端靠 order 换回右侧 ——
+    所以 DOM 里的块顺序就是移动端顺序契约，下面按它断言。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'daily.html'
+    CSS = Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
+    RAIL_END = '</div><!-- /右列 -->'
+    MAIN_END = '</div><!-- /左列 -->'
+    COLS_END = '</div><!-- /.daily-cols -->'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        today = timezone.localdate()
+        # 4 个习惯、2 个已打卡 → 完成率 50%。条件渲染块不带数据就整块不渲染，顺序锁会空跑
+        for name, status in [('晨读', 'done'), ('跑步', 'done'), ('冥想', 'planned'), ('写字', 'planned')]:
+            src = RecurringActivity.objects.create(user=self.user, name=name,
+                                                   frequency='daily', is_active=True)
+            Activity.objects.create(user=self.user, name=name, start_date=today,
+                                    status=status, recurring_source=src)
+        # 固定放在当天中午：避免跨零点跑测试时 trigger_at__date 不等于 today
+        fired_at = timezone.localtime(timezone.now()).replace(
+            hour=12, minute=0, second=0, microsecond=0)
+        Reminder.objects.create(user=self.user, content='给车做保养',
+                                trigger_at=fired_at, status='fired')
+        trip = Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress',
+                                       start_date=today - timedelta(days=1),
+                                       end_date=today + timedelta(days=2),
+                                       budget=Decimal('2000'))
+        Expense.objects.create(activity=trip, user=self.user, amount=Decimal('600'),
+                               category='transport', paid_at=today)
+        # 明日开始的活动：让 AI 建议区渲染（建议区在左列，不入顺序锁就白跑）
+        Activity.objects.create(user=self.user, name='下周团建', status='planned',
+                                start_date=today + timedelta(days=1))
+        # 近期完成分组
+        Activity.objects.create(user=self.user, name='旧项目结项', status='done',
+                                start_date=today - timedelta(days=2))
+        self.html = self._render_morning()
+
+    def _render_morning(self):
+        """按早间（09:00）渲染：show_today_plan 只在 <18 点为真。
+
+        不固定时段的话，「打卡与提醒」整块会在傍晚以后跑测试时直接不渲染，
+        顺序锁与右列归属锁都会静默空跑。只替换「取当前时间」这一种调用，
+        模板里日期格式化（传 value 的 localtime）仍走原逻辑。
+        """
+        from unittest import mock
+        real = timezone.localtime
+        early = real().replace(hour=9, minute=0, second=0, microsecond=0)
+
+        def fake(value=None, current_timezone=None):
+            return early if value is None else real(value, current_timezone)
+
+        with mock.patch.object(timezone, 'localtime', fake):
+            return self.client.get('/activities/daily/').content.decode()
+
+    def _at(self, text, anchor, desc):
+        """在切片里找锚点位；找不到就是「这块被搬出该列」，当断言失败报而不是 ValueError"""
+        at = text.find(anchor)
+        if at < 0:
+            self.fail(f'{desc}：预期内容不在该列里（找不到 {anchor}）')
+        return at
+
+    def _cols(self):
+        start = self._at(self.html, 'class="daily-cols"', '两列容器')
+        return self.html[start:self._at(self.html, self.COLS_END, '两列收尾')]
+
+    def _rail(self):
+        cols = self._cols()
+        start = self._at(cols, 'class="daily-rail"', '右列容器')
+        return cols[start:self._at(cols, self.RAIL_END, '右列')]
+
+    def _main(self):
+        cols = self._cols()
+        start = self._at(cols, 'class="daily-main"', '左列容器')
+        return cols[start:self._at(cols, self.MAIN_END, '左列')]
+
+    def test_two_column_grid_and_exactly_two_columns(self):
+        self.assertEqual(self.html.count('class="daily-cols"'), 1, '两列容器应唯一')
+        cols = self._cols()
+        self.assertEqual(cols.count('class="daily-rail"'), 1, 'daily-cols 内应恰好一个右列')
+        self.assertEqual(cols.count('class="daily-main"'), 1, 'daily-cols 内应恰好一个左列')
+        self.assertIn(self.RAIL_END, cols, '右列未闭合，两列结构已破损')
+        self.assertIn(self.MAIN_END, cols, '左列未闭合，两列结构已破损')
+
+    def test_column_containers_have_no_visibility_class(self):
+        """列容器不加显隐类是「移动端视觉顺序 = DOM 顺序」的前提"""
+        self.assertIn('<div class="daily-rail">', self.html,
+                      '右列容器加了类，移动端可能少一整列')
+        self.assertIn('<div class="daily-main">', self.html,
+                      '左列容器加了类，移动端可能少一整列')
+
+    def test_right_column_is_dom_first_and_visually_right_on_desktop(self):
+        """右列整块在 DOM 里排在左列之前：移动端顺序才能与改造前逐块一致"""
+        cols = self._cols()
+        self.assertLess(self._at(cols, 'class="daily-rail"', '右列'),
+                        self._at(cols, 'class="daily-main"', '左列'),
+                        '右列改成 DOM 在后会让移动端「打卡与提醒/统计」下跳，阅读顺序回退')
+        css = self.CSS.read_text(encoding='utf-8')
+        rail_order = [b for b in _css_rules(css, '.daily-rail') if 'order' in b['body']]
+        self.assertTrue(rail_order, '没有把右列换回右侧的 order 声明，桌面端左右会颠倒')
+        self.assertIn('order: 2', rail_order[0]['body'])
+
+    def test_primary_flow_left_auxiliary_right(self):
+        rail, main = self._rail(), self._main()
+        for anchor, desc in [('data-section="daily-plan"', '打卡与提醒'), ('今日活动', '今日活动计数'),
+                             ('data-section="daily-summary"', '今日摘要'), ('本周消费', '本周消费')]:
+            self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
+            self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
+        for anchor, desc in [('新建活动', '快捷入口'), ('id="sec-habits"', '习惯打卡'),
+                             ('id="sec-reminders"', '待处理提醒'),
+                             ('data-section="ai-suggestions"', 'AI 建议'), ('今日进行中', '活动分组')]:
+            self.assertIn(anchor, main, f'{desc}应在左列主内容流')
+
+    def test_mobile_reading_order_matches_dom(self):
+        """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）"""
+        anchors = ['data-section="daily-plan"', '今日活动', 'id="habit-progress-fill"',
+                   'data-section="daily-summary"', '本周消费', '新建活动',
+                   'id="sec-habits"', 'id="sec-reminders"', 'data-section="ai-suggestions"',
+                   '今日进行中']
+        positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
+        self.assertEqual(positions, sorted(positions),
+                         '移动端单列顺序变了：右列四块之后才是快捷入口，再是习惯/提醒/建议/活动分组')
+
+    def test_today_progress_card_is_desktop_only_and_inside_right_column(self):
+        rail = self._rail()
+        card = rail[:self._at(rail, 'data-section="daily-summary"', '今日进度卡与摘要的先后关系')]
+        self.assertIn('今日进度', card, '今日进度卡丢了或被挤到摘要之后')
+        self.assertIn('hidden md:block', card,
+                      '进度卡必须只在桌面端出现，否则移动端白占高度')
+        self.assertEqual(card.count('data-jump='), 2, '习惯/提醒两个定位入口缺一')
+        self.assertIn('2/4 已打卡', card, '完成率要用服务端数字，不能在 JS 里另算一套')
+        self.assertIn('width: 50%', card, '习惯完成率进度条未渲染')
+        self.assertIn('1 条 →', card, '待处理提醒计数未渲染')
+
+    def test_checkin_htmx_contract_and_progress_refresh(self):
+        """打卡仍走 HTMX 局部替换，且右列进度跟着刷新（否则数字假死）"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertIn('hx-swap="outerHTML"', src, '打卡表单的 HTMX 局部替换契约被改')
+        self.assertIn('htmx:afterSwap', src, '打卡后右列「今日进度」需要跟着重算')
+        self.assertIn('data-habit-row', src, '进度重算靠行标记反推完成数，标记丢了就数不准')
+        self.assertNotIn('htmx.process', src, '手动 htmx.process 会造成双重绑定与旧节点引用残留')
+        for tag in re.findall(r'<[^>]*\bdata-(?:suggestion-tool|suggestion-dismiss|quick-open)\b[^>]*>', src):
+            self.assertNotIn('hx-', tag, 'JSON 端点只能由 fetch 消费，元素上不能挂 hx-*')
+
+    def test_secondary_lists_default_collapsed_on_desktop_only(self):
+        """三个次要长列表只在桌面端默认折叠，移动端首屏仍默认展开"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertIn("matchMedia('(min-width: 768px)')", src,
+                      '默认折叠必须用 768px 断点门控，否则移动端首屏会退化')
+        self.assertRegex(src, r"var desktopCollapsed = \[[^\]]*'upcoming'[^\]]*\]",
+                         '「即将开始」应保留在桌面端默认折叠清单里')
+        self.assertRegex(src, r'if \(!state && isDesktop && desktopCollapsed',
+                         '默认折叠只能作用于未手动折叠过的区块')
+        self.assertIn("localStorage.getItem('daily_section_' + sectionId)", src,
+                      '折叠状态仍走既有 localStorage 机制，不另造一套')
+        self.assertIn("'daily-plan', 'ai-suggestions', 'daily-summary', "
+                      "'in_progress', 'upcoming', 'recently_done'", src,
+                      '恢复脚本的分区清单被改，可能有区的折叠状态不再恢复')
+
+    def test_no_structural_sm_breakpoint_in_template(self):
+        """分端只允许 md:（768px）；sm: 仅可作纯尺寸渐进（p/gap/text/space）"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        hits = re.findall(r'sm:(hidden|block|flex|inline|grid|order|col-span|row-span|sticky|absolute|fixed)\S*', src)
+        self.assertEqual(hits, [], f'模板出现 sm: 结构性断点：{hits}')
+
+    def test_columns_css_uses_single_md_breakpoint(self):
+        css = self.CSS.read_text(encoding='utf-8')
+        for selector in ('.daily-cols', '.daily-rail'):
+            blocks = _css_rules(css, selector)
+            self.assertTrue(blocks, f'custom.css 里 {selector} 的声明丢了')
+            for block in blocks:
+                self.assertEqual(block['media'], '(min-width: 768px)',
+                                 f'{selector} 必须只落在 768px 这个唯一结构断点内')
+        grid = _css_rules(css, '.detail-cols')[0]
+        self.assertIn('.daily-cols', grid['selectors'],
+                      '两列声明应与详情页共享，不另拷一份（拷了就两处会飘）')
+        self.assertIn('320px', grid['body'])
+        self.assertIn('minmax(0, 1fr)', grid['body'], '左列须用 minmax(0,1fr) 兜住长内容撑破列')
+        self.assertIn('align-items: start', grid['body'],
+                      '网格默认 stretch 会把右列拉高，sticky 就没空间钉住')
+        rail = _css_rules(css, '.detail-rail')[0]
+        self.assertIn('.daily-rail', rail['selectors'], '右列常驻声明应与详情页共享同一块')
+        self.assertIn('position: sticky', rail['body'])
+        self.assertIn('max-height', rail['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
+
+    def test_no_template_syntax_leaked_into_rendered_html(self):
+        """模板注释语法泄漏锁：Django 的 {# #} 不支持跳行，写多行会整段渲染成正文"""
+        for token in ('{%', '{{', '{#'):
+            self.assertNotIn(token, self.html, f'渲染结果里出现 {token}，模板语法泄漏')
