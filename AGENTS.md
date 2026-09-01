@@ -175,6 +175,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 fetch 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。
 - **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发聊天浮窗 `r is not a function` 错误）。
 - **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
+- **详情页桌面两列**：`activity_detail.html` 用 `.detail-cols`（md+ 起 `minmax(0,1fr) + 320px` 网格，移动端不定义任何规则）包住左列（描述·费用·子任务）与右列（附件·参与者·关联），`.detail-main` / `.detail-rail` 命名两列，`align-items:start` + `position:sticky` 让右列整列常驻（常驻整列而不是只钉顶部卡片，否则同列兄弟块会从无背景的 `.panel` 底下滚过造成叠字）。两列容器本身**不加任何显隐类**，所以移动端视觉顺序 = DOM 顺序：改这个模板的块顺序就是改移动端顺序，必须同步 `ActivityDetailDesktopLayoutTest` 的顺序锁。
 - **禁用全局键盘快捷键**：用户因误触（尤其 AI 对话时）已要求移除全部键盘快捷键（Daily J/K/D/I/P/X/E、Cmd+K 搜索、Esc 关闭、搜索结果方向键导航等）。表单内的 Enter 提交仍属正常行为（但 AI 对话输入框已按上一条约定改成 Enter 只换行、只能点按钮发送）；新增功能禁止再挂 `document` 级 `keydown` 全局监听。
 
 ## 配置

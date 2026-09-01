@@ -392,6 +392,10 @@ def activity_detail(request, activity_id):
 
     # 预算状态
     budget_ratio, budget_level, budget_label = budget_status(activity)
+    # 预算余额（正数=还可花，负数=已超支），无预算为 None
+    budget_remaining = (activity.budget - activity.total_cost) if activity.budget else None
+    # 子任务完成度（详情页统计卡进度条）
+    subtask_done_count = sum(1 for c in children if c.status == 'done')
 
     # 跨模块关联推荐
     from core.cross_link import get_related_content
@@ -411,6 +415,8 @@ def activity_detail(request, activity_id):
         'budget_ratio': budget_ratio,
         'budget_level': budget_level,
         'budget_label': budget_label,
+        'budget_remaining': budget_remaining,
+        'subtask_done_count': subtask_done_count,
         'related_articles': related.get('articles', []),
         'related_notes': related.get('notes', []),
         # 手动内联创建子任务表单的 autocomplete 建议

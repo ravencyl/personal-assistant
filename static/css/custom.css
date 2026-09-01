@@ -14,7 +14,8 @@
    - 辅助信息：text-xs
 
    【间距规则】
-   - 页面容器：详情 max-w-3xl / 列表 max-w-4xl，居中
+   - 页面容器：列表 max-w-4xl、详情 max-w-4xl md:max-w-6xl，居中
+   - 活动详情页桌面端走 .detail-cols 左右两列（见下方【分端约定】同断点），移动端仍是单列
    - 区块间：py-6；组件间：space-y-4；元素间：gap-2
    - 用留白替代分隔线
 
@@ -213,6 +214,37 @@ a {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+    }
+}
+
+/* 活动详情页两列：主内容流 + 辅助右列。
+   移动端（<768px）不定义任何规则 —— 两列容器都是普通块级元素，
+   纵向顺序完全由 DOM 决定（模板里 DOM 顺序即移动端预期顺序）。
+   桌面端：左列自适应（minmax(0,1fr) 兜住长文本/宽表格不撑破列），
+   右列固定 320px 且整列随滚动常驻。
+   align-items:start 是 sticky 生效的前提：网格默认 stretch 会把右列拉到与左列
+   等高，没有剩余空间可钉，滚动就完全不动。
+   常驻的是整列而不是顶部单卡：卡片自己 sticky 时，同列的兄弟块会从它底下滚过去，
+   而 .panel 没有背景色，滚到一半就会出现两块文字叠在一起。 */
+@media (min-width: 768px) {
+    .detail-cols {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 2rem;
+        align-items: start;
+    }
+
+    /* 右列常驻；top = 导航 h-14(56px) + 16px 呼吸。
+       max-height + overflow 兜住矮视口：列内容比可视区高时让列内自己滚，
+       否则底部信息会被钉在屏幕外永远看不到。
+       这里故意不加 overscroll-behavior: contain —— 列内滚到底后需要把滚动
+       链回给页面，否则鼠标停在右列时整页就滚不动了。 */
+    .detail-rail {
+        position: sticky;
+        top: 4.5rem;
+        max-height: calc(100vh - 5.5rem);
+        overflow-y: auto;
+        scrollbar-width: thin;
     }
 }
 

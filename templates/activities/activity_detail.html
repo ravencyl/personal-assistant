@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-4 sm:space-y-6" data-page-activity="{{ activity.name }}">
+<div class="max-w-4xl md:max-w-6xl mx-auto space-y-4 sm:space-y-6" data-page-activity="{{ activity.name }}">
     <div>
         <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
     </div>
@@ -94,7 +94,13 @@
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">子任务</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个</span></p>
+            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
+            {% if children|length %}
+            {# 完成度进度条：仅看个数读不出推到哪了；新建子任务后靠刷新页面跟上（JS 只更新计数） #}
+            <div class="mt-2 h-1 bg-zinc-100 rounded-full overflow-hidden" title="子任务完成度 {{ subtask_done_count }}/{{ children|length }}">
+                <div class="h-full rounded-full bg-zinc-900 transition-all" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
+            </div>
+            {% endif %}
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">参与者</p>
@@ -122,10 +128,21 @@
         </div>
         <div class="flex justify-between mt-1.5 text-xs text-[var(--text-muted)]">
             <span>已花费 ¥{{ activity.total_cost|floatformat:"0" }}</span>
+            {# 余额：只有百分比条时算不出“还能花多少”，超支时直接给负余额的绝对值 #}
+            <span>{% if budget_remaining < 0 %}超支 ¥{{ budget_remaining|floatformat:"0"|slice:"1:" }}{% else %}剩余 ¥{{ budget_remaining|floatformat:"0" }}{% endif %}</span>
             <span>预算 ¥{{ activity.budget|floatformat:"0" }}</span>
         </div>
     </div>
     {% endif %}
+
+    {% comment %}
+    桌面端（md+）左右两列；移动端两个列容器只是普通块，纵向顺序 = 下面的 DOM 顺序。
+    左列 = 主内容流（描述 · 费用 · 子任务），右列 = 辅助信息（附件 · 参与者 · 关联）。
+    右列整体排在左列之后，因此移动端相对旧版只有一处变化：子任务从页面底部提到费用之后。
+    {% endcomment %}
+    <div class="detail-cols space-y-4 sm:space-y-6 md:space-y-0">
+    <!-- 左列：主内容流 -->
+    <div class="detail-main space-y-4 sm:space-y-6">
 
     <!-- 描述 -->
     {% if activity.description %}
@@ -201,125 +218,6 @@
             </div>
         </form>
     </div>
-
-    <!-- 附件区域 -->
-    <section class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3 flex items-center gap-2">
-            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-            </svg>
-            附件
-            <span class="text-xs text-[var(--text-muted)]">({{ attachments|length }})</span>
-        </h2>
-
-        <!-- 图片附件网格 -->
-        {% for att in attachments %}
-            {% if att.is_image %}
-            <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(25%-0.5625rem)] mb-3 align-top">
-                <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
-                <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
-                    <a href="{{ att.file.url }}" target="_blank" class="text-white text-xs hover:underline">查看原图</a>
-                    <form method="post" action="{% url 'activities:attachment_delete' att.id %}" class="inline"
-                          onsubmit="return confirm('确定删除？')">
-                        {% csrf_token %}
-                        <button type="submit" class="text-zinc-300 text-xs hover:text-white">删除</button>
-                    </form>
-                </div>
-                <div class="p-1.5 bg-[var(--bg-card)]">
-                    <p class="text-xs text-[var(--text-muted)] truncate">{{ att.filename }}</p>
-                    <p class="text-xs text-[var(--text-muted)]">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</p>
-                </div>
-            </div>
-            {% endif %}
-        {% endfor %}
-
-        <!-- 非图片文件列表 -->
-        {% for att in attachments %}
-        {% if not att.is_image %}
-        <div class="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
-            <div class="flex items-center gap-2 min-w-0">
-                <svg class="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                <a href="{{ att.file.url }}" target="_blank" class="text-sm text-[var(--text)] hover:underline truncate">{{ att.filename }}</a>
-                <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</span>
-            </div>
-            <form method="post" action="{% url 'activities:attachment_delete' att.id %}" onsubmit="return confirm('确定删除？')">
-                {% csrf_token %}
-                <button type="submit" class="text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
-            </form>
-        </div>
-        {% endif %}
-        {% endfor %}
-
-        {% if not attachments %}
-        <p class="text-sm text-[var(--text-muted)]">暂无附件</p>
-        {% endif %}
-
-        <!-- 上传表单 -->
-        <form method="post" action="{% url 'activities:attachment_upload' activity.id %}" enctype="multipart/form-data"
-              class="mt-3 flex flex-wrap items-center gap-2">
-            {% csrf_token %}
-            <input type="file" name="file" required
-                   class="text-sm text-[var(--text-secondary)] file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-[var(--accent-light)] file:text-[var(--text)] hover:file:bg-[var(--border)]">
-            <button type="submit" class="text-xs px-3 py-1.5 rounded-full bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90">
-                上传
-            </button>
-            <span class="text-xs text-[var(--text-muted)]">单文件不超过 {{ max_upload_mb }}MB</span>
-        </form>
-    </section>
-
-    <!-- 参与者 -->
-    {% if participants %}
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">参与者（{{ participants|length }}）</h2>
-        <div class="flex flex-wrap gap-2">
-            {% for p in participants %}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-sm text-[var(--text-secondary)]"
-                  {% if p.note %}title="{{ p.note }}"{% endif %}>
-                <span class="w-5 h-5 rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
-                {{ p.name }}
-            </span>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- 相关知识与笔记 -->
-    {% if related_articles or related_notes %}
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关知识与笔记</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {% if related_articles %}
-            <div>
-                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">知识库文章</h3>
-                <div class="space-y-2">
-                    {% for item in related_articles %}
-                    <a href="{% url 'knowledge:article_detail' item.object.slug %}"
-                       class="block p-2 rounded-lg hover:bg-zinc-50 transition-colors">
-                        <p class="text-sm text-[var(--text)] truncate">{{ item.object.title }}</p>
-                        <p class="text-xs text-[var(--text-muted)]">{{ item.score }} 个共同标签</p>
-                    </a>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-            {% if related_notes %}
-            <div>
-                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">笔记</h3>
-                <div class="space-y-2">
-                    {% for item in related_notes %}
-                    <div class="p-2">
-                        <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
-                        <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-        </div>
-    </div>
-    {% endif %}
 
     <!-- 子任务 -->
     <div class="app-card p-4 sm:p-6">
@@ -418,6 +316,148 @@
         </div>
     </div>
 
+    </div><!-- /左列 -->
+
+    <!-- 右列：附件 · 参与者 · 关联（桌面端 320px 栏且整列常驻，移动端顺排在主内容流之后） -->
+    <div class="detail-rail space-y-4 sm:space-y-6">
+        <!-- 桌面端快捷操作卡（右列顶部，随整列常驻）：移动端隐藏，四个入口本身就在单列流里，重复出现反而占高 -->
+        <section class="hidden md:block panel p-4">
+            <p class="text-xs text-[var(--text-muted)] mb-2">快捷操作</p>
+            <div class="grid grid-cols-2 gap-2">
+                <a href="{% url 'activities:activity_edit' activity.id %}"
+                   class="inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">编辑活动</a>
+                <button type="button" data-jump="expense"
+                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">记一笔费用</button>
+                <button type="button" data-jump="subtask"
+                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">添加子任务</button>
+                <button type="button" data-jump="attachment"
+                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">上传附件</button>
+            </div>
+        </section>
+
+        <!-- 附件区域 -->
+    <section class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3 flex items-center gap-2">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+            </svg>
+            附件
+            <span class="text-xs text-[var(--text-muted)]">({{ attachments|length }})</span>
+        </h2>
+
+        <!-- 图片附件网格 -->
+        {% for att in attachments %}
+            {% if att.is_image %}
+            <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(50%-0.25rem)] mb-3 align-top">
+                <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
+                <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
+                    <a href="{{ att.file.url }}" target="_blank" class="text-white text-xs hover:underline">查看原图</a>
+                    <form method="post" action="{% url 'activities:attachment_delete' att.id %}" class="inline"
+                          onsubmit="return confirm('确定删除？')">
+                        {% csrf_token %}
+                        <button type="submit" class="text-zinc-300 text-xs hover:text-white">删除</button>
+                    </form>
+                </div>
+                <div class="p-1.5 bg-[var(--bg-card)]">
+                    <p class="text-xs text-[var(--text-muted)] truncate">{{ att.filename }}</p>
+                    <p class="text-xs text-[var(--text-muted)]">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</p>
+                </div>
+            </div>
+            {% endif %}
+        {% endfor %}
+
+        <!-- 非图片文件列表 -->
+        {% for att in attachments %}
+        {% if not att.is_image %}
+        <div class="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
+            <div class="flex items-center gap-2 min-w-0">
+                <svg class="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <a href="{{ att.file.url }}" target="_blank" class="text-sm text-[var(--text)] hover:underline truncate">{{ att.filename }}</a>
+                <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</span>
+            </div>
+            <form method="post" action="{% url 'activities:attachment_delete' att.id %}" onsubmit="return confirm('确定删除？')">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
+            </form>
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% if not attachments %}
+        <p class="text-sm text-[var(--text-muted)]">暂无附件</p>
+        {% endif %}
+
+        <!-- 上传表单 -->
+        <form method="post" action="{% url 'activities:attachment_upload' activity.id %}" enctype="multipart/form-data"
+              id="attachment-form" class="mt-3 flex flex-wrap items-center gap-2">
+            {% csrf_token %}
+            <input type="file" name="file" required
+                   class="text-sm text-[var(--text-secondary)] file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-[var(--accent-light)] file:text-[var(--text)] hover:file:bg-[var(--border)]">
+            <button type="submit" class="text-xs px-3 py-1.5 rounded-full bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90">
+                上传
+            </button>
+            <span class="text-xs text-[var(--text-muted)]">单文件不超过 {{ max_upload_mb }}MB</span>
+        </form>
+    </section>
+
+    <!-- 参与者 -->
+    {% if participants %}
+    <div class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">参与者（{{ participants|length }}）</h2>
+        <div class="flex flex-wrap gap-2">
+            {% for p in participants %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-sm text-[var(--text-secondary)]"
+                  {% if p.note %}title="{{ p.note }}"{% endif %}>
+                <span class="w-5 h-5 rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
+                {{ p.name }}
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 相关知识与笔记 -->
+    {% if related_articles or related_notes %}
+    <div class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关知识与笔记</h2>
+        {# 本块只出现在桌面端 320px 右列（移动端整宽），所以内部不再分两栏 #}
+        <div class="space-y-4">
+            {% if related_articles %}
+            <div>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">知识库文章</h3>
+                <div class="space-y-2">
+                    {% for item in related_articles %}
+                    <a href="{% url 'knowledge:article_detail' item.object.slug %}"
+                       class="block p-2 rounded-lg hover:bg-zinc-50 transition-colors">
+                        <p class="text-sm text-[var(--text)] truncate">{{ item.object.title }}</p>
+                        <p class="text-xs text-[var(--text-muted)]">{{ item.score }} 个共同标签</p>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if related_notes %}
+            <div>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">笔记</h3>
+                <div class="space-y-2">
+                    {% for item in related_notes %}
+                    <div class="p-2">
+                        <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
+                        <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    </div><!-- /右列 -->
+    </div><!-- /.detail-cols -->
+
     <!-- 操作历史（辅助信息，低调展示；默认折叠，点击展开） -->
     {% if logs %}
     <details class="app-card">
@@ -467,6 +507,31 @@ function cancelEdit() {
     expenseSubmitBtn.textContent = '添加';
     expenseCancelBtn.classList.add('hidden');
 }
+
+// ==================== 右列粘性快捷操作 → 定位到页内对应入口并聚焦 ====================
+// 子任务走 #sub-manual-toggle 的 click，保证与内联表单自己的展开/聚焦逻辑一致，不另开一套路
+(function () {
+    var JUMPS = {
+        expense: { box: 'expense-form', focus: '[name="amount"]' },
+        subtask: { box: 'sub-manual-form', focus: '#sub-manual-name', toggle: 'sub-manual-toggle' },
+        attachment: { box: 'attachment-form', focus: 'input[type="file"]' }
+    };
+    document.querySelectorAll('[data-jump]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var t = JUMPS[btn.dataset.jump];
+            var box = t && document.getElementById(t.box);
+            if (!box) return;
+            if (t.toggle) {
+                var toggle = document.getElementById(t.toggle);
+                if (toggle && box.classList.contains('hidden')) toggle.click();
+            }
+            box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var el = box.querySelector(t.focus);
+            // 等平滑滚动落定再聚焦，否则 focus 会把滚动拽到元素顶部、与预期位置不一致
+            if (el) setTimeout(function () { el.focus({ preventScroll: true }); }, 300);
+        });
+    });
+})();
 
 // 单独 IIFE：共用脚本没加载成功时也不影响下方内联表单逻辑
 (function () {

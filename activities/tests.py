@@ -20,6 +20,7 @@ from django.db.models import Sum
 
 from activities.models import (Activity, ActivityLog, Attachment, Expense, Participant,
                                ActivityTemplate)
+from notes.models import Note
 from activities.parsing import parse_quick_input
 from activities.services import (InputError, add_expense, clean_category,
                                  create_activity_from_parsed, record_parsed_cost,
@@ -1253,3 +1254,121 @@ class UpdateDescriptionAgentToolTest(TestCase):
         activity.refresh_from_db()
         self.assertEqual(activity.start_date, date(2026, 9, 5))
         self.assertEqual(activity.duration_minutes, 90)
+
+
+class ActivityDetailDesktopLayoutTest(TestCase):
+    """活动详情页桌面两列布局与概览增强回归锁
+
+    为什么锁：两列完全靠 custom.css 的 .detail-cols + 模板里两个列容器实现，
+    没有任何报错机制——顺手改回单列、把右列某块挪进左列、给移动端加了 sm: 结构断点，
+    都只在真实屏幕上退化。移动端同理：列容器不加显隐，视觉顺序 = DOM 顺序，
+    所以 DOM 里各块的先后就是移动端顺序契约。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'activity_detail.html'
+    CSS = Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
+    # 列分隔靠这两条注释锚点（模板里显式写出，改结构时会一起被看到）
+    LEFT_END = '</div><!-- /左列 -->'
+    COLS_END = '</div><!-- /.detail-cols -->'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        self.parent = Activity.objects.create(
+            user=self.user, name='新西兰之旅', budget=Decimal('1000'), description='南岛自驾')
+        Activity.objects.create(user=self.user, name='订机票', parent=self.parent, status='done')
+        Activity.objects.create(user=self.user, name='租车', parent=self.parent, status='planned')
+        Expense.objects.create(activity=self.parent, user=self.user,
+                               amount=Decimal('500'), category='food')
+        # 右列三个条件渲染块（参与者/关联等）不带数据就整块不渲染，顺序锁会空跑
+        self.parent.tags.add('自驾')
+        self.parent.participants.add(
+            Participant.objects.create(user=self.user, name='小王'))
+        note = Note.objects.create(user=self.user, content='新西兰南岛自驾路线草稿')
+        note.tags.add('自驾')
+        ActivityLog.objects.create(user=self.user, activity=self.parent,
+                                   action='created', summary='手动创建')
+        resp = self.client.get(f'/activities/{self.parent.id}/')
+        self.html = resp.content.decode()
+
+    def _columns(self):
+        start = self.html.index('class="detail-cols')
+        return self.html[start:self.html.index(self.COLS_END)]
+
+    def test_two_column_grid_and_exactly_two_columns(self):
+        self.assertEqual(self.html.count('class="detail-cols'), 1, '两列容器应唯一')
+        cols = self._columns()
+        self.assertEqual(cols.count('class="detail-main '), 1,
+                         'detail-cols 内应恰好一个左列（主内容流）')
+        self.assertEqual(cols.count('class="detail-rail '), 1,
+                         'detail-cols 内应恰好一个右列（辅助信息）')
+        self.assertIn(self.LEFT_END, cols, '左列未闭合，两列结构已破损')
+
+    def test_no_template_syntax_leaked_into_rendered_html(self):
+        """模板注释语法泄漏锁：Django 的 {# #} 不支持跨行，写多行会整段渲染成正文"""
+        for token in ('{%', '{{', '{#'):
+            self.assertNotIn(token, self.html, f'渲染结果里出现 {token}，模板语法泄漏')
+
+    def test_primary_flow_left_auxiliary_right(self):
+        cols = self._columns()
+        left, right = cols.split(self.LEFT_END, 1)
+        for anchor, desc in [('活动描述', '描述'), ('id="expense-form"', '记一笔表单'),
+                             ('id="subtask-list"', '子任务时间轴')]:
+            self.assertIn(anchor, left, f'{desc}应在左列主内容流')
+            self.assertNotIn(anchor, right, f'{desc}不该出现在右列')
+        for anchor, desc in [('id="attachment-form"', '附件'), ('参与者（', '参与者'),
+                             ('相关知识与笔记', '关联内容')]:
+            self.assertIn(anchor, right, f'{desc}应在右列辅助信息')
+
+    def test_mobile_reading_order_matches_dom(self):
+        """移动端列容器不带显隐类，视觉顺序 = DOM 顺序；这里锁住约定的顺序"""
+        anchors = ['活动描述', 'id="expense-form"', 'id="subtask-list"',
+                   'id="attachment-form"', '参与者（', '相关知识与笔记', '操作历史（']
+        positions = [self.html.index(a) for a in anchors]
+        self.assertEqual(positions, sorted(positions),
+                         '移动端单列顺序变了（子任务应紧跟费用明细，右列整体在其后）')
+        cols = self._columns()
+        for c in re.findall(r'<div class="[^"]*">', cols)[:2]:
+            self.assertNotIn('hidden', c, '列容器加了显隐类会让移动端少一整列')
+
+    def test_quick_action_card_is_desktop_only_and_inside_right_column(self):
+        cols = self._columns()
+        right = cols.split(self.LEFT_END, 1)[1]
+        card = right[:right.index('附件区域')]
+        self.assertIn('hidden md:block', card,
+                      '快捷操作卡必须只在桌面端出现，否则移动端白占高度')
+        self.assertEqual(card.count('data-jump='), 3, '记一笔/加子任务/传附件三个入口缺一')
+
+    def test_no_structural_sm_breakpoint_in_template(self):
+        """分端只允许 md:（768px）；sm: 仅可作纯尺寸渐进（p/gap/text/space/w-[calc]）"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        hits = re.findall(r'sm:(hidden|block|flex|inline|grid|order|col-span|row-span|sticky|absolute|fixed)\S*', src)
+        self.assertEqual(hits, [], f'模板出现 sm: 结构性断点：{hits}')
+
+    def test_columns_css_uses_single_md_breakpoint(self):
+        css = self.CSS.read_text(encoding='utf-8')
+        idx = css.index('.detail-cols {')
+        media = css[:idx].rsplit('@media', 1)[-1].split('{', 1)[0].strip()
+        self.assertEqual(media, '(min-width: 768px)',
+                         '.detail-cols 必须只落在 768px 这个唯一结构断点内')
+        body = css[idx:idx + 400]
+        self.assertIn('320px', body, '右列固定宽度是本次设计的一部分')
+        self.assertIn('minmax(0, 1fr)', body, '左列须用 minmax(0,1fr) 兜住长内容撑破列')
+        self.assertIn('align-items: start', body,
+                      '网格默认 stretch 会把右列拉高，sticky 就没空间钉住')
+        rail = css[css.index('.detail-rail {'):]
+        self.assertIn('position: sticky', rail, '右列整列常驻是桌面端设计的一部分')
+        self.assertIn('max-height', rail, '矮视口下右列需列内滚动，否则底部信息看不到')
+
+    def test_subtask_progress_and_budget_remaining_rendered(self):
+        """概览增强：子任务完成度进度条 + 预算余额文案"""
+        self.assertIn('title="子任务完成度 1/2"', self.html)
+        self.assertIn('width: 50%', self.html)
+        self.assertIn('剩余 ¥500', self.html)
+
+    def test_over_budget_shows_overage_amount(self):
+        Expense.objects.create(activity=self.parent, user=self.user,
+                               amount=Decimal('700'), category='transport')
+        html = self.client.get(f'/activities/{self.parent.id}/').content.decode()
+        self.assertIn('超支 ¥200', html)
+        self.assertNotIn('剩余 ¥', html)
