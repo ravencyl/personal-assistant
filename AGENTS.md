@@ -164,6 +164,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - **静态文件**：手写 CSS 在 `static/css/`，PWA 资源（`manifest.json`、`sw.js`）在 `static/` 根目录
 - **AI 回复是纯文本渲染**：`{{ msg.content }}`（`whitespace-pre-wrap`，既不走 markdown 也不走 urlize），所以工具 `reply` 里给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），中文 slug 的编码 URL 用户读不了也点不了
 - **对话输入框 Enter 不提交**：两个入口（`chat/conversation_detail.html` 的 `#message-input`、`base.html` 浮窗的 `#chat-input`）都是 `<textarea rows="1" data-auto-grow>`，Enter 只换行、**只能点「发送」按钮**（单行 input 在表单里会隐式提交，而误发一条要等 AI 几十秒）；高度由 `base.html` 末尾的 `window.paFitTextarea` 统一接管（程序清空后要再调它重置，内联 `hx-on::after-request` 已这么写），`.chat-input` 负责 `resize:none` + 160px 限高内滚动。该脚本必须保留「元素未渲染就跳过」的守卫：浮窗面板初始 `display:none`，此时 `scrollHeight` 恒为 0，无条件回写会把输入框压成 0 高、placeholder 裁字（已踩过），面板展开时由 `showChatView` 补拟合；`chat/tests.py::ChatInputEnterBehaviorTest` 锁住这套结构
+- **站点品牌名只有一个口径**：`settings.SITE_NAME`（当前为「三磊」），模板一律写 `{{ SITE_NAME }}`（`core.context_processors.site_brand` 全局注入），**禁止在模板/视图/JS 里硬写站名**；浏览器标签页标题统一「页面名 · {{ SITE_NAME }}」。Admin 标题、AI 自我介绍 prompt 都读同一个 settings。例外：`static/manifest.json`（PWA 安装名）是静态文件、不走模板引擎，**改名时必须手动同步**，`core/tests.py::SiteBrandTest` 会断言它与 settings 一致
 - **改 `static/` 下任何文件都要升 `sw.js` 的 `CACHE_VERSION`**：SW 对 `/static/` 是 cache-first，不升号线上会一直拿旧 CSS/JS（HTML 是 network-first，只改模板不需要升号）
 - **django-htmx 中间件**：已全局启用，视图可用 `request.htmx` 判断是否为 HTMX 请求
 
@@ -173,7 +174,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 fetch 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。
 - **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发聊天浮窗 `r is not a function` 错误）。
 - **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
-- **禁用全局键盘快捷键**：用户因误触（尤其 AI 对话时）已要求移除全部键盘快捷键（Daily J/K/D/I/P/X/E、Cmd+K 搜索、Esc 关闭、搜索结果方向键导航等）。输入框内的 Enter 提交/发送属于正常表单行为，保留；新增功能禁止再挂 `document` 级 `keydown` 全局监听。
+- **禁用全局键盘快捷键**：用户因误触（尤其 AI 对话时）已要求移除全部键盘快捷键（Daily J/K/D/I/P/X/E、Cmd+K 搜索、Esc 关闭、搜索结果方向键导航等）。表单内的 Enter 提交仍属正常行为（但 AI 对话输入框已按上一条约定改成 Enter 只换行、只能点按钮发送）；新增功能禁止再挂 `document` 级 `keydown` 全局监听。
 
 ## 配置
 
@@ -187,6 +188,7 @@ environ.Env.read_env(BASE_DIR / '.env')
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-dev-key-change-in-production')
 DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
+SITE_NAME = env('SITE_NAME', default='三磊')   # 站名；可在 .env 覆盖，无需改代码
 QODER_ACCESS_TOKEN = env('QODER_ACCESS_TOKEN', default='')
 QODER_API_BASE_URL = env('QODER_API_BASE_URL', default='https://api.qoder.com.cn/api/v1/cloud')
 REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')

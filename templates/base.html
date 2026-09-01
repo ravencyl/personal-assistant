@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>{% block title %}Personal AI Assistant{% endblock %}</title>
+    <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{% static 'js/tailwind.js' %}"></script>
     <script src="{% static 'js/htmx.min.js' %}"></script>
@@ -21,7 +21,7 @@
     <meta name="theme-color" content="#ffffff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <meta name="apple-mobile-web-app-title" content="个人助手">
+    <meta name="apple-mobile-web-app-title" content="{{ SITE_NAME }}">
     {% block extra_head %}{% endblock %}
 </head>
 <body class="h-full antialiased">
@@ -32,7 +32,7 @@
                 <div class="flex h-14 justify-between">
                     <div class="flex">
                         <div class="flex flex-shrink-0 items-center">
-                            <a href="/" class="text-lg font-semibold tracking-tight text-[var(--text)]">AI Assistant</a>
+                            <a href="/" class="text-lg font-semibold tracking-tight text-[var(--text)]">{{ SITE_NAME }}</a>
                         </div>
                         {% if user.is_authenticated %}
                         <div class="hidden md:ml-8 md:flex md:space-x-1">

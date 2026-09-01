@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django import forms
@@ -6,9 +7,9 @@ from django import forms
 from .models import Reminder, DailySummary, SuggestionState, DailyInsight
 
 
-# 自定义 Admin 站点标题
-admin.site.site_header = 'Personal AI Assistant'
-admin.site.site_title = 'AI 助手管理'
+# 自定义 Admin 站点标题（品牌名统一取 settings.SITE_NAME）
+admin.site.site_header = f'{settings.SITE_NAME} 管理后台'
+admin.site.site_title = settings.SITE_NAME
 admin.site.index_title = '管理面板'
 
 

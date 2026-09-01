@@ -1,7 +1,13 @@
-from django.test import TestCase, Client, RequestFactory
-from django.contrib.auth.models import User
-from django.urls import reverse
+import json
+import re
+from pathlib import Path
+from decimal import Decimal
 from unittest.mock import patch
+
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.test import (TestCase, Client, RequestFactory, override_settings)
+from django.urls import reverse
 from activities.models import Activity, Expense, RecurringActivity
 from knowledge.models import Article
 from notes.models import Note
@@ -15,8 +21,8 @@ from datetime import timedelta
 from django.utils import timezone
 from core.models import Reminder, check_due_reminders
 from core.suggestions import generate_daily_plan
-from decimal import Decimal
-from core.report_generator import collect_report_data, generate_report, save_report_to_knowledge, _fallback_report
+from core.report_generator import (collect_report_data, generate_report,
+                                   save_report_to_knowledge, _fallback_report)
 
 
 class CrossLinkTest(TestCase):
@@ -1518,3 +1524,63 @@ class AgentRegistryConsistencyTest(TestCase):
         self.assertIn('knowledge_create', prompt)
         self.assertIn('存成一篇知识库文章', prompt)
         self.assertIn('默认追加到原描述末尾', prompt)
+
+
+class SiteBrandTest(TestCase):
+    """站点品牌名统一口径回归锁
+
+    品牌名以前在导航、各页标题、登录页、Admin、PWA manifest、AI 自我介绍里各写各的
+    字面量（AI Assistant / Personal AI Assistant / 个人助手 三套并存），改一次名要扫
+    全站。现在唯一口径是 settings.SITE_NAME，模板里一律用 {{ SITE_NAME }}。
+
+    manifest.json 是唯一没法用模板变量的地方（静态文件不经 Django），改名最容易漏，
+    所以单独断言它与 settings 一致。
+    """
+
+    OLD_NAMES = ('Personal AI Assistant', 'AI Assistant', '个人助手')
+
+    def _html_templates(self):
+        return sorted((Path(settings.BASE_DIR) / 'templates').rglob('*.html'))
+
+    def test_no_template_hardcodes_brand(self):
+        offenders = []
+        for tpl in self._html_templates():
+            text = tpl.read_text(encoding='utf-8')
+            for name in self.OLD_NAMES:
+                if name in text:
+                    offenders.append(f'{tpl.name}: {name}')
+        self.assertEqual(offenders, [], f'模板里又出现写死的品牌名：{offenders}')
+
+    def test_every_page_title_carries_brand(self):
+        """继承 base 的页面标题必须带品牌，否则浏览器标签页上认不出是哪个站"""
+        pattern = re.compile(r'{%\s*block title\s*%(.*?)\{%\s*endblock\s*%', re.S)
+        missing = []
+        for tpl in self._html_templates():
+            text = tpl.read_text(encoding='utf-8')
+            if 'extends "base.html"' not in text:
+                continue
+            for body in pattern.findall(text):
+                if 'SITE_NAME' not in body:
+                    missing.append(tpl.name)
+        self.assertEqual(missing, [], f'这些页面标题没带品牌名：{missing}')
+
+    def test_manifest_matches_site_name(self):
+        path = Path(settings.BASE_DIR) / 'static' / 'manifest.json'
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(manifest['name'], settings.SITE_NAME,
+                         'PWA 安装名是静态文件，改名时要手动同步')
+        self.assertEqual(manifest['short_name'], settings.SITE_NAME)
+
+    def test_admin_and_ai_prompt_use_brand(self):
+        from django.contrib import admin
+        from core.agent_registry import build_protocol_prompt
+        self.assertIn(settings.SITE_NAME, admin.site.site_header)
+        self.assertIn(f'「{settings.SITE_NAME}」', build_protocol_prompt())
+
+    @override_settings(SITE_NAME='TESTBRAND')
+    def test_brand_comes_from_settings_not_literal(self):
+        """改 settings 就能改名：导航、页面标题、登录页副标题都要跟着变"""
+        resp = self.client.get(reverse('login'))
+        self.assertContains(resp, 'TESTBRAND')
+        for name in self.OLD_NAMES:
+            self.assertNotContains(resp, name)

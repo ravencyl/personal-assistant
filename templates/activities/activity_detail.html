@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}{{ activity.name }} - 活动记录{% endblock %}
+{% block title %}{{ activity.name }} · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
 <!-- 快速记子任务共用实现（原生 fetch + JSON，禁挂 hx-*） -->

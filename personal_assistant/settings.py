@@ -22,6 +22,11 @@ DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
+# 站点品牌名：导航、浏览器标签、登录页、Admin、AI 自我介绍的唯一口径
+# 模板通过 core.context_processors.site_brand 拿 {{ SITE_NAME }}
+# 例外：static/manifest.json 是静态文件，不经过模板引擎，改名需同步（core/tests.py 会断言两者一致）
+SITE_NAME = env('SITE_NAME', default='三磊')
+
 
 # Application definition
 
@@ -75,6 +80,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.qoder_context',
+                'core.context_processors.site_brand',
                 'chat.context_processors.chat_widget',
             ],
         },

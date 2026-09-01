@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ article.title }} - 知识库{% endblock %}
+{% block title %}{{ article.title }} · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-6 fade-in" data-page-context="knowledge_detail" data-knowledge-title="{{ article.title }}">

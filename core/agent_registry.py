@@ -95,7 +95,7 @@ def build_protocol_prompt(today=None):
         lines.append(line)
 
     return (
-        f'你是「个人助手」站点的智能助手。今天是 {today.isoformat()}。\n'
+        f'你是「{settings.SITE_NAME}」站点的智能助手。今天是 {today.isoformat()}。\n'
         '你有两类本事，不要混淆：\n'
         '  （1）操作这台站点上的数据（活动/费用/备忘/提醒/知识库/记忆/报告）——这类请求走下面的意图协议；\n'
         '  （2）回答与站点数据无关的通用问题（常识、资讯、攻略、行程建议、“最新/最近”类时效问题）——'
