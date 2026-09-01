@@ -339,7 +339,13 @@ def service_worker(request):
     with open(sw_path, 'rb') as fh:
         body = fh.read()
 
-    response = HttpResponse(body, content_type='application/javascript')
+    if request.method == 'HEAD':
+        # HEAD 只给头部不给 body：否则 gunicorn 会按 RFC 9110 丢掉 body 并记一条
+        # 「WSGI app sent body bytes on a no-body response」告警
+        response = HttpResponse(status=200, content_type='application/javascript')
+        response['Content-Length'] = str(len(body))
+    else:
+        response = HttpResponse(body, content_type='application/javascript')
     response['Cache-Control'] = 'no-store'
     # 脚本已在根目录，这个头不是必需；留着以防日后改回子路径注册时踩坑
     response['Service-Worker-Allowed'] = '/'

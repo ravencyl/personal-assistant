@@ -1696,6 +1696,21 @@ class ServiceWorkerTest(TestCase):
         self.assertIn('no-store', head['Cache-Control'])
         self.assertEqual(self.client.post('/sw.js').status_code, 405)
 
+    def test_head_response_carries_no_body(self):
+        """线上实测：给 HEAD 输完整 body 会被 gunicorn 按 RFC 9110 丢弃并记一条告警，
+        每次发布检查都在日志里留噪声。
+
+        注意不能写成 self.client.head(...).content —— Django 测试客户端自己就会把
+        HEAD 的 body 抹掉（变异反证过：视图返回完整 body 时它依旧报 b''，那会是条空锁），
+        所以直接拿 RequestFactory 调视图本体。
+        """
+        from core.views import service_worker
+        resp = service_worker(RequestFactory().head('/sw.js'))
+        self.assertEqual(resp.content, b'', 'HEAD 不得带 body')
+        self.assertEqual(int(resp['Content-Length']),
+                         len(self.client.get('/sw.js').content),
+                         '但 Content-Length 要跟 GET 一致，才是合法的 HEAD 响应')
+
     def test_sw_response_is_not_cacheable(self):
         resp = self.client.get('/sw.js')
         self.assertIn('no-store', resp['Cache-Control'],
