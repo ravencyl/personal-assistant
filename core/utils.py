@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
 
@@ -60,7 +61,7 @@ def get_visible_or_json(model, user, message='对象不存在或已删除', **kw
     存在意义是让“需要 JSON 错误体”的端点也能复用同一套可见性口径，
     而不是每个视图里手写一份 filter(...).first() + 404 JSON。
     """
-    from django.http import Http404, JsonResponse
+    from django.http import Http404
 
     try:
         return get_visible(model, user, **kwargs), None
@@ -74,6 +75,41 @@ def wants_json(request):
     浏览器整页提交的 Accept 是 text/html,...，不含 application/json，不会误判。
     """
     return 'application/json' in request.headers.get('Accept', '')
+
+
+def json_login_required(view_func):
+    """@login_required 的 JSON 端点版：未登录时按请求类型分流，绝不给 fetch 回 302
+
+    双协议约定下聊天/钉选这类端点由原生 fetch 消费。登录态过期时 @login_required
+    的 302 会被 fetch 自动跟随，最终拿到 200 的登录页 HTML → JSON 解析失败 → 前端
+    只能报「操作失败，请重试」，用户反复重试也不知道是掉线（2026-09-02 线上冒烟
+    实测：anonymous POST /chat/22/pin/ 返回 302 /accounts/login/?next=/chat/22/pin/）。
+
+    - Accept 含 application/json（fetch）→ 401 + {'error', 'login_url'}，前端读
+      login_url 做一次整页跳转。**判据复用 wants_json**，与视图自己「回 JSON 还是
+      回 HTML」用的是同一个口径，否则会出现「视图认为要 JSON、装饰器给了 302」
+    - 其余（整页表单 / HTMX）→ 保持 Django 原生行为 302 + ?next=，不动既有交互
+
+    登录后的路径与 @login_required 完全一致，所以本装饰器是它的超集。
+    """
+    from functools import wraps
+
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        if request.user.is_authenticated:
+            return view_func(request, *args, **kwargs)
+        # 延迟导入：django.contrib.auth.views 会带进 auth 表单链，模块加载期不必拉
+        from django.contrib.auth.views import redirect_to_login
+        redirect = redirect_to_login(request.get_full_path())
+        if wants_json(request):
+            return JsonResponse({'error': '登录已过期，请重新登录',
+                                 'login_url': redirect.url,
+                                 'reauth': True}, status=401)
+        return redirect
+
+    # 供测试反查「该端点是否真套上了本装饰器」（inspect 源码会被 @require_POST 等包裹干扰）
+    _wrapped.json_login_required = True
+    return _wrapped
 
 
 def used_tags(model, qs):

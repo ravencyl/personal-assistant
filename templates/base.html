@@ -428,9 +428,14 @@
 
         // 新建对话（返回 conversation_id，失败返回 null；供按钮与全局 paChatAsk 复用）
         function createConversation() {
-            return fetch('/chat/create/', {
+            // 走聊天共用的 JSON 出口 paJsonFetch（定义在 chat-turn.js），由它补
+            // Accept: application/json。以前这里手挂一个假的 'HX-Request': 'true' 去骗视图
+            // 走 JSON 分支：视图的 request.htmx 确实为真，但登录态过期时会被
+            // json_login_required 当成 HTML 请求返 302（fetch 跟随后拿到登录页
+            // HTML），401 + 整页跳转那条分支永远走不到。
+            return window.paJsonFetch('/chat/create/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': csrf, 'HX-Request': 'true' }
+                headers: { 'X-CSRFToken': csrf }
             })
                 .then(function (r) { return r.json(); })
                 .then(function (data) { return data.conversation_id || null; })

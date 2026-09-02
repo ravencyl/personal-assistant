@@ -16,7 +16,8 @@ from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (build_protocol_prompt, get_tool,
                                  make_action_token, orchestrator)
-from core.utils import visible_qs, get_visible, visible_child_qs, get_visible_child
+from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_child,
+                        json_login_required)
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ def widget_messages(request, conversation_id):
     })
 
 
-@login_required
+@json_login_required
 @require_POST
 def create_conversation(request):
     """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）"""
@@ -171,7 +172,7 @@ def create_conversation(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@login_required
+@json_login_required
 @require_POST
 def send_message(request, conversation_id):
     """发送消息：落库 + 发起，**立即返回**；等 AI 的循环交给 turn_poll
@@ -334,7 +335,7 @@ def _build_knowledge_context(user, text):
     return context
 
 
-@login_required
+@json_login_required
 @require_POST
 def pin_conversation(request, conversation_id):
     """@ 钉选：把一个活动钉在本对话上（会话级状态，不是单条消息级）
@@ -377,7 +378,7 @@ def _pin_response(request, conversation):
     })
 
 
-@login_required
+@json_login_required
 @require_GET
 def pin_candidates(request):
     """@ 后的候选活动（JSON）。只搜可见范围；空 q 给「还在办的」，让 @ 一按就有东西可选"""
@@ -405,7 +406,7 @@ def pin_candidates(request):
     return JsonResponse({'candidates': candidates})
 
 
-@login_required
+@json_login_required
 @require_GET
 def turn_poll(request, conversation_id):
     """轮询本轮结果；AI 回完后在本请求内跑编排器 + 落库，返回消息 HTML 片段
@@ -513,7 +514,7 @@ def _turn_error_json(request, conversation, note):
     return JsonResponse(payload)
 
 
-@login_required
+@json_login_required
 @require_POST
 def turn_cancel(request, conversation_id):
     """停止本轮：请平台取消 + 落一条「已停止」的 assistant 消息

@@ -254,6 +254,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 
 - **唯一分端断点**：`md:`（768px，与导航层一致）。结构性显隐只用成对块：桌面元素 `hidden md:flex` / `hidden md:block`，移动元素 `md:hidden`。禁止新增 `sm:` 结构性断点；`sm:p-*` / `sm:text-*` / `sm:gap-*` 等纯尺寸渐进类不属于结构，保留。640-768px 平板竖屏跟随桌面布局（预期行为）。
 - **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 fetch 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。
+- **fetch 端点的登录保护必须用 `@json_login_required`**（`core/utils.py`，是 `@login_required` 的超集）：未登录时 `Accept` 含 `application/json` → `401 + {'error','login_url','reauth'}`，否则保持原生 302。原因：fetch 会自动跟随 302，最终拿到 200 的登录页 HTML，前端只能报「操作失败，请重试」，用户反复重试也不知道是掉线。**不得靠手挂 `HX-Request: true` 骗视图返 JSON**（那样装饰器会当成 HTML 请求返 302，401 分支永远走不到）。聊天侧所有 fetch 必须走 `chat-turn.js` 的 `apiFetch`（对外暴露为 `window.paJsonFetch`），它是 `Accept` 补头 + 401 整页跳转的唯一出口。HTMX 端点仍保持 302 旧行为（换 401 要先验清 `HX-Redirect` 在错误响应上的语义）。
 - **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发聊天浮窗 `r is not a function` 错误）。
 - **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
 - **详情页两列具体内容分配**：`activity_detail.html` 用通用列容器（类名口径见上面【前端约定】的 `.page-cols` 条）包住左列（描述·费用·子任务）与右列（快捷操作卡·附件·参与者·关联）。右列整块 DOM 排在左列之后，所以移动端相对旧版只有一处变化：子任务从页底提到费用之后。改这个模板的块顺序就是改移动端顺序，必须同步 `ActivityDetailDesktopLayoutTest` 的顺序锁。

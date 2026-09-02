@@ -57,6 +57,58 @@
         }
     }
 
+    // 聊天 JSON 请求的唯一出口（send / poll / cancel / 钉选搜索与设置 / 新建会话）
+    //
+    // 为何要包一层：
+    //  1. 统一补 Accept: application/json。视图拿它区分「fetch」与「无 JS 表单提交」，
+    //     漏了这个头会被当成无 JS 提交而返回 302（本地实测：消息已落库、轮次已发起，
+    //     但前端拿到 HTML → 报「发送失败」，用户再发一次就是重复提问）。五个调用点各写
+    //     一遍就必然有漏的那个。
+    //  2. 集中处理 401「登录已过期」。未登录的 fetch 如果也拿 302，fetch 会自动跟随重定向，
+    //     最终拿到 200 的登录页 HTML，只能当「操作失败」提示；core.utils.json_login_required
+    //     改成 401 + login_url 后，这里做一次整页跳转，用户看到的直接就是登录页（带 next）。
+    //     redirecting 闸门是因为轮询循环可能连着好几拍都 401，只允许触发一次跳转。
+    var redirecting = false;
+
+    function apiFetch(url, init) {
+        init = init || {};
+        var headers = init.headers || {};
+        headers['Accept'] = 'application/json';
+        init.headers = headers;
+        return fetch(url, init).then(function (r) {
+            if (r.status !== 401 || redirecting) return r;
+            redirecting = true;
+            // login_url 由服务端拼好（含 ?next=），不自己拼 LOGIN_URL：改了登录地址不会说谎。
+            // 但 next 必须换掉：服务端的 next 来自 get_full_path()，对 XHR 来说就是接口地址，
+            // 登录后会看到一坨 JSON（真机实测），而用户要去的是「当前这一页」。
+            return r.json().then(function (d) {
+                location.href = reauthTarget(d && d.login_url);
+                // 绝不把原响应交回调用链：跳转已在路上，而调用链会把 401 当「发送失败/
+                // 创建失败」再提示一次（真机实测：新建对话会闪一个 alert），用户看上去
+                // 像两个错，且提示马上会被翻页掉
+                return new Promise(function () {});
+            }, function () {
+                location.href = reauthTarget('');
+                return new Promise(function () {});
+            });
+        });
+    }
+
+    function reauthTarget(loginUrl) {
+        var here = location.pathname + location.search;
+        if (!loginUrl) return '/accounts/login/?next=' + encodeURIComponent(here);
+        try {
+            var u = new URL(loginUrl, location.href);
+            u.searchParams.set('next', here);
+            return u.pathname + u.search;
+        } catch (err) {
+            return loginUrl;                    // 老浏览器没有 URL：用服务端给的地址总比卡死强
+        }
+    }
+
+    // 宿主页（base.html 的新建对话）也用同一个出口，否则它会靠假的 HX-Request 头骗视图返回 JSON
+    window.paJsonFetch = apiFetch;
+
     window.PaChatTurn = function (opts) {
         var messagesEl = opts.messagesEl;
         var statusEl = opts.statusEl;
@@ -119,7 +171,7 @@
             if (!u.poll) return;
             if (ticking) { schedule(); return; }
             ticking = true;
-            fetch(u.poll, { headers: { 'Accept': 'application/json' }, cache: 'no-store' })
+            apiFetch(u.poll, { cache: 'no-store' })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     ticking = false;
@@ -185,15 +237,12 @@
 
             setBusy(true);
             setPhase('sent');
-            return fetch(u.send, {
+            return apiFetch(u.send, {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': csrf,
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    // 必须显式要 JSON：视图拿 Accept 区分「fetch」与「无 JS 表单提交」，
-                    // 漏这个头会被当成无 JS 提交而返回 302（本地实测：消息已落库、轮次已发起，
-                    // 但前端拿到的是 HTML → 报「发送失败」，用户再发一次就是重复提问）
-                    'Accept': 'application/json'
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                    // Accept 由 apiFetch 统一补（漏了会被当成无 JS 提交返 302）
                 },
                 body: body.toString()
             })
@@ -233,7 +282,7 @@
             if (!u.cancel) return Promise.resolve();
             stopLoop();
             showStatus('正在停止…');
-            return fetch(u.cancel, { method: 'POST', headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' } })
+            return apiFetch(u.cancel, { method: 'POST', headers: { 'X-CSRFToken': csrf } })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     append(d.html);
@@ -397,8 +446,7 @@
             var u = api();
             if (!u.search || !list) return;
             var mine = ++seq;
-            fetch(u.search + '?q=' + encodeURIComponent(q),
-                  { headers: { 'Accept': 'application/json' }, cache: 'no-store' })
+            apiFetch(u.search + '?q=' + encodeURIComponent(q), { cache: 'no-store' })
                 .then(function (r) { return r.ok ? r.json() : { candidates: [] }; })
                 .then(function (d) { if (mine === seq) renderCandidates(d.candidates || []); })
                 .catch(function () { if (mine === seq) close(); });
@@ -421,12 +469,12 @@
             if (!u.set) { flash('先选一个对话'); return; }
             var body = new URLSearchParams();
             body.set('activity_id', id || '');
-            fetch(u.set, {
+            apiFetch(u.set, {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': csrf,
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Accept': 'application/json'      // 与 send 同口径：漏了会被当成无 JS 提交返 302
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                    // Accept 同样交给 apiFetch：与 send 同口径，漏了会被当成无 JS 提交返 302
                 },
                 body: body.toString()
             })

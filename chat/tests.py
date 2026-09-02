@@ -775,13 +775,16 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         return re.sub(r'^\s*//.*$', '', no_block, flags=re.M)
 
     def _send_fetch_block(self):
-        start = self.flow.index("fetch(u.send")
+        start = self.flow.index("apiFetch(u.send")
         return self.flow[start:self.flow.index('})', start)]
 
-    def test_send_fetch_asks_for_json(self):
-        """视图靠 Accept 区分 fetch 与无 JS 提交；漏了会被 302 重定向，前端拿到 HTML"""
-        self.assertIn("'Accept': 'application/json'", self._send_fetch_block(),
-                      '发送请求必须显式要 JSON')
+    def test_send_goes_through_the_shared_json_outlet(self):
+        """发送必须走 apiFetch：Accept 与 401 处理都在那个出口里
+
+        以前这里逐调用点断言 'Accept': 'application/json'，现在收口到一个出口，
+        断言改成「有没有绕开出口」（绕开就同时丢了 Accept 和登录过期处理）。
+        """
+        self.assertIn('apiFetch(u.send', self._send_fetch_block())
 
     def test_flow_does_not_call_htmx_process(self):
         """AGENTS.md：手动 htmx.process 会造成双重绑定与旧节点引用残留
@@ -829,7 +832,7 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         self.assertIn('if (d.changed && opts.onActivityChanged)', body,
                       'stop() 里的广播必须看 d.changed')
         self.assertNotIn('if (opts.onActivityChanged)', body, '不允许无条件广播数据已变更')
-        self.assertIn("'Accept': 'application/json'", body, 'cancel 也是 JSON 端点')
+        self.assertIn('apiFetch(u.cancel', body, 'cancel 也必须走共用出口')
 
 
 class ChatMarkdownRenderTest(TestCase):
@@ -1176,11 +1179,11 @@ class ChatPinWiringTest(SimpleTestCase):
         self.assertNotIn('innerHTML = items.map', self.js_code)
         self.assertNotIn('hx-', self.js_code, 'JSON 端点严禁 hx-*')
 
-    def test_pin_fetches_ask_for_json(self):
+    def test_pin_set_goes_through_the_shared_json_outlet(self):
         block = self.js_code[self.js_code.index('function setActivity'):
                              self.js_code.index("input.addEventListener('input'")]
         self.assertGreater(len(block.strip()), 300, '切片切空了，这条锁就是假的')
-        self.assertIn("'Accept': 'application/json'", block)
+        self.assertIn('apiFetch(u.set', block, '钉选写操作必须走共用 JSON 出口')
         self.assertIn('X-CSRFToken', block)
 
     def test_pin_css_rules_exist(self):
@@ -1266,3 +1269,183 @@ class ChatFollowUpRenderTest(TestCase):
         css = (root / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
         self.assertIn('.follow-ups', css)
         self.assertIn('.follow-ups-label', css)
+
+
+# chat/urls.py 里「由原生 fetch 消费」的端点（AGENTS.md 双协议条）。
+# 这张表是唯一清单：新增 fetch 端点必须同时加在这里，否则下面两条锁会报出来。
+JSON_FETCH_ENDPOINTS = {
+    'create_conversation': ('post', '/chat/create/'),
+    'send_message': ('post', '/chat/1/send/'),
+    'turn_poll': ('get', '/chat/1/turn/'),
+    'turn_cancel': ('post', '/chat/1/turn/cancel/'),
+    'pin_conversation': ('post', '/chat/1/pin/'),
+    'pin_candidates': ('get', '/chat/pin/search/'),
+}
+
+
+class ChatAuthExpiryTest(TestCase):
+    """登录态过期时，fetch 端点必须回 401 JSON 而不是 302 到登录页
+
+    2026-09-02 线上冒烟实测：未登录 POST /chat/22/pin/ 返回 302
+    /accounts/login/?next=/chat/22/pin/，fetch 会自动跟随重定向，最终拿到 200 的
+    登录页 HTML → JSON 解析失败 → 前端只能报「钉选失败，请重试」，用户反复重试也不
+    知道是掉线。收口见 core.utils.json_login_required。
+
+    不管 403：CSRF Cookie 与 Session 不同期（默认一年），常见情形是 Session 过期而
+    CSRF 仍有效，能走到鉴权分支拿到 401；真拿到 403（CSRF 也没了）说明页面本身该刷新，
+    不靠这个分支兼顶。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+
+    def _hit(self, method, url, **extra):
+        return getattr(self.client, method)(url, HTTP_ACCEPT='application/json', **extra)
+
+    def test_signed_out_fetch_gets_json_401_on_every_endpoint(self):
+        for name, (method, url) in JSON_FETCH_ENDPOINTS.items():
+            with self.subTest(endpoint=name):
+                resp = self._hit(method, url)
+                self.assertEqual(resp.status_code, 401,
+                                 f'{name} 未登录时应回 401，实际 {resp.status_code}')
+                self.assertEqual(resp['Content-Type'], 'application/json')
+                body = resp.json()
+                self.assertTrue(body.get('login_url'), '前端靠这个字段做整页跳转')
+                self.assertIn('登录已过期', body['error'])
+
+    def test_login_url_keeps_the_next_pointer(self):
+        """跳转地址必须带着 next 指回原页面（含查询串），登录后一步回到原地
+
+        只用 ASCII 查询串：测试客户端对非 ASCII 的编码路径与真实浏览器不同，
+        拿中文断言 percent-encoding 会碎在双重编码上（实测）—— 假失败比没锁更坏。
+        真正要钉住的是「查询串没被丢弃」：? 在 next 里必须被转义成 %3F。
+        """
+        body = self._hit('get', '/chat/pin/search/?q=huangshan').json()
+        self.assertIn('next=', body['login_url'])
+        self.assertIn('%3Fq%3Dhuangshan', body['login_url'],
+                      '查询串必须整体编进 next，不能因截断而丢失（%3F = ?）')
+
+    def test_signed_out_plain_request_still_redirects(self):
+        """整页表单（无 Accept）保持 Django 原生 302：不破坏无 JS 降级"""
+        resp = self.client.get('/chat/pin/search/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/login/', resp['Location'])
+
+    def test_htmx_requests_are_not_turned_into_401(self):
+        """HTMX 侧口径不动：它的 Accept 是 text/html,*/*，仍然命中 302 分支
+
+        为什么不顺手也改掉：htmx 对非 2xx 的处理与 fetch 不同，换 401 要连带验证
+        HX-Redirect 在错误响应上到底会不会被处理，属另一票改动。
+        """
+        resp = self.client.get('/chat/pin/search/', HTTP_ACCEPT='text/html,*/*',
+                               HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 302)
+
+    def test_signed_in_json_endpoints_still_answer_json(self):
+        """装饰器是 @login_required 的超集：登录后行为一个字都不能变"""
+        self.client.force_login(self.user)
+        resp = self.client.get('/chat/pin/search/', HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/json')
+        self.assertIn('candidates', resp.json())
+
+
+class ChatAuthExpiryWiringTest(SimpleTestCase):
+    """收口的结构锁：出口唯一、宿主复用、没有任何聊天端点裸奔
+
+    这一组不测行为测形状：行为只能证明写到的那几个 case，而「以后新加的端点忘了分类」
+    只有遍历路由表 + 扫源码才抗得住。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+        cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
+        cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+
+    def test_only_the_shared_outlet_uses_raw_fetch(self):
+        """只允许 apiFetch 内部那一处裸 fetch；第二处就是同时丢了 Accept 与 401 处理
+
+        计数用剔了注释的代码，且只匹小写 fetch(：apiFetch(/paJsonFetch 都是大写 F，
+        不会被算进来（这条判据能成立全靠命名区分得开）。
+        """
+        hits = re.findall(r'(?<![\w$])fetch\(', self.js_code)
+        self.assertEqual(len(hits), 1, f'裸 fetch 出现 {len(hits)} 处，只允许出口内部 1 处')
+
+    def test_outlet_reads_the_server_provided_login_url(self):
+        block = self.js_code[self.js_code.index('function apiFetch'):
+                             self.js_code.index('window.paJsonFetch')]
+        self.assertGreater(len(block.strip()), 300, '切片切空了，这条锁就是假的')
+        self.assertIn('r.status !== 401', block)
+        self.assertIn('d.login_url', block, '跳转地址由服务端拼好，前端不自己拼 URL')
+        # 断言到「闸门真在判断里」这一层：只断 redirecting 存在是假的，
+        # 删掉条件但留着 redirecting = true 赋值时照样能过（变异反证当场拆穿）
+        self.assertIn('|| redirecting) return r', block,
+                      '轮询可能连着好几拍 401，跳转必须被闸门挡住第二次')
+        self.assertIn("headers['Accept'] = 'application/json'", block)
+        # next 必须被改写成当前页：服务端给的 next 是接口地址，登录后会看到一坨 JSON
+        # （真机实测发现），而只断 d.login_url 存在留不住这个口径
+        self.assertIn("searchParams.set('next', here)", block,
+                      '跳转要带页内地址，不能直接把接口 URL 当 next')
+        self.assertIn('location.pathname + location.search', block)
+        # 401 后绝不把响应交回调用链：否则调用链会再报一次「发送/创建失败」
+        # （真机实测：新建对话闪 alert），所以上面返的是永不 resolve 的 Promise
+        self.assertEqual(block.count('return new Promise(function () {});'), 2,
+                         '两个 401 分支都要抹掉后续链路（JSON 成功分支与解析失败分支）')
+
+    def test_host_page_uses_the_same_outlet_for_create(self):
+        """base.html 的「+ 新对话」以前靠假的 HX-Request 头骗视图返 JSON
+
+        那样未登录时装饰器会按 HTML 请求返 302，401 分支永远走不到（所以不只是一个
+        雅观问题）。
+        """
+        from core.layout_asserts import code_only
+        # 两道都得剔：code_only 只剔 HTML/{% comment %} 注释，而这段说明写在内联
+        # JS 的 // 注释里 —— 不剔就会把「旧的骗法不得回来」的说明当成违规（本项目老坑）
+        code = ChatTurnFlowJsTest._strip_js_comments(code_only(self.base))
+        self.assertIn("paJsonFetch('/chat/create/'", code)
+        self.assertNotIn("'HX-Request': 'true'", code, '旧的骗法不得回来')
+        self.assertLess(self.base.index('chat-turn.js'), self.base.index('paJsonFetch'),
+                        'chat-turn.js 必须先于内联脚本加载，否则 paJsonFetch 是 undefined')
+
+    def test_no_chat_endpoint_is_public(self):
+        """遍历路由：每个聊天端点未登录时要么 302 要么 401，绝不真进视图
+
+        故意不用装饰器属性做判据（login_required 不暴露任何标记，只能靠行为）；
+        而 SimpleTestCase 不开放数据库，一旦某个端点漏了登录保护，视图里的 ORM
+        查询直接抛 DatabaseAccessError，比断言属性更真。
+        """
+        from chat import urls as chat_urls
+
+        for pattern in chat_urls.urlpatterns:
+            raw = str(pattern.pattern)
+            url = '/chat/' + re.sub(r'<int:[\w_]+>', '1', raw)
+            with self.subTest(url=url):
+                resp = self.client.get(url)
+                self.assertIn(resp.status_code, (302, 401),
+                              f'{url} 未登录时返回 {resp.status_code}，看起来没有登录保护')
+
+    def test_json_endpoints_are_decorated_and_the_list_is_exhaustive(self):
+        """路由表里的端点必须被完整分类：fetch 端点带 json_login_required，
+        其余端点不得内联返回 JsonResponse（否则它就是漏登记的 fetch 端点）"""
+        import inspect
+        from chat import urls as chat_urls
+
+        marked, problems = set(), []
+        for pattern in chat_urls.urlpatterns:
+            cb = pattern.callback
+            name = getattr(cb, '__name__', str(cb))
+            if getattr(cb, 'json_login_required', False):
+                marked.add(name)
+                continue
+            try:
+                src = inspect.getsource(cb)   # inspect 会跟 __wrapped__ 取到原视图体
+            except OSError:
+                continue
+            if 'JsonResponse' in src:
+                problems.append(f'{name}: 返回 JsonResponse 却不在 JSON_FETCH_ENDPOINTS 清单里')
+        self.assertEqual(sorted(marked), sorted(JSON_FETCH_ENDPOINTS),
+                         '装饰器套的端点与清单不一致（多套 = 白套，少套 = 登录过期会回 302）')
+        self.assertEqual(problems, [], '\n'.join(problems))
