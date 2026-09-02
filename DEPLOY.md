@@ -181,6 +181,24 @@ location /media/ {
 }
 ```
 
+### 部署同步是增量的：服务器上会攒「本地已删除」的遗留文件
+
+日常更新用的 `rsync -az`（不带 `--delete`）只推不删，所以本地删掉的模块在服务器上永远留着。2026-09-02 清点出 39 个这类文件：`content/`、`cms_pages/` 两个早已在 git 里删除的 app、它们的模板、`personal_assistant/celery.py`（Celery 已移除）、11 张 screenshot。危险的不是占地方，而是**它们在服务器侧的测试里真的会跑**：`SiteBrandTest` 扫 `templates/**/*.html`，被 5 个遗留模板（写死 `AI Assistant`、标题不含 `SITE_NAME`）打成常驻红灯，看起来像新改动搞坏了品牌口径。
+
+清点漂移：本地 `git ls-files`（或直接 find 本地磁盘，排除 venv/.git/staticfiles/media/.qoder）与服务器同口径 find 结果做差集，remote-only 即漂移。
+
+处理约定：**移到项目外的备份目录，不删**（`mv content /root/legacy-drift-<日期>/content`）。项目内遗留文件可能被 git 历史之外的东西引用，移动可以随时原路退回；确认站点 200 + 服务器全量测试绿了再谈彻底删除。
+
+### 线上只读冒烟（不登录、不造数据）
+
+生产环境验证「页面真的渲染出新结构」不必依赖浏览器：把脚本 scp 到服务器，`manage.py shell < script.py`，用 `django.test.Client` + `force_login` 打生产设置。三个坑必须先在脚本里进程内改掉，否则全是假阴性：
+
+- `settings.SESSION_COOKIE_SECURE = False` / `CSRF_COOKIE_SECURE = False`：生产 Cookie 带 `Secure`，test client 走 http 内部请求，登录态存不住 → 每请求被 302，看起来像新模板没接上
+- `settings.SECURE_SSL_REDIRECT = False`：否则 `SecurityMiddleware` 先把内部请求 301 掉
+- `settings.ALLOWED_HOSTS += ['testserver']`：否则拿 400（`Invalid HTTP_HOST`），页面只有 143 字节错误页
+
+红线：这类脚本只做读操作（GET 详情页、候选搜索、故意传不存在的 ID 看错误分支），钉选/发消息一律不真做；用完按 `session_key` 删掉自己那条 Session。真机交互验证另说（需要用户账号，不代填密码）。
+
 ### PWA 注意事项
 
 Service Worker 和 manifest.json 位于 `/static/` 目录，需确保 nginx 正确 serve：
