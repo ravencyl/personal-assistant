@@ -1,0 +1,6 @@
+{% comment %}「这一轮还在跑」的数据载体：详情页与浮窗都渲染一份，JS 读到就恢复轮询、
+读一次即移除。不渲染成可见 UI（可见的进度条是 turn_status.html）。
+turn_ttl 由视图统一注入，前端不写死时长。{% endcomment %}
+{% if conversation.turn_active %}
+<div data-turn-resume data-state="{{ conversation.turn_state }}" data-ttl="{{ turn_ttl }}" hidden></div>
+{% endif %}

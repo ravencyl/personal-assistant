@@ -154,6 +154,26 @@ class QoderAgentService:
             time.sleep(poll_interval)
         return ''
 
+    def poll_turn(self, session_id: str) -> dict:
+        """单次、**不 sleep** 地查本轮 AI 是否回完（聊天页面用）
+
+        返回 {'state': 'processing' | 'ready' | 'empty', 'text': str}：
+        - processing：session 还在跑
+        - ready：拿到本轮 assistant 文本
+        - empty：session 已 idle 但提不到本轮文本（真的没回复，或被取消）
+
+        与 wait_for_response 的区别：那个给服务端内部的一轮性任务用（报告生成、
+        快速输入解析等，本来就在循环里，等完才返回），这个给“不能占住请求 worker”
+        的对话路径用，循环由浏览器带着节奏发。空回复判定不在此处下结论：
+        平台 status 比事件写入快，得由调用方给宽限期（见 chat.models.TURN_IDLE_GRACE_SECONDS）。
+        """
+        info = self.get_session(session_id)
+        if info.get('status') != 'idle':
+            return {'state': 'processing', 'text': ''}
+        events = self.get_session_events(session_id, limit=100)
+        text = self.extract_assistant_text(events)
+        return {'state': 'ready' if text else 'empty', 'text': text}
+
     @staticmethod
     def extract_assistant_text(events: list) -> str:
         """从事件列表中提取本轮 assistant 文本（仅取最后一条用户消息之后的内容）"""

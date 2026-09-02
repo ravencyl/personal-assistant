@@ -6,10 +6,12 @@ import httpx
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 from django.db import models
+from django.utils import timezone
 
-from .models import Conversation, Message
+from .models import (Conversation, Message, TURN_TTL_SECONDS,
+                     TURN_IDLE_GRACE_SECONDS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (build_protocol_prompt, get_tool,
@@ -18,9 +20,17 @@ from core.utils import visible_qs, get_visible, visible_child_qs, get_visible_ch
 
 logger = logging.getLogger(__name__)
 
-# 等云端 AI 回一轮的上限（秒）。必须显著小于 gunicorn --timeout（180s），
-# 否则 worker 会在响应途中被看门狗杀掉（历史上因这个进过 502）。
-AI_WAIT_TIMEOUT = 90
+# 等云端 AI 回一轮不再压在单个请求里（改走 turn 状态机 + 轮询）。
+# 下面两个时长都住在 chat/models.py：TURN_TTL_SECONDS（本轮上限）、
+# TURN_IDLE_GRACE_SECONDS（空回复宽限期），它们只约束浏览器轮询预算，与
+# gunicorn --timeout 无关（单个请求里已没有 sleep）。
+
+# 各类「本轮没回完」的文案。它们会**落库成 assistant 消息**（取消 / 空回复），
+# 所以写成对用户可读、且重试时能被当成上下文看见的句子，不是日志串。
+TURN_EMPTY_NOTE = '（AI 这轮没有返回内容，可能已超时。可以再问一次。）'
+TURN_CANCELLED_NOTE = '（已停止这一轮的回答。）'
+TURN_TIMEOUT_NOTE = f'这轮超过 {TURN_TTL_SECONDS} 秒还没回完，已停止等待。'
+TURN_INTERRUPTED_NOTE = '上一轮没有完成，可以再问一次。'
 
 # 新建对话默认用哪个 Agent（按 purpose 选，不再“取最近更新的那个”）。
 # knowledge-agent 是用户在 Qoder 平台上手工配置过的那一个（version 6）：
@@ -78,15 +88,22 @@ def conversation_detail(request, conversation_id):
     return render(request, 'chat/conversation_detail.html', {
         'conversation': conversation,
         'chat_messages': conversation.messages.all(),
+        'turn_ttl': TURN_TTL_SECONDS,
     })
 
 
 @login_required
 def widget_messages(request, conversation_id):
-    """浮窗加载历史消息（返回 HTML 片段）"""
+    """浮窗加载历史消息（返回 HTML 片段）
+
+    片段末尾带 turn_resume / turn_error 两个隐藏位：浮窗拿到就能判断“这一轮还在跑”
+    并接上轮询，不需要另开一个“查状态”的口子。
+    """
     conversation = get_visible(Conversation, request.user, id=conversation_id)
     return render(request, 'chat/partials/widget_messages.html', {
         'widget_messages': conversation.messages.all(),
+        'conversation': conversation,
+        'turn_ttl': TURN_TTL_SECONDS,
     })
 
 
@@ -157,7 +174,13 @@ def create_conversation(request):
 @login_required
 @require_POST
 def send_message(request, conversation_id):
-    """发送消息"""
+    """发送消息：落库 + 发起，**立即返回**；等 AI 的循环交给 turn_poll
+
+    旧实现在这个请求里 sleep 轮询到 AI 回完（最长 90s），代价是：一个提问占死
+    一个 gunicorn worker（一共只 3 个）、用户不能取消、不能接着打字、刷新就丢这一轮。
+    现在单个请求只做「存消息 + 一次 HTTP 发起」，毫秒级返回；状态全部落库，
+    所以关掉页面再进来还能接着轮。详见 chat/models.Conversation 的状态机注释。
+    """
     conversation = get_visible(Conversation, request.user, id=conversation_id)
 
     # 触发到期提醒（每次对话时检查）
@@ -168,8 +191,19 @@ def send_message(request, conversation_id):
     if not content:
         return JsonResponse({'error': '消息内容不能为空'}, status=400)
 
-    # 页面上下文提示（不保存到用户消息，仅注入 AI 会话）
-    page_context = request.POST.get('page_context', '').strip()
+    if conversation.turn_active:
+        if not conversation.turn_expired():
+            # 一个 Qoder session 同时只能处理一轮（硬发会拿 409），
+            # 所以这里给出可读提示而不是默默排队；前端保留草稿，不丢用户已打的字
+            return _turn_response(request, conversation, {
+                'error': '上一条还在处理中，等它回完或先点「停止」',
+                'state': 'busy',
+                'turn_state': conversation.turn_state,
+            }, status=409)
+        # TTL 残留（浏览器被关、worker 被杀、平台卡住）：开新轮前先把上一轮判为中断
+        logger.info(f'对话 {conversation.id} 的上一轮没收尾（超时），开新一轮前强制中断')
+        conversation.turn_state = Conversation.TURN_ERROR
+        conversation.turn_idle_at = None
 
     # 保存用户消息（原始内容，不含上下文提示）
     user_msg = Message.objects.create(
@@ -186,58 +220,97 @@ def send_message(request, conversation_id):
     except Exception as e:
         logger.warning(f'规则记忆提取失败: {e}')
 
-    # 发送到 Qoder
-    service = get_service()
-    try:
-        # 构造发送到 AI 的内容：页面上下文 + 用户消息
-        ai_content = content
-        if page_context and page_context != 'home' and page_context != 'chat':
-            ai_content = f'[页面提示: {page_context}]\n\n{content}'
+    ai_content = _build_ai_content(request, conversation, content)
 
-        # 知识库上下文注入（按对话归属用户过滤，失败仅告警不阻断）
-        try:
-            knowledge_context = _build_knowledge_context(conversation.user, content)
-            if knowledge_context:
-                ai_content = knowledge_context + ai_content
-        except Exception as exc:
-            logger.warning("knowledge injection failed: %s", exc)
+    conversation.turn_state = Conversation.TURN_QUEUED
+    conversation.turn_started_at = timezone.now()
+    conversation.turn_idle_at = None
+    conversation.turn_message = user_msg
+    conversation.turn_prompt = ai_content
+    conversation.status = 'processing'
+    conversation.save(update_fields=['turn_state', 'turn_started_at', 'turn_idle_at',
+                                     'turn_message', 'turn_prompt', 'status', 'updated_at'])
 
-        try:
-            service.send_message(conversation.session_id, ai_content)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code != 409:
-                raise
-            # 409：session 正忙（通常是首帧协议指令还在处理）；等它结束再重发
-            logger.info(f'会话 {conversation.id} 发送 409，等待上一轮结束后重发')
-            service.wait_for_response(conversation.session_id, timeout=AI_WAIT_TIMEOUT)
-            service.send_message(conversation.session_id, ai_content)
-        conversation.status = 'processing'
-        conversation.save(update_fields=['status', 'updated_at'])
-
-        # 收集 assistant 响应（返回 (Message|None, 活动数据是否变更)）
-        assistant_msg, changed = _collect_response(service, conversation)
-
-        # HTMX 请求返回 HTML 片段（含用户消息 + AI 回复），普通请求返回 JSON
-        if request.htmx:
-            pair = [m for m in [user_msg, assistant_msg] if m]
-            response = render(request, 'chat/partials/message_pair.html', {
-                'messages_pair': pair,
-            })
-            # 对话中变更了活动数据：附标记，浮窗 JS 据此通知宿主页面刷新
-            if changed:
-                response.content += b'<div data-activity-changed hidden></div>'
-            return response
-
-        return JsonResponse({
-            'success': True,
-            'response': assistant_msg.content if assistant_msg else '(无响应)',
-            'activity_changed': changed,
-        })
-    except Exception as e:
-        logger.error(f'Failed to send message: {e}')
+    # 先在本请求里试发一次（一次 HTTP 往返，通常百多毫秒）：
+    #   sent → awaiting；busy（首帧协议还在跑）→ 保持 queued，由轮询重试发送
+    outcome = _deliver(get_service(), conversation)
+    if outcome == 'failed':
+        conversation.turn_state = Conversation.TURN_ERROR
         conversation.status = 'idle'
-        conversation.save(update_fields=['status', 'updated_at'])
-        return JsonResponse({'error': str(e)}, status=500)
+        conversation.save(update_fields=['turn_state', 'status', 'updated_at'])
+        return _turn_response(request, conversation, {
+            'error': '发送失败，请重试', 'state': 'error',
+            'retry_text': content, 'ttl': TURN_TTL_SECONDS,
+        }, status=502)
+
+    return _turn_response(request, conversation, {
+        'state': 'processing',
+        'turn_state': conversation.turn_state,
+        'message_id': user_msg.id,
+        'ttl': TURN_TTL_SECONDS,
+        # 用户消息立即上屏：旧实现是等 AI 回完才跟回复一起出现，发一条得盯空白框几十秒
+        'html': _message_fragment(request, user_msg),
+    })
+
+
+def _turn_response(request, conversation, payload, status=200):
+    """fetch（Accept: application/json）要 JSON；无 JS 的普通表单提交带回对话页
+
+    带回页面不是降级：本轮已经在后台发起并落库，详情页重渲染时进度条会自己接上去，
+    比把一串 JSON 丢给用户看诚实得多。判据用 Accept 而不是 htmx：这个端点现在
+    只由原生 fetch 消费（AGENTS.md 双协议约定：JSON 端点禁挂 hx-*，也不装 HX-Request）。
+
+    status 必须透传：前端靠 `res.ok` 分流失败与成功，统一返 200 会把发送失败
+    当成「已受理」并开始轮询一个已经不存在的轮次。
+    """
+    if 'application/json' in request.headers.get('Accept', ''):
+        return JsonResponse(payload, status=status)
+    return redirect('chat:conversation_detail', conversation_id=conversation.id)
+
+
+def _build_ai_content(request, conversation, content):
+    """组装真正发给 Qoder 的文本：页面上下文 + 知识库注入 + 用户原文
+
+    结果要落到 conversation.turn_prompt：重试发送时必须拿到同一份文本
+    （把它塞进用户消息会污染历史，现有约定只存原文）。
+    失败一律降级（铁律：任何环节失败都不得阻断对话）。
+    """
+    ai_content = content
+    page_context = request.POST.get('page_context', '').strip()
+    if page_context and page_context != 'home' and page_context != 'chat':
+        ai_content = f'[页面提示: {page_context}]\n\n{content}'
+    try:
+        knowledge_context = _build_knowledge_context(conversation.user, content)
+        if knowledge_context:
+            ai_content = knowledge_context + ai_content
+    except Exception as exc:
+        logger.warning("knowledge injection failed: %s", exc)
+    return ai_content
+
+
+def _deliver(service, conversation):
+    """把本轮文本发到 Qoder。返回 'sent' | 'busy'（session 还在跑上一轮）| 'failed'
+
+    409 不是错误：新建对话时会连发首帧协议指令 + 记忆注入两条且不等待，用户
+    紧接着打字就必撞 409（旧实现因此在请求里同步等完首帧，这是「第一条消息特别慢」
+    的真因）。现在保持 queued 交给轮询重试，发送请求本身立即返回。
+    """
+    try:
+        service.send_message(conversation.session_id, conversation.turn_prompt)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            logger.info(f'会话 {conversation.id} 正忙（上一轮未结束），本轮稍后由轮询重发')
+            return 'busy'
+        logger.error(f'发送到 Qoder 失败（对话 {conversation.id}）: {e}')
+        return 'failed'
+    except Exception as e:
+        logger.error(f'发送到 Qoder 失败（对话 {conversation.id}）: {e}')
+        return 'failed'
+
+    conversation.turn_state = Conversation.TURN_AWAITING
+    conversation.turn_idle_at = None
+    conversation.save(update_fields=['turn_state', 'turn_idle_at', 'updated_at'])
+    return 'sent'
 
 
 def _build_knowledge_context(user, text):
@@ -254,41 +327,185 @@ def _build_knowledge_context(user, text):
     return context
 
 
-def _collect_response(service, conversation):
-    """等待 AI 响应 → 编排器解析意图并执行工具 → 落库，返回 (Message|None, 活动是否变更)
+@login_required
+@require_GET
+def turn_poll(request, conversation_id):
+    """轮询本轮结果；AI 回完后在本请求内跑编排器 + 落库，返回消息 HTML 片段
 
-    等 AI 的上限统一用一个常量，且**必须显著小于 gunicorn 的 --timeout（180s）**：
-    通用问答现在会走联网工具（WebSearch/WebFetch 多轮），耗时比意图分类长很多，
-    两者相等或倒挂时 worker 会被看门狗在响应途中杀掉（线上已因这个挂过一次 502）。
+    每个请求只做**一次**状态读取（几十毫秒，不 sleep），把过去压在单个请求里的
+    循环摊成 N 个短请求。因此才能做到取消 / 刷新续上 / 边等边打字，也不再占 worker。
+
+    返回：{'state': 'processing'|'done'|'error', 'html': 新增消息片段, 'changed': 活数据是否被写, 'ttl': …}
+
+    多标签页并发轮询靠 claim_turn（条件 UPDATE）保证收尾只跑一遍：否则两个请求
+    都拿到同一段 assistant 文本，会落库两条一模一样的回复，写操作工具还会被执行两次。
     """
-    assistant_text = service.wait_for_response(conversation.session_id, timeout=AI_WAIT_TIMEOUT)
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
 
-    assistant_msg = None
-    changed = False
-    if assistant_text:
-        content, payload, changed = orchestrator.process(conversation.user, assistant_text)
-        assistant_msg = Message.objects.create(
-            conversation=conversation,
-            role='assistant',
-            content=content,
-            event_type='assistant.message',
-            payload=payload,
-        )
-        # 待确认动作回填 HMAC 令牌（令牌含 message_id，只能在落库后生成）
-        if payload and payload.get('action'):
-            payload['action']['token'] = make_action_token(
-                conversation.user, assistant_msg.id, 'confirm')
-            assistant_msg.save(update_fields=['payload'])
-        # 回填对话创建的活动来源消息（哪条消息创建了哪个活动）
-        if payload and payload.get('created_activity_ids'):
-            from activities.models import Activity
-            Activity.objects.filter(
-                id__in=payload['created_activity_ids'],
-                user=conversation.user,
-            ).update(source_message=assistant_msg)
+    if conversation.turn_state in (Conversation.TURN_NONE, Conversation.TURN_DONE):
+        return _poll_json({'state': 'done'})
+    if conversation.turn_state == Conversation.TURN_ERROR:
+        return _turn_error_json(request, conversation, TURN_INTERRUPTED_NOTE)
+    if conversation.turn_expired():
+        conversation.claim_turn(conversation.turn_state, Conversation.TURN_ERROR)
+        conversation.status = 'idle'
+        conversation.save(update_fields=['status', 'updated_at'])
+        logger.info(f'对话 {conversation.id} 本轮超过 {TURN_TTL_SECONDS}s，定为中断')
+        return _turn_error_json(request, conversation, TURN_TIMEOUT_NOTE)
 
+    service = get_service()
+
+    if conversation.turn_state == Conversation.TURN_QUEUED:
+        # 需要（重）发：抢到发送权，避免两个标签页各发一遍（Qoder 会收到两条同样的消息）
+        if not conversation.claim_turn(Conversation.TURN_QUEUED, Conversation.TURN_AWAITING):
+            return _poll_json({'phase': 'queued'})
+        outcome = _deliver(service, conversation)
+        if outcome == 'busy':
+            conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_QUEUED)
+            return _poll_json({'phase': 'session_busy'})
+        if outcome == 'failed':
+            conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_ERROR)
+            conversation.status = 'idle'
+            conversation.save(update_fields=['status', 'updated_at'])
+            return _turn_error_json(request, conversation, '发送失败，请重试')
+        return _poll_json({'phase': 'sent'})
+
+    # awaiting：读一次平台状态（与上面不同，这一步无副作用，不需要抢锁）
+    try:
+        result = service.poll_turn(conversation.session_id)
+    except Exception as e:
+        # 轮询本身失败不视为本轮失败（平台抽风、网络抖动），下一拍继续
+        logger.warning(f'轮询本轮失败（对话 {conversation.id}）: {e}')
+        return _poll_json({'phase': 'poll_error'})
+
+    if result['state'] == 'processing':
+        return _poll_json({})
+
+    text = result['text']
+    if result['state'] == 'empty':
+        # 平台的 status 比事件写入快，得给宽限期才能区分「还没同步完」和「真的没回复」
+        # （旧同步轮询里的 idle_hits >= 3 就是它，现在轮询跳到了请求之间，改用时间）
+        if not conversation.turn_idle_at:
+            conversation.turn_idle_at = timezone.now()
+            conversation.save(update_fields=['turn_idle_at', 'updated_at'])
+            return _poll_json({'phase': 'idle_grace'})
+        if (timezone.now() - conversation.turn_idle_at).total_seconds() < TURN_IDLE_GRACE_SECONDS:
+            return _poll_json({'phase': 'idle_grace'})
+        text = ''
+
+    if not conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_FINALIZING):
+        return _poll_json({'phase': 'finalizing'})
+
+    msg, changed = _finalize_turn(conversation, text)
+    return _poll_json({
+        'state': 'done',
+        'html': _message_fragment(request, msg),
+        'changed': changed,
+        'message_id': msg.id,
+    })
+
+
+def _poll_json(payload):
+    """轮询响应统一出口：都带 ttl，前端据此定轮询预算（时长只在服务端一处定义）
+
+    默认 state=processing，但 done 等终态必须显式传进来 —— 漏传会把「已完成」
+    答成「还在跑」，前端就会一直轮下去。
+    """
+    payload.setdefault('state', 'processing')
+    payload.setdefault('ttl', TURN_TTL_SECONDS)
+    return JsonResponse(payload)
+
+
+def _turn_error_json(request, conversation, note):
+    """中断响应：除了状态字段，额外带上服务端渲染的气泡 HTML
+
+    气泡只有一份模板（turn_error.html）：页面在轮询中碰到中断时由前端 append，
+    刷新后则由模板自己渲染（见 conversation_detail / widget_messages 里的 turn_error include），
+    两条路径共用模板、但不会同时出现（刷新后 resume 只对活跃状态生效）。
+    """
+    payload = {
+        'state': 'error',
+        'message': note,
+        'retry_text': conversation.turn_message.content if conversation.turn_message else '',
+        'html': render(request, 'chat/partials/turn_error.html', {
+            'conversation': conversation, 'note': note,
+        }).content.decode(),
+    }
+    payload['ttl'] = TURN_TTL_SECONDS
+    return JsonResponse(payload)
+
+
+@login_required
+@require_POST
+def turn_cancel(request, conversation_id):
+    """停止本轮：请平台取消 + 落一条「已停止」的 assistant 消息
+
+    cancel_session 是 best-effort：平台可能已自己结束（此时取消会报错），
+    但本地状态无论如何都要收尾，否则这一轮会一直挂到 TTL。
+    落一条 assistant 消息而不是只改状态：否则历史里留下一条永远没有回应的用户消息，
+    刷新后看不出发生过什么。
+    """
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
+    if not conversation.turn_active:
+        return JsonResponse({'state': conversation.turn_state})
+
+    try:
+        get_service().cancel_session(conversation.session_id)
+    except Exception as e:
+        logger.info(f'取消本轮失败（多数是平台已自行结束）: {e}')
+
+    msg, _ = _finalize_turn(conversation, '', note=TURN_CANCELLED_NOTE)
+    return JsonResponse({'state': 'done', 'html': _message_fragment(request, msg)})
+
+
+def _message_fragment(request, msg):
+    """把一条消息渲染成 HTML 片段（与旧同步路径共用同一个模板，前端 append 逻辑不分叉）
+
+    changed 不再靠往 HTML 尾部插隐藏 div 传递（那东西会永远留在消息流里）：
+    轮询响应的 JSON 里有 changed 字段。【confirm_action】那条 HTMX 路径仍然用
+    隐藏 div 传（片段里没有别的通道），base.html 的 htmx:afterSwap 监听在读它。
+    """
+    return render(request, 'chat/partials/message_pair.html', {'messages_pair': [msg]}).content.decode()
+
+
+def _finalize_turn(conversation, assistant_text, note=None):
+    """编排 + 落库本轮结果，并把 turn 收尾。返回 (Message, 活数据是否变更)
+
+    assistant_text 为空串表示平台这轮确实没产出（超时 / 取消 / 空回复）：仍然落一条
+    assistant 消息，否则历史里会留下一条永远没有回应的用户消息。
+    容错铁律：编排器抛异常时降级为原始文本落库，绝不吞掉 AI 已回的正文。
+    """
+    text = assistant_text or (note or TURN_EMPTY_NOTE)
+    try:
+        content, payload, changed = orchestrator.process(conversation.user, text)
+    except Exception as e:
+        logger.error(f'编排本轮回复失败（对话 {conversation.id}），降级为纯文本: {e}')
+        content, payload, changed = text, None, False
+
+    assistant_msg = Message.objects.create(
+        conversation=conversation,
+        role='assistant',
+        content=content,
+        event_type='assistant.message',
+        payload=payload,
+    )
+    # 待确认动作回填 HMAC 令牌（令牌含 message_id，只能在落库后生成）
+    if payload and payload.get('action'):
+        payload['action']['token'] = make_action_token(
+            conversation.user, assistant_msg.id, 'confirm')
+        assistant_msg.save(update_fields=['payload'])
+    # 回填对话创建的活动来源消息（哪条消息创建了哪个活动）
+    if payload and payload.get('created_activity_ids'):
+        from activities.models import Activity
+        Activity.objects.filter(
+            id__in=payload['created_activity_ids'],
+            user=conversation.user,
+        ).update(source_message=assistant_msg)
+
+    conversation.turn_state = Conversation.TURN_DONE
+    conversation.turn_idle_at = None
     conversation.status = 'idle'
-    conversation.save(update_fields=['status', 'updated_at'])
+    conversation.save(update_fields=['turn_state', 'turn_idle_at', 'status', 'updated_at'])
 
     # 更新标题（如果是第一条消息）
     if conversation.title == '新对话':
@@ -359,6 +576,10 @@ def archive_conversation(request, conversation_id):
     conversation = get_visible(Conversation, request.user, id=conversation_id)
     conversation.status = 'archived'
     conversation.save(update_fields=['status', 'updated_at'])
+
+    # 归档时还有进行中的一轮：一并清掉，否则 turn 状态会永远挂着（下次进来还在转圈）
+    if conversation.turn_active:
+        conversation.reset_turn()
 
     # 尝试在 Qoder 平台取消
     try:

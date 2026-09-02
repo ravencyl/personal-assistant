@@ -14,51 +14,29 @@
     </form>
 </div>
 
-<!-- Messages（变量名带 chat_ 前缀：裸 messages 会被 base.html 的 flash 提示条当成 Django 消息框架变量消费） -->
-<div id="messages" class="space-y-4 mb-6">
-    {% for msg in chat_messages %}
-    <div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
-        <div class="rounded-lg p-4 {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
-            <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs font-medium {% if msg.role == 'user' %}text-[var(--text-secondary)]{% else %}text-[var(--text-secondary)]{% endif %}">
-                    {% if msg.role == 'user' %}你{% else %}AI 助手{% endif %}
-                </span>
-                <span class="text-xs text-[var(--text-muted)]">{{ msg.created_at|timesince }} 前</span>
-            </div>
-            <div class="markdown-content text-sm text-[var(--text)] whitespace-pre-wrap">{{ msg.content }}</div>
-            {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
-        </div>
-    </div>
-    {% empty %}
+{% comment %}消息列表（变量名带 chat_ 前缀：裸 messages 会被 base.html 的 flash 提示条当成
+Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_message.html，与浮窗历史共用一份。
+末尾两个 include 是异步收发的接线：
+  turn_resume → 「这一轮还在跑」的隐藏数据，JS 读到就接上轮询（刷新不丢本轮）
+  turn_error  → 本轮中断的气泡 + 「重试」（原文带在 data-retry-text 里）{% endcomment %}
+<div id="messages" class="space-y-4 mb-2" data-turn-resume-host>
+    {% for msg in chat_messages %}{% include "chat/partials/_message.html" %}{% empty %}
     <div class="text-center py-8 text-[var(--text-muted)]">
         <p>发送消息开始对话</p>
     </div>
     {% endfor %}
+    {% include "chat/partials/turn_resume.html" %}
+    {% if conversation.turn_state == 'error' %}
+        {% include "chat/partials/turn_error.html" %}
+    {% endif %}
 </div>
 
-<!-- Loading indicator -->
-<div id="loading" class="hidden mb-4">
-    <div class="chat-message assistant">
-        <div class="rounded-lg p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
-            <div class="flex items-center gap-2">
-                <div class="animate-pulse flex space-x-1">
-                    <div class="h-2 w-2 bg-[var(--text-muted)] rounded-full"></div>
-                    <div class="h-2 w-2 bg-[var(--text-muted)] rounded-full"></div>
-                    <div class="h-2 w-2 bg-[var(--text-muted)] rounded-full"></div>
-                </div>
-                <span class="text-sm text-[var(--text-secondary)]">AI 正在思考...</span>
-            </div>
-        </div>
-    </div>
-</div>
+{% include "chat/partials/turn_status.html" %}
 
-<!-- Input form -->
-<form id="message-form" method="post" action="{% url 'chat:send_message' conversation.id %}"
-      hx-post="{% url 'chat:send_message' conversation.id %}"
-      hx-target="#messages"
-      hx-swap="beforeend"
-      hx-on::before-request="document.getElementById('loading').classList.remove('hidden')"
-      hx-on::after-request="document.getElementById('loading').classList.add('hidden'); (function(){var el=document.getElementById('message-input'); el.value=''; if (window.paFitTextarea) window.paFitTextarea(el);})(); window.scrollTo(0, document.body.scrollHeight);">
+{% comment %}收发走原生 fetch + 轮询（见 static/js/chat-turn.js），表单不挂任何 hx-*：
+send/turn/cancel 都是 JSON 端点，AGENTS.md 双协议约定严禁 hx-* 消费 JSON。
+action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 redirect 回本页）。{% endcomment %}
+<form id="message-form" method="post" action="{% url 'chat:send_message' conversation.id %}">
     {% csrf_token %}
     <div class="flex items-end gap-3">
         {# 多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮 #}
@@ -71,6 +49,37 @@
         </button>
     </div>
 </form>
+
+<script>
+// 与右下角浮窗共用同一个 PaChatTurn 实现（详情页与浮窗各写一套必然漂移）
+(function () {
+    if (!window.PaChatTurn) return;
+    var base = '{% url "chat:conversation_detail" conversation.id %}';
+    var messagesEl = document.getElementById('messages');
+    var resumeEl = messagesEl.querySelector('[data-turn-resume]');
+    window.paPageChat = window.PaChatTurn({
+        messagesEl: messagesEl,
+        statusEl: document.querySelector('[data-turn-status]'),
+        form: document.getElementById('message-form'),
+        input: document.getElementById('message-input'),
+        urls: function () {
+            return { send: base + 'send/', poll: base + 'turn/', cancel: base + 'turn/cancel/' };
+        },
+        // 页面上下文的 hint 由 base.html 的浮窗逻辑统一探测，这里复用同一份，避免两处判定漂移
+        extraParams: function () {
+            return (window.paPageContext && window.paPageContext()) || {};
+        },
+        onActivityChanged: function () {
+            document.dispatchEvent(new CustomEvent('activities:changed'));
+        }
+    });
+    // 刷新续上：服务端渲染了 turn_resume 就说明这一轮还在跑
+    if (resumeEl) {
+        window.paPageChat.resume(resumeEl.dataset.state, parseInt(resumeEl.dataset.ttl, 10));
+        resumeEl.remove();   // 读一次即撤，避免后续重复启动轮询
+    }
+})();
+</script>
 
 <!-- 底部预留空间：确保滚动到底时发送按钮位于右下角 AI 浮窗 FAB 固定区域之上（移动端 FAB 占视口底部 96~144px，表单底边距底 112+80=192px；桌面端 FAB 占 16~64px，表单底边距底 32+80=112px） -->
 <div class="h-20" aria-hidden="true"></div>

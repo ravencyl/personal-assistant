@@ -1,0 +1,16 @@
+{% comment %}本轮中断（超时 / 发送失败）的气泡。服务端渲染一份、轮询响应里也带一份，
+同用这个模板 —— 前端不再自己拼一套，避免两处措辞漂移。
+「重试」把原文带在 data-retry-text 里，点了就按同一份内容重发（不新造端点）。{% endcomment %}
+<div class="chat-message assistant">
+    <div class="rounded-lg p-3 md:p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
+        <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs text-[var(--text-secondary)]">⚠️ {{ note }}</span>
+            {% if conversation.turn_message %}
+            <button type="button" data-retry-text="{{ conversation.turn_message.content }}"
+                    class="tap-target text-xs px-2 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text)]">
+                重试
+            </button>
+            {% endif %}
+        </div>
+    </div>
+</div>

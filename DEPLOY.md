@@ -140,15 +140,17 @@ gunicorn --workers 3 --timeout 180 --bind unix:/var/www/personal-website/gunicor
   personal_assistant.wsgi:application
 ```
 
-理由：周报/月报、每日洞察、AI 对话等页面在请求内同步调用 AI（`core/ai.py` 最长 `timeout=90`，对话等一轮 `chat/views.py::AI_WAIT_TIMEOUT=90`）。gunicorn 同步 worker 的看门狗只在请求间隙收到心跳，因此**只要单次 AI 调用超过 gunicorn timeout，worker 就被 SIGKILL**，用户看到 502、日志里出现 `WORKER TIMEOUT` + `SystemExit`（默认 30s 时实测 `GET /reports/weekly/` 要 30.3s，必被杀）。改完 unit 记得 `systemctl daemon-reload && systemctl restart gunicorn`。
+理由：周报/月报、活动页的 AI 快速输入解析等仍在请求内同步调用 AI（`core/ai.py` 最长 `timeout=90`）。gunicorn 同步 worker 的看门狗只在请求间隙收到心跳，因此**只要单次 AI 调用超过 gunicorn timeout，worker 就被 SIGKILL**，用户看到 502、日志里出现 `WORKER TIMEOUT` + `SystemExit`（默认 30s 时实测 `GET /reports/weekly/` 要 30.3s，必被杀）。改完 unit 记得 `systemctl daemon-reload && systemctl restart gunicorn`。
+
+**AI 对话不在这条链上**：`/chat/<id>/send/` 只做「落库 + 一次发起」则立即返回，等 AI 的循环被摊成 `turn_poll` 短轮询（每拍几十毫秒），所以一轮问答跑多久都不会撞看门狗；本轮上限由 `chat/models.py::TURN_TTL_SECONDS` 控制。
 
 ### 超时链口径（改任何一个都要同时看其余两个）
 
 ```
-nginx proxy_read_timeout (180s)  ≥  gunicorn --timeout (180s)  >  AI_WAIT_TIMEOUT / ai_round_trip timeout (90s)
+nginx proxy_read_timeout (180s)  ≥  gunicorn --timeout (180s)  >  请求内 ai_round_trip timeout（最大 90s）
 ```
 
-外大内小：AI 真的跑满时应该是**应用层先超时并降级回一句普通回复**，而不是网关/看门狗把进程杀掉（后者用户只能看到 502）。AI 对话已开启联网工具（WebSearch/WebFetch 多轮），单轮耗时比纯意图分类长很多，这三个值不对齐时必现随机失败。`chat/tests.py::AiTimeoutChainTest` 会拿本文的 `--timeout` 做断言。
+外大内小：AI 真的跑满时应该是**应用层先超时并降级回一句普通回复**，而不是网关/看门狗把进程杀掉（后者用户只能看到 502）。报告类请求真的会走满 60-90s，这三个值不对齐时必现随机失败。`chat/tests.py::AiTimeoutChainTest` 会扫全仓库所有 `ai_round_trip(..., timeout=N)` 调用取最大值来对照本文的 `--timeout`，并单独断言聊天视图里没有 `wait_for_response` / `sleep`（防止同步阻塞长回来）。
 
 ### nginx 配置要点
 

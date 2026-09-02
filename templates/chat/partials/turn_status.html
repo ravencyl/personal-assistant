@@ -1,0 +1,16 @@
+{% comment %}轮询进度条：默认 hidden，是否显示由 chat-turn.js 驱动。
+
+不用 flex 排版：Tailwind 的 `hidden`(display:none) 与 `flex`(display:flex) 是同层工具类，
+谁在样式表后面谁赢，靠「去掉 hidden」来显示会拿到一个不确定的 display。改成块级容器 +
+inline 子元素，hidden 一去掉就是正常的一行文字 + 按钮。
+
+文案不写死在这里（JS 侧 PHASE_TEXT 是唯一措辞来源），这里只给结构 + 停止按钮。
+详情页与浮窗各放一份（include 同一模板），停止按钮走原生 fetch，不挂 hx-*。
+{% endcomment %}
+<div data-turn-status class="hidden py-2 text-xs text-[var(--text-muted)]">
+    <span class="animate-pulse" data-turn-text>AI 正在处理…</span>
+    <button type="button" data-turn-cancel
+            class="tap-target ml-2 px-2 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text)]">
+        停止
+    </button>
+</div>

@@ -1,14 +1,7 @@
-{% for msg in widget_messages %}
-<div class="flex flex-col {% if msg.role == 'user' %}items-end{% else %}items-start{% endif %}">
-    <div class="max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap {% if msg.role == 'user' %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-800{% endif %}">
-        {{ msg.content }}
-    </div>
-    {% if msg.payload %}
-    <div class="w-[95%]">
-        {% include "chat/cards/_card.html" %}
-    </div>
-    {% endif %}
-</div>
-{% empty %}
-<p class="text-center text-sm text-zinc-400 py-6">发送消息开始对话</p>
+{% comment %}浮窗历史片段：消息渲染复用 _message.html（与详情页同一份），
+末尾带上「可续轮询」的隐藏数据与中断气泡，浮窗 JS 读到就接上这一轮。{% endcomment %}
+{% for msg in widget_messages %}{% include "chat/partials/_message.html" %}{% empty %}
+<p class="text-center text-sm text-[var(--text-muted)] py-6">发送消息开始对话</p>
 {% endfor %}
+{% include "chat/partials/turn_resume.html" %}
+{% if conversation.turn_state == 'error' %}{% include "chat/partials/turn_error.html" %}{% endif %}

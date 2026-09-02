@@ -1,14 +1,4 @@
-{% for msg in messages_pair %}
-<div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}">
-    <div class="rounded-lg p-4 {% if msg.role == 'user' %}bg-zinc-50 border border-zinc-100{% else %}bg-white border border-zinc-200{% endif %}">
-        <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-medium {% if msg.role == 'user' %}text-zinc-600{% else %}text-zinc-600{% endif %}">
-                {% if msg.role == 'user' %}你{% else %}AI 助手{% endif %}
-            </span>
-            <span class="text-xs text-zinc-400">刚刚</span>
-        </div>
-        <div class="markdown-content text-sm text-zinc-800 whitespace-pre-wrap">{{ msg.content }}</div>
-        {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
-    </div>
-</div>
-{% endfor %}
+{% comment %}一轮收发的新增消息片段（用户消息 / assistant 消息都用它渲染，模板只有一份）
+视图侧的 _message_fragment() 靠它把消息渲染成 HTML 交给前端 append。
+{% endcomment %}
+{% for msg in messages_pair %}{% include "chat/partials/_message.html" %}{% endfor %}

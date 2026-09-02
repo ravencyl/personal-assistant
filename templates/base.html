@@ -9,6 +9,8 @@
     <script src="{% staticv 'js/tailwind.js' %}"></script>
     <script src="{% staticv 'js/htmx.min.js' %}"></script>
     <script src="{% staticv 'js/offline-queue.js' %}"></script>
+    {# 聊天异步收发流（详情页与浮窗共用一份）#}
+    <script src="{% staticv 'js/chat-turn.js' %}"></script>
     <link rel="stylesheet" href="{% staticv 'css/custom.css' %}">
     <style>
         body {
@@ -205,7 +207,7 @@
                     <a id="chat-open-full" href="#" target="_blank" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]" title="在新页面打开">↗</a>
                 </div>
                 <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
-                <div id="chat-loading" class="hidden px-4 pb-1 text-xs text-[var(--text-muted)] animate-pulse">AI 正在思考...</div>
+                {% include "chat/partials/turn_status.html" %}
                 <form id="chat-form" class="flex items-end gap-2 p-3 border-t border-[var(--border)]">
                     {% csrf_token %}
                     {# 多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮 #}
@@ -312,7 +314,6 @@
         var messagesEl = document.getElementById('chat-messages');
         var form = document.getElementById('chat-form');
         var input = document.getElementById('chat-input');
-        var loading = document.getElementById('chat-loading');
         var titleEl = document.getElementById('chat-conv-title');
         var fullLink = document.getElementById('chat-open-full');
         var newBtn = document.getElementById('chat-new-btn');
@@ -339,6 +340,10 @@
             return { type: 'home', placeholder: '有什么需要帮忙的？', hint: '' };
         })();
         input.placeholder = pageCtx.placeholder;
+        // 暴露给详情页：对话页的发送也要带同一份页面上下文，两处判定只有一份实现
+        window.paPageContext = function () {
+            return { page_context: pageCtx.hint || pageCtx.type };
+        };
 
         function showChatView(show) {
             viewList.classList.toggle('hidden', show);
@@ -350,25 +355,34 @@
 
         function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
-        // 清空输入框（要连带重置自适应高度，否则发完一条后框子停在拉长状态）
-        function clearInput() {
-            input.value = '';
-            if (window.paFitTextarea) window.paFitTextarea(input);
-        }
-
         var lastConvId = null;
 
+        // 打开一个对话：先停掉上一个对话的轮询（不取消服务端的本轮），再拉历史。
+        // 返回 Promise：paChatAsk 要等历史渲染完才能发送，否则刚 append 的用户消息
+        // 会被随后到达的历史 innerHTML 替换掉。
         function openConversation(id, title) {
+            if (window.paPanelChat) window.paPanelChat.halt();
             lastConvId = id;
             titleEl.textContent = title || '对话';
             fullLink.href = '/chat/' + id + '/';
-            form.dataset.action = '/chat/' + id + '/send/';
             showChatView(true);
             messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text-muted)] py-4">加载中...</p>';
-            fetch('/chat/' + id + '/widget-messages/', { headers: { 'HX-Request': 'true' } })
+            return fetch('/chat/' + id + '/widget-messages/')
                 .then(function (r) { if (!r.ok) throw new Error('加载失败'); return r.text(); })
-                .then(function (html) { messagesEl.innerHTML = html; scrollBottom(); input.focus(); })
-                .catch(function () { messagesEl.innerHTML = '<p class="text-center text-sm text-zinc-800 font-semibold py-4">消息加载失败，请重试</p>'; });
+                .then(function (html) {
+                    messagesEl.innerHTML = html;
+                    // 历史片段末尾带了 turn_resume 就是「这一轮还在跑」：接上轮询（刷新/切对话不丢本轮）
+                    var resumeEl = messagesEl.querySelector('[data-turn-resume]');
+                    if (resumeEl && window.paPanelChat) {
+                        window.paPanelChat.resume(resumeEl.dataset.state, parseInt(resumeEl.dataset.ttl, 10));
+                        resumeEl.remove();
+                    }
+                    scrollBottom();
+                    input.focus();
+                })
+                .catch(function () {
+                    messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text)] font-semibold py-4">消息加载失败，请重试</p>';
+                });
         }
 
         // 快记 FAB 跟聊天面板几何重叠（两个浮窗都锚定 right-4，面板底边只比快记 FAB
@@ -414,43 +428,23 @@
                 .catch(function () { return null; });
         }
 
-        // 发送一条消息并渲染回复（供表单提交与全局 paChatAsk 复用）
-        function postMessage(content) {
-            loading.classList.remove('hidden');
-            input.disabled = true;
-            return fetch(form.dataset.action, {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': csrf,
-                    'HX-Request': 'true',
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: 'content=' + encodeURIComponent(content) + '&page_context=' + encodeURIComponent(pageCtx.hint || pageCtx.type)
-            })
-                .then(function (r) {
-                    if (!r.ok) {
-                        return r.json().then(function (d) { throw new Error(d.error || '发送失败'); });
-                    }
-                    return r.text();
-                })
-                .then(function (html) {
-                    messagesEl.insertAdjacentHTML('beforeend', html);
-                    clearInput();
-                    // 对话中变更了活动数据：移除后端附带的标记并广播事件，宿主页面据此提示刷新
-                    var marker = messagesEl.querySelector('[data-activity-changed]');
-                    if (marker) {
-                        marker.remove();
-                        document.dispatchEvent(new CustomEvent('activities:changed'));
-                    }
-                    scrollBottom();
-                })
-                .catch(function (err) { alert(err.message); })
-                .finally(function () {
-                    loading.classList.add('hidden');
-                    input.disabled = false;
-                    input.focus();
-                });
-        }
+        // 收发交给共用的 PaChatTurn：发送秒返回、轮询取结果、可停止、切对话不丢本轮
+        window.paPanelChat = window.PaChatTurn({
+            messagesEl: messagesEl,
+            statusEl: panel.querySelector('[data-turn-status]'),
+            form: form,
+            input: input,
+            noConversationHint: '先点「+ 新对话」',
+            urls: function () {
+                if (!lastConvId) return {};
+                var base = '/chat/' + lastConvId + '/';
+                return { send: base + 'send/', poll: base + 'turn/', cancel: base + 'turn/cancel/' };
+            },
+            extraParams: function () { return { page_context: pageCtx.hint || pageCtx.type }; },
+            onActivityChanged: function () {
+                document.dispatchEvent(new CustomEvent('activities:changed'));
+            }
+        });
 
         newBtn.addEventListener('click', function () {
             newBtn.disabled = true;
@@ -473,18 +467,11 @@
                 .finally(function () { newBtn.disabled = false; newBtn.textContent = '+ 新对话'; });
         });
 
-        // 发送消息（表单里只有一个提交按钮，因此只由点「发送」或 HTMX 触发；
-        // 输入框是 textarea，Enter 天然就是换行，不会隐式提交）
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var content = input.value.trim();
-            if (!content || !form.dataset.action) return;
-            clearInput();
-            postMessage(content);
-        });
+        // 发送入口全部交给 PaChatTurn（它在内部绑了 form 的 submit；输入框是 textarea，
+        // Enter 天然只换行，不会隐式提交）
 
         // 全局 API：其他页面（如 Daily 建议行）点击后直接向 AI 追问：
-        // 打开面板 → 复用最近对话或新建 → 发送追问 prompt
+        // 打开面板 → 复用最近对话或新建 → 等历史渲染完再发追问 prompt
         window.paChatAsk = function (text) {
             text = (text || '').trim();
             if (!text) return;
@@ -493,18 +480,25 @@
             var qp = document.getElementById('quick-panel');
             if (qp) qp.classList.add('hidden');
             var proceed = function (id) {
-                openConversation(id, titleEl.textContent || '对话');
-                postMessage(text);
+                openConversation(id, titleEl.textContent || '对话')
+                    .then(function () { window.paPanelChat.send(text); });
             };
-            if (lastConvId && form.dataset.action) {
+            if (lastConvId) {
                 proceed(lastConvId);
             } else {
                 createConversation().then(function (id) {
                     if (id) { proceed(id); }
-                    else { alert('创建对话失败，请稍后重试'); }
+                    else { showStatus('创建对话失败，请检查网络或 Agent 配置'); }
                 });
             }
         };
+
+        // 面板内的轻提示（不用原生 alert：阻塞式弹窗在浮窗里尤其累）
+        function showStatus(text) {
+            var el = panel.querySelector('[data-turn-text]');
+            var bar = panel.querySelector('[data-turn-status]');
+            if (el && bar) { el.textContent = text; bar.classList.remove('hidden'); }
+        }
     })();
     </script>
 

@@ -128,6 +128,28 @@ def query_activities(user, params):
 
 回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
 
+## 对话收发是异步 turn（改聊天前必读）
+
+一个 Qoder session 同时只能处理一轮（发第二条拿 409）。旧实现在单个请求里 `sleep` 轮询到 AI 回完（上限 90s），代价是：一个提问占死一个 gunicorn worker（线上共 3 个）、不能取消、不能接着打字、刷新就丢这一轮。现在状态全部落库：
+
+```
+none → queued → awaiting → finalizing → done
+                ↑ 409 回退          ↘ 超时/发送失败 → error
+```
+
+- **`POST /chat/<id>/send/` 只做「落库 + 一次发起」并立即返回**；等 AI 的循环搬到 `GET /chat/<id>/turn/`（每拍一次无副作用状态读取，几十毫秒）。收尾（跑编排器 + 落库）在轮询请求里完成，回 `{'state','html','changed','ttl'}`
+- **`turn_prompt` 必须落库**：撞 409 留在 `queued` 时要由轮询拿**同一份组装好的文本**（页面上下文 + 知识库注入 + 原文）重发；用户消息只存原文（现有约定），塞上下文会污染历史
+- **`claim_turn(from, to)` 是条件 UPDATE，不是普通赋值**：两个标签页都从 `awaiting` 拿到同一段文本时，抢不到锁的必须空手而回，否则会落两条一样的回复并把写操作工具执行两遍。`test_second_poll_after_done_does_not_duplicate_the_reply` **单独不能**当这条锁（第二轮在入口就短路返回），真正生效的是 `test_turn_being_finalized_elsewhere_is_not_executed_again`
+- **空回复要过宽限期**（`TURN_IDLE_GRACE_SECONDS`）：平台 `status` 变 idle 比事件写入快，立即判定“真的没回复”会把正常回复丢掉。旧同步版靠 `idle_hits >= 3` 计数，现在轮询跨请求了改用时间
+- **前端只有一份实现**：`static/js/chat-turn.js`（详情页与右下角浮窗都 `PaChatTurn(...)`），别再写第二套。等回复期间**只锁发送按钮、输入框保持可编辑**（能接着打下一条是异步化的目的）；切对话调 `halt()`（只停轮询），`stop()` 才是取消服务端本轮
+- **三个 JSON 端点一律原生 fetch，严禁 `hx-*`**（HTMX 会把 JSON 当纯文本插进 DOM）。fetch **必须带 `Accept: application/json`**：视图靠它区分 fetch 与无 JS 表单提交，漏了会被 302 重定向而消息其实已落库（本地实测：前端报「发送失败」，用户再点一次就是重复提问）
+- **消息与中断气泡各只有一份模板**：`chat/partials/_message.html`（详情页、浮窗历史、轮询新片段三处共用；以前浮窗历史与新消息是两种长相）与 `turn_error.html`（轮询中碰到中断由前端 append，刷新后由模板自己渲染，`resume` 只对活跃状态生效所以不会双气泡）。进度条 `turn_status.html` 不得同时用 `hidden` 与 `flex`/`items-center`（同层 display 工具类，去掉 hidden 后拿到哪个 display 取决于样式表顺序）
+- **取消/超时/空回复都要落一条 assistant 消息**，否则历史里留下一条永远没有回应的提问；但取消**不得**广播 `activities:changed`（没改数据却弹「活动数据已更新」，实测踩过）
+- **聊天退出超时链**：`nginx(180) ≥ gunicorn(180) > 请求内 ai_round_trip(最大90)` 仍然成立，但聊天不再在这条链上（`TURN_TTL_SECONDS` 只是浏览器轮询预算）。`AiTimeoutChainTest` 会扫全仓库 `ai_round_trip(..., timeout=N)` 取最大值对照 DEPLOY.md，并断言 `chat/views.py` 里没有 `wait_for_response` / `sleep`
+- **测试替身 `FakeQoderService` 故意不提供 `wait_for_response`**：视图一旦回退成同步等待会直接 AttributeError 炸掉，比“断言没被调用”更硬。静态扫 JS/模板的禁用词锁必须先剔注释（`_strip_js_comments` / `core.layout_asserts.code_only`）——注释里写的“禁止调 htmx.process”自己包含那个词，不剔就是假失败（本项目已踩三次）
+
+回归锁：`chat/tests.py` 的 `ChatTurnModelTest` / `ChatSendAsyncTest` / `ChatTurnPollTest` / `ChatTurnCancelTest` / `ChatTurnTemplateWiringTest` / `ChatTurnFlowJsTest`（共 38 条，含 12 项变异反证；注意静态锁曾因切片切空而**空跑**，新增此类锁时必须拿变异验证它真的会响）。
+
 ## 参与者写入规则
 
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
