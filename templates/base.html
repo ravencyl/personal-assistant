@@ -1,4 +1,4 @@
-{% load static %}
+{% load static core_tags %}
 <!DOCTYPE html>
 <html lang="zh-CN" class="h-full">
 <head>
@@ -6,10 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <script src="{% static 'js/tailwind.js' %}"></script>
-    <script src="{% static 'js/htmx.min.js' %}"></script>
-    <script src="{% static 'js/offline-queue.js' %}"></script>
-    <link rel="stylesheet" href="{% static 'css/custom.css' %}">
+    <script src="{% staticv 'js/tailwind.js' %}"></script>
+    <script src="{% staticv 'js/htmx.min.js' %}"></script>
+    <script src="{% staticv 'js/offline-queue.js' %}"></script>
+    <link rel="stylesheet" href="{% staticv 'css/custom.css' %}">
     <style>
         body {
             min-height: 100%;

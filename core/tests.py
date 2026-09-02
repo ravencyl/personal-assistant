@@ -1795,9 +1795,37 @@ class ServiceWorkerTest(TestCase):
         self.assertLess(body.index('response.clone()'), body.index('.then('),
                         'clone() 不能写在 .then 回调里')
         self.assertIn('event.waitUntil(', body, '回填必须挂在 waitUntil 上')
-        self.assertRegex(body, r'cache\.put\(request, clone\)', '交给 cache.put 的必须是那个 clone')
+        self.assertRegex(body, r'cache\.put\(key \|\| request, clone\)',
+                         '交给 cache.put 的必须是那个 clone（key 为空时退回原 request）')
         self.assertNotIn('cache.put(request, response', body,
                          '不能把原响应本身交给 cache.put')
+        self.assertNotIn('cache.put(request, clone', body,
+                         '静态资源必须按剔了版本号的 key 存，否则与 PRECACHE_URLS 的裸路径对不上')
+
+    def test_static_cache_key_strips_the_version_query(self):
+        """静态分支必须拿不带查询串的 key 去存取
+
+        模板给 CSS/JS 加了 ?v=<内容哈希>（为了绕开浏览器 HTTP 缓存的启发式新鲜度），
+        而 PRECACHE_URLS 写的是裸路径。两边对不上的话不会报错，只会默默 miss：
+        断网时页面能开但完全没样式（离线兜底形同虚设的另一种形式）。
+        """
+        handler = self._fetch_handler()
+        self.assertIn("new Request(url.origin + url.pathname", handler,
+                      '静态缓存键必须只由 pathname 构造（不能用 url.href 或原始 request）')
+        for marker in ("startsWith('/static/css/')", "startsWith('/static/')"):
+            branch = self._branch(marker)
+            self.assertRegex(branch, r'(networkFirst|cacheFirst)\(event, request,.*staticKey\)',
+                             f'{marker} 分支没把 staticKey 传下去，离线会 miss 预缓存条目')
+
+    def test_page_navigation_cache_key_keeps_the_query(self):
+        """反过来：页面导航的查询串是语义的一部分，不能一并剥掉
+
+        ?page=2 / ?tag=自驾 / ?q=xxx 都是不同内容，剥掉查询串会把筛选结果串页。
+        """
+        branch = self._branch("request.mode === 'navigate'")
+        self.assertIn('networkFirst(event, request,', branch,
+                      '导航分支必须继续用原始 request 做缓存键')
+        self.assertNotIn('staticKey', branch, '剥查询串的处理不能泄漏到页面导航上')
 
 
 class DashboardDesktopLayoutTest(TestCase):
@@ -1934,3 +1962,71 @@ class DesktopLayoutCoverageTest(TestCase):
             if 'grid-template-columns' in tpl.read_text(encoding='utf-8'):
                 offenders.append(tpl.name)
         self.assertEqual(offenders, [], f'这些模板内联了列宽：{offenders}')
+
+
+class StaticAssetVersionTest(TestCase):
+    """静态资源内容版本号锁
+
+    真实故障：全站两列化上线后，用户在活动详情页看到「快捷操作」掉到页底 ——
+    新 HTML + 旧 CSS：.page-cols 拿不到 grid 声明就退化成块级流，右列整块排到主内容之后。
+    根因是 nginx 的 location /static/ 不下发任何 Cache-Control，浏览器按启发式新鲜度
+    （约 (now - Last-Modified) × 10%）直接复用磁盘里的旧文件，连网络都不走；
+    SW 的 network-first 用的也是这条 fetch()，同样被 HTTP 缓存答回来。
+    所以 CSS/JS 的 URL 必须带内容哈希 —— 手动升版本号迟早会忘，忘了就是「发布后样式滞后」。
+    """
+    TEMPLATES = Path(settings.BASE_DIR) / 'templates'
+    BARE_REF = re.compile(r"""\{%\s*static\s+'(css|js)/[^']+'\s*%\}""")
+    VERSIONED_REF = re.compile(r"""\{%\s*staticv\s+'([^']+)'\s*%\}""")
+
+    def test_no_bare_local_css_js_reference(self):
+        offenders = []
+        for tpl in self.TEMPLATES.rglob('*.html'):
+            hits = self.BARE_REF.findall(tpl.read_text(encoding='utf-8'))
+            if hits:
+                offenders.append(tpl.name)
+        self.assertEqual(offenders, [],
+                         '这些模板用了裸 static 标签引本地 CSS/JS，改了不会自动失效：'
+                         + str(offenders))
+
+    def test_every_template_using_staticv_loads_core_tags(self):
+        """漏 load core_tags 不是「样式旧一点」，是整页 500（TemplateSyntaxError）"""
+        offenders = []
+        for tpl in self.TEMPLATES.rglob('*.html'):
+            src = tpl.read_text(encoding='utf-8')
+            # load 行按 Django 模板规则只出现在 {% block %} 之前，扫前 6 行足够
+            head = '\n'.join(src.splitlines()[:6])
+            if 'staticv' in src and 'core_tags' not in head:
+                offenders.append(tpl.name)
+        self.assertEqual(offenders, [], '用了 staticv 却没在顶部 load core_tags：' + str(offenders))
+
+    def test_rendered_page_carries_content_derived_token(self):
+        from core.templatetags.core_tags import source_token
+        html = self.client.get('/accounts/login/').content.decode()
+        token = re.search(r'custom\.css\?v=([0-9a-f]+)', html)
+        self.assertTrue(token, '渲染出的 CSS URL 没带版本号')
+        self.assertEqual(len(token.group(1)), 10)
+        self.assertEqual(token.group(1), source_token(str(settings.BASE_DIR / 'static/css/custom.css')),
+                         '版本号必须由文件内容算出，否则改了文件 URL 不变')
+
+    def test_token_changes_with_content_not_with_mtime(self):
+        """内容相同 → 同一 token（哪怕 mtime 变了）；内容变了 → token 必须变"""
+        import os
+        import tempfile
+        from core.templatetags.core_tags import source_token
+        with tempfile.TemporaryDirectory() as d:
+            a = os.path.join(d, 'a.css')
+            with open(a, 'w') as fh:
+                fh.write('.page-cols{display:grid}')
+            first = source_token(a)
+            os.utime(a, (0, 0))                     # 只改时间不改内容
+            self.assertEqual(source_token(a), first, '只改 mtime 就换 token 会让缓存天天失效')
+            with open(a, 'w') as fh:
+                fh.write('.page-cols{display:block}')
+            self.assertNotEqual(source_token(a), first, '改内容必须换 token')
+
+    def test_missing_source_degrades_to_plain_url(self):
+        """找不列源文件（未 collectstatic / 路径写错）时退回裸 URL，不能渲染报错"""
+        from core.templatetags.core_tags import static_versioned
+        url = static_versioned('css/does-not-exist.css')
+        self.assertNotIn('?v=', url)
+        self.assertIn('does-not-exist.css', url)

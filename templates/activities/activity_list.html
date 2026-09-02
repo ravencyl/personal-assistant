@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static core_tags %}
 
 {% block title %}活动记录 · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
 <!-- 快速记一笔共用实现（原生 fetch + JSON，禁挂 hx-*） -->
-<script src="{% static 'js/quick-parse.js' %}"></script>
+<script src="{% staticv 'js/quick-parse.js' %}"></script>
 {% endblock %}
 
 {% block content %}

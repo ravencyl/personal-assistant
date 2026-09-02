@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static core_tags %}
 
 {% block title %}{{ title }} · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
-<script src="{% static 'js/pinyin-pro.js' %}"></script>
+<script src="{% staticv 'js/pinyin-pro.js' %}"></script>
 <!-- 快速输入解析通道（原生 fetch + JSON，禁挂 hx-*） -->
-<script src="{% static 'js/quick-parse.js' %}"></script>
+<script src="{% staticv 'js/quick-parse.js' %}"></script>
 {% endblock %}
 
 {% block content %}

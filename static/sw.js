@@ -10,7 +10,7 @@
 //     而且 cache.put() 遇到非 GET 会直接抛异常。
 //  3. 只缓存顶层导航。判据只能用 mode === 'navigate'，不能再用「Accept 含 text/html」：
 //     HTMX 的片段请求就是 Accept: text/html,*/*，一旦被缓存，打卡/搜索/聊天会拿到过期片段。
-const CACHE_VERSION = 'personal-assistant-v14';
+const CACHE_VERSION = 'personal-assistant-v15';
 
 // 预缓存的核心静态资源（已自托管，不再依赖 CDN）
 const PRECACHE_URLS = [
@@ -56,7 +56,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function cachePut(event, request, response) {
+function cachePut(event, request, response, key) {
   if (!response || !response.ok) return;
   // clone() 必须同步做，不能留到 caches.open().then() 里：等那个回调跑起来时原响应已经
   // 被 respondWith 接手开始往页面流了，这时再 clone 直接抛
@@ -66,27 +66,28 @@ function cachePut(event, request, response) {
   // 并且必须挂到 event.waitUntil 上：即发即忘的 caches.open().then(put) 会在 respondWith
   // 解析后被浏览器直接抽掉（SW 随时可能被回收），同样存不进去
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone))
+    caches.open(CACHE_VERSION).then((cache) => cache.put(key || request, clone))
   );
 }
 
 // 网络优先、失败回退缓存：改了静态文件不必记得升 CACHE_VERSION，下次加载就是新的，
 // 断网时仍能用缓存兜底
-function networkFirst(event, request, fallback) {
+function networkFirst(event, request, fallback, key) {
   return fetch(request)
     .then((response) => {
-      cachePut(event, request, response);
+      cachePut(event, request, response, key);
       return response;
     })
-    .catch(() => caches.match(request).then((cached) => cached || fallback || Response.error()));
+    .catch(() => caches.match(key || request)
+      .then((cached) => cached || fallback || Response.error()));
 }
 
 // 缓存优先：只给体积稳定、几乎不变的资源（图标、manifest）
-function cacheFirst(event, request) {
-  return caches.match(request).then((cached) => {
+function cacheFirst(event, request, key) {
+  return caches.match(key || request).then((cached) => {
     if (cached) return cached;
     return fetch(request).then((response) => {
-      cachePut(event, request, response);
+      cachePut(event, request, response, key);
       return response;
     });
   });
@@ -106,15 +107,22 @@ self.addEventListener('fetch', (event) => {
   // 非 GET 一律放行（见文件头第 2 条）
   if (request.method !== 'GET') return;
 
-  // CSS / JS：网络优先 + 缓存兜底
+  // CSS / JS：网络优先 + 缓存兜底。
+  // 静态资源的缓存键一律剥掉查询串：模板现在用 {% staticv %} 给 URL 带内容哈希
+  // （?v=<hash>，为了绕开浏览器 HTTP 缓存的启发式新鲜度），而 PRECACHE_URLS 写的是
+  // 裸路径；不剥掉的话 caches.match 永远 miss，离线兜底就只剩一个无样子的页面壳。
+  // 只对 /static/ 这么做：页面导航的查询串是语义的一部分（?page=2 / ?tag=x），
+  // 剥掉会把不同筛选结果当成同一份缓存。
+  const staticKey = new Request(url.origin + url.pathname, { method: 'GET' });
+
   if (url.pathname.startsWith('/static/css/') || url.pathname.startsWith('/static/js/')) {
-    event.respondWith(networkFirst(event, request));
+    event.respondWith(networkFirst(event, request, null, staticKey));
     return;
   }
 
   // 其余静态资源：缓存优先
   if (url.pathname.startsWith('/static/')) {
-    event.respondWith(cacheFirst(event, request));
+    event.respondWith(cacheFirst(event, request, staticKey));
     return;
   }
 

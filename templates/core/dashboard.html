@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static core_tags %}
 
 {% block title %}仪表盘 · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
-<script src="{% static 'js/chart.umd.min.js' %}"></script>
+<script src="{% staticv 'js/chart.umd.min.js' %}"></script>
 {% endblock %}
 
 {% block content %}
