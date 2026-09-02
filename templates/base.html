@@ -208,6 +208,7 @@
                 </div>
                 <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
                 {% include "chat/partials/turn_status.html" %}
+                {% include "chat/partials/quick_chips.html" with chips_id="chat-panel-chips" chips_class="px-3 pb-1" %}
                 <form id="chat-form" class="flex items-end gap-2 p-3 border-t border-[var(--border)]">
                     {% csrf_token %}
                     {# 多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮 #}
@@ -432,6 +433,7 @@
         window.paPanelChat = window.PaChatTurn({
             messagesEl: messagesEl,
             statusEl: panel.querySelector('[data-turn-status]'),
+            chipsEl: document.getElementById('chat-panel-chips'),
             form: form,
             input: input,
             noConversationHint: '先点「+ 新对话」',

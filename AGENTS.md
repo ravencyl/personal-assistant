@@ -123,7 +123,7 @@ def query_activities(user, params):
 - **覆盖型写入必须显式声明**：`activities.update` 的 `description` **默认追加**到原描述末尾，整段替换要传 `description_mode="replace"`。因为模型看不到活动原描述全文，给它一个默认覆盖等于给了一个“一句话冲掉用户长文本”的按钮（预览卡上追加会写明“保留原文”）
 - 创建类工具（`*.create`）**立即生效**，不出确认卡；`update` / `delete` 这类会改或毁已有数据的必须走“预览 → `apply_fn` 确认执行”两步流（见 `activities` 的 P1 区）
 - 描述变更要进 `ActivityLog`，所以 `fmt_field('description', ...)` **截断到 40 字**；新增长文本字段上日志同理，整段贴进时间线会爆布局
-- AI 回复在模板里是**纯文本**（`{{ msg.content }}`，既不走 markdown 也不走 urlize），所以给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 会变成一串 `%E7%BE%8E...`
+- AI 回复正文走 `{{ msg.content|ai_markdown }}`（见下节「AI 回复是服务端 Markdown」），但**链接的可读性仍要靠服务端拼好**：给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 在气泡里是一串 `%E7%BE%8E...`，排不排版都一样难看
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
 
 回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
@@ -149,6 +149,26 @@ none → queued → awaiting → finalizing → done
 - **测试替身 `FakeQoderService` 故意不提供 `wait_for_response`**：视图一旦回退成同步等待会直接 AttributeError 炸掉，比“断言没被调用”更硬。静态扫 JS/模板的禁用词锁必须先剔注释（`_strip_js_comments` / `core.layout_asserts.code_only`）——注释里写的“禁止调 htmx.process”自己包含那个词，不剔就是假失败（本项目已踩三次）
 
 回归锁：`chat/tests.py` 的 `ChatTurnModelTest` / `ChatSendAsyncTest` / `ChatTurnPollTest` / `ChatTurnCancelTest` / `ChatTurnTemplateWiringTest` / `ChatTurnFlowJsTest`（共 38 条，含 12 项变异反证；注意静态锁曾因切片切空而**空跑**，新增此类锁时必须拿变异验证它真的会响）。
+
+## AI 回复是服务端 Markdown（改渲染前必读）
+
+模型输出本来就是 Markdown（表格、列表、`**粗体**`、代码块），旧版直接 `{{ msg.content }}` 当纯文本渲染，用户看到的是一堆星号和竖线。渲染放**服务端**，实现只有一个：`core/markdown_render.py::render_markdown`，通过 `core_tags` 的 `ai_markdown` 过滤器暴露。
+
+```django
+{% load core_tags %}
+<div class="markdown-content md-body">{{ msg.content|ai_markdown }}</div>
+```
+
+- **放服务端而不是前端渲染的四个理由**：① 「先转义、后解析」这条安全顺序能写单测（前端 XSS 面在 Django 测试里看不见）② 离线页 / PWA 缓存里的内容同样排版好，不依赖 JS 是否加载成功 ③ 不会出现「先纯文本再闪成 HTML」的重排 ④ 对话消息、知识库文章、周报正文三处共用一份实现
+- **安全顺序不可拆**：`render_markdown` 入口第一件事是 `escape(src)`，之后只插入自己生成的标签。模型输出的任何 HTML（含 `<script>`、`<img onerror>`）都只能以文字形态出现。链接再过一层 scheme 白名单（`_SAFE_URL` + `_UNSAFE_URL`），`[文字](javascript:…)` 连标记语法一起退回普通文字。**去掉 `escape` 就是全站 XSS**，`AiMarkdownRenderTest` 里那几条攻击形态的断言是唯一防线
+- **已生成片段用占位符 `\x01N\x01` 藏起来**（`_keep` / `_restore`），避免行内规则二次加工（`**不是粗体**` 在 `<code>` 里必须保持字面量）。输入里的 NUL 与 `\x01` 在渲染前剥掉，所以不会撞车
+- **不追求 CommonMark 完备**：只支持 AI 真会用到的语法。读不懂的行原样输出成文字即可 —— 宁可排版缺一条，也不能错判成段吞掉正文
+- **标题只夹 h1、不整体降级**：`level = min(max(#数, 2), 6)`。模型写小节习惯从 `##` 起头，整体降一级会把真正的小节推到 h3（字号与正文齐平，读不出层级）。7 个 `#` 不算标题
+- **表格必须包在 `.md-table-wrap` 里**（`overflow-x:auto`），长 URL 走 `.md-break`（`word-break:break-all`）。这两条是 390px 宽度下气泡不被撑破的前提，样式在 `static/css/custom.css` 的 `.md-*` 段
+- **任何异常都降级成纯文本段落**（`except` 兜底 + `mark_safe('<p class="md-p">%s</p>' % escape(text))`），绝不吞正文。列表分支的**循环顶部**有「行号未推进就抛」的守卫：曾经因为 `_UL if ordered else _OL` 选反而在 `'- '` 单行上死循环，直接拖死一个 gunicorn worker。加新的块级语法时必须保留这个守卫
+- **不要把 `ai_markdown` 换成 `|safe`**：过滤器返回值才是口径，`|safe` 直接拿模型原文当 HTML 就是全站 XSS。锁的形式是**渲染断言**（`ChatMarkdownRenderTest::test_raw_html_in_reply_cannot_reach_the_dom`：往 assistant 消息里塞 `<script>` / `<img onerror>`，看最终 HTML）而不是静态扫模板里的 `|safe` 字 —— 扫类名/管道词的锁必须剔注释才不假失败。用户消息（`role='user'`）**故意不走 Markdown**，保持 `whitespace-pre-wrap`，否则用户输入的星号会被当成排版
+
+回归锁：`core/tests.py::AiMarkdownRenderTest`（19 条，含 XSS 攻击形态、表格、嵌套列表、降级、样式类完备）+ `AiMarkdownTerminationTest`（终止性）、`chat/tests.py::ChatMarkdownRenderTest`（4 条，模板接线）。变异反证脚本 `.mut_phaseb.py`（跑完删），8 项全需被抓到。
 
 ## 参与者写入规则
 
@@ -278,7 +298,7 @@ REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 ## 常用命令
 
 ```bash
-python manage.py runserver              # 启动开发服务器
+python manage.py runserver              # 启动开发服务器（改完模板必须重启：Django 5.2 起即使 DEBUG=True 也会自动包一层 cached.Loader，--noreload 下模板永久缓存在内存）
 python manage.py migrate                # 数据库迁移
 python manage.py init_agents            # 同步预定义 Agent 到 Qoder 平台
 python manage.py auto_start_activities  # 自动启动到期活动（planned → in_progress）

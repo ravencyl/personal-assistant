@@ -1,3 +1,4 @@
+{% load core_tags %}
 {% comment %}单条消息的唯一渲染模板：详情页整页、浮窗历史、轮询新片段三处共用一份。
 
 为什么要合并：浮窗历史原本走 widget_messages.html（黑底气泡），而发送后返回的新消息
@@ -7,12 +8,23 @@
 变量：msg（Message 实例）
 {% endcomment %}
 <div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}" data-message-id="{{ msg.id }}">
-    <div class="rounded-lg p-3 md:p-4 {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
+    <div class="rounded-lg p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
         <div class="flex items-center gap-2 mb-1">
             <span class="text-xs font-medium text-[var(--text-secondary)]">{% if msg.role == 'user' %}你{% else %}AI 助手{% endif %}</span>
             <span class="text-xs text-[var(--text-muted)]">{{ msg.created_at|timesince }}前</span>
+            {% if msg.role == 'assistant' %}
+            {# 复制的是渲染后的可读文本（.md-body 的 innerText），不是 Markdown 源文 #}
+            <button type="button" data-copy-msg
+                    class="tap-target hover-actions ml-auto text-xs px-2 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text)]">复制</button>
+            {% endif %}
         </div>
+        {% if msg.role == 'assistant' %}
+        {# AI 回复走 Markdown 渲染；容器不能带 whitespace-pre-wrap，否则与渲染出的 #}
+        {# <br>/块级元素叠加成双倍行距。用户消息保持字面纯文本（用户打的就是原文） #}
+        <div class="markdown-content md-body text-sm text-[var(--text)]">{{ msg.content|ai_markdown }}</div>
+        {% else %}
         <div class="markdown-content text-sm text-[var(--text)] whitespace-pre-wrap">{{ msg.content }}</div>
+        {% endif %}
         {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
     </div>
 </div>

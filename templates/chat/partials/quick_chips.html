@@ -1,0 +1,17 @@
+{% comment %}常驻快捷指令（chips）：详情页与右下角浮窗各挂一份，点击只填输入框、不直接发送。
+
+为什么是「填」而不是「发」：这几条是帮用户起头的，直接发出去就剥夺了改两个字的
+机会（比如「本周花费汇总」其实想问的是上周）。Enter 只换行不提交是全站约定
+（ChatInputEnterBehaviorTest），所以填完仍需点「发送」。
+
+点击处理在 static/js/chat-turn.js 里（PaChatTurn 的 chipsEl 分支），别在模板里
+再写一段 onclick —— 两处实现必然漂移。
+
+变量：chips_id（必填，两个浮层各自唯一，JS 靠它定位）、chips_class（可选，外层间距）
+{% endcomment %}
+<div id="{{ chips_id }}" data-chips class="flex flex-wrap items-center gap-1.5 {{ chips_class|default:'py-2' }}">
+    <button type="button" class="chat-chip tap-target" data-chip="今天有什么安排？">今天有什么安排</button>
+    <button type="button" class="chat-chip tap-target" data-chip="本周花费帮我汇总一下">本周花费汇总</button>
+    <button type="button" class="chat-chip tap-target" data-chip="把刚才的结论存成一篇知识文章">存成文章</button>
+    <button type="button" class="chat-chip tap-target" data-chip="接下来我该做什么？">接下来该做什么</button>
+</div>

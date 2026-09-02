@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import (TestCase, Client, RequestFactory, override_settings)
+from django.test import (TestCase, Client, RequestFactory, SimpleTestCase,
+                     override_settings)
 from django.urls import reverse
 from activities.models import Activity, Expense, RecurringActivity
 from knowledge.models import Article
@@ -1988,16 +1989,23 @@ class StaticAssetVersionTest(TestCase):
                          '这些模板用了裸 static 标签引本地 CSS/JS，改了不会自动失效：'
                          + str(offenders))
 
-    def test_every_template_using_staticv_loads_core_tags(self):
-        """漏 load core_tags 不是「样式旧一点」，是整页 500（TemplateSyntaxError）"""
+    CORE_TAGS = ('staticv', 'ai_markdown', 'json_url')
+
+    def test_every_template_using_core_tags_loads_them(self):
+        """漏 load core_tags 不是「样式旧一点」，是整页 500（TemplateSyntaxError）
+
+        按标签逐个查而不是只查 staticv：后来加的 ai_markdown 同样会踩这个坑。
+        """
         offenders = []
         for tpl in self.TEMPLATES.rglob('*.html'):
             src = tpl.read_text(encoding='utf-8')
             # load 行按 Django 模板规则只出现在 {% block %} 之前，扫前 6 行足够
             head = '\n'.join(src.splitlines()[:6])
-            if 'staticv' in src and 'core_tags' not in head:
-                offenders.append(tpl.name)
-        self.assertEqual(offenders, [], '用了 staticv 却没在顶部 load core_tags：' + str(offenders))
+            used = [t for t in self.CORE_TAGS if ('|' + t) in src or ('{%% %s ' % t) in src
+                    or ('{%% %s\'' % t) in src]
+            if used and 'core_tags' not in head:
+                offenders.append('%s(%s)' % (tpl.name, ','.join(used)))
+        self.assertEqual(offenders, [], '用了 core_tags 里的标签却没在顶部 load core_tags：' + str(offenders))
 
     def test_rendered_page_carries_content_derived_token(self):
         from core.templatetags.core_tags import source_token
@@ -2030,3 +2038,204 @@ class StaticAssetVersionTest(TestCase):
         url = static_versioned('css/does-not-exist.css')
         self.assertNotIn('?v=', url)
         self.assertIn('does-not-exist.css', url)
+
+
+class AiMarkdownRenderTest(SimpleTestCase):
+    """AI 回复的 Markdown 渲染器
+
+    核心口径：**先转义、后解析**。模型输出的任何 HTML 都只能是文字，伪链接被 scheme
+    白名单拦掉。渲染失败一律降级成纯文本（AGENTS.md 容错铁律），绝不吞掉正文。
+    """
+
+    def r(self, text):
+        from core.markdown_render import render_markdown
+        return str(render_markdown(text))
+
+    # ── 基础排版 ──
+
+    def test_inline_styles(self):
+        out = self.r('**粗** 和 *斜* 和 `码`')
+        self.assertIn('<strong>粗</strong>', out)
+        self.assertIn('<em>斜</em>', out)
+        self.assertIn('<code class="md-code">码</code>', out)
+
+    def test_heading_level_mapping(self):
+        """正文里不出现 h1（页面标题已经是 h1，否则一个回复能造出第二个主标题）
+
+        口径是「只夹 h1」而不是「整体降一级」：模型写小节习惯从 `##` 起头，整体降级会
+        把真正的小节推到 h3（字号几乎与正文齐平）。`###` 才是 h3。
+        """
+        self.assertIn('<h2 class="md-h"', self.r('# 一级'))
+        self.assertIn('<h2 class="md-h"', self.r('## 小结'))
+        self.assertIn('<h3 class="md-h"', self.r('### 细项'))
+        self.assertIn('<h6 class="md-h"', self.r('###### 六级'))
+        self.assertNotIn('<h1', self.r('# 一级\n###### 六级'))
+        # 7 个 # 不是标题（CommonMark 口径），整行当普通文字输出；防止把 #{1,6} 改松成 #+
+        self.assertNotIn('<h', self.r('####### 越级'))
+
+    def test_single_newline_becomes_br_and_blank_line_splits_paragraphs(self):
+        out = self.r('第一行\n第二行\n\n下一段')
+        self.assertIn('第一行<br>第二行', out)
+        self.assertEqual(out.count('<p class="md-p"'), 2)
+
+    def test_lists(self):
+        out = self.r('- 甲\n- 乙')
+        self.assertIn('<ul class="md-list">', out)
+        self.assertEqual(out.count('<li>'), 2)
+        out = self.r('1. 一\n2. 二')
+        self.assertIn('<ol class="md-list">', out)
+        nested = self.r('- 甲\n  - 子甲\n- 乙')
+        self.assertEqual(nested.count('<ul class="md-list">'), 2, '缩进两格应开一层嵌套')
+
+    def test_table_with_inline_marks_in_cells(self):
+        out = self.r('| 日期 | 价 |\n|---|---|\n| 8-26 | **4592** |')
+        self.assertIn('<table class="md-table">', out)
+        self.assertIn('<th>日期</th>', out)
+        self.assertIn('<td><strong>4592</strong></td>', out)
+
+    def test_fenced_code_keeps_markers_literal(self):
+        out = self.r('```\n**不是粗体**\n```')
+        self.assertIn('<pre class="md-pre"><code>**不是粗体**</code></pre>', out)
+        self.assertNotIn('<strong>', out)
+
+    def test_blockquote_after_escaping(self):
+        """`>` 在 escape 之后是 &gt;，正则必须按转义形态匹配，否则引用永远识别不出来"""
+        self.assertIn('<blockquote class="md-quote">引用</blockquote>', self.r('> 引用'))
+
+    def test_links(self):
+        out = self.r('[官网](https://example.com/a?x=1&y=2)')
+        self.assertIn('href="https://example.com/a?x=1&amp;y=2"', out)
+        self.assertIn('rel="noopener noreferrer"', out)
+        self.assertIn('target="_blank"', out)
+        bare = self.r('参考 https://example.com/x')
+        self.assertIn('<a class="md-link md-break" href="https://example.com/x"', bare)
+
+    def test_result_is_safe_string(self):
+        """必须是 SafeString，否则模板会把我生成的标签再转义一遍，页面上就是一堆源码"""
+        from django.utils.safestring import SafeString
+        from core.markdown_render import render_markdown
+        self.assertIsInstance(render_markdown('**粗**'), SafeString)
+
+    def test_empty_and_none(self):
+        self.assertEqual(self.r(''), '')
+        self.assertEqual(self.r(None), '')
+
+    # ── 安全（这个类的重点）──
+
+    def test_raw_html_is_escaped_not_executed(self):
+        out = self.r('<script>alert(1)</script>')
+        self.assertNotIn('<script', out)
+        self.assertIn('&lt;script&gt;', out)
+
+    def test_img_onerror_attempt_is_inert(self):
+        out = self.r('<img src=x onerror=alert(1)>')
+        self.assertNotIn('<img', out)
+        self.assertIn('&lt;img', out)
+
+    def test_javascript_and_data_urls_are_blocked(self):
+        for url in ('javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<script>alert(1)</script>',
+                    'vbscript:msgbox(1)'):
+            with self.subTest(url=url):
+                out = self.r(f'[点我]({url})')
+                self.assertNotIn('href="javascript', out.lower())
+                self.assertNotIn('href="data:', out.lower())
+                self.assertNotIn('<a ', out, '被拦掉的链接连标记语法都不该变成标签')
+
+    def test_quotes_in_url_cannot_break_out_of_the_attribute(self):
+        """用真双引号试从 href 属性里跳出去：escape 阶段已把 " 变成 &quot;，属性封包不可能提前结束"""
+        out = self.r('[x](https://example.com/"onmouseover="evil)')
+        self.assertIn('&quot;', out, '引号必须仍是转义态')
+        self.assertNotIn('onmouseover="', out.replace('&quot;', ''), '不允许出现真正的属性分隔')
+        self.assertEqual(out.count('href="'), 1, '只能有一个 href，不能被拆成两个属性')
+        # 带空格的形式（`&#34;` 写法）也不能造出新属性
+        loose = self.r('[x](https://example.com/&#34; onmouseover=&#34;evil)')
+        self.assertNotIn(' onmouseover="', loose)
+        self.assertIn('&amp;#34;', loose, '输入里的实体要再转义一层，不能“洗”回引号')
+
+    def test_nul_and_placeholder_chars_are_stripped(self):
+        """占位符用 \\x01 定界：输入里若混进这个字符必须先剥掉，否则能伪造出片段注入"""
+        out = self.r('前\x010\x01后')
+        self.assertIn('前', out)
+        self.assertNotIn('<strong>', out)
+        self.assertNotIn('\x01', out)
+
+    # ── 降级 ──
+
+    def test_weird_input_never_raises(self):
+        nasty = ['|', '|||', '**', '```', '```\n未闭合', '> ', '- ', '1.', '[x](', '](',
+                 '\n\n\n', '   ', '#' * 40, '-' * 40, '|a|\n|-|\n|b|\n|c|\n' * 50,
+                 '*a' * 500, 'a' * 5000, '>a\n>b\n- c', '`a` `b` `c`']
+        for text in nasty:
+            with self.subTest(text=text[:20]):
+                out = self.r(text)
+                self.assertIsInstance(out, str)
+
+    def test_internal_failure_degrades_to_escaped_text(self):
+        from unittest.mock import patch
+        import core.markdown_render as mr
+        with patch('core.markdown_render._inline', side_effect=RuntimeError('boom')):
+            out = str(mr.render_markdown('普通**文本**'))
+        self.assertIn('普通**文本**', out)
+        self.assertIn('<p class="md-p">', out)
+        self.assertNotIn('<strong>', out)
+
+    # ── CSS 与接线 ──
+
+    def test_md_css_rules_exist_and_are_well_formed(self):
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        for cls in ('.md-body', '.md-p', '.md-h', '.md-list', '.md-table', '.md-link', '.md-quote'):
+            self.assertIn(cls, css)
+        # 上一版补丁脚本不小心写出 `./* 注释 */`（点号接注释 → 整条规则被浏览器丢掉）
+        self.assertNotIn('./*', css, '选择器与注释粘连，规则会被丢弃')
+        self.assertEqual(css.count('{'), css.count('}'), '花括号不配对')
+
+    def test_wide_tables_scroll_instead_of_busting_the_bubble(self):
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        self.assertIn('overflow-x: auto', css[css.index('.md-table-wrap'):css.index('.md-table-wrap') + 120])
+        self.assertIn('overflow-wrap: anywhere', css[css.index('.md-body'):css.index('.md-body') + 200])
+        # 只锁 CSS 不够：渲染器不再输出包裹层时 CSS 声明依旧全在，锁会静默空跑
+        #（变异反证 M8 就是这么被抬出来的），所以生成侧也要断言
+        out = self.r('| 名称 | 说明 |\n| --- | --- |\n| 甲 | 很长的一段说明 |')
+        self.assertIn('<div class="md-table-wrap"><table class="md-table">', out)
+        self.assertEqual(out.count('</table></div>'), 1, '包裹层必须闭合，否则后面的段落全掉进表格里')
+
+    def test_every_class_the_renderer_emits_has_a_css_rule(self):
+        """渲染器发出的每个 md-* 类名都必须在 custom.css 里有规则
+
+        真实漂移：渲染器给裸链挂了 md-break、AGENTS.md 也写了它负责断行，但 CSS 里
+        根本没这条规则 —— 类名成了哑弹，只能在真机上看长 URL 没断开才发现。
+        逐类名写 assertIn 必然漏新的，所以从生成侧反查。
+        """
+        import re as re_
+        src = (Path(settings.BASE_DIR) / 'core' / 'markdown_render.py').read_text(encoding='utf-8')
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        emitted = set(re_.findall(r'\bmd-[a-z][a-z-]*', src))
+        self.assertTrue(emitted, '一个类名都没扫到说明扫法写错了')
+        missing = sorted(c for c in emitted if ('.' + c) not in css)
+        self.assertEqual(missing, [], '这些类名由渲染器输出但没有对应样式：%s' % missing)
+
+
+class AiMarkdownTerminationTest(SimpleTestCase):
+    """渲染器必须在有限步内返回
+
+    真实事故：列表分支把匹配正则选反（无序行拿 _OL 去匹），一行也收不到 → `i` 永不
+    前进 → 整页请求死循环。这种 bug 不会报错，只会把一个 gunicorn worker 拖死，
+    所以除了修掉，还在主循环顶部加了「行号未推进就抛」的守卫（被 except 兜住降级成纯文本）。
+    """
+
+    def r(self, text):
+        from core.markdown_render import render_markdown
+        return str(render_markdown(text))
+
+    def test_lone_list_markers_terminate(self):
+        for text in ('- ', '* ', '+ ', '-\n', '1.', '1) ', '  - 缩进项'):
+            with self.subTest(text=text):
+                self.assertIsInstance(self.r(text), str)
+
+    def test_fixed_list_branch_still_renders_lists(self):
+        """修死循环时别把功能一起修没：无序/有序各自成列表，不能互相串"""
+        self.assertIn('<ul class="md-list">', self.r('- 甲\n- 乙'))
+        self.assertIn('<ol class="md-list">', self.r('1. 甲\n2. 乙'))
+        out = self.r('- 甲\n1. 乙')
+        self.assertIn('<ul class="md-list">', out)
+        self.assertIn('<ol class="md-list">', out)

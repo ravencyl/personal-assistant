@@ -830,3 +830,146 @@ class ChatTurnFlowJsTest(SimpleTestCase):
                       'stop() 里的广播必须看 d.changed')
         self.assertNotIn('if (opts.onActivityChanged)', body, '不允许无条件广播数据已变更')
         self.assertIn("'Accept': 'application/json'", body, 'cancel 也是 JSON 端点')
+
+
+class ChatMarkdownRenderTest(TestCase):
+    """AI 回复在消息片段里真的走 Markdown，用户消息保持字面纯文本"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_md', agent_id='ag_md', title='新对话')
+
+    def _fragment(self, role, content):
+        from django.template.loader import render_to_string
+        msg = Message.objects.create(conversation=self.conv, role=role, content=content)
+        return render_to_string('chat/partials/_message.html', {'msg': msg})
+
+    def test_assistant_reply_is_rendered(self):
+        html = self._fragment('assistant', '## 小结\n- **甲**：值得去\n参考 https://example.com/a')
+        self.assertIn('<h2 class="md-h">小结</h2>', html)
+        self.assertIn('<li><strong>甲</strong>：值得去</li>', html)
+        self.assertIn('<a class="md-link', html)
+        self.assertNotIn('- **甲**', html, '原始标记不该出现在页面上')
+
+    def test_user_message_stays_literal(self):
+        """用户打的就是字面量：`**粗**` 不该被渲染成粗体，也不该被切开成块级元素"""
+        html = self._fragment('user', '**粗** 和 | 表格 | 都按原文显示')
+        self.assertIn('**粗** 和 | 表格 | 都按原文显示', html)
+        self.assertIn('whitespace-pre-wrap', html)
+        self.assertNotIn('<strong>', html)
+
+    def test_rendered_container_does_not_keep_pre_wrap(self):
+        """渲染出的块级结构若还带 whitespace-pre-wrap，会跟 <br> 叠成双倍行距"""
+        html = self._fragment('assistant', '一段\n两段')
+        body = html[html.index('markdown-content'):html.index('</div>')]
+        self.assertNotIn('whitespace-pre-wrap', body)
+
+    def test_raw_html_in_reply_cannot_reach_the_dom(self):
+        """模板只允许通过 ai_markdown 一个出口输出 HTML：模型被诱导吐出的 <script>
+        只能以文字形态出现在气泡里。
+
+        做成渲染断言而不是静态扫「模板里不得出现 |safe」：扫类名/管道词的锁必须
+        先剔注释才不会假失败（本项目已踩三次），而这条直接看最终 HTML，注释怎么写都不影响。
+        """
+        html = self._fragment('assistant',
+                              '你好 <script>alert(1)</script>\n<img src=x onerror=alert(2)>')
+        self.assertIn('&lt;script&gt;', html)
+        self.assertNotIn('<script>', html)
+        self.assertNotIn('<img ', html)
+
+    def test_copy_button_only_on_assistant_bubbles(self):
+        """「复制」只在 AI 气泡上（自己的话不需要复制），且必须是 type=button
+
+        做成渲染断言而不是扫模板：要讲清「只在 assistant 分支」就得在源码里切范围，
+        而切空的锁会静默空跑（本项目踩过）；渲染结果两个分支直接就能比对。"""
+        assistant = self._fragment('assistant', '**结论**：值得去')
+        user = self._fragment('user', '那个活动怎么去')
+        self.assertIn('data-copy-msg', assistant)
+        self.assertNotIn('data-copy-msg', user)
+        self.assertIn('<button type="button" data-copy-msg', assistant)
+
+
+class ChatQuickActionsTest(SimpleTestCase):
+    """常驻快捷 chips 与复制按钮的接线锁
+
+    chips 只在两个宿主（对话详情页、右下角浮窗）各挂一份，处理逻辑只有一份（在
+    chat-turn.js 里）。这类“两处入口 + 一处实现”的东西漂起来的方式就是：某一处
+    忘 include、或者有人直接在模板里写 onclick 叉出第二份实现。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+        cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
+        cls.chips = (root / 'templates' / 'chat' / 'partials' / 'quick_chips.html')\
+            .read_text(encoding='utf-8')
+        cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html')\
+            .read_text(encoding='utf-8')
+
+    # ── chips ──
+
+    def test_chips_render_with_tappable_buttons(self):
+        from django.template.loader import render_to_string
+        html = render_to_string('chat/partials/quick_chips.html', {'chips_id': 'x-chips'})
+        prompts = re.findall(r'data-chip="([^"]+)"', html)
+        self.assertGreaterEqual(len(prompts), 3, 'chips 太少了就不叫常驻入口')
+        self.assertTrue(all(p.strip() for p in prompts), '空 prompt 的 chip 点下去什么也不会发生')
+        # 漏了 type 的 button 在表单里会被当成提交按钮（这里是防御性钳制）
+        self.assertEqual(html.count('<button'), len(prompts))
+        self.assertNotIn('<button class', html)
+        # chips 在移动端是主要入口：触控区走全站统一的 .tap-target（≤44px 规则），
+        # 而不是在 .chat-chip 里另外写死一个高度（那样桌面与移动只能顾一头）
+        self.assertEqual(html.count('class="chat-chip tap-target"'), len(prompts))
+
+    def test_chip_height_defers_to_tap_target_on_mobile(self):
+        """移动端不得在 .chat-chip 里自己写死高度
+
+        真机实测踩到：基础规则里写 min-height:2rem 与 .tap-target 同特异度、靠顺序
+        取胜，把 44px 触控区压回 32px（CSS 里没有任何报错）。桌面要定高只能进
+        min-width 媒体查询（全站唯一断点 768px）。
+        """
+        from core.layout_asserts import CSS_PATH, css_rules
+        rules = css_rules(CSS_PATH.read_text(encoding='utf-8'), '.chat-chip')
+        self.assertTrue(rules, '.chat-chip 样式不见了')
+        tall = [r for r in rules if 'min-height' in r['body']]
+        for r in tall:
+            self.assertIn('min-width', r['media'],
+                          '基础规则里定高会压掉 .tap-target：%s' % r['selectors'])
+
+    def test_chips_mounted_on_both_surfaces_with_distinct_ids(self):
+        self.assertIn('quick_chips.html', self.detail)
+        self.assertIn('quick_chips.html', self.base)
+        ids = re.findall(r'chips_id="([^"]+)"', self.detail + self.base)
+        self.assertEqual(len(ids), 2, '两个宿主各挂一份，多了就是写了第三处')
+        self.assertEqual(len(set(ids)), 2, 'id 撞了 getElementById 只会拿到第一个')
+        for src, name in ((self.detail, '详情页'), (self.base, '浮窗')):
+            self.assertIn('chipsEl: document.getElementById', src,
+                          '%s 没有把 chips 容器交给 PaChatTurn' % name)
+
+    def test_chip_click_fills_draft_instead_of_sending(self):
+        """点 chip 只负责填入输入框：Enter 不提交是全站约定，直接发出去就剥夺了改两字的机会"""
+        # 锚点全部取自己代码（剔注释后的 js_code）：拿注释文本当锚点必碎
+        block = self.js_code[self.js_code.index('if (chipsEl) {'):self.js_code.index('function halt()')]
+        self.assertGreater(len(block.strip()), 200, '切片切空了，这条锁就是假的')
+        self.assertIn('input.value', block)
+        self.assertIn('input.focus()', block)
+        self.assertNotIn('send(', block, 'chip 不得直接发送')
+
+    # ── 复制 ──
+
+    def test_copy_handler_uses_rendered_text_and_has_fallback(self):
+        self.assertIn('data-copy-msg', self.js_code)
+        self.assertIn("querySelector('.md-body')", self.js_code,
+                      '必须复制渲染后的可读正文，不是 Markdown 源文')
+        self.assertIn('navigator.clipboard', self.js_code)
+        self.assertIn('document.execCommand', self.js_code, '无剪贴板 API 的环境要有降级')
+        self.assertIn("btn.textContent = '复制'", self.js_code, '反馈文案必须回弹，不能停在「已复制」')
+
+    def test_no_blocking_dialogs_in_chat_flow(self):
+        """聊天里的错误一律进进度条/气泡，不用原生 alert（浮窗里弹阻塞框特别累）"""
+        self.assertNotIn('alert(', self.js_code)
+        self.assertNotIn('confirm(', self.js_code)

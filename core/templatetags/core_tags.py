@@ -53,6 +53,17 @@ def static_versioned(path):
     return f"{url}{'&' if '?' in url else '?'}v={token}"
 
 
+@register.filter
+def ai_markdown(value):
+    """AI / 用户写的 Markdown → 安全 HTML（实现见 core/markdown_render.py）
+
+    返回 SafeString，模板里不需要再写 |safe。先转义再解析，所以模型输出的
+    任何 HTML 只能以文字形态出现；解析失败会降级成纯文本段落。
+    """
+    from core.markdown_render import render_markdown
+    return render_markdown(value)
+
+
 @register.simple_tag
 def staticv(path):
     """带内容版本号的 static URL（本地手写 CSS/JS 专用）"""

@@ -25,9 +25,42 @@
 
     var ACTIVE_STATES = ['queued', 'awaiting', 'finalizing'];
 
+    // 写剪贴板：站点是 HTTPS（本地是 localhost），navigator.clipboard 通常可用；
+    // 但 http 访问局域网 IP 时它是 undefined，所以必须留 execCommand 降级，
+    // 不能失败就默默什么都不发（用户按了复制就是期待剪贴板里有东西）
+    function legacyCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+        document.body.removeChild(ta);
+        return ok;
+    }
+
+    function copyToClipboard(text, btn) {
+        var flash = function (ok) {
+            if (!btn) return;
+            btn.textContent = ok ? '已复制' : '复制失败';
+            setTimeout(function () { btn.textContent = '复制'; }, 1500);
+        };
+        if (!text) { flash(false); return; }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { flash(true); },
+                                                      function () { flash(legacyCopy(text)); });
+        } else {
+            flash(legacyCopy(text));
+        }
+    }
+
     window.PaChatTurn = function (opts) {
         var messagesEl = opts.messagesEl;
         var statusEl = opts.statusEl;
+        var chipsEl = opts.chipsEl;                 // 常驻快捷指令容器（可缺省）
         var form = opts.form;
         var input = opts.input;
         var urls = opts.urls;                       // function() -> {send, poll, cancel}
@@ -232,16 +265,38 @@
                 if (e.target && e.target.closest && e.target.closest('[data-turn-cancel]')) stop();
             });
         }
-        // 中断气泡里的「重试」按钮（服务端渲染，携带原文）→ 同一条内容重发
+        // 消息区的委托交互：「重试」（中断气泡）与「复制」（AI 回复）都在这一层
         messagesEl.addEventListener('click', function (e) {
             if (!e.target || !e.target.closest) return;
             var btn = e.target.closest('[data-retry-text]');
-            if (!btn) return;
-            var text = btn.getAttribute('data-retry-text');
-            var holder = btn.closest('.chat-message');
-            if (holder) holder.remove();            // 旧的「已中断」气泡撤掉，避免和新一轮并排
-            send(text);
+            if (btn) {
+                var text = btn.getAttribute('data-retry-text');
+                var holder = btn.closest('.chat-message');
+                if (holder) holder.remove();        // 旧的「已中断」气泡撤掉，避免和新一轮并排
+                send(text);
+                return;
+            }
+            var copy = e.target.closest('[data-copy-msg]');
+            if (copy) {
+                // 复制渲染后的可读文本而不是 Markdown 源文：用户复制是为了直接粘到
+                // 微信/备忘录里，带一堆星号和竖线等于没复制
+                var box = copy.closest('.chat-message');
+                var body = box && box.querySelector('.md-body');
+                copyToClipboard(body ? (body.innerText || body.textContent) : '', copy);
+            }
         });
+
+        if (chipsEl) {
+            chipsEl.addEventListener('click', function (e) {
+                var chip = e.target.closest && e.target.closest('[data-chip]');
+                if (!chip || !input) return;
+                var text = chip.getAttribute('data-chip') || '';
+                // 有草稿时追加而不是覆盖：快捷指令不能吃掉用户已经打好的字
+                input.value = input.value.trim() ? input.value.replace(/\s+$/, '') + '\n' + text : text;
+                input.focus();
+                if (window.paFitTextarea) window.paFitTextarea(input);
+            });
+        }
 
         // 只停轮询、不取消服务端的本轮：浮窗切到另一个对话时用。
         // 不单独供这个口子就会误用 stop()：切个对话把 AI 正在跑的那轮真停了。

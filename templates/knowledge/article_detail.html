@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load core_tags %}
 
 {% block title %}{{ article.title }} · {{ SITE_NAME }}{% endblock %}
 
@@ -42,8 +43,8 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
         </div>
 
         <!-- Markdown 内容：桌面端左列已宽到 864px，正文仍限两列口径下的可读行长 -->
-        <div class="markdown-content prose prose-sm max-w-2xl text-[var(--text)]">
-            {{ article.content|linebreaks }}
+        <div class="markdown-content md-body prose prose-sm max-w-2xl text-[var(--text)]">
+            {{ article.content|ai_markdown }}
         </div>
     </div>
 
