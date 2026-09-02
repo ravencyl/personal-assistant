@@ -1,7 +1,12 @@
 {% comment %}浮窗历史片段：消息渲染复用 _message.html（与详情页同一份），
-末尾带上「可续轮询」的隐藏数据与中断气泡，浮窗 JS 读到就接上这一轮。{% endcomment %}
+末尾带上三个「随对话而定的状态位」，浮窗 JS 读到就各自接上，读一次即撤：
+  turn_resume → 这一轮还在跑，恢复轮询
+  turn_error  → 本轮中断的气泡（带重试）
+  pin_bar(mount) → 本对话的 @ 钉选状态{% endcomment %}
 {% for msg in widget_messages %}{% include "chat/partials/_message.html" %}{% empty %}
 <p class="text-center text-sm text-[var(--text-muted)] py-6">发送消息开始对话</p>
 {% endfor %}
 {% include "chat/partials/turn_resume.html" %}
 {% if conversation.turn_state == 'error' %}{% include "chat/partials/turn_error.html" %}{% endif %}
+{# 钉选状态也随历史片段带出（mount=True 包隐藏位）：没钉也要带，否则从「钉了活动的对话」切到「没钉的对话」时，浮窗槽里会留着上一个对话的 chip #}
+{% include "chat/partials/pin_bar.html" with mount=True %}

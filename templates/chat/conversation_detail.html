@@ -33,6 +33,8 @@ Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_mes
 
 {% include "chat/partials/turn_status.html" %}
 
+{% include "chat/partials/pin_host.html" with host_id="message-pin" %}
+
 {% include "chat/partials/quick_chips.html" with chips_id="message-chips" chips_class="pb-2" %}
 
 {% comment %}收发走原生 fetch + 轮询（见 static/js/chat-turn.js），表单不挂任何 hx-*：
@@ -81,6 +83,14 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
         window.paPageChat.resume(resumeEl.dataset.state, parseInt(resumeEl.dataset.ttl, 10));
         resumeEl.remove();   // 读一次即撤，避免后续重复启动轮询
     }
+    // @ 钉选：状态已由服务端渲染在槽里，这里只接交互（候选端点是 JSON，禁挂 hx-*）
+    window.paPagePin = window.PaChatPin({
+        host: document.getElementById('message-pin'),
+        input: document.getElementById('message-input'),
+        urls: function () {
+            return { set: base + 'pin/', search: '{% url "chat:pin_candidates" %}' };
+        }
+    });
 })();
 </script>
 

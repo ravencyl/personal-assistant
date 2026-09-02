@@ -1,0 +1,20 @@
+{% comment %}@ 钉选条：本对话当前钉住的活动（或「可以 @」的提示）。
+
+服务端渲染当前状态，pin_conversation 端点也返回这份片段整体替换 —— 钉选条的长相
+只有一处模板，前端只换 innerHTML、不拼字符串（与 _message.html 同一个道理）。
+
+变量：conversation（必须）、mount（浮窗用：多包一层隐藏位，历史片段里带出来给 JS 搬运）
+{% endcomment %}
+{% if mount %}<div data-pin-mount hidden>{% endif %}
+<div class="pin-bar" data-pin-bar>
+    {% if conversation.pin_activity %}
+    <span class="pin-chip">
+        <span class="truncate" title="{{ conversation.pin_activity.name }}">&#128204; {{ conversation.pin_activity.name }}</span>
+        <button type="button" class="pin-chip-clear tap-target" data-pin-clear
+                title="取消钉选" aria-label="取消钉选">&times;</button>
+    </span>
+    {% else %}
+    <span class="pin-hint">输入 <span class="pin-key">@</span> 可钉住一个活动，之后几轮都默认针对它</span>
+    {% endif %}
+</div>
+{% if mount %}</div>{% endif %}

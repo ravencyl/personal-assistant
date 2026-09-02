@@ -1,0 +1,13 @@
+{% comment %}可点追问（下一步）：AI 在回复末尾写「下一步：A｜B」，服务端剥出来渲染成 chips。
+
+点击不跳页也不提交表单：由 chat-turn.js 的 [data-followup] 委托把这一句直接发出去
+（与中断气泡的「重试」在同一处实现，两个入口一套逻辑）。
+
+变量：follow_ups（字符串列表，已由 extract_follow_ups 校验过条数与长度）
+{% endcomment %}
+<div class="follow-ups" data-follow-ups>
+    <span class="follow-ups-label">下一步</span>
+    {% for item in follow_ups %}
+    <button type="button" class="chat-chip tap-target follow-up" data-followup="{{ item }}">{{ item }}</button>
+    {% endfor %}
+</div>

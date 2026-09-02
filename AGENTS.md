@@ -170,6 +170,36 @@ none → queued → awaiting → finalizing → done
 
 回归锁：`core/tests.py::AiMarkdownRenderTest`（19 条，含 XSS 攻击形态、表格、嵌套列表、降级、样式类完备）+ `AiMarkdownTerminationTest`（终止性）、`chat/tests.py::ChatMarkdownRenderTest`（4 条，模板接线）。变异反证脚本 `.mut_phaseb.py`（跑完删），8 项全需被抓到。
 
+## 对话上下文：@ 钉选与可点下一步（Phase C）
+
+### @ 钉选（会话级「现在在讨论哪个活动」）
+
+- **状态存在 `Conversation.pin_activity`（FK + `SET_NULL`），是会话级而不是消息级**：用户讨论一个活动会连问好几轮（“预算改 3 万”→“那还剩多少”→“记一笔费用”），每条消息单独钉一次等于没钉。换对象就重新选一次。存 FK 而不是裸 id：活动被删要自动失效（`Message.payload` 里那种裸 id 是给一次性卡片用的，不是长期状态）
+- **注入的是现状而不是一个 ID**：`Conversation.pinned_context()` 是唯一实现，拼「名称 | ID | 状态 | 日期 | 预算 | 已花费 | 参与者 | 描述」。模型拿到数字才能直接算「还剩多少」，只给 ID 它得先调一次查询工具，多一轮往返就多一次出错机会。末尾那句「不要再去搜一遍确认」是行为约束，删了就会退回“先查再说”
+- **钉选只能进 `turn_prompt`，绝不能进用户消息 `content`**（现有约定：历史里只存原文）。注入位置在知识库上下文之前（显式点名 > 按关键词猜）。归属不符（活动不是本人的）时 `pinned_context()` 直接返回空串，宁可不注入
+- **光有注入文本不够，协议里必须再配一条规则**（规则 8：带 `[钉选对象]` 时现状已在上下文里，问现状/算数直接自然语言回答，不要为了确认而调 `get`/`query`）。真机实测：没这条规则时问“还剩多少预算”模型仍然走 `get` 工具，注入白注入了
+- **两个端点都是 JSON**：`POST /chat/<id>/pin/`（`activity_id` 为空 = 取消）与 `GET /chat/pin/search/?q=`。原生 fetch + `Accept: application/json`，**严禁挂 `hx-*`**。越权/找不到必须返 **JSON 404**，不能用 `get_visible`（它抛 `Http404` → fetch 拿回 HTML 错误页，`r.json()` 直接炸，用户只看到「钉选失败」不知道为什么）
+- **候选列表只能用 `createElement` + `textContent` 构建**，不得用 `innerHTML` 拼字符串（活动名是用户数据）；候选请求带 `seq` 号，慢响应不得盖掉新结果
+- **钉选条只有一份模板**（`chat/partials/pin_bar.html`）：服务端渲染当前状态，pin 端点也返回同一份片段，前端只换 `[data-pin-slot]` 的 innerHTML。浮窗的初始状态随历史片段带出（`data-pin-mount`，与 `turn_resume` 同一个“读一次即撤”模式）：**没钉也要带**，否则从「钉了活动的对话」切到「没钉的对话」时槽里会留着上一个对话的 chip；base.html 里浮窗的 include **必须传 `conversation=None`**，否则它会继承详情页的 conversation，两个对话串状态
+- `@` 的判据：必须另起一段且 @ 前是空白/括号（邮箱里的 @ 不算）；选中后把 `@xxx` 从输入框剔掉（钉选已经表达了这个信息）；候选项上 `mousedown.preventDefault()` 防止输入框先 blur 导致点选失效
+
+### 可点下一步（「下一步：A｜B」）
+
+- **用一行文本而不是协议 JSON 字段**：通用问答走的是「非 JSON 透传」分支（协议逃生舱），那里根本没有 JSON 可挂字段，而那恰恰是最需要下一步的长回答。约定写在协议规则 7：回复最后单独一行，全角竖线分隔，最多 3 个，每个都是一句可直接发送的完整请求（**不得写成「你希望我…」这类反问**，点下去发出去的是问句等于没点）
+- **只在 `ChatOrchestrator.process()` 一处剥**（在 `_dispatch()` 结果上统一加二）：透传分支、工具成功、ToolError 提示都要能拿到 chips，写在五个 return 点就是五个会漏改的地方。剥出来的选项进 `Message.payload['follow_ups']`，正文不留原始标记
+- **工具路径要从模型原文里再找一次**：工具的 `reply` 会顶掉模型自己写的那段（「下一步」行就在里面），真机实测“钉选后问还剩多少预算 → 模型走 get 工具 → chips 消失”，而最该给下一步的恰好是这些场景。所以 `process()` 在正文里找不到时回到 `extract_intent(ai_text)['reply']` 再抽一次
+- **判据只认显式标记**（`下一步：` / `【下一步】` / `[下一步]`）**且必须另起一行**：正文里一句「下一步是订机票」不得被剥掉。单条选项超 40 字直接丢弃而不是截断（截断后发回去意思就变了）；全部无效时整行原样保留
+- chips 与卡片不互斥（一条回复可以既有活动卡又有下一步），所以 `_follow_ups.html` 不进 `_card.html` 的分发，直接挂在 `_message.html` 末尾。点击由 `chat-turn.js` 的 `[data-followup]` 委托走**同一条 `send()`**（与中断气泡的「重试」不叉第二套）
+
+### 归档会话摘要进 memory
+
+- **启发式（取首问 + 末答），不再叫一次 AI 总结**：归档是用户随手点的动作，此时 session 刚被 cancel，再发一轮要等几十秒、可能撞 409，还会在历史里留下一条假的 assistant 消息。跳会话真正需要的是「有过这么一件事 + 结论落在哪」
+- **三个跳过条件（记忆库被垃圾填满比少一条记忆糟得多）**：用户消息不足 2 条；本会话已经产出过记忆（协议里 AI 一直在主动记，别再重复一层）；`_is_similar_content` 命中。`importance` **固定 4**（索引型，不得抢用户偏好/目标的 5-8 注入位）
+- 摘要正文走 `_plain_excerpt()`：折叠换行、去掉 `** ` # | > 等 Markdown 噪声（记忆是给模型读的，不是给用户看的），整体截到 500 字（`Memory.content` 上限）。**标题就是首条提问的截断**（建对话时这么取的），两者重合时不再写「讨论了：…」，否则同一句说两遍；两部分都没内容时直接不写
+- 调用点在 `archive_conversation` 里 `reset_turn()`/`cancel_session()` **之前**，try/except + `logger.warning`：摘要失败只能少一条记忆，不得把归档本身弄挂
+
+回归锁：`chat/tests.py::ChatPinTest`（12 条，含越权必须 JSON 404、注入不得污染历史、对话页模板语法泄漏）、`ChatPinWiringTest`（6 条）、`ChatFollowUpRenderTest`（7 条，含工具文案顶掉模型 reply 时 chips 仍要活）、`core/tests.py::FollowUpLineTest`（9 条）、`memory/tests.py::ArchiveSummaryMemoryTest`（10 条）。变异反证 11 项（M20-M30）全需被抓到；**JS 侧的 @ 判据与候选渲染没有变异反证**（只能靠真机），改它们时必须浏览器实测。
+
 ## 参与者写入规则
 
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：

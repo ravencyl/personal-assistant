@@ -1,0 +1,11 @@
+{% comment %}@ 钉选宿主：状态槽（服务端渲染或片段整体替换）+ 候选浮层（JS 填）。
+详情页与右下角浮窗共用这一份，两边都不自己拼 DOM。
+
+变量：host_id（必填，两个宿主各自唯一，JS 靠它定位）、
+      conversation（详情页有 → 槽里直接渲染当前钉选状态；浮窗没有 → 槽先空着，
+      打开对话时由 JS 从历史片段里的 data-pin-mount 搬进来）
+{% endcomment %}
+<div class="pin-host" id="{{ host_id }}" data-pin-host>
+    <div data-pin-slot>{% if conversation %}{% include "chat/partials/pin_bar.html" %}{% endif %}</div>
+    <div class="pin-candidates" data-pin-list hidden></div>
+</div>

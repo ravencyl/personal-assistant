@@ -26,5 +26,9 @@
         <div class="markdown-content text-sm text-[var(--text)] whitespace-pre-wrap">{{ msg.content }}</div>
         {% endif %}
         {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
+        {# 可点追问与卡片不互斥（一条回复可以既有活动卡又有下一步），所以不进 _card.html 的分发 #}
+        {% if msg.payload.follow_ups %}
+        {% include "chat/cards/_follow_ups.html" with follow_ups=msg.payload.follow_ups %}
+        {% endif %}
     </div>
 </div>

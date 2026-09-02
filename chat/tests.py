@@ -973,3 +973,296 @@ class ChatQuickActionsTest(SimpleTestCase):
         """聊天里的错误一律进进度条/气泡，不用原生 alert（浮窗里弹阻塞框特别累）"""
         self.assertNotIn('alert(', self.js_code)
         self.assertNotIn('confirm(', self.js_code)
+
+
+class ChatPinTest(TestCase):
+    """@ 钉选：会话级上下文（模型注入 + 两个 JSON 端点）
+
+    钉选的价值全在「注入的是现状」：模型拿到预算/已花/参与者才能直接算「还剩多少」，
+    只给一个 ID 它得先调一次查询工具，多一轮往返就多一次出错机会。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.other = User.objects.create_user('o', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_p', agent_id='ag_p', title='钉选')
+        from activities.models import Activity, Participant
+        today = timezone.localdate()
+        self.activity = Activity.objects.create(
+            user=self.user, name='新西兰旅游', status='planned',
+            start_date=today + timedelta(days=30),
+            budget=20000, description='住皇后镇，含跳伞')
+        self.activity.participants.add(Participant.objects.create(user=self.user, name='YYX'))
+        self.activity.tags.add('新西兰')
+        self.foreign = Activity.objects.create(user=self.other, name='别人的活动')
+
+    @property
+    def pin_url(self):
+        return f'/chat/{self.conv.id}/pin/'
+
+    # ── 注入文本 ──
+
+    def test_pinned_context_carries_the_facts_the_model_needs(self):
+        self.conv.pin_activity = self.activity
+        text = self.conv.pinned_context()
+        self.assertIn('[钉选对象]', text)
+        for needle in ('新西兰旅游', f'ID={self.activity.id}', '状态：计划',
+                       '预算：¥20000.00', '已花费：¥0.00', 'YYX', '住皇后镇'):
+            self.assertIn(needle, text)
+        # 不点名对象时默认就是它：这句决定模型会不会又去搜一遍活动
+        self.assertIn('不要再去搜一遍', text)
+
+    def test_pinned_context_empty_without_pin_or_for_foreign_owner(self):
+        self.assertEqual(self.conv.pinned_context(), '')
+        self.conv.pin_activity = self.foreign
+        self.assertEqual(self.conv.pinned_context(), '',
+                         '归属不符时不得把别人的活动递到当前用户嘴里')
+
+    def test_send_injects_pin_into_prompt_but_not_into_history(self):
+        self.conv.pin_activity = self.activity
+        self.conv.save(update_fields=['pin_activity', 'updated_at'])   # 视图重查 DB，不存等于没钉
+        service = FakeQoderService()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.post(f'/chat/{self.conv.id}/send/',
+                                    {'content': '还剩多少预算', 'page_context': 'home'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertTrue(self.conv.turn_prompt.startswith('[钉选对象]'),
+                        '钉选是用户显式点名的，必须排在按关键词猜的知识库注入之前')
+        self.assertIn('预算：¥20000.00', self.conv.turn_prompt)
+        self.assertIn('还剩多少预算', self.conv.turn_prompt)
+        # 用户消息只存原文（现有约定）：钉选漏进历史会让回看变成一堆方括号
+        self.assertEqual(self.conv.messages.filter(role='user').first().content,
+                         '还剩多少预算')
+
+    # ── 端点 ──
+
+    def test_pin_sets_then_clears(self):
+        resp = self.client.post(self.pin_url, {'activity_id': self.activity.id},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['pin']['name'], '新西兰旅游')
+        self.assertIn('data-pin-clear', resp.json()['html'])
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.pin_activity_id, self.activity.id)
+
+        cleared = self.client.post(self.pin_url, {'activity_id': ''},
+                                   HTTP_ACCEPT='application/json')
+        self.assertIsNone(cleared.json()['pin'])
+        self.assertIn('输入', cleared.json()['html'], '取消后回到提示态')
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.pin_activity_id)
+
+    def test_pin_rejects_foreign_activity_as_json_not_html(self):
+        """越权必须是 JSON 404：get_visible 抛 Http404 的话 fetch 拿回来的是 HTML 错误页，
+        前端 r.json() 直接抛异常，用户只看到「钉选失败」而不知道为什么"""
+        resp = self.client.post(self.pin_url, {'activity_id': self.foreign.id},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.pin_activity_id)
+
+    def test_pin_rejects_non_numeric_id(self):
+        resp = self.client.post(self.pin_url, {'activity_id': 'abc'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_pin_without_json_accept_redirects_back(self):
+        """无 JS 提交（表单/裸 POST）不能把一串 JSON 丢给用户"""
+        resp = self.client.post(self.pin_url, {'activity_id': self.activity.id})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(f'/chat/{self.conv.id}/', resp['Location'])
+
+    def test_candidates_search_scopes_to_visible_and_caps(self):
+        from activities.models import Activity
+        for i in range(8):
+            Activity.objects.create(user=self.user, name=f'其他{i}', status='planned')
+        found = self.client.get('/chat/pin/search/', {'q': '新西兰'}).json()['candidates']
+        self.assertEqual([c['name'] for c in found], ['新西兰旅游'])
+        self.assertIn('计划', found[0]['meta'])
+
+        capped = self.client.get('/chat/pin/search/', {'q': ''}).json()['candidates']
+        self.assertLessEqual(len(capped), 6, '候选浮层一屏放不下就不要装多')
+
+    def test_candidates_match_tags_too(self):
+        """用户记得的是「新西兰」而不是活动全名，所以标签也参与匹配"""
+        from activities.models import Activity
+        trip = Activity.objects.create(user=self.user, name='10 月出行', status='planned')
+        trip.tags.add('新西兰')
+        names = [c['name'] for c in
+                 self.client.get('/chat/pin/search/', {'q': '新西兰'}).json()['candidates']]
+        self.assertIn('10 月出行', names)
+        self.assertIn('新西兰旅游', names)     # 命中标签的与命中描述的都要在
+
+    def test_candidates_hide_other_users_activities(self):
+        names = [c['name'] for c in
+                 self.client.get('/chat/pin/search/', {'q': '活动'}).json()['candidates']]
+        self.assertNotIn('别人的活动', names)
+
+    def test_candidates_only_list_active_ones_when_query_is_empty(self):
+        from activities.models import Activity
+        Activity.objects.create(user=self.user, name='已经办完的事', status='done')
+        names = [c['name'] for c in
+                 self.client.get('/chat/pin/search/', {'q': ''}).json()['candidates']]
+        self.assertIn('新西兰旅游', names)
+        self.assertNotIn('已经办完的事', names, '空 @ 时给「还在办的」，不是全部历史')
+
+    def test_chat_page_renders_without_template_syntax_leaks(self):
+        """对话页的模板语法泄漏锁
+
+        输入区现在挂了三个 include（pin_host / pin_bar / quick_chips），而浮窗在
+        base.html 里 → 漏写一个跨行的 {# #} 就会泄到**每一页**，但现有的泄漏锁
+        只盖住活动详情与 Daily（本轮实测就是它先抱住的）。
+        """
+        self.conv.pin_activity = self.activity
+        self.conv.save(update_fields=['pin_activity', 'updated_at'])
+        html = self.client.get(f'/chat/{self.conv.id}/').content.decode()
+        for token in ('{%', '{{', '{#'):
+            self.assertNotIn(token, html, f'渲染结果里出现 {token}，模板语法泄漏')
+        # 顺带确认真的渲染进了页面而不是断言一个空范围（空跑锁本项目踩过）
+        self.assertIn('data-pin-clear', html)
+        self.assertIn('新西兰旅游', html)
+
+
+class ChatPinWiringTest(SimpleTestCase):
+    """钉选的前端接线：两个宿主各一份、状态随历史片段带出、不拼 HTML 字符串"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+        cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
+        cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html')\
+            .read_text(encoding='utf-8')
+        cls.widget = (root / 'templates' / 'chat' / 'partials' / 'widget_messages.html')\
+            .read_text(encoding='utf-8')
+        cls.css = (root / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+
+    def test_both_surfaces_mount_a_host_with_distinct_ids(self):
+        self.assertIn('pin_host.html', self.detail)
+        self.assertIn('pin_host.html', self.base)
+        ids = re.findall(r'host_id="([^"]+)"', self.detail + self.base)
+        self.assertEqual(len(ids), 2, '两个宿主各挂一份，多了就是写了第三处')
+        self.assertEqual(len(set(ids)), 2, 'id 撞了 getElementById 只会拿到第一个')
+        for src, name in ((self.detail, '详情页'), (self.base, '浮窗')):
+            self.assertIn('window.PaChatPin({', src, '%s 没有初始化钉选交互' % name)
+
+    def test_panel_host_does_not_inherit_the_page_conversation(self):
+        """base.html 的浮窗在详情页里渲染时上下文带着 conversation，不显式清空
+        会把详情页的钉选状态画进浮窗的槽里（两个对话串数据）"""
+        self.assertIn('pin_host.html" with host_id="chat-panel-pin" conversation=None',
+                      self.base)
+
+    def test_pin_state_travels_with_the_history_fragment(self):
+        """切对话时钉选状态必须跟着换：没钉也要带出隐藏位，否则槽里留着上一个对话的 chip
+
+        搬运发生在宿主页（base.html 的 openConversation），不在 chat-turn.js 里：
+        PaChatPin 只供一个 paint()，所以断言要分别看两个文件。"""
+        self.assertIn('pin_bar.html', self.widget)
+        self.assertIn('mount=True', self.widget)
+        self.assertIn('[data-pin-mount]', self.base)
+        self.assertIn('paPanelPin.paint(', self.base)
+
+    def test_candidate_list_is_built_with_text_content_not_html_strings(self):
+        """活动名是用户数据：用 innerHTML 拼字符串等于给自己埋 XSS（与 Markdown
+        渲染器「先转义后解析」同一个道理，这里干脆不生成 HTML 字符串）"""
+        self.assertIn('name.textContent = it.name', self.js_code)
+        self.assertNotIn('innerHTML = items.map', self.js_code)
+        self.assertNotIn('hx-', self.js_code, 'JSON 端点严禁 hx-*')
+
+    def test_pin_fetches_ask_for_json(self):
+        block = self.js_code[self.js_code.index('function setActivity'):
+                             self.js_code.index("input.addEventListener('input'")]
+        self.assertGreater(len(block.strip()), 300, '切片切空了，这条锁就是假的')
+        self.assertIn("'Accept': 'application/json'", block)
+        self.assertIn('X-CSRFToken', block)
+
+    def test_pin_css_rules_exist(self):
+        for cls in ('.pin-host', '.pin-bar', '.pin-chip', '.pin-candidates', '.pin-item'):
+            self.assertIn(cls, self.css)
+        self.assertEqual(self.css.count('{'), self.css.count('}'), '花括号不配对')
+
+
+class ChatFollowUpRenderTest(TestCase):
+    """「下一步」chips 的落库与渲染：payload 里有就出，没有就不出"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_f', agent_id='ag_f', title='下一步')
+
+    def _fragment(self, content, payload=None):
+        from django.template.loader import render_to_string
+        msg = Message.objects.create(conversation=self.conv, role='assistant',
+                                     content=content, payload=payload)
+        return render_to_string('chat/partials/_message.html', {'msg': msg})
+
+    def test_chips_render_with_the_prompt_carried_on_the_button(self):
+        html = self._fragment('正文', {'card': '', 'activity_ids': [],
+                                      'follow_ups': ['查上海金店报价', '看看本周安排']})
+        self.assertIn('data-followup="查上海金店报价"', html)
+        self.assertIn('data-followup="看看本周安排"', html)
+        self.assertIn('class="follow-ups"', html)
+
+    def test_no_chips_block_without_follow_ups(self):
+        html = self._fragment('正文')
+        self.assertNotIn('data-followup', html)
+        self.assertNotIn('follow-ups', html)
+
+    def test_chips_survive_together_with_a_card(self):
+        """卡片与 chips 不互斥：payload 同时带 card 与 follow_ups 时两个都要在"""
+        html = self._fragment('正文', {'card': 'activity_list',
+                                      'card_data': {'items': [], 'title': '活动'},
+                                      'activity_ids': [],
+                                      'follow_ups': ['把结论存成文章']})
+        self.assertIn('data-followup="把结论存成文章"', html)
+
+    def test_finalized_message_keeps_chips_in_the_payload(self):
+        """走完整轮：AI 文本末尾的「下一步」要落到 payload，正文里不留原始标记"""
+        service = FakeQoderService(poll_script=[
+            {'state': 'ready', 'text': '查完了。\n下一步：看看本周安排｜查上海金店报价'}])
+        self.conv.turn_state = Conversation.TURN_AWAITING
+        self.conv.turn_started_at = timezone.now()
+        self.conv.save()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.get(f'/chat/{self.conv.id}/turn/', HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        msg = self.conv.messages.filter(role='assistant').first()
+        self.assertEqual(msg.content, '查完了。')
+        self.assertEqual(msg.payload['follow_ups'], ['看看本周安排', '查上海金店报价'])
+        self.assertIn('data-followup="看看本周安排"', resp.json()['html'])
+
+    def test_tool_reply_cannot_swallow_the_models_next_steps(self):
+        """工具的 reply 会顶掉模型自己写的那段（「下一步」行就在里面）
+
+        真机实测：钉选后问「还剩多少预算」，模型走 get/query 工具，正文用工具文案，
+        chips 随之消失 —— 而最该给下一步的恰好是这些场景，所以要从模型原文里捡回来。
+        """
+        from core.agent_registry import orchestrator
+        from activities.models import Activity
+        Activity.objects.create(user=self.user, name='新西兰旅游', status='planned')
+        text = ('{"intent": "query", "params": {"name": "新西兰"}, '
+                '"reply": "模型的开场白。\\n下一步：看看这个活动的费用明细｜把它改成进行中"}')
+        content, payload, _ = orchestrator.process(self.user, text)
+        self.assertNotIn('模型的开场白', content, '工具文案应顶掉模型开场白（现有口径）')
+        self.assertEqual(payload['follow_ups'], ['看看这个活动的费用明细', '把它改成进行中'])
+
+    def test_js_sends_the_clicked_prompt(self):
+        root = Path(__file__).resolve().parent.parent
+        js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+        code = ChatTurnFlowJsTest._strip_js_comments(js)
+        self.assertIn("[data-followup]", code)
+        self.assertIn("send(follow.getAttribute('data-followup'));", code)
+
+    def test_follow_up_css_exists(self):
+        root = Path(__file__).resolve().parent.parent
+        css = (root / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        self.assertIn('.follow-ups', css)
+        self.assertIn('.follow-ups-label', css)

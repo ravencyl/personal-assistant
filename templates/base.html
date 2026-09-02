@@ -208,6 +208,8 @@
                 </div>
                 <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
                 {% include "chat/partials/turn_status.html" %}
+                {# conversation=None：浮窗宿主不继承详情页的 conversation，槽先空着，打开对话时由 JS 从历史片段搬进来 #}
+                {% include "chat/partials/pin_host.html" with host_id="chat-panel-pin" conversation=None %}
                 {% include "chat/partials/quick_chips.html" with chips_id="chat-panel-chips" chips_class="px-3 pb-1" %}
                 <form id="chat-form" class="flex items-end gap-2 p-3 border-t border-[var(--border)]">
                     {% csrf_token %}
@@ -378,6 +380,12 @@
                         window.paPanelChat.resume(resumeEl.dataset.state, parseInt(resumeEl.dataset.ttl, 10));
                         resumeEl.remove();
                     }
+                    // 钉选状态也随历史片段带出来：搬到输入区上方的槽里，读一次即撤
+                    var pinMount = messagesEl.querySelector('[data-pin-mount]');
+                    if (pinMount) {
+                        if (window.paPanelPin) window.paPanelPin.paint(pinMount.innerHTML);
+                        pinMount.remove();
+                    }
                     scrollBottom();
                     input.focus();
                 })
@@ -445,6 +453,17 @@
             extraParams: function () { return { page_context: pageCtx.hint || pageCtx.type }; },
             onActivityChanged: function () {
                 document.dispatchEvent(new CustomEvent('activities:changed'));
+            }
+        });
+
+        // @ 钉选：候选与设置都是 JSON 端点，原生 fetch（禁挂 hx-*）
+        window.paPanelPin = window.PaChatPin({
+            host: document.getElementById('chat-panel-pin'),
+            input: input,
+            urls: function () {
+                if (!lastConvId) return {};
+                var base = '/chat/' + lastConvId + '/';
+                return { set: base + 'pin/', search: '{% url "chat:pin_candidates" %}' };
             }
         });
 

@@ -2239,3 +2239,91 @@ class AiMarkdownTerminationTest(SimpleTestCase):
         out = self.r('- 甲\n1. 乙')
         self.assertIn('<ul class="md-list">', out)
         self.assertIn('<ol class="md-list">', out)
+
+
+class FollowUpLineTest(SimpleTestCase):
+    """「下一步：A｜B」的解析（可点追问的唯一入口）
+
+    为什么用一行文本而不是协议 JSON 字段：通用问答走的是「非 JSON 透传」分支
+    （协议逃生舱），那里没有 JSON 可挂字段，而那恰恰是最需要下一步的长回答。
+    """
+
+    def extract(self, text):
+        from core.agent_registry import extract_follow_ups
+        return extract_follow_ups(text)
+
+    def test_extracts_and_strips_the_trailing_line(self):
+        body, items = self.extract('今天金价约 4325 美元。\n\n下一步：查上海金店报价｜把金价记到新西兰旅游')
+        self.assertEqual(body, '今天金价约 4325 美元。')
+        self.assertEqual(items, ['查上海金店报价', '把金价记到新西兰旅游'])
+
+    def test_tolerates_halfwidth_punctuation_and_brackets(self):
+        for text, expected in (
+            ('正文\n【下一步】甲|乙', ['甲', '乙']),
+            ('正文\n[下一步] 甲、乙', ['甲', '乙']),
+            ('正文\n下一步：甲；乙', ['甲', '乙']),
+            ('正文\n下一步：甲。', ['甲']),
+        ):
+            with self.subTest(text=text):
+                body, items = self.extract(text)
+                self.assertEqual(body, '正文')
+                self.assertEqual(items, expected)
+
+    def test_caps_at_three_and_drops_overlong_options(self):
+        """选项过长说明模型把解释写成了选项：整条丢掉而不是截断（截断后发回去意思就变了）"""
+        _, items = self.extract('正文\n下一步：甲｜乙｜丙｜丁')
+        self.assertEqual(items, ['甲', '乙', '丙'])
+        _, items = self.extract('正文\n下一步：' + '长' * 41 + '｜乙')
+        self.assertEqual(items, ['乙'])
+
+    def test_mid_text_mention_is_not_swallowed(self):
+        """正文中间（甚至整条就是）的「下一步：」不得被剥掉：宁可不显示 chips"""
+        text = '下一步：先订机票。然后再讨论预算'
+        body, items = self.extract(text)
+        self.assertEqual(items, [])
+        self.assertEqual(body, text)
+        # 末行但是散文（没冒号也没括号）：不能当成标记
+        prose = '报价查完了。\n下一步是订机票，预算我们回头再谈'
+        body, items = self.extract(prose)
+        self.assertEqual(items, [])
+        self.assertEqual(body, prose)
+
+    def test_line_without_options_is_left_alone(self):
+        text = '正文\n下一步：'
+        body, items = self.extract(text)
+        self.assertEqual((body, items), (text, []))
+
+    def test_protocol_teaches_the_convention(self):
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('最后单独一行', prompt)
+        self.assertIn('下一步：', prompt)
+        # 反问式选项（“你希望我帮你查吗？”）点下去发出去的是问句，等于没点
+        self.assertIn('不要写「你希望我', prompt)
+
+    def test_protocol_says_a_pinned_activity_needs_no_re_query(self):
+        """钉选注入的现状必须真的被用起来：真机实测模型仍会走 get 工具确认一遍
+        （多一次往返、多一次出错机会，而且“还剩多少”本可以直接算）"""
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('[钉选对象]', prompt)
+        self.assertIn('不要为了确认而调 get/query', prompt)
+
+    def test_orchestrator_attaches_chips_on_the_passthrough_path(self):
+        from django.contrib.auth import get_user_model
+        from core.agent_registry import orchestrator
+        user = get_user_model()(username='u')
+        content, payload, changed = orchestrator.process(
+            user, '查完了，现价约 4325 美元。\n下一步：把金价记到新西兰旅游｜查上海金店报价')
+        self.assertEqual(content, '查完了，现价约 4325 美元。')
+        self.assertEqual(payload['follow_ups'], ['把金价记到新西兰旅游', '查上海金店报价'])
+        self.assertFalse(changed)
+
+    def test_orchestrator_attaches_chips_on_the_json_path(self):
+        from django.contrib.auth import get_user_model
+        from core.agent_registry import orchestrator
+        user = get_user_model()(username='u')
+        text = '{"intent": "chitchat", "reply": "好的。\\n下一步：看看本周安排"}'
+        content, payload, _ = orchestrator.process(user, text)
+        self.assertEqual(content, '好的。')
+        self.assertEqual(payload['follow_ups'], ['看看本周安排'])

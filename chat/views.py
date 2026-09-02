@@ -285,6 +285,13 @@ def _build_ai_content(request, conversation, content):
             ai_content = knowledge_context + ai_content
     except Exception as exc:
         logger.warning("knowledge injection failed: %s", exc)
+    try:
+        # 钉选放最后置前：它是用户显式点名的对象，优先级高于“按关键词猜”的知识库注入
+        pinned = conversation.pinned_context()
+        if pinned:
+            ai_content = pinned + ai_content
+    except Exception as exc:
+        logger.warning("pin injection failed: %s", exc)
     return ai_content
 
 
@@ -325,6 +332,77 @@ def _build_knowledge_context(user, text):
     for a in articles:
         context += f'--- {a.title} ---\n{a.content[:800]}\n\n'
     return context
+
+
+@login_required
+@require_POST
+def pin_conversation(request, conversation_id):
+    """@ 钉选：把一个活动钉在本对话上（会话级状态，不是单条消息级）
+
+    为什么做在会话级：用户讨论一个活动会连问好几轮（“预算改 3 万”“那还剩多少”
+    “帮我记一笔费用”），每条消息单独钉一次等于没有钉。换对象就重新选一次。
+
+    JSON 端点：由原生 fetch 消费，严禁挂 hx-*（AGENTS.md 双协议约定）。
+    activity_id 为空 = 取消钉选。响应带 pin_bar 的 HTML 片段：钉选条的长相只有一
+    份模板（服务端负责渲染），前端只换不拼字符串，跟消息气泡同一个道理。
+    """
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
+    raw = (request.POST.get('activity_id') or '').strip()
+
+    if not raw:
+        conversation.pin_activity = None
+        conversation.save(update_fields=['pin_activity', 'updated_at'])
+        return _pin_response(request, conversation)
+    if not raw.isdigit():
+        return JsonResponse({'error': 'activity_id 必须是数字'}, status=400)
+
+    from activities.models import Activity
+    # 用 visible_qs 而不是 get_visible：后者报 Http404，fetch 拿回来的是 HTML 错误页
+    activity = visible_qs(Activity, request.user).filter(id=int(raw)).first()
+    if not activity:
+        return JsonResponse({'error': '没找到这个活动（可能已删除或不属于你）'}, status=404)
+
+    conversation.pin_activity = activity
+    conversation.save(update_fields=['pin_activity', 'updated_at'])
+    return _pin_response(request, conversation)
+
+
+def _pin_response(request, conversation):
+    """钉选结果统一出口（复用 _turn_response 的 Accept 分流，不写第二份判据）"""
+    activity = conversation.pin_activity
+    return _turn_response(request, conversation, {
+        'pin': None if not activity else {'id': activity.id, 'name': activity.name},
+        'html': render(request, 'chat/partials/pin_bar.html',
+                       {'conversation': conversation}).content.decode(),
+    })
+
+
+@login_required
+@require_GET
+def pin_candidates(request):
+    """@ 后的候选活动（JSON）。只搜可见范围；空 q 给「还在办的」，让 @ 一按就有东西可选"""
+    from activities.models import Activity
+
+    q = (request.GET.get('q') or '').strip()
+    qs = visible_qs(Activity, request.user)
+    if q:
+        qs = qs.filter(models.Q(name__icontains=q) | models.Q(description__icontains=q)
+                       | models.Q(tags__name__icontains=q)).distinct()
+    else:
+        qs = qs.filter(status__in=['planned', 'in_progress'])
+    activity_ids = list(qs.order_by('start_date', '-id').values_list('id', flat=True)[:6])
+    # 二次按 id 取对象会丢排序，所以排序只用在取 id 这一步；meta 里的日期/状态靠属性读
+    rows = {a.id: a for a in Activity.objects.filter(id__in=activity_ids)}
+    candidates = []
+    for aid in activity_ids:
+        a = rows.get(aid)
+        if not a:
+            continue
+        meta = [a.get_status_display()]
+        if a.date_range:
+            meta.append(a.date_range)
+        candidates.append({'id': a.id, 'name': a.name, 'meta': ' · '.join(meta)})
+    return JsonResponse({'candidates': candidates})
 
 
 @login_required
@@ -576,6 +654,14 @@ def archive_conversation(request, conversation_id):
     conversation = get_visible(Conversation, request.user, id=conversation_id)
     conversation.status = 'archived'
     conversation.save(update_fields=['status', 'updated_at'])
+
+    # 归档即沉淀：留一条「讨论过什么 + 结论」的记忆，下次开新对话时 AI 能想起来。
+    # 它只读库里的消息（不碰平台），所以放在 cancel 之前；失败不得影响归档本身。
+    try:
+        from memory.services import summarize_conversation_for_memory
+        summarize_conversation_for_memory(conversation)
+    except Exception as e:
+        logger.warning(f'归档摘要写入记忆失败（对话 {conversation.id}）: {e}')
 
     # 归档时还有进行中的一轮：一并清掉，否则 turn 状态会永远挂着（下次进来还在转圈）
     if conversation.turn_active:

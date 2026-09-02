@@ -10,6 +10,7 @@
 """
 import hmac
 import logging
+import re
 from hashlib import sha256
 
 from django.conf import settings
@@ -118,7 +119,14 @@ def build_protocol_prompt(today=None):
         '   只记录有长期价值的信息，不要记录临时性请求或操作指令。\n'
         '6. 意图归属：“世界/时效/攻略/建议”这类问题**不要用 knowledge_search 交差**，'
         '它只能在用户自己存的文章里检索；本地没命中也不得回一句「没有找到」就结束，'
-        '改走联网回答（必要时先自己查，再顺手告诉用户知识库里没有）。'
+        '改走联网回答（必要时先自己查，再顺手告诉用户知识库里没有）。\n'
+        '7. 当这一轮有自然的下一步（站点能执行、或你能继续查）时，在回复**最后单独一行**写：'
+        '下一步：<完整请求1>｜<完整请求2>（最多 3 个，用全角竖线分隔）。\n'
+        '   每个选项必须是一句可以直接发给你的完整请求（带对象名与日期，'
+        '不要写「你希望我…」这类反问）；没有自然下一步就不要写这一行。\n'
+        '8. 消息开头带 [钉选对象] 时，那个活动的现状（日期/状态/预算/已花费/参与者）'
+        '已经全在上下文里：问现状、算数（“还剩多少”）、列参与者都**直接自然语言回答**，'
+        '不要为了确认而调 get/query（那等于没读上下文）；只有要改数据或查别的活动才走协议。'
     )
 
 
@@ -130,10 +138,63 @@ def extract_intent(reply_text):
     return data
 
 
+# 「下一步」行：回复末尾的一行可点追问选项。
+# 为什么不用 JSON 字段（比如 follow_ups）：通用问答走的是「非 JSON 透传」分支，
+# 那里根本没有 JSON 可挂字段，而那恰恰是最需要下一步的长回答（查完金价想要行程）。
+# 一行文本两条路径都能带，而且模型本来就擅长遵守“最后一行写 X”这种约定。
+_FOLLOW_UP_LINE = re.compile(r'\n+(?:【下一步】|\[下一步\]|下一步[：:])\s*([^\n]+?)(?:】|\])?\s*$')
+_FOLLOW_UP_SPLIT = re.compile(r'[｜|、;；]')
+FOLLOW_UP_MAX = 3
+FOLLOW_UP_ITEM_MAX = 40
+
+
+def extract_follow_ups(text):
+    """拆出回复末尾的「下一步：A｜B｜C」→ (去掉该行的正文, [选项])
+
+    认不出来就原样返回：宁可不显示 chips，也不能把用户正文吃掉。
+    判据只认「下一步：」与「【下一步】/ [下一步]」两种显式标记（都必须另起一行）：
+    正文里一句「下一步是订机票」不能被当成标记剥掉。
+    单条选项过长（模型把解释写成了选项）直接丢弃而不是截断，截断后的句子发回去意思就变了。
+    """
+    text = text or ''
+    m = _FOLLOW_UP_LINE.search(text)
+    if not m:
+        return text, []
+    items = []
+    for raw in _FOLLOW_UP_SPLIT.split(m.group(1)):
+        item = raw.strip().strip('。.').strip()
+        if item and len(item) <= FOLLOW_UP_ITEM_MAX:
+            items.append(item)
+    items = items[:FOLLOW_UP_MAX]
+    if not items:
+        return text, []
+    return text[:m.start()].rstrip(), items
+
+
 class ChatOrchestrator:
-    """解析 AI 意图回复 → 分发工具 → 返回 (content, payload, changed)"""
+    """解析 AI 意图回复 → 分发工具 → 返回 (content, payload, changed)
+
+    process() 只做一件事：在 _dispatch() 的结果上统一剥「下一步」行。
+    放在这一层而不是各 return 点：透传分支、工具成功、ToolError 提示都要能拿到 chips，
+    写五遍就是五个会漏改的地方。
+    """
 
     def process(self, user, ai_text):
+        content, payload, changed = self._dispatch(user, ai_text)
+        content, items = extract_follow_ups(content)
+        if not items:
+            # 工具路径下工具的 reply 会顶掉模型自己写的 reply（「下一步」行在里面），
+            # 真机实测到：钉选后问“还剩多少预算”→ 模型走 get 工具，chips 随之消失。
+            # 所以回到模型原文的 reply 里再找一次：模型才是看得到整个上下文的那个。
+            data = extract_intent(ai_text)
+            if data:
+                _, items = extract_follow_ups(str(data.get('reply') or ''))
+        if items:
+            payload = payload or {'card': '', 'activity_ids': []}
+            payload['follow_ups'] = items
+        return content, payload, changed
+
+    def _dispatch(self, user, ai_text):
         intent_data = extract_intent(ai_text)
         if not intent_data:
             # 非 JSON 回复：按普通对话透传（兼容未走协议的旧会话）

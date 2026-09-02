@@ -72,6 +72,13 @@ class Conversation(models.Model):
                   '必须存：把它塞进用户消息会污染历史（现有约定只存原文），'
                   '不存则无法重试发送（首帧协议还在跑时发第二条会撞 409）',
     )
+    pin_activity = models.ForeignKey(
+        'activities.Activity', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+        help_text='@ 钉选的活动（会话级，不是单条消息级）：钉上后每一轮都自动带上它的'
+                  '结构化现状，用户不必反复说对象名。存 FK 而不是裸 id：活动被删要自动失效；'
+                  'Message.payload 里那种裸 id 是给一次性卡片用的，不是长期状态。',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -127,6 +134,40 @@ class Conversation(models.Model):
         self.turn_prompt = ''
         self.save(update_fields=['turn_state', 'turn_started_at', 'turn_prompt',
                                  'turn_idle_at', 'turn_message', 'updated_at'])
+
+    def pinned_context(self):
+        """钉选对象的注入文本（拼在发给 Qoder 的正文前面）
+
+        为什么要注入现状而不只给个 ID：模型拿到「预算 2 万、已花 1578」才能直接算
+        「还剩多少」，只给 ID 它得先调一次查询工具，多一轮往返就多一次出错机会。
+
+        无钉选 / 对象已失效返回空串（注入失败不得阻断对话，铁律）。
+        """
+        activity = self.pin_activity
+        if not activity:
+            return ''
+        # 归属兼容钉选之后才发生的变化：宁可不注入，也不能把别人的活动递到当前用户嘴里
+        if activity.user_id != self.user_id and not self.user.is_superuser:
+            return ''
+        try:
+            parts = [f'活动「{activity.name}」ID={activity.id}',
+                     f'状态：{activity.get_status_display()}']
+            if activity.date_range:
+                parts.append(f'日期：{activity.date_range}')
+            if activity.budget:
+                parts.append('预算：¥%.2f' % activity.budget)
+            parts.append('已花费：¥%.2f' % activity.total_cost)
+            names = [p.name for p in activity.participants.all()[:8]]
+            if names:
+                parts.append('参与者：' + '、'.join(names))
+            desc = (activity.description or '').strip().replace('\n', ' ')
+            if desc:
+                parts.append('描述：' + desc[:200])
+            return ('[钉选对象] ' + ' | '.join(parts) +
+                    '\n（用户已把这个活动钉在本对话上；没点名对象时默认就是它，'
+                    '不要再去搜一遍确认。）\n\n')
+        except Exception:                          # 拼不上就不注入，不能抛到发送链路外
+            return ''
 
 
 class Message(models.Model):

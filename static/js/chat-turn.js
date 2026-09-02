@@ -283,6 +283,12 @@
                 var box = copy.closest('.chat-message');
                 var body = box && box.querySelector('.md-body');
                 copyToClipboard(body ? (body.innerText || body.textContent) : '', copy);
+                return;
+            }
+            // 「下一步」chips：把这一句直接发出去（与「重试」同一条 send，不叉第二套）
+            var follow = e.target.closest('[data-followup]');
+            if (follow) {
+                send(follow.getAttribute('data-followup'));
             }
         });
 
@@ -307,5 +313,160 @@
 
         return { send: send, stop: stop, resume: resume, halt: halt,
                  isBusy: function () { return running; } };
+    };
+
+
+    /* @ 钉选：把某个活动钉在本对话上（会话级），之后每一轮自动带上它的结构化现状
+     *
+     * 为什么状态存服务端而不是前端：钉选要扛刷新、要在详情页与浮窗之间一致，
+     * 还要能进 conversation.turn_prompt（重试发送时必须拿到同一份文本）。
+     * 前端只负责「选哪个」，不拼 DOM 结构也不拼字符串：候选列表用 createElement +
+     * textContent 构建（活动名是用户数据，走字符串拼接就给自己埋了 XSS）。
+     */
+    window.PaChatPin = function (opts) {
+        var host = opts.host;
+        var input = opts.input;
+        var urls = opts.urls;              // function() -> {set, search}
+        var noop = { paint: function () {}, close: function () {} };
+        if (!host || !input) return noop;
+        var slot = host.querySelector('[data-pin-slot]');
+        var list = host.querySelector('[data-pin-list]');
+        var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+        var timer = null;
+        var seq = 0;                       // 只认最后一次请求的结果，慢响应不得盖掉新结果
+
+        function api() { return urls() || {}; }
+
+        function paint(html) { if (slot) slot.innerHTML = html || ''; }
+
+        function close() {
+            if (!list) return;
+            list.hidden = true;
+            list.innerHTML = '';
+        }
+
+        // 光标前是不是「@关键词」：@ 必须在行首或空白/括号之后，邮箱里的 @ 不算
+        function atToken() {
+            var before = input.value.slice(0, input.selectionStart || 0);
+            var m = /@([^\s@]{0,20})$/.exec(before);
+            if (!m) return null;
+            var at = before.length - m[0].length;
+            if (at > 0 && !/[\s(（]/.test(before.charAt(at - 1))) return null;
+            return m[1];
+        }
+
+        function stripAtToken() {
+            var pos = input.selectionStart || 0;
+            var before = input.value.slice(0, pos);
+            var m = /@([^\s@]{0,20})$/.exec(before);
+            if (!m) return;
+            // 只删 @ 与它后面的关键词，前面那个空格留着（它就是词间分隔）
+            input.value = input.value.slice(0, pos - m[0].length) + input.value.slice(pos);
+            var caret = pos - m[0].length;
+            if (input.setSelectionRange) input.setSelectionRange(caret, caret);
+            if (window.paFitTextarea) window.paFitTextarea(input);
+        }
+
+        function renderCandidates(items) {
+            list.innerHTML = '';
+            if (!items.length) {
+                var empty = document.createElement('p');
+                empty.className = 'pin-empty';
+                empty.textContent = '没有匹配的活动';
+                list.appendChild(empty);
+            }
+            items.forEach(function (it) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'pin-item';
+                btn.setAttribute('data-pin-id', it.id);
+                var name = document.createElement('span');
+                name.className = 'pin-item-name';
+                name.textContent = it.name;
+                var meta = document.createElement('span');
+                meta.className = 'pin-item-meta';
+                meta.textContent = it.meta || '';
+                btn.appendChild(name);
+                btn.appendChild(meta);
+                list.appendChild(btn);
+            });
+            list.hidden = false;
+        }
+
+        function load(q) {
+            var u = api();
+            if (!u.search || !list) return;
+            var mine = ++seq;
+            fetch(u.search + '?q=' + encodeURIComponent(q),
+                  { headers: { 'Accept': 'application/json' }, cache: 'no-store' })
+                .then(function (r) { return r.ok ? r.json() : { candidates: [] }; })
+                .then(function (d) { if (mine === seq) renderCandidates(d.candidates || []); })
+                .catch(function () { if (mine === seq) close(); });
+        }
+
+        // 失败不弹框（全站约定）：在槽里插一条自消提示，只撤自己插的那条，
+        // 不整体回滚 innerHTML（期间可能已被 paint）
+        function flash(text) {
+            if (!slot) return;
+            var tip = document.createElement('span');
+            // pin-error 只是测试钩子，配色沿用全站已有的 text-red-600（模板里已在用）
+            tip.className = 'pin-error text-xs text-red-600';
+            tip.textContent = text;
+            slot.appendChild(tip);
+            setTimeout(function () { tip.remove(); }, 2500);
+        }
+
+        function setActivity(id) {
+            var u = api();
+            if (!u.set) { flash('先选一个对话'); return; }
+            var body = new URLSearchParams();
+            body.set('activity_id', id || '');
+            fetch(u.set, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrf,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json'      // 与 send 同口径：漏了会被当成无 JS 提交返 302
+                },
+                body: body.toString()
+            })
+                .then(function (r) {
+                    return r.json().then(function (d) { return { ok: r.ok, d: d }; },
+                                         function () { return { ok: false, d: {} }; });
+                })
+                .then(function (res) {
+                    if (!res.ok) { flash((res.d && res.d.error) || '钉选失败'); return; }
+                    close();
+                    paint(res.d.html);
+                })
+                .catch(function () { flash('钉选失败，请重试'); });
+        }
+
+        input.addEventListener('input', function () {
+            if (timer) clearTimeout(timer);
+            var token = atToken();
+            if (token === null) { close(); return; }
+            timer = setTimeout(function () { load(token); }, 250);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') close();
+        });
+        if (list) {
+            // 候选项上抢在 blur 前拦住默认行为：否则输入框先 blur、点选来不及
+            list.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            list.addEventListener('click', function (e) {
+                var item = e.target.closest && e.target.closest('[data-pin-id]');
+                if (!item) return;
+                stripAtToken();                 // @xxx 已经变成钉选，留在文本里就是重复
+                setActivity(item.getAttribute('data-pin-id'));
+            });
+        }
+        if (slot) {
+            slot.addEventListener('click', function (e) {
+                if (e.target.closest && e.target.closest('[data-pin-clear]')) setActivity('');
+            });
+        }
+
+        return { paint: paint, close: close };
     };
 })();

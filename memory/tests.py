@@ -8,12 +8,17 @@ from django.urls import reverse
 
 from pathlib import Path
 
+from unittest.mock import patch
+
 from core.layout_asserts import assert_desktop_two_columns
+
+from chat.models import Conversation, Message
 
 from .models import Memory
 from .services import (
     retrieve_memories, format_memory_for_injection,
     extract_memories_from_text, save_ai_extracted_memories,
+    summarize_conversation_for_memory,
 )
 
 User = get_user_model()
@@ -298,3 +303,115 @@ class MemoryListDesktopLayoutTest(TestCase):
         self.assertIn('hx-include="#memory-category-filter"', src)
         self.assertIn('hx-include="#memory-search"', src)
         self.assertIn('id="memory-search"', src)
+
+
+class ArchiveSummaryMemoryTest(TestCase):
+    """归档对话 → 一条「讨论过什么 + 结论」的记忆（跨会话可回忆）
+
+    刻意做成启发式（取首问 + 末答）而不是再叫一次 AI 总结：归档时 session 刚被
+    cancel，再发一轮要等几十秒、可能撞 409，还会在历史里留下一条假的 assistant 消息。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_sum', agent_id='ag_sum', title='桐庐行程')
+
+    def _say(self, role, content):
+        return Message.objects.create(conversation=self.conv, role=role, content=content)
+
+    def _fill(self, with_answer=True):
+        self._say('user', '桐庐周末去哪玩比较好')
+        self._say('user', '带上小孩方便吗')
+        if with_answer:
+            self._say('assistant', '**结论**：去 `龙井峡`，漂流适合 6 岁以上\n\n| 项目 | 价格 |\n| --- | --- |')
+
+    def test_creates_one_summary_memory(self):
+        self._fill()
+        memory = summarize_conversation_for_memory(self.conv)
+        self.assertIsNotNone(memory)
+        self.assertEqual(memory.category, 'other')
+        self.assertEqual(memory.importance, 4, '索引型记忆不得抢用户偏好（5-8）的注入位')
+        self.assertIn('桐庐行程', memory.content)
+        self.assertIn('讨论了：桐庐周末去哪玩比较好', memory.content)
+        self.assertIn('结论：', memory.content)
+
+    def test_markdown_noise_is_stripped_from_the_excerpt(self):
+        """AI 回复本来就是 Markdown：星号/井号/表格竖线进记忆就成了排版噪声
+
+        记忆是给模型读的，下次注入上下文时不该带一串 ** 与 |。
+        """
+        self._fill()
+        memory = summarize_conversation_for_memory(self.conv)
+        for noise in ('**', '`', '|', '\n'):
+            self.assertNotIn(noise, memory.content)
+        self.assertIn('龙井峡', memory.content)
+        self.assertIn('结论：', memory.content)   # 清噪声不能把整段结论弄没
+
+    def test_title_that_equals_the_first_question_is_not_repeated(self):
+        """建对话时标题就是首条提问的截断，再写一遍「讨论了」等于同一句说两次"""
+        self.conv.title = '桐庐周末去哪玩比较好'
+        self.conv.save(update_fields=['title'])
+        self._fill()
+        memory = summarize_conversation_for_memory(self.conv)
+        self.assertIn('对话「桐庐周末去哪玩比较好」', memory.content)
+        self.assertNotIn('讨论了：', memory.content)
+        self.assertIn('结论：', memory.content)
+
+    def test_nothing_new_to_say_returns_none(self):
+        """只剩一个光标题（没结论、提问又与标题重复）的记忆没有信息量"""
+        self.conv.title = '桐庐周末去哪玩比较好'
+        self.conv.save(update_fields=['title'])
+        self._say('user', '桐庐周末去哪玩比较好')
+        self._say('user', '再想想')
+        self.assertIsNone(summarize_conversation_for_memory(self.conv))
+        self.assertEqual(Memory.objects.count(), 0)
+
+    def test_skips_single_question_conversations(self):
+        self._say('user', '你好')
+        self._say('assistant', '你好，有什么可以帮你')
+        self.assertIsNone(summarize_conversation_for_memory(self.conv))
+        self.assertEqual(Memory.objects.count(), 0)
+
+    def test_skips_when_the_conversation_already_produced_memories(self):
+        """协议里 AI 一直在主动记（memory 字段），归档别再重复一层"""
+        self._fill()
+        answer = self.conv.messages.filter(role='assistant').first()
+        Memory.objects.create(user=self.user, content='家里有小孩', category='relationship',
+                              importance=7, source_message=answer)
+        self.assertIsNone(summarize_conversation_for_memory(self.conv))
+        self.assertEqual(Memory.objects.filter(content__startswith='对话「').count(), 0)
+
+    def test_other_users_memories_do_not_block_and_are_not_written(self):
+        self._fill()
+        other = User.objects.create_user('o', password='p')
+        Memory.objects.create(user=other, content='别人的记忆')
+        memory = summarize_conversation_for_memory(self.conv)
+        self.assertIsNotNone(memory)
+        self.assertEqual(memory.user_id, self.user.id)
+
+    def test_long_answers_are_capped(self):
+        self._fill(with_answer=False)
+        self._say('assistant', '长' * 2000)
+        memory = summarize_conversation_for_memory(self.conv)
+        self.assertLessEqual(len(memory.content), 500)   # Memory.content 是 max_length=500
+
+    def test_archiving_through_the_view_writes_the_memory(self):
+        """整条链路：点「归档对话」就应该沉淀，不依赖调用方记得手动跑一次"""
+        self._fill()
+        resp = self.client.post(reverse('chat:archive_conversation', args=[self.conv.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.status, 'archived')
+        self.assertEqual(Memory.objects.filter(content__startswith='对话「').count(), 1)
+
+    def test_archiving_still_works_when_the_summary_blows_up(self):
+        """摘要失败只能少一条记忆，不能把归档本身弄挂"""
+        self._fill()
+        with patch('memory.services.summarize_conversation_for_memory',
+                   side_effect=RuntimeError('boom')):
+            resp = self.client.post(reverse('chat:archive_conversation', args=[self.conv.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.status, 'archived')
