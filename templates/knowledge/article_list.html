@@ -3,31 +3,40 @@
 {% block title %}知识库 · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto space-y-6 fade-in">
-    <!-- 头部：搜索 + 新建 -->
-    <div class="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
-        <h1 class="text-2xl font-bold text-[var(--text)]">知识库</h1>
-        <div class="flex gap-2 w-full md:w-auto">
-            <form method="get" class="flex-1 md:flex-initial flex gap-2">
-                {% if current_tag %}
-                <input type="hidden" name="tag" value="{{ current_tag.slug }}">
-                {% endif %}
-                <input type="search" name="q" value="{{ query }}" placeholder="搜索文章..."
-                       class="flex-1 md:w-56 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
-            </form>
-            <a href="{% url 'knowledge:article_create' %}"
-               class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-                </svg>
-                新建文章
-            </a>
-        </div>
-    </div>
+<!-- 头部：标题 + 新建入口 -->
+<div class="flex items-center justify-between gap-3 mb-6 fade-in">
+    <h1 class="text-2xl font-bold text-[var(--text)]">知识库</h1>
+    <a href="{% url 'knowledge:article_create' %}"
+       class="inline-flex items-center gap-1.5 shrink-0 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        新建文章
+    </a>
+</div>
+
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  右列 = 辅助信息（搜索 · 标签筛选）；左列 = 主内容流（文章列表 / 空状态）。
+本页不再自套 max-w-4xl 居中容器：两列口径下可用宽度由列容器决定（左列 864px、右列 320px）。
+右列整块在 DOM 里排在左列之前，所以移动端阅读顺序（搜索→标签→列表）与改造前一致。
+{% endcomment %}
+<div class="page-cols page-cols--rail-first space-y-4 sm:space-y-6 md:space-y-0">
+
+<!-- 右列：搜索与标签筛选 -->
+<div class="page-rail space-y-4 sm:space-y-6">
+
+    <form method="get" class="flex gap-2">
+        {% if current_tag %}
+        <input type="hidden" name="tag" value="{{ current_tag.slug }}">
+        {% endif %}
+        <input type="search" name="q" value="{{ query }}" placeholder="搜索文章..."
+               class="flex-1 min-w-0 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+    </form>
 
     <!-- 标签筛选栏 -->
     {% if all_tags %}
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap gap-2" id="article-tag-filter">
         <a href="{% url 'knowledge:article_list' %}{% if query %}?q={{ query }}{% endif %}"
            class="inline-flex items-center px-3 py-1 text-xs font-medium rounded-full border transition-colors {% if not current_tag %}bg-[var(--accent)] text-white border-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--text)]{% endif %}">
             全部
@@ -41,9 +50,14 @@
     </div>
     {% endif %}
 
+</div><!-- /右列 -->
+
+<!-- 左列：文章列表 -->
+<div class="page-main space-y-4 sm:space-y-6">
+
     <!-- 文章列表 -->
     {% if articles %}
-    <div class="grid gap-4">
+    <div class="space-y-4">
         {% for article in articles %}
         <a href="{% url 'knowledge:article_detail' slug=article.slug %}" class="app-card block p-4 sm:p-5">
             <div class="flex flex-col gap-2">
@@ -72,5 +86,7 @@
         </a>
     </div>
     {% endif %}
-</div>
+
+</div><!-- /左列 -->
+</div><!-- /.page-cols -->
 {% endblock %}

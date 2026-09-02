@@ -136,13 +136,14 @@
     {% endif %}
 
     {% comment %}
-    桌面端（md+）左右两列；移动端两个列容器只是普通块，纵向顺序 = 下面的 DOM 顺序。
+    桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）；
+    移动端两个列容器只是普通块，纵向顺序 = 下面的 DOM 顺序。
     左列 = 主内容流（描述 · 费用 · 子任务），右列 = 辅助信息（附件 · 参与者 · 关联）。
     右列整体排在左列之后，因此移动端相对旧版只有一处变化：子任务从页面底部提到费用之后。
     {% endcomment %}
-    <div class="detail-cols space-y-4 sm:space-y-6 md:space-y-0">
+    <div class="page-cols space-y-4 sm:space-y-6 md:space-y-0">
     <!-- 左列：主内容流 -->
-    <div class="detail-main space-y-4 sm:space-y-6">
+    <div class="page-main space-y-4 sm:space-y-6">
 
     <!-- 描述 -->
     {% if activity.description %}
@@ -319,7 +320,7 @@
     </div><!-- /左列 -->
 
     <!-- 右列：附件 · 参与者 · 关联（桌面端 320px 栏且整列常驻，移动端顺排在主内容流之后） -->
-    <div class="detail-rail space-y-4 sm:space-y-6">
+    <div class="page-rail space-y-4 sm:space-y-6">
         <!-- 桌面端快捷操作卡（右列顶部，随整列常驻）：移动端隐藏，四个入口本身就在单列流里，重复出现反而占高 -->
         <section class="hidden md:block panel p-4">
             <p class="text-xs text-[var(--text-muted)] mb-2">快捷操作</p>
@@ -456,7 +457,7 @@
     {% endif %}
 
     </div><!-- /右列 -->
-    </div><!-- /.detail-cols -->
+    </div><!-- /.page-cols -->
 
     <!-- 操作历史（辅助信息，低调展示；默认折叠，点击展开） -->
     {% if logs %}

@@ -14,8 +14,19 @@
     <p class="text-sm text-[var(--text-secondary)] mt-1">{{ today_display }}</p>
 </div>
 
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  左列 = 主内容流（关键数字 · 本周费用 · 最近活动与对话）；
+  右列 = 辅助信息（报告生成入口 · 活动状态分布），整列随滚动常驻。
+两个列容器都不加显隐类 —— 移动端它们是普通块级元素，纵向顺序完全由 DOM 决定。
+右列整块排在左列之后（移动端只多一处变化：报告入口从第 2 块下移到页底）。
+{% endcomment %}
+<div class="page-cols space-y-4 sm:space-y-6 md:space-y-0">
+<!-- 左列：主内容流 -->
+<div class="page-main space-y-4 sm:space-y-6">
+
 <!-- 统计卡片 -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-2">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
     <div class="app-card p-3 md:p-4">
         <p class="text-xs text-[var(--text-muted)]">本周完成</p>
         <p class="text-lg md:text-xl font-semibold text-[var(--text)] mt-1">{{ stats.week_completed }}</p>
@@ -34,21 +45,8 @@
     </div>
 </div>
 
-<!-- 报告入口 -->
-<div class="flex gap-3 mb-6">
-    <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full bg-zinc-900 text-white text-sm hover:bg-black transition-colors">
-        生成周报
-    </a>
-    <a href="{% url 'monthly_report' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] hover:bg-zinc-50 transition-colors">
-        生成月报
-    </a>
-    <a href="{% url 'yearly_report' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] hover:bg-zinc-50 transition-colors">
-        生成年报
-    </a>
-</div>
-
 <!-- 本周费用趋势 -->
-<div class="app-card p-4 mb-6">
+<div class="app-card p-4">
     <div class="flex items-center justify-between mb-3">
         <h2 class="text-sm font-medium text-[var(--text)]">本周费用</h2>
         <span class="text-xs text-[var(--text-muted)]">¥{{ stats.week_expense|floatformat:0 }}</span>
@@ -57,7 +55,7 @@
 </div>
 
 <!-- 最近活动 + 最近对话 -->
-<div class="grid md:grid-cols-2 gap-4 mb-6">
+<div class="grid md:grid-cols-2 gap-4">
     <!-- 最近活动 -->
     <div class="app-card p-4">
         <div class="flex items-center justify-between mb-3">
@@ -92,6 +90,27 @@
     </div>
 </div>
 
+</div><!-- /左列 -->
+
+<!-- 右列：报告入口与状态分布（桌面端 320px 栏整列常驻，移动端顺排在主内容流之后） -->
+<div class="page-rail space-y-4 sm:space-y-6">
+
+<!-- 报告入口：移动端横排成 pills，桌面端宽 320px 的栏里改竖排免换行错乱 -->
+<div class="app-card p-4">
+    <h2 class="text-sm font-medium text-[var(--text)] mb-3">生成报告</h2>
+    <div class="flex flex-wrap gap-2 md:flex-col">
+        <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full bg-zinc-900 text-white text-sm text-center hover:bg-black transition-colors">
+            生成周报
+        </a>
+        <a href="{% url 'monthly_report' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] text-center hover:bg-zinc-50 transition-colors">
+            生成月报
+        </a>
+        <a href="{% url 'yearly_report' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] text-center hover:bg-zinc-50 transition-colors">
+            生成年报
+        </a>
+    </div>
+</div>
+
 <!-- 活动状态分布 -->
 {% if stats.status_counts %}
 <div class="app-card p-4">
@@ -119,8 +138,8 @@
         {% endwith %}
     </div>
 
-    <!-- 图例 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <!-- 图例：右列窄栏里固定两列（原来桌面端四列在 320px 里会挤） -->
+    <div class="grid grid-cols-2 gap-2">
         {% with planned=stats.status_counts.planned|default:0 in_progress=stats.status_counts.in_progress|default:0 done=stats.status_counts.done|default:0 cancelled=stats.status_counts.cancelled|default:0 %}
         <div class="flex items-center gap-2">
             <span class="h-2 w-2 rounded-full bg-zinc-500"></span>
@@ -142,6 +161,9 @@
     </div>
 </div>
 {% endif %}
+
+</div><!-- /右列 -->
+</div><!-- /.page-cols -->
 
 <!-- Chart.js 初始化 -->
 <script>

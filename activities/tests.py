@@ -23,6 +23,7 @@ from activities.models import (Activity, ActivityLog, Attachment, Expense, Parti
 from core.models import Reminder
 from notes.models import Note
 from activities.parsing import parse_quick_input
+from core.layout_asserts import assert_desktop_two_columns
 from activities.services import (InputError, add_expense, clean_category,
                                  create_activity_from_parsed, record_parsed_cost,
                                  start_due_activities)
@@ -1258,31 +1259,16 @@ class UpdateDescriptionAgentToolTest(TestCase):
 
 
 def _css_rules(css, selector):
-    """取 custom.css 里所有「选择器串中出现 selector」的规则块。
-
-    返回 [{'selectors': str, 'media': 所在 @media 条件（不在媒体查询里则为空串）,
-           'body': 声明文本}]。详情页与 Daily 页的两列声明是分组共享的
-    （'.detail-cols,\n.daily-cols {'），直接字符串找 '.detail-cols {' 会找不到，
-    锁就静默空跑了，所以统一走这里。
-    """
-    blocks = []
-    for m in re.finditer(r'([^{}]+)\{([^{}]*)\}', css):
-        selectors = ' '.join(s.strip() for s in m.group(1).split(',')).strip()
-        if selector not in selectors:
-            continue
-        before = css[:m.start()]
-        media = ''
-        at = before.rfind('@media')
-        if at != -1 and before.count('{', at) > before.count('}', at):
-            media = before[at:].split('{', 1)[0].replace('@media', '').strip()
-        blocks.append({'selectors': selectors, 'media': media, 'body': m.group(2)})
-    return blocks
+    """列声明检查用的 CSS 规则解析。实现已抽到 core.layout_asserts（六个 app 的
+    布局锁共用一份），这里只保留局部别名，免改下面两处调用点。"""
+    from core.layout_asserts import css_rules
+    return css_rules(css, selector)
 
 
 class ActivityDetailDesktopLayoutTest(TestCase):
     """活动详情页桌面两列布局与概览增强回归锁
 
-    为什么锁：两列完全靠 custom.css 的 .detail-cols + 模板里两个列容器实现，
+    为什么锁：两列完全靠 custom.css 的通用列容器 .page-cols + 模板里两个列容器实现，
     没有任何报错机制——顺手改回单列、把右列某块挪进左列、给移动端加了 sm: 结构断点，
     都只在真实屏幕上退化。移动端同理：列容器不加显隐，视觉顺序 = DOM 顺序，
     所以 DOM 里各块的先后就是移动端顺序契约。
@@ -1291,7 +1277,7 @@ class ActivityDetailDesktopLayoutTest(TestCase):
     CSS = Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
     # 列分隔靠这两条注释锚点（模板里显式写出，改结构时会一起被看到）
     LEFT_END = '</div><!-- /左列 -->'
-    COLS_END = '</div><!-- /.detail-cols -->'
+    COLS_END = '</div><!-- /.page-cols -->'
 
     def setUp(self):
         self.user = User.objects.create_user('raven', password='test')
@@ -1315,16 +1301,16 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         self.html = resp.content.decode()
 
     def _columns(self):
-        start = self.html.index('class="detail-cols')
+        start = self.html.index('class="page-cols')
         return self.html[start:self.html.index(self.COLS_END)]
 
     def test_two_column_grid_and_exactly_two_columns(self):
-        self.assertEqual(self.html.count('class="detail-cols'), 1, '两列容器应唯一')
+        self.assertEqual(self.html.count('class="page-cols'), 1, '两列容器应唯一')
         cols = self._columns()
-        self.assertEqual(cols.count('class="detail-main '), 1,
-                         'detail-cols 内应恰好一个左列（主内容流）')
-        self.assertEqual(cols.count('class="detail-rail '), 1,
-                         'detail-cols 内应恰好一个右列（辅助信息）')
+        self.assertEqual(cols.count('class="page-main '), 1,
+                         'page-cols 内应恰好一个左列（主内容流）')
+        self.assertEqual(cols.count('class="page-rail '), 1,
+                         'page-cols 内应恰好一个右列（辅助信息）')
         self.assertIn(self.LEFT_END, cols, '左列未闭合，两列结构已破损')
 
     def test_no_template_syntax_leaked_into_rendered_html(self):
@@ -1370,17 +1356,17 @@ class ActivityDetailDesktopLayoutTest(TestCase):
 
     def test_columns_css_uses_single_md_breakpoint(self):
         css = self.CSS.read_text(encoding='utf-8')
-        cols = _css_rules(css, '.detail-cols')
+        cols = _css_rules(css, '.page-cols')
         self.assertTrue(cols, 'custom.css 里两列声明丢了')
         for block in cols:
             self.assertEqual(block['media'], '(min-width: 768px)',
-                             '.detail-cols 必须只落在 768px 这个唯一结构断点内')
-        body = next(b['body'] for b in cols if b['selectors'] == '.detail-cols .daily-cols')
+                             '.page-cols 必须只落在 768px 这个唯一结构断点内')
+        body = next(b['body'] for b in cols if b['selectors'] == '.page-cols')
         self.assertIn('320px', body, '右列固定宽度是本次设计的一部分')
         self.assertIn('minmax(0, 1fr)', body, '左列须用 minmax(0,1fr) 兜住长内容撑破列')
         self.assertIn('align-items: start', body,
                       '网格默认 stretch 会把右列拉高，sticky 就没空间钉住')
-        rail = _css_rules(css, '.detail-rail')
+        rail = _css_rules(css, '.page-rail')
         self.assertTrue(rail, 'custom.css 里右列常驻声明丢了')
         self.assertIn('position: sticky', rail[0]['body'], '右列整列常驻是桌面端设计的一部分')
         self.assertIn('max-height', rail[0]['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
@@ -1407,14 +1393,14 @@ class DailyDesktopLayoutTest(TestCase):
     结构断点，都不会报错，只在真实屏幕上退化。
 
     移动端契约与活动详情页不同：Daily 页的右列整块在 DOM 里排在主内容流之前
-    （这样移动端阅读顺序与改造前逐块一致），桌面端靠 order 换回右侧 ——
-    所以 DOM 里的块顺序就是移动端顺序契约，下面按它断言。
+    （这样移动端阅读顺序与改造前逐块一致），桌面端靠 .page-cols--rail-first 的
+    order 换回右侧 ——所以 DOM 里的块顺序就是移动端顺序契约，下面按它断言。
     """
     TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'daily.html'
     CSS = Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
     RAIL_END = '</div><!-- /右列 -->'
     MAIN_END = '</div><!-- /左列 -->'
-    COLS_END = '</div><!-- /.daily-cols -->'
+    COLS_END = '</div><!-- /.page-cols -->'
 
     def setUp(self):
         self.user = User.objects.create_user('raven', password='test')
@@ -1471,42 +1457,44 @@ class DailyDesktopLayoutTest(TestCase):
         return at
 
     def _cols(self):
-        start = self._at(self.html, 'class="daily-cols"', '两列容器')
+        start = self._at(self.html, 'class="page-cols', '两列容器')
         return self.html[start:self._at(self.html, self.COLS_END, '两列收尾')]
 
     def _rail(self):
         cols = self._cols()
-        start = self._at(cols, 'class="daily-rail"', '右列容器')
+        start = self._at(cols, 'class="page-rail"', '右列容器')
         return cols[start:self._at(cols, self.RAIL_END, '右列')]
 
     def _main(self):
         cols = self._cols()
-        start = self._at(cols, 'class="daily-main"', '左列容器')
+        start = self._at(cols, 'class="page-main"', '左列容器')
         return cols[start:self._at(cols, self.MAIN_END, '左列')]
 
     def test_two_column_grid_and_exactly_two_columns(self):
-        self.assertEqual(self.html.count('class="daily-cols"'), 1, '两列容器应唯一')
+        self.assertEqual(self.html.count('class="page-cols'), 1, '两列容器应唯一')
         cols = self._cols()
-        self.assertEqual(cols.count('class="daily-rail"'), 1, 'daily-cols 内应恰好一个右列')
-        self.assertEqual(cols.count('class="daily-main"'), 1, 'daily-cols 内应恰好一个左列')
+        self.assertEqual(cols.count('class="page-rail"'), 1, 'page-cols 内应恰好一个右列')
+        self.assertEqual(cols.count('class="page-main"'), 1, 'page-cols 内应恰好一个左列')
         self.assertIn(self.RAIL_END, cols, '右列未闭合，两列结构已破损')
         self.assertIn(self.MAIN_END, cols, '左列未闭合，两列结构已破损')
 
     def test_column_containers_have_no_visibility_class(self):
         """列容器不加显隐类是「移动端视觉顺序 = DOM 顺序」的前提"""
-        self.assertIn('<div class="daily-rail">', self.html,
+        self.assertIn('<div class="page-rail">', self.html,
                       '右列容器加了类，移动端可能少一整列')
-        self.assertIn('<div class="daily-main">', self.html,
+        self.assertIn('<div class="page-main">', self.html,
                       '左列容器加了类，移动端可能少一整列')
 
     def test_right_column_is_dom_first_and_visually_right_on_desktop(self):
         """右列整块在 DOM 里排在左列之前：移动端顺序才能与改造前逐块一致"""
         cols = self._cols()
-        self.assertLess(self._at(cols, 'class="daily-rail"', '右列'),
-                        self._at(cols, 'class="daily-main"', '左列'),
+        self.assertLess(self._at(cols, 'class="page-rail"', '右列'),
+                        self._at(cols, 'class="page-main"', '左列'),
                         '右列改成 DOM 在后会让移动端「打卡与提醒/统计」下跳，阅读顺序回退')
+        self.assertIn('page-cols--rail-first', self.html,
+                      '缺 rail-first 修饰类：右列在 DOM 前就会出现在桌面左侧，左右颠倒')
         css = self.CSS.read_text(encoding='utf-8')
-        rail_order = [b for b in _css_rules(css, '.daily-rail') if 'order' in b['body']]
+        rail_order = [b for b in _css_rules(css, '.page-rail') if 'order' in b['body']]
         self.assertTrue(rail_order, '没有把右列换回右侧的 order 声明，桌面端左右会颠倒')
         self.assertIn('order: 2', rail_order[0]['body'])
 
@@ -1575,21 +1563,20 @@ class DailyDesktopLayoutTest(TestCase):
 
     def test_columns_css_uses_single_md_breakpoint(self):
         css = self.CSS.read_text(encoding='utf-8')
-        for selector in ('.daily-cols', '.daily-rail'):
+        for selector in ('.page-cols', '.page-rail'):
             blocks = _css_rules(css, selector)
             self.assertTrue(blocks, f'custom.css 里 {selector} 的声明丢了')
             for block in blocks:
                 self.assertEqual(block['media'], '(min-width: 768px)',
                                  f'{selector} 必须只落在 768px 这个唯一结构断点内')
-        grid = _css_rules(css, '.detail-cols')[0]
-        self.assertIn('.daily-cols', grid['selectors'],
-                      '两列声明应与详情页共享，不另拷一份（拷了就两处会飘）')
+        grid = _css_rules(css, '.page-cols')[0]
+        self.assertEqual(grid['selectors'], '.page-cols',
+                         '两列声明必须全站只一份且独立不分组（与别的页面分组共享，一处改会连带飘）')
         self.assertIn('320px', grid['body'])
         self.assertIn('minmax(0, 1fr)', grid['body'], '左列须用 minmax(0,1fr) 兜住长内容撑破列')
         self.assertIn('align-items: start', grid['body'],
                       '网格默认 stretch 会把右列拉高，sticky 就没空间钉住')
-        rail = _css_rules(css, '.detail-rail')[0]
-        self.assertIn('.daily-rail', rail['selectors'], '右列常驻声明应与详情页共享同一块')
+        rail = _css_rules(css, '.page-rail')[0]
         self.assertIn('position: sticky', rail['body'])
         self.assertIn('max-height', rail['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
 
@@ -1597,3 +1584,112 @@ class DailyDesktopLayoutTest(TestCase):
         """模板注释语法泄漏锁：Django 的 {# #} 不支持跳行，写多行会整段渲染成正文"""
         for token in ('{%', '{{', '{#'):
             self.assertNotIn(token, self.html, f'渲染结果里出现 {token}，模板语法泄漏')
+
+
+class ExpenseReportDesktopLayoutTest(TestCase):
+    """费用报告页桌面两列布局回归锁
+
+    本页是 rail-first（右列整块在 DOM 里排在主内容流之前）：这样移动端顺序
+    （关键数字 → 三个图表 → 本月分类明细）与改造前逐块一致。
+    顺带锁掉一件事：图表区不得再用 lg:grid-cols-2 —— 视口断点不跟随列宽，
+    两列化后左列只有 864px，lg: 会把它硬拆成两个 416px 的图。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'expense_report.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        activity = Activity.objects.create(user=self.user, name='新西兰之旅',
+                                           budget=Decimal('2000'))
+        Expense.objects.create(activity=activity, user=self.user,
+                               amount=Decimal('600'), category='transport')
+        self.html = self.client.get('/activities/expense-report/').content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('月度趋势', '月度趋势图'), ('id="monthChart"', '趋势图画布'),
+                  ('分类占比（近一年）', '饼图'), ('本月分类明细', '明细卡'),
+                  ('id="mcList"', '明细列表挂载点')],
+            right=[('关键数字', '概览卡标题'), ('本月合计', '本月数字'),
+                   ('时间花费', '时间花费数字')],
+            mobile_order=['关键数字', '月度趋势', '本月分类明细'],
+            rail_first=True)
+
+    def test_chart_canvas_height_untouched(self):
+        """三个图表仍各自带 220px 容器：Chart.js 的 responsive 靠父级定高"""
+        for canvas in ('monthChart', 'categoryChart', 'weekChart'):
+            at = self.html.index('id="%s"' % canvas)
+            self.assertIn('height:220px', self.html[at - 90:at],
+                          f'{canvas} 的定高容器丢了，图会无限长高')
+
+
+class TemplateListDesktopLayoutTest(TestCase):
+    """活动模板页桌面两列布局回归锁（长表单留左列，右列放模板数与用法）"""
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'template_list.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        ActivityTemplate.objects.create(user=self.user, name='出差模板',
+                                        description='含机票酒店')
+        self.html = self.client.get('/activities/templates/').content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('id="template-create-form"', '新建模板表单'), ('我的模板', '模板列表区'),
+                  ('出差模板', '模板卡')],
+            right=[('模板用法', '用法卡标题'), ('共 1 个模板', '模板计数')],
+            mobile_order=['id="template-create-form"', '我的模板', '模板用法'])
+
+    def test_template_modal_is_outside_the_columns(self):
+        """弹窗是 fixed 定位的整页级元素，不该被塞进列容器（塞了会被 sticky 列裁掉）"""
+        html = self.html
+        self.assertGreater(html.index('id="use-template-modal"'),
+                           html.index('</div><!-- /.page-cols -->'),
+                           '弹窗应留在两列区之外')
+
+
+class RecurringListDesktopLayoutTest(TestCase):
+    """循环活动页桌面两列布局回归锁
+
+    右列 = 习惯概览 + 近期实例打卡（辅助信息），左列 = 热力图 + 新建表单 + 我的习惯。
+    新建表单按口径留在左列；右列排在主内容流之后，所以移动端四块顺序逐块不变。
+    概览卡是无条件渲染的：近期实例是条件块，没它时右列也不能空着。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'recurring_list.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        self.src = RecurringActivity.objects.create(user=self.user, name='晨读',
+                                                    frequency='daily', is_active=True)
+        Activity.objects.create(user=self.user, name='晨读', recurring_source=self.src,
+                                start_date=timezone.localdate(), status='planned')
+        self.html = self.client.get('/activities/recurring/').content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('打卡热力图（近一年）', '热力图'), ('id="habit-heatmap"', '热力图容器'),
+                  ('新建循环活动', '创建表单'),
+                  ('id="frequency-select"', '频率选择器'), ('我的习惯', '习惯列表')],
+            right=[('习惯概览', '概览卡'), ('近期实例', '实例打卡卡')],
+            mobile_order=['打卡热力图（近一年）', '新建循环活动', '我的习惯',
+                          '习惯概览', '近期实例'])
+
+    def test_heatmap_keeps_full_left_width(self):
+        """热力图 53 列 × 12px 需要 636px，只能留在左列（进右列就变成横向滚动）"""
+        rail_at = self.html.index('class="page-rail')
+        self.assertLess(self.html.index('id="habit-heatmap"'), rail_at,
+                        '热力图被搬进右列了')
+
+    def test_checkin_htmx_contract_untouched(self):
+        """近期实例的打卡仍走 HTMX outerHTML 局部替换（搬列不该改协议）"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertIn('hx-post="{% url \'activities:recurring_checkin\' a.id %}"', src)
+        self.assertIn('hx-swap="outerHTML"', src)

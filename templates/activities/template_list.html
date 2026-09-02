@@ -10,6 +10,17 @@
     <a href="{% url 'activities:activity_list' %}" class="text-sm text-zinc-500 hover:text-zinc-900">&larr; 返回活动列表</a>
   </div>
 
+  {% comment %}
+  桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+    左列 = 主内容流（新建模板表单 · 模板列表）；右列 = 辅助信息（模板数与用法）。
+  新建表单是字段很多的长表单，按口径留在左列（压到 320px 栏里输入框会很难用）。
+  右列整块排在左列之后，移动端只在页底多出一张用法卡，已有块顺序逐块不变。
+  {% endcomment %}
+  <div class="page-cols space-y-4 sm:space-y-6 md:space-y-0">
+
+  <!-- 左列：新建表单与模板列表 -->
+  <div class="page-main space-y-4 sm:space-y-6">
+
   <!-- 新建模板表单 -->
   <div class="app-card bg-white p-6">
     <h2 class="text-lg font-medium text-zinc-900 mb-4">新建模板</h2>
@@ -126,6 +137,22 @@
       </div>
     {% endif %}
   </div>
+
+  </div><!-- /左列 -->
+
+  <!-- 右列：模板数与用法（移动端顺排在列表之后） -->
+  <div class="page-rail space-y-4 sm:space-y-6">
+    <div class="app-card bg-white p-4">
+      <h2 class="text-sm font-semibold text-zinc-900 mb-3">模板用法</h2>
+      <p class="text-xs text-zinc-500 mb-3">共 {{ templates|length }} 个模板</p>
+      <ul class="space-y-2 text-xs text-zinc-500 leading-relaxed list-disc pl-4">
+        <li>点模板上的「使用模板创建」，填活动名与起止日期即可生成活动</li>
+        <li>模板只预填结构（子任务与标签），不预填时间与费用</li>
+        <li>模板删除不影响已用它的活动</li>
+      </ul>
+    </div>
+  </div><!-- /右列 -->
+  </div><!-- /.page-cols -->
 </div>
 
 <!-- 使用模板创建活动的弹窗 -->

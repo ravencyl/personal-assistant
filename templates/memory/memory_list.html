@@ -3,30 +3,39 @@
 {% block title %}AI 记忆 · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-3xl px-4 py-6">
-    <!-- 头部 -->
-    <div class="mb-6">
-        <h1 class="text-xl font-semibold">AI 记忆</h1>
-        <p class="mt-1 text-sm text-[var(--text-secondary)]">
-            AI 在对话中记住的关于你的信息。这些记忆会帮助 AI 更好地理解你。
-        </p>
-    </div>
+<!-- 头部 -->
+<div class="mb-6">
+    <h1 class="text-xl font-semibold">AI 记忆</h1>
+    <p class="mt-1 text-sm text-[var(--text-secondary)]">
+        AI 在对话中记住的关于你的信息。这些记忆会帮助 AI 更好地理解你。
+    </p>
+</div>
 
-    <!-- 搜索 + 筛选 -->
-    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div class="flex-1 flex gap-2">
-            <input type="text" id="memory-search" name="q" value="{{ query }}"
-                   placeholder="搜索记忆..."
-                   hx-get="{% url 'memory:memory_list' %}"
-                   hx-target="#memory-list"
-                   hx-trigger="input changed delay:300ms, search"
-                   hx-include="#memory-category-filter"
-                   class="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-sm focus:border-zinc-400 focus:outline-none">
-        </div>
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  右列 = 辅助信息（搜索 · 类别筛选）；左列 = 主内容流（记忆列表，HTMX 局部刷新区）。
+本页不再自套 max-w-3xl 居中容器：两列口径下可用宽度由列容器决定，套两层会把左列挤窄。
+右列整块在 DOM 里排在左列之前，所以移动端阅读顺序（搜索→类别→列表）逐块不变。
+搜索与筛选上的 hx-* 契约原样保留（这两个端点返回 HTML 片段，走 HTMX 是对的）。
+{% endcomment %}
+<div class="page-cols page-cols--rail-first space-y-4 sm:space-y-6 md:space-y-0">
+
+<!-- 右列：搜索与类别筛选 -->
+<div class="page-rail space-y-4 sm:space-y-6">
+
+    <!-- 搜索 -->
+    <div class="flex gap-2">
+        <input type="text" id="memory-search" name="q" value="{{ query }}"
+               placeholder="搜索记忆..."
+               hx-get="{% url 'memory:memory_list' %}"
+               hx-target="#memory-list"
+               hx-trigger="input changed delay:300ms, search"
+               hx-include="#memory-category-filter"
+               class="flex-1 min-w-0 rounded-full border border-zinc-200 px-4 py-2 text-sm focus:border-zinc-400 focus:outline-none">
     </div>
 
     <!-- 类别筛选 Tab -->
-    <div class="mb-4 flex flex-wrap gap-2" id="memory-category-filter">
+    <div class="flex flex-wrap gap-2" id="memory-category-filter">
         <a href="#"
            hx-get="{% url 'memory:memory_list' %}"
            hx-target="#memory-list"
@@ -49,9 +58,16 @@
         {% endfor %}
     </div>
 
+</div><!-- /右列 -->
+
+<!-- 左列：记忆列表 -->
+<div class="page-main">
+
     <!-- 记忆列表（HTMX 局部刷新区域） -->
     <div id="memory-list">
         {% include "memory/_memory_items.html" %}
     </div>
-</div>
+
+</div><!-- /左列 -->
+</div><!-- /.page-cols -->
 {% endblock %}

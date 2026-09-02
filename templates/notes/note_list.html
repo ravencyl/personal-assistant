@@ -41,9 +41,21 @@
         </form>
     </div>
 
+    {% comment %}
+    桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+      右列 = 辅助信息（标签筛选 · 搜索）；左列 = 主内容流（编辑态 · 笔记列表）。
+    上方「快速记录」不进列容器而是整宽摆在两列区之前：它是本页主操作，且多字段表单
+    压到 320px 窄栏里会很难用（口径：筛选/搜索进右列，长表单留左列）。
+    右列整块在 DOM 里排在左列之前，所以移动端阅读顺序（速记→标签→搜索→列表）逐块不变。
+    {% endcomment %}
+    <div class="page-cols page-cols--rail-first space-y-4 sm:space-y-6 md:space-y-0">
+
+    <!-- 右列：筛选与搜索 -->
+    <div class="page-rail space-y-4 sm:space-y-6">
+
     <!-- 标签筛选栏 -->
     {% if all_tags %}
-    <div class="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+    <div class="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1" id="note-tag-filter">
         <a href="{% url 'notes:note_list' %}{% if q %}?q={{ q }}{% endif %}"
            class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if not tag_filter %}bg-zinc-900 text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             全部
@@ -69,6 +81,11 @@
            class="rounded-full px-3 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]">清除</a>
         {% endif %}
     </form>
+
+    </div><!-- /右列 -->
+
+    <!-- 左列：笔记主内容流 -->
+    <div class="page-main space-y-4 sm:space-y-6">
 
     <!-- 编辑模式（内联编辑） -->
     {% if edit_note %}
@@ -177,6 +194,9 @@
         </div>
         {% endfor %}
     </div>
+
+    </div><!-- /左列 -->
+    </div><!-- /.page-cols -->
 </div>
 
 <!-- 语音速记：录音态灰阶脉冲点样式（禁彩色） -->

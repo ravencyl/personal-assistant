@@ -6,6 +6,10 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 
+from pathlib import Path
+
+from core.layout_asserts import assert_desktop_two_columns
+
 from .models import Memory
 from .services import (
     retrieve_memories, format_memory_for_injection,
@@ -261,3 +265,36 @@ class MemoryViewsTest(TestCase):
         resp = self.client.post(reverse('memory:memory_delete', args=[self.m1.id]))
         self.assertEqual(resp.status_code, 404)
         self.assertTrue(Memory.objects.filter(id=self.m1.id).exists())
+
+
+class MemoryListDesktopLayoutTest(TestCase):
+    """记忆管理页桌面两列布局回归锁（右列 = 搜索 + 类别筛选）
+
+    本页原来套 max-w-3xl 居中壳，桌面端右侧白掉约 448px。
+    rail-first 保证移动端顺序（搜索 → 类别 → 列表）与改造前逐块一致；
+    搜索/筛选上的 hx-* 契约必须原样保留（这两个端点返回 HTML 片段，走 HTMX 是对的）。
+    """
+    TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'memory' / 'memory_list.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='testpass')
+        self.client = Client()
+        self.client.login(username='raven', password='testpass')
+        Memory.objects.create(user=self.user, content='喜欢喝咖啡', category='preference')
+        self.html = self.client.get(reverse('memory:memory_list')).content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('id="memory-list"', 'HTMX 局部刷新区'), ('喜欢喝咖啡', '记忆条目')],
+            right=[('搜索记忆...', '搜索框'), ('id="memory-category-filter"', '类别筛选区')],
+            mobile_order=['搜索记忆...', 'id="memory-list"', '喜欢喝咖啡'],
+            rail_first=True)
+
+    def test_htmx_targets_survive_the_split(self):
+        """控件搬进右列后 hx-target / hx-include 关系不能断（跨列引用靠 id，仍能命中）"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertIn('hx-target="#memory-list"', src)
+        self.assertIn('hx-include="#memory-category-filter"', src)
+        self.assertIn('hx-include="#memory-search"', src)
+        self.assertIn('id="memory-search"', src)

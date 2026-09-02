@@ -21,6 +21,7 @@ from datetime import timedelta
 from django.utils import timezone
 from core.models import Reminder, check_due_reminders
 from core.suggestions import generate_daily_plan
+from core.layout_asserts import assert_desktop_two_columns, code_only
 from core.report_generator import (collect_report_data, generate_report,
                                    save_report_to_knowledge, _fallback_report)
 
@@ -1797,3 +1798,139 @@ class ServiceWorkerTest(TestCase):
         self.assertRegex(body, r'cache\.put\(request, clone\)', '交给 cache.put 的必须是那个 clone')
         self.assertNotIn('cache.put(request, response', body,
                          '不能把原响应本身交给 cache.put')
+
+
+class DashboardDesktopLayoutTest(TestCase):
+    """仪表盘桌面两列布局回归锁（本轮从整宽单列改为「主内容流 + 辅助右列」）
+
+    为什么锁：两列完全靠通用列容器 .page-cols + 模板里两个列实现，退化时没有任何报错。
+    移动端契约：右列（报告入口 · 活动分布）整块排在主内容流之后，所以 DOM 里的块顺序
+    就是移动端顺序契约 —— 报告入口相对改造前从第 2 块下移到页底，是本页唯一的顺序变化。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'core' / 'dashboard.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        # 「活动分布」是条件渲染块（stats.status_counts），没数据整块不出现，顺序锁会空跑
+        Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress')
+        Activity.objects.create(user=self.user, name='晨读', status='done')
+        Conversation.objects.create(user=self.user, title='面签准备')
+        self.html = self.client.get('/dashboard/').content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('本周完成', '统计卡'), ('id="dashWeekChart"', '本周费用图'),
+                  ('最近活动', '最近活动卡'), ('最近对话', '最近对话卡')],
+            right=[('生成报告', '报告入口卡'), ('活动分布', '状态分布卡')],
+            mobile_order=['本周完成', 'id="dashWeekChart"', '最近活动', '生成报告', '活动分布'])
+
+    def test_rail_never_empty_without_conversations(self):
+        """没对话也不能空着右列：报告入口卡是无条件渲染的（活动分布卡才是条件块）"""
+        Conversation.objects.all().delete()
+        html = self.client.get('/dashboard/').content.decode()
+        self.assertIn('生成报告', html)
+        self.assertIn('class="page-rail', html)
+
+
+class WeeklyReportDesktopLayoutTest(TestCase):
+    """周/月/年报告页桌面两列布局回归锁（正文在左、报告去向在右）
+
+    统计带按口径留在两列区之上（原本就是横排四卡），所以它不在任何一列切片里，
+    只用移动端顺序锚点断言它仍在正文之前。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'core' / 'weekly_report.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        Activity.objects.create(user=self.user, name='新西兰之旅', status='done')
+        self.html = self.client.get('/reports/weekly/').content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('id="report-body"', '报告正文卡'),
+                  ('prose prose-sm max-w-2xl', '正文限宽（可读行长不跟着列宽跑）')],
+            right=[('报告去向', '操作卡标题'), ('保存到知识库', '存知识库入口'),
+                   ('推送到对话', '推对话入口')],
+            mobile_order=['活动总数', 'id="report-body"', '报告去向'])
+
+    def test_report_forms_survive_the_move_into_rail(self):
+        """两个 form 搬进右列后协议不能变：action / 隐藏字段 / csrf 都在
+
+        只锁模板结构，不去发 POST：report_send_to_chat 要求已有一个 idle 会话，
+        没会话时返 400，拿它做布局锁会变成在测无关的业务分支。"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertIn('<form method="post">', src, '存知识库的 form 丢了 action 前的原写法')
+        self.assertIn("action=\"{% url 'report_send_to_chat' %}\"", src)
+        self.assertEqual(src.count('name="content"'), 2, '两个表单的 content 隐藏字段缺一')
+        self.assertEqual(src.count('{% csrf_token %}'), 2, '右列里的 csrf 丢了就只会被 403')
+
+
+class DesktopLayoutCoverageTest(TestCase):
+    """全站桌面两列覆盖面政策锁（不渲染页面，只扫模板源）
+
+    为什么锁：两列口径是「除少数天然单列页外，所有页面桌面端至少左右两列」，
+    这条约定本身没有任何机制守住 —— 后来的人可能把某页改回单列、给某页另抄
+    一份 grid、或者把决定保持单列的页面（登录/表单/聊天详情/日历/宽表）顺手拆了。
+    所以这里把「哪些页面是两列」与「哪些页面刻意保持单列」两份名单钉死。
+    """
+    TEMPLATES = Path(settings.BASE_DIR) / 'templates'
+    CSS = Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
+
+    # 走通用列容器的页面（口径：左列=主内容流，右列=辅助信息/概览/操作入口）
+    TWO_COLUMN = [
+        'activities/daily.html', 'activities/activity_detail.html',
+        'core/dashboard.html', 'core/weekly_report.html',
+        'activities/expense_report.html', 'activities/template_list.html',
+        'activities/recurring_list.html', 'chat/conversation_list.html',
+        'knowledge/article_list.html', 'knowledge/article_detail.html',
+        'notes/note_list.html', 'memory/memory_list.html',
+    ]
+    # 刻意保持单列：宽表/宽网格、单一任务页、等分双组页
+    SINGLE_COLUMN = {
+        'activities/activity_list.html': '宽表格 min-w-[760px]，吃满整宽才放得下',
+        'activities/activity_calendar.html': '月/周视图是 7 列网格，压进左列每格不足 123px',
+        'activities/next_actions.html': '两组等权重内容，用等分 md:grid-cols-2 而非主+辅',
+        'activities/activity_form.html': '纯表单编辑页，输入宽度就是舒适宽度',
+        'knowledge/article_form.html': '纯表单编辑页',
+        'chat/conversation_detail.html': '消息流是单一线性时间轴，右列无天然内容',
+        'registration/login.html': '居中构图 + 全站唯一品牌位，没有辅助信息可提',
+    }
+
+    def test_two_column_pages_all_use_the_generic_container(self):
+        for rel in self.TWO_COLUMN:
+            src = (self.TEMPLATES / rel).read_text(encoding='utf-8')
+            self.assertEqual(src.count('class="page-cols'), 1,
+                             f'{rel} 应有一个通用两列容器（0=被改回单列，2=抄了第二份）')
+
+    def test_names_listed_as_two_column_are_not_stale(self):
+        """名单里写了但实际没有列容器的页 = 名单在骗后来的人"""
+        for rel in self.TWO_COLUMN:
+            self.assertTrue((self.TEMPLATES / rel).exists(), f'{rel} 已不存在，名单该清一清')
+
+    def test_pages_kept_single_column_have_no_generic_container(self):
+        for rel, reason in self.SINGLE_COLUMN.items():
+            src = code_only((self.TEMPLATES / rel).read_text(encoding='utf-8'))
+            self.assertNotIn('page-cols', src,
+                             f'{rel} 是刻意保持单列的页面（{reason}），不要顺手拆两列')
+
+    def test_grid_declaration_exists_once_project_wide(self):
+        """整份 custom.css 里这套列宽只能有一处声明"""
+        css = self.CSS.read_text(encoding='utf-8')
+        owners = [m.group(1).strip() for m in re.finditer(r'([^{}]+)\{([^{}]*)\}', css)
+                  if 'grid-template-columns: minmax(0, 1fr) 320px' in m.group(2)]
+        self.assertEqual(owners, ['.page-cols'],
+                         '有人另抄了一份列声明：改一处不会连带另一处')
+
+    def test_no_template_defines_its_own_column_widths(self):
+        """模板里禁止内联 grid-template-columns（列宽只由 custom.css 决定）"""
+        offenders = []
+        for tpl in self.TEMPLATES.rglob('*.html'):
+            if 'grid-template-columns' in tpl.read_text(encoding='utf-8'):
+                offenders.append(tpl.name)
+        self.assertEqual(offenders, [], f'这些模板内联了列宽：{offenders}')

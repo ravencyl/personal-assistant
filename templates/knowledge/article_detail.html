@@ -3,11 +3,27 @@
 {% block title %}{{ article.title }} · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto space-y-6 fade-in" data-page-context="knowledge_detail" data-knowledge-title="{{ article.title }}">
+{% comment %}
+data-page-context / data-knowledge-title 是「页面上下文感知」功能的接入口，整页级属性，
+必须留在包住两列区的外层容器上（放进左列会让作用域变窄）。
+{% endcomment %}
+<div data-page-context="knowledge_detail" data-knowledge-title="{{ article.title }}">
     <!-- 返回链接 -->
-    <div>
+    <div class="mb-6">
         <a href="{% url 'knowledge:article_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回知识库</a>
     </div>
+
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  左列 = 主内容流（标题 · 标签与更新时间 · 正文）；
+  右列 = 辅助信息（相关活动与笔记 · 编辑/删除操作），整列随滚动常驻。
+阅读体宽度不让它跟着列宽跑：正文块限 max-w-2xl，否则 864px 下一行超 100 字。
+右列整块排在左列之后，移动端阅读顺序（返回→文章→相关→操作）与改造前逐块一致。
+{% endcomment %}
+    <div class="page-cols space-y-4 sm:space-y-6 md:space-y-0 fade-in">
+
+    <!-- 左列：文章本体 -->
+    <div class="page-main">
 
     <!-- 文章头部 -->
     <div class="app-card p-5 sm:p-8">
@@ -25,17 +41,22 @@
             </span>
         </div>
 
-        <!-- Markdown 内容 -->
-        <div class="markdown-content prose prose-sm max-w-none text-[var(--text)]">
+        <!-- Markdown 内容：桌面端左列已宽到 864px，正文仍限两列口径下的可读行长 -->
+        <div class="markdown-content prose prose-sm max-w-2xl text-[var(--text)]">
             {{ article.content|linebreaks }}
         </div>
     </div>
 
+    </div><!-- /左列 -->
+
+    <!-- 右列：关联内容与操作（移动端顺排在正文之后） -->
+    <div class="page-rail space-y-4 sm:space-y-6">
+
     <!-- 相关活动与笔记 -->
     {% if related_activities or related_notes %}
-    <div class="app-card p-4 sm:p-6">
+    <div id="related-content" class="app-card p-4 sm:p-6">
         <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关活动与笔记</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="space-y-4">
             {% if related_activities %}
             <div>
                 <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">活动</h3>
@@ -70,8 +91,9 @@
     </div>
     {% endif %}
 
-    <!-- 操作按钮 -->
-    <div class="flex items-center gap-3 justify-end">
+    <!-- 操作：右列里竖排（原来在整宽页底横排靠右，搬进 320px 栏就得换向） -->
+    <div id="article-actions" class="app-card p-4">
+        <div class="flex flex-col gap-2">
         <a href="{% url 'knowledge:article_edit' pk=article.pk %}"
            class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -89,6 +111,10 @@
                 删除
             </button>
         </form>
+        </div>
     </div>
+
+    </div><!-- /右列 -->
+    </div><!-- /.page-cols -->
 </div>
 {% endblock %}

@@ -23,34 +23,49 @@
     </a>
 </div>
 
-<!-- 统计卡片 -->
-<div class="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4 mb-8">
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
-        <p class="text-xs text-[var(--text-muted)] mb-1">本月合计</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">¥{{ this_month_total|floatformat:"0" }}</p>
-    </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
-        <p class="text-xs text-[var(--text-muted)] mb-1">上月合计</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">¥{{ last_month_total|floatformat:"0" }}</p>
-    </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
-        <p class="text-xs text-[var(--text-muted)] mb-1">环比变化</p>
-        <p class="text-2xl sm:text-3xl font-bold tabular-nums {% if month_change is None %}text-[var(--text-muted)]{% elif month_change > 0 %}text-zinc-900{% elif month_change < 0 %}text-zinc-400{% else %}text-[var(--text)]{% endif %}">
-            {% if month_change is None %}—{% elif month_change > 0 %}+{{ month_change }}%{% else %}{{ month_change }}%{% endif %}
-        </p>
-    </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
-        <p class="text-xs text-[var(--text-muted)] mb-1">本周合计</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">¥{{ this_week_total|floatformat:"0" }}</p>
-    </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
-        <p class="text-xs text-[var(--text-muted)] mb-1">时间花费</p>
-        <p class="text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums">{{ total_duration_display }}</p>
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  右列 = 关键数字（本月/上月/环比/本周/时间花费），整列随滚动常驻；
+  左列 = 主内容流（三个图表纵向堆叠 · 本月分类明细）。
+右列整块在 DOM 里排在左列之前，所以移动端阅读顺序与改造前逐块一致；桌面端靠 order 换回右侧。
+图表区不再用 lg: 两列：视口断点不跟随列宽，放进 864px 左列后会挤成两个 416px 图，改纵向堆叠。
+{% endcomment %}
+<div class="page-cols page-cols--rail-first space-y-4 sm:space-y-6 md:space-y-0">
+
+<!-- 右列：关键数字（DOM 在前保证移动端顺序不变） -->
+<div class="page-rail space-y-4 sm:space-y-6">
+<div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-4">关键数字</h2>
+    <div class="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-1 md:gap-y-2">
+        <div class="flex items-baseline justify-between gap-2">
+            <p class="text-xs text-[var(--text-muted)]">本月合计</p>
+            <p class="text-base font-bold text-[var(--text)] tabular-nums">¥{{ this_month_total|floatformat:"0" }}</p>
+        </div>
+        <div class="flex items-baseline justify-between gap-2">
+            <p class="text-xs text-[var(--text-muted)]">上月合计</p>
+            <p class="text-base font-bold text-[var(--text)] tabular-nums">¥{{ last_month_total|floatformat:"0" }}</p>
+        </div>
+        <div class="flex items-baseline justify-between gap-2">
+            <p class="text-xs text-[var(--text-muted)]">环比变化</p>
+            <p class="text-base font-bold tabular-nums {% if month_change is None %}text-[var(--text-muted)]{% elif month_change > 0 %}text-zinc-900{% elif month_change < 0 %}text-zinc-400{% else %}text-[var(--text)]{% endif %}">
+                {% if month_change is None %}—{% elif month_change > 0 %}+{{ month_change }}%{% else %}{{ month_change }}%{% endif %}
+            </p>
+        </div>
+        <div class="flex items-baseline justify-between gap-2">
+            <p class="text-xs text-[var(--text-muted)]">本周合计</p>
+            <p class="text-base font-bold text-[var(--text)] tabular-nums">¥{{ this_week_total|floatformat:"0" }}</p>
+        </div>
+        <div class="flex items-baseline justify-between gap-2">
+            <p class="text-xs text-[var(--text-muted)]">时间花费</p>
+            <p class="text-base font-bold text-[var(--text)] tabular-nums">{{ total_duration_display }}</p>
+        </div>
     </div>
 </div>
+</div><!-- /右列 -->
 
-<!-- 图表区域 -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+<!-- 左列：图表与分类明细 -->
+<div class="page-main space-y-4 sm:space-y-6">
+
     <!-- 月度趋势折线图 -->
     <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
         <h2 class="text-sm font-semibold text-[var(--text)] mb-4">月度趋势</h2>
@@ -68,16 +83,15 @@
     </div>
 
     <!-- 周度对比柱状图 -->
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6 lg:col-span-2">
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
         <h2 class="text-sm font-semibold text-[var(--text)] mb-4">本周 vs 上周</h2>
         <div style="position:relative; height:220px;">
             <canvas id="weekChart"></canvas>
         </div>
     </div>
-</div>
 
 <!-- 本月分类明细 -->
-<div class="mt-4 sm:mt-6 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
+<div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
     <div class="flex items-center justify-between gap-3 mb-4">
         <h2 class="text-sm font-semibold text-[var(--text)]">本月分类明细</h2>
         <div class="flex items-center gap-1">
@@ -103,6 +117,9 @@
         <p class="text-sm text-[var(--text-muted)] py-6 text-center">加载中…</p>
     </div>
 </div>
+
+</div><!-- /左列 -->
+</div><!-- /.page-cols -->
 
 <script>
 (function() {

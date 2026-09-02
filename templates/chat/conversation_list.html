@@ -23,58 +23,72 @@
 </div>
 {% endif %}
 
-<!-- Search -->
-<form method="get" class="mb-4">
-    <div class="flex gap-2">
-        <input type="text" name="q" value="{{ query|default:'' }}" placeholder="搜索对话历史..."
-            class="flex-1 rounded-lg border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]">
-        <button type="submit" class="rounded-lg bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text)] hover:opacity-80">搜索</button>
-        {% if query %}
-        <a href="{% url 'chat:conversation_list' %}" class="rounded-lg bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除</a>
-        {% endif %}
-    </div>
-</form>
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  右列 = 辅助信息（搜索 + 当前检索状态）；左列 = 主内容流（会话列表 / 空状态）。
+「AI 服务未配置」提示不进右列：它是整页级的阻断性提示，留在两列区之上才不会被右列滚走。
+右列整块在 DOM 里排在左列之前，所以移动端阅读顺序（未配置提示→搜索→列表）逐块不变。
+{% endcomment %}
+<div class="page-cols page-cols--rail-first space-y-4 sm:space-y-6 md:space-y-0">
 
-{% if query %}
-<p class="mb-4 text-sm text-[var(--text-secondary)]">搜索「{{ query }}」的结果：</p>
-{% endif %}
-
-{% if conversations %}
-<div class="grid gap-4">
-    {% for conv in conversations %}
-    <a href="{% url 'chat:conversation_detail' conv.id %}" class="block rounded-lg bg-[var(--bg-card)] p-4 shadow-sm border border-[var(--border-strong)] hover:border-[var(--accent)] hover:shadow-md transition">
-        <div class="flex justify-between items-start">
-            <div>
-                <h3 class="text-base font-medium text-[var(--text)]">{{ conv.title }}</h3>
-                <p class="mt-1 text-sm text-[var(--text-secondary)]">
-                    {% if conv.last_message %}
-                        {{ conv.last_message.content|truncatechars:80 }}
-                    {% else %}
-                        暂无消息
-                    {% endif %}
-                </p>
-            </div>
-            <div class="text-right">
-                <span class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium
-                    {% if conv.status == 'processing' %}bg-[var(--accent)] text-[var(--bg)]
-                    {% elif conv.status == 'archived' %}bg-[var(--accent-light)] text-[var(--text-secondary)]
-                    {% else %}bg-zinc-100 text-zinc-600{% endif %}">
-                    {{ conv.get_status_display }}
-                </span>
-                <p class="mt-1 text-xs text-[var(--text-muted)]">{{ conv.updated_at|timesince }} 前</p>
-            </div>
+<!-- 右列：搜索与检索状态 -->
+<div class="page-rail space-y-4 sm:space-y-6">
+    <form method="get">
+        <div class="flex gap-2">
+            <input type="text" name="q" value="{{ query|default:'' }}" placeholder="搜索对话历史..."
+                class="flex-1 min-w-0 rounded-lg border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]">
+            <button type="submit" class="shrink-0 rounded-lg bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text)] hover:opacity-80">搜索</button>
+            {% if query %}
+            <a href="{% url 'chat:conversation_list' %}" class="shrink-0 rounded-lg bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除</a>
+            {% endif %}
         </div>
-    </a>
-    {% endfor %}
-</div>
-{% else %}
-<div class="text-center py-12">
-    <p class="text-[var(--text-secondary)]">
-        {% if query %}没有找到匹配的对话{% else %}还没有对话记录{% endif %}
-    </p>
-    <p class="mt-2 text-sm text-[var(--text-muted)]">
-        {% if not query %}点击「新建对话」开始与 AI 助手交流{% endif %}
-    </p>
-</div>
-{% endif %}
+    </form>
+
+    {% if query %}
+    <p class="text-sm text-[var(--text-secondary)]">搜索「{{ query }}」的结果：</p>
+    {% endif %}
+</div><!-- /右列 -->
+
+<!-- 左列：会话列表 -->
+<div class="page-main">
+    {% if conversations %}
+    <div class="space-y-4">
+        {% for conv in conversations %}
+        <a href="{% url 'chat:conversation_detail' conv.id %}" class="block rounded-lg bg-[var(--bg-card)] p-4 shadow-sm border border-[var(--border-strong)] hover:border-[var(--accent)] hover:shadow-md transition">
+            <div class="flex justify-between items-start gap-3">
+                <div class="min-w-0">
+                    <h3 class="text-base font-medium text-[var(--text)]">{{ conv.title }}</h3>
+                    <p class="mt-1 text-sm text-[var(--text-secondary)]">
+                        {% if conv.last_message %}
+                            {{ conv.last_message.content|truncatechars:80 }}
+                        {% else %}
+                            暂无消息
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="text-right shrink-0">
+                    <span class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium
+                        {% if conv.status == 'processing' %}bg-[var(--accent)] text-[var(--bg)]
+                        {% elif conv.status == 'archived' %}bg-[var(--accent-light)] text-[var(--text-secondary)]
+                        {% else %}bg-zinc-100 text-zinc-600{% endif %}">
+                        {{ conv.get_status_display }}
+                    </span>
+                    <p class="mt-1 text-xs text-[var(--text-muted)]">{{ conv.updated_at|timesince }} 前</p>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-12">
+        <p class="text-[var(--text-secondary)]">
+            {% if query %}没有找到匹配的对话{% else %}还没有对话记录{% endif %}
+        </p>
+        <p class="mt-2 text-sm text-[var(--text-muted)]">
+            {% if not query %}点击「新建对话」开始与 AI 助手交流{% endif %}
+        </p>
+    </div>
+    {% endif %}
+</div><!-- /左列 -->
+</div><!-- /.page-cols -->
 {% endblock %}

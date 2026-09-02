@@ -9,8 +9,20 @@
     <p class="text-sm text-[var(--text-muted)] mt-1">管理习惯性任务，系统自动生成每日实例</p>
 </div>
 
+{% comment %}
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
+  左列 = 主内容流（打卡热力图 · 新建循环活动表单 · 我的习惯）；
+  右列 = 辅助信息（习惯概览 · 近期实例打卡），整列随滚动常驻。
+新建表单按口径留在左列（320px 栏里选频率/日期会很挤）。
+右列整块排在左列之后，移动端阅读顺序（热力图→表单→习惯→近期实例）逐块不变。
+{% endcomment %}
+<div class="page-cols space-y-4 sm:space-y-6 md:space-y-0">
+
+<!-- 左列：热力图 · 新建 · 习惯列表 -->
+<div class="page-main space-y-4 sm:space-y-6">
+
 <!-- 打卡热力图 -->
-<section class="app-card p-5 mb-6">
+<section class="app-card p-5">
     <div class="flex items-center justify-between mb-4">
         <h2 class="text-sm font-semibold text-[var(--text)]">打卡热力图（近一年）</h2>
         <span id="habit-heatmap-total" class="text-xs text-[var(--text-muted)]"></span>
@@ -33,11 +45,11 @@
 </section>
 
 <!-- 创建表单 -->
-<section class="app-card p-5 mb-6">
+<section class="app-card p-5">
     <h2 class="text-sm font-semibold text-[var(--text)] mb-4">新建循环活动</h2>
     <form method="post" action="{% url 'activities:recurring_create' %}" class="space-y-4">
         {% csrf_token %}
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
                 <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">习惯名称</label>
                 <input type="text" name="name" required placeholder="例如：晨跑、阅读、冥想"
@@ -92,7 +104,7 @@
 
 <!-- 循环活动列表 -->
 {% if recurring %}
-<section class="mb-8">
+<section>
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">我的习惯</h2>
     <div class="space-y-2">
         {% for r in recurring %}
@@ -150,11 +162,23 @@
     </div>
 </section>
 {% else %}
-<div class="text-center py-12 mb-8">
+<div class="text-center py-12">
     <p class="text-[var(--text-muted)] text-sm">还没有创建循环活动</p>
     <p class="text-[var(--text-muted)] text-xs mt-1">在上方表单中创建你的第一个习惯追踪</p>
 </div>
 {% endif %}
+
+</div><!-- /左列 -->
+
+<!-- 右列：习惯概览与近期实例（移动端顺排在主内容流之后） -->
+<div class="page-rail space-y-4 sm:space-y-6">
+
+<!-- 概览：不带数据也要有这张卡，否则桌面端右列会整列空掉 -->
+<section class="app-card p-4">
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-2">习惯概览</h2>
+    <p class="text-2xl font-bold text-[var(--text)] tabular-nums">{{ recurring|length }}</p>
+    <p class="text-xs text-[var(--text-muted)] mt-1">个循环习惯，系统每天自动生成当日实例</p>
+</section>
 
 <!-- 近期实例 -->
 {% if instances %}
@@ -162,10 +186,10 @@
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">近期实例</h2>
     <div class="space-y-1.5">
         {% for a in instances %}
-        <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <div class="flex items-center gap-3">
-                <span class="text-xs text-[var(--text-muted)] tabular-nums w-14">{{ a.start_date|date:"m/d" }}</span>
-                <span class="text-sm text-[var(--text)]">{{ a.name }}</span>
+        <div class="flex items-center justify-between gap-2 py-2 px-3 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs text-[var(--text-muted)] tabular-nums shrink-0 w-10">{{ a.start_date|date:"m/d" }}</span>
+                <span class="text-sm text-[var(--text)] truncate">{{ a.name }}</span>
             </div>
             {% if a.status == 'done' %}
             <span class="text-sm text-zinc-400 flex items-center gap-1">
@@ -189,6 +213,9 @@
     </div>
 </section>
 {% endif %}
+
+</div><!-- /右列 -->
+</div><!-- /.page-cols -->
 
 <script>
 function toggleFrequencyFields() {

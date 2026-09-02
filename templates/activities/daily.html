@@ -11,15 +11,15 @@
 </div>
 
 {% comment %}
-桌面端（md+）左右两列，沿用活动详情页那一套实现（声明与 .detail-cols 分组共享，见 custom.css）：
+桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
   右列 = 今日概览（打卡与提醒 · 关键数字 · 今日进度 · 今日摘要 · 本周消费），整列随滚动常驻；
   左列 = 主内容流（快捷入口 · 习惯打卡 · 待处理提醒 · AI 建议 · 活动分组）。
 两个列容器都不加显隐类 —— 移动端它们是普通块级元素，纵向顺序完全由 DOM 决定。
-右列整块在 DOM 里排在左列之前，所以移动端阅读顺序与改造前逐块一致；桌面端靠 order 换回右侧。
+右列整块在 DOM 里排在左列之前，所以移动端阅读顺序与改造前逐块一致；桌面端靠 rail-first 修饰类的 order 换回右侧。
 {% endcomment %}
-<div class="daily-cols">
+<div class="page-cols page-cols--rail-first">
 <!-- 右列：今日概览（DOM 在前保证移动端顺序不变，桌面端用 order 换到右侧常驻） -->
-<div class="daily-rail">
+<div class="page-rail">
 
 <!-- 打卡与提醒：早间（<18 点）展示，与晚间摘要按时段互斥；只放下方活动卡片没覆盖的信息 -->
 {% if show_today_plan %}
@@ -170,7 +170,7 @@
 </div><!-- /右列 -->
 
 <!-- 左列：主内容流 -->
-<div class="daily-main">
+<div class="page-main">
 
 <!-- 快捷操作 -->
 <div class="flex items-center flex-wrap gap-3 mb-8">
@@ -420,7 +420,7 @@
 </div>
 
 </div><!-- /左列 -->
-</div><!-- /.daily-cols -->
+</div><!-- /.page-cols -->
 
 <script>
 // 折叠功能：点击标题切换内容显示，使用 localStorage 保存状态

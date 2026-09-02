@@ -21,6 +21,7 @@ from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
 
 from chat import views as chat_views
+from core.layout_asserts import assert_desktop_two_columns
 from chat.models import Conversation, Message
 from core.agent_registry import (INTENT_TOOL_MAP, build_protocol_prompt,
                                  extract_intent, orchestrator)
@@ -245,3 +246,34 @@ class ConversationDetailContextTest(TestCase):
                      if re.search(r'{%\s*for\s+\w+\s+in\s+messages\s*%}', t.read_text(encoding='utf-8'))
                      and t.name != 'base.html']
         self.assertEqual(offenders, [], f'这些模板又占了裸 messages：{offenders}')
+
+
+class ConversationListDesktopLayoutTest(TestCase):
+    """对话列表页桌面两列布局回归锁（右列 = 搜索与检索状态）
+
+    本页是 rail-first：右列整块在 DOM 里排在主内容流之前，移动端顺序
+    （未配置提示 → 搜索 → 会话列表）与改造前逐块一致。
+    必须带真实会话渲染：空列表时列归属与顺序锁会空跑。
+    """
+    TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'conversation_list.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client.login(username='raven', password='test')
+        Conversation.objects.create(user=self.user, session_id='sess_lay',
+                                    title='新西兰之旅怎么安排')
+        self.html = self.client.get('/chat/').content.decode()
+
+    def test_desktop_two_columns(self):
+        assert_desktop_two_columns(
+            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
+            left=[('新西兰之旅怎么安排', '会话卡')],
+            right=[('搜索对话历史...', '搜索框')],
+            mobile_order=['搜索对话历史...', '新西兰之旅怎么安排'],
+            rail_first=True)
+
+    def test_ai_not_configured_banner_stays_above_columns(self):
+        """阻断性提示不进右列：右列 sticky，滚到列表底部时提示会被滚走"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertLess(src.index('AI 服务未配置'), src.index('class="page-cols'),
+                        '未配置提示应留在两列区之上')
