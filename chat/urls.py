@@ -17,4 +17,6 @@ urlpatterns = [
     path('pin/search/', views.pin_candidates, name='pin_candidates'),
     path('messages/<int:message_id>/confirm/', views.confirm_action, name='confirm_action'),
     path('<int:conversation_id>/archive/', views.archive_conversation, name='archive_conversation'),
+    path('<int:conversation_id>/rename/', views.conversation_rename, name='conversation_rename'),
+    path('<int:conversation_id>/delete/', views.conversation_delete, name='conversation_delete'),
 ]

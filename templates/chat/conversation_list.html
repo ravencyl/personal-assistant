@@ -76,6 +76,18 @@
                     <p class="mt-1 text-xs text-[var(--text-muted)]">{{ conv.updated_at|timesince }} 前</p>
                 </div>
             </div>
+            {# 操作按钮放在卡片底部；stopPropagation 防止点到按钮时触发外层 <a> 跳转 #}
+            <div class="mt-3 flex items-center gap-3 text-xs" onclick="event.stopPropagation()">
+                <form method="post" action="{% url 'chat:archive_conversation' conv.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
+                </form>
+                <form method="post" action="{% url 'chat:conversation_delete' conv.id %}"
+                      onsubmit="return confirm('确定删除这个对话吗？所有消息都会丢失。');">
+                    {% csrf_token %}
+                    <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
+                </form>
+            </div>
         </a>
         {% endfor %}
     </div>

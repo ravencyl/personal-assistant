@@ -8,10 +8,24 @@
         <a href="{% url 'chat:conversation_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
         <h1 class="text-xl font-bold text-[var(--text)] mt-1">{{ conversation.title }}</h1>
     </div>
-    <form method="post" action="{% url 'chat:archive_conversation' conversation.id %}">
-        {% csrf_token %}
-        <button type="submit" class="text-sm text-[var(--text-secondary)] hover:text-zinc-900">归档对话</button>
-    </form>
+    <div class="flex items-center gap-3 text-sm">
+        {# 改名：inline form，提交后回到本页；空串视为不改 #}
+        <form method="post" action="{% url 'chat:conversation_rename' conversation.id %}" class="flex items-center gap-1">
+            {% csrf_token %}
+            <input type="text" name="title" value="{{ conversation.title }}" maxlength="255"
+                class="w-40 rounded border border-[var(--border-strong)] px-2 py-1 text-sm bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
+            <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">改名</button>
+        </form>
+        <form method="post" action="{% url 'chat:archive_conversation' conversation.id %}">
+            {% csrf_token %}
+            <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
+        </form>
+        <form method="post" action="{% url 'chat:conversation_delete' conversation.id %}"
+              onsubmit="return confirm('确定删除这个对话吗？所有消息都会丢失。');">
+            {% csrf_token %}
+            <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
+        </form>
+    </div>
 </div>
 
 {% comment %}消息列表（变量名带 chat_ 前缀：裸 messages 会被 base.html 的 flash 提示条当成

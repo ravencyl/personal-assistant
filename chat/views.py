@@ -676,3 +676,40 @@ def archive_conversation(request, conversation_id):
         pass
 
     return redirect('chat:conversation_list')
+
+
+@login_required
+@require_POST
+def conversation_rename(request, conversation_id):
+    """重命名对话（POST title 字段，空串视为取消不改）"""
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
+    title = (request.POST.get('title') or '').strip()
+    if title:
+        conversation.title = title[:255]
+        conversation.save(update_fields=['title', 'updated_at'])
+    # 无论改没改都回到详情页（列表页的 inline 表单也 redirect 回 detail，避免刷新重复提交）
+    return redirect('chat:conversation_detail', conversation_id=conversation.id)
+
+
+@login_required
+@require_POST
+def conversation_delete(request, conversation_id):
+    """硬删除对话：先清掉平台侧活跃 session 与本地 turn 状态，再删 Conversation + Messages"""
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
+
+    # 与 archive 同样的清理顺序：turn → 平台 cancel → 删库。任何一步失败都不阻断删除本身
+    # （用户明确点了删除，不能因为平台超时把对话卡在「想删删不掉」的状态）。
+    if conversation.turn_active:
+        try:
+            conversation.reset_turn()
+        except Exception as e:
+            logger.warning(f'删除对话 {conversation.id} 时 reset_turn 失败: {e}')
+
+    try:
+        service = get_service()
+        service.cancel_session(conversation.session_id)
+    except Exception:
+        pass
+
+    conversation.delete()
+    return redirect('chat:conversation_list')

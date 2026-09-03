@@ -20,6 +20,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from chat import views as chat_views
@@ -1449,3 +1450,102 @@ class ChatAuthExpiryWiringTest(SimpleTestCase):
         self.assertEqual(sorted(marked), sorted(JSON_FETCH_ENDPOINTS),
                          '装饰器套的端点与清单不一致（多套 = 白套，少套 = 登录过期会回 302）')
         self.assertEqual(problems, [], '\n'.join(problems))
+
+
+class ConversationRenameDeleteTest(TestCase):
+    """AI 对话的改名 / 删除：权限隔离 + 清理顺序 + 空 title 不改"""
+
+    def setUp(self):
+        User = get_user_model()
+        self.alice = User.objects.create_user('alice', password='p')
+        self.bob = User.objects.create_user('bob', password='p')
+        self.conv = Conversation.objects.create(
+            user=self.alice, session_id='sess-1', title='原标题',
+        )
+        Message.objects.create(conversation=self.conv, role='user', content='hi')
+
+    # --- rename ---
+    def test_rename_updates_title_and_redirects_to_detail(self):
+        self.client.force_login(self.alice)
+        resp = self.client.post(
+            reverse('chat:conversation_rename', args=[self.conv.id]),
+            {'title': '新标题'},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(f'/chat/{self.conv.id}/', resp.url)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.title, '新标题')
+
+    def test_rename_with_blank_title_keeps_original(self):
+        """空串 / 纯空白视为「取消」，不得把标题改成空"""
+        self.client.force_login(self.alice)
+        for blank in ('', '   ', '\t'):
+            with self.subTest(blank=repr(blank)):
+                self.client.post(
+                    reverse('chat:conversation_rename', args=[self.conv.id]),
+                    {'title': blank},
+                )
+                self.conv.refresh_from_db()
+                self.assertEqual(self.conv.title, '原标题')
+
+    def test_rename_truncates_overlong_title(self):
+        self.client.force_login(self.alice)
+        self.client.post(
+            reverse('chat:conversation_rename', args=[self.conv.id]),
+            {'title': 'A' * 500},
+        )
+        self.conv.refresh_from_db()
+        self.assertEqual(len(self.conv.title), 255)
+
+    def test_rename_other_users_conversation_returns_404(self):
+        """权限隔离：bob 改 alice 的对话必须 404，不能靠改 URL 里的 id 越权"""
+        self.client.force_login(self.bob)
+        resp = self.client.post(
+            reverse('chat:conversation_rename', args=[self.conv.id]),
+            {'title': '被篡改'},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.title, '原标题')
+
+    # --- delete ---
+    def test_delete_removes_conversation_and_messages(self):
+        self.client.force_login(self.alice)
+        conv_id, msg_count = self.conv.id, self.conv.messages.count()
+        self.assertGreater(msg_count, 0)
+        resp = self.client.post(reverse('chat:conversation_delete', args=[conv_id]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('chat:conversation_list'))
+        self.assertFalse(Conversation.objects.filter(id=conv_id).exists())
+        self.assertEqual(Message.objects.filter(conversation_id=conv_id).count(), 0)
+
+    def test_delete_resets_active_turn_before_deleting(self):
+        """turn 还在跑时删除必须先 reset_turn，否则状态机残留"""
+        self.conv.turn_state = 'awaiting'
+        self.conv.turn_prompt = 'pending text'
+        self.conv.save(update_fields=['turn_state', 'turn_prompt'])
+
+        reset_called = []
+        original = Conversation.reset_turn
+
+        def spy_reset(self_conv):
+            reset_called.append(True)
+            return original(self_conv)
+
+        self.client.force_login(self.alice)
+        with patch.object(Conversation, 'reset_turn', spy_reset):
+            self.client.post(reverse('chat:conversation_delete', args=[self.conv.id]))
+        self.assertTrue(reset_called, 'delete 必须先调 reset_turn')
+
+    def test_delete_other_users_conversation_returns_404(self):
+        self.client.force_login(self.bob)
+        resp = self.client.post(reverse('chat:conversation_delete', args=[self.conv.id]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(Conversation.objects.filter(id=self.conv.id).exists())
+
+    def test_delete_requires_post(self):
+        """GET 不得触发删除（防爬虫 / 预加载误伤）"""
+        self.client.force_login(self.alice)
+        resp = self.client.get(reverse('chat:conversation_delete', args=[self.conv.id]))
+        self.assertEqual(resp.status_code, 405)
+        self.assertTrue(Conversation.objects.filter(id=self.conv.id).exists())
