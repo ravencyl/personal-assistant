@@ -10,6 +10,7 @@
 sm: 结构断点、给某页单独抄一份 grid，都只在真实屏幕上看得出来。所以每张改造过的页面
 都要在这里留一条锁。
 """
+import ast
 import re
 from pathlib import Path
 
@@ -42,6 +43,55 @@ def code_only(template_src):
     sm:grid-cols-4……），不剔掉扫的是散文而不是生效的类，锁会假失败（本轮踩到两次）。
     """
     return COMMENT_SPANS.sub('', template_src)
+
+
+def _cut_inline_comment(line):
+    """砍掉行内尾注释；引号里的 #（颜色值、URL 锚点）不算注释
+
+    只数引号个数的粗略判断够用：本函数的产出是用来扫「某行不该出现某字面量」的，
+    偶发多砍一行不会让锁漏判，只会让锁少看一行代码 —— 而那行通常只是文案。
+    """
+    for i, ch in enumerate(line):
+        if ch != '#':
+            continue
+        head = line[:i]
+        if head.count("'") % 2 == 0 and head.count('"') % 2 == 0:
+            return head
+    return line
+
+
+def python_code_only(src):
+    """剔掉 Python 源码里的 # 注释与 docstring，只留下真正执行的代码文本
+
+    code_only 的 Python 版：静态扫「这个文件不该再出现某个字面量」的锁必须走这里。
+    解释「为什么改」的 docstring 与注释里就会原样引用那个旧写法（例如
+    status='pending'），不剔掉扫的是散文而不是代码，锁会假失败 —— 模板侧同一个坑
+    本项目踩过三次，Python 侧是同一条教训的第二个现场。
+    """
+    docstring_lines = set()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        tree = None          # 语法错误交给 import / Django check 去报，这里不替源码背书
+    if tree is not None:
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                     ast.AsyncFunctionDef)):
+                continue
+            first = node.body[0] if node.body else None
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                docstring_lines.update(
+                    range(first.lineno, getattr(first, 'end_lineno', first.lineno) + 1))
+
+    kept = []
+    for lineno, line in enumerate(src.splitlines(), 1):
+        if lineno in docstring_lines or line.lstrip().startswith('#'):
+            kept.append('')  # 留空行而不是丢弃：保持行号，正则的 DOTALL 切片不会跨错位置
+        else:
+            kept.append(_cut_inline_comment(line))
+    return '\n'.join(kept)
 
 
 def css_rules(css, selector):

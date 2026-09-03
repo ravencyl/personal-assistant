@@ -1,14 +1,12 @@
 from .models import Conversation
-from core.utils import visible_qs
-from django.db.models import Q
-from django.utils import timezone
+from core.utils import pending_reminders, visible_qs
 
 # 浮窗中展示的最近对话数量
 WIDGET_CONVERSATION_LIMIT = 8
 
 
 def chat_widget(request):
-    """为全站页面提供左下角聊天浮窗所需的最近对话列表（超级用户可见全部）"""
+    """为全站页面提供右下角聊天浮窗所需的最近对话列表（超级用户可见全部）"""
     if not request.user.is_authenticated:
         return {}
 
@@ -16,15 +14,13 @@ def chat_widget(request):
         Conversation, request.user,
     ).exclude(status='archived')[:WIDGET_CONVERSATION_LIMIT]
 
-    # 浮窗红点：口径 = Daily「提醒」区里能看到的待处理条数
-    # （到期还没触发的 pending + 今天已触发未处理的 fired；done/dismissed 已处理不计，
-    #   几天前 fired 却从未处理的老提醒也不计，否则留下永远消不掉的红点）
-    from core.models import Reminder
-    now = timezone.now()
-    pending_count = Reminder.objects.filter(user=request.user).filter(
-        Q(status='pending', trigger_at__lte=now)
-        | Q(status='fired', trigger_at__date=timezone.localdate())
-    ).count()
+    # 浮窗红点：直接用全站唯一的「待处理」口径（core.utils.pending_reminders），
+    # 与 Daily「提醒」区、AI 的 list_reminders 是同一个数。以前这里自己写了一份
+    # OR 查询（注释声称等于 Daily 区，其实 Daily 只取 fired，两者根本不等价），
+    # 于是出现过：红点说有条待办、点进 Daily 什么都没有、问 AI 答「没有提醒」。
+    # 本函数每页都跑，所以只读不写：不去调 check_due_reminders 补落库，
+    # 口径本身已对「落没落库」不敏感。
+    pending_count = pending_reminders(request.user).count()
 
     return {
         'widget_conversations': conversations,

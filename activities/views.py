@@ -30,7 +30,7 @@ from .services import (InputError, add_expense, clean_amount, clean_category,
                        start_due_activities)
 from core.utils import (visible_qs, get_visible, get_visible_or_json, wants_json,
                         used_tag_names, week_monday, pct_change, daily_totals,
-                        WEEKDAY_LABELS, WEEKDAY_SHORT)
+                        pending_reminders, WEEKDAY_LABELS, WEEKDAY_SHORT)
 from core.ai import ai_round_trip, extract_json_dict
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
 
@@ -1071,16 +1071,12 @@ def daily_view(request):
     from core.suggestions import generate_suggestions
     suggestions = generate_suggestions(request.user)
 
-    # 提醒：先触发到期提醒，再查询今日已触发但未处理的
-    from core.models import Reminder, check_due_reminders
+    # 提醒：顺手把到期的落库为 fired（保持 status 真实，其它直读 status 的地方才能看到），
+    # 但取数一律走全站唯一口径 core.utils.pending_reminders：它同时覆盖
+    # 「已到点未落库的 pending」与「已触发未处理的 fired」，结果不再取决于
+    # 上一步有没有执行过（以前本区只取 fired，与新用户首次进页 / cron 没跑时矛盾）
+    from core.models import check_due_reminders
     check_due_reminders(request.user)
-    # 提醒 / 每日摘要：都是「为当前用户生成」的个人内容，仅本人可见（同上口径说明）
-    # 只取 fired：已触发但用户还没处理（点「已完成」后转 done，当场移出本列表）
-    pending_reminders = Reminder.objects.filter(
-        user=request.user,
-        status='fired',
-        trigger_at__date=timezone.localdate(),
-    ).order_by('trigger_at')[:10]
 
     # 打卡与提醒（习惯/子任务/提醒）：一次调用注入，早间（<18 点）展示，与晚间摘要按时段互斥
     from core.suggestions import generate_daily_plan
@@ -1126,7 +1122,9 @@ def daily_view(request):
         'today_instances': today_instances,
         'habit_total_count': habit_total_count,
         'habit_done_count': habit_done_count,
-        'pending_reminders': pending_reminders,
+        # 左列「提醒」区 = 待处理提醒（与浮窗红点同一个数），截 10 条；
+        # 键名与函数同名不冲突：dict 的键是字符串，右侧是函数调用
+        'pending_reminders': pending_reminders(request.user)[:10],
         'daily_summary': daily_summary,
         'today_plan': today_plan,
         'show_today_plan': hour < 18,

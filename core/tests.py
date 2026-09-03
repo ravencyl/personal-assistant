@@ -22,7 +22,8 @@ from datetime import timedelta
 from django.utils import timezone
 from core.models import Reminder, check_due_reminders
 from core.suggestions import generate_daily_plan
-from core.layout_asserts import assert_desktop_two_columns, code_only
+from core.layout_asserts import (assert_desktop_two_columns, code_only,
+                                python_code_only)
 from core.report_generator import (collect_report_data, generate_report,
                                    save_report_to_knowledge, _fallback_report)
 
@@ -236,9 +237,8 @@ class ReminderModelTest(TestCase):
 class ReminderDoneStatusTest(TestCase):
     """L8：「已完成」写 done，与系统自动触发的 fired 分开
 
-    两者曾共用 fired：点完「已完成」条目仍留在 Daily「提醒」区（该区按 trigger_at
-    筛今日、按 fired 取数，状态没变就看不出差异），浮窗红点也分不了
-    「提醒过了」与「用户做完了」。
+    两者曾共用 fired：点完「已完成」条目仍留在 Daily「提醒」区（该区取「待处理」
+    口径，状态没变就看不出差异），浮窗红点也分不了「提醒过了」与「用户做完了」。
     """
 
     def setUp(self):
@@ -283,6 +283,221 @@ class ReminderDoneStatusTest(TestCase):
         self.client.post(f'/reminders/{reminder.id}/done/')
         result = get_tool('reminders.complete')['fn'](self.user, {'target': '办签证'})
         self.assertIn('之前已经处理过了', result['reply'])
+
+
+class PendingReminderSingleSourceTest(TestCase):
+    """「待处理提醒」全站只有一个数：浮窗红点 == Daily「提醒」区 == AI 的 list_reminders
+
+    为什么锁：这条数据曾有四份独立实现，各自挑各自的 status —— 红点算
+    「pending 已过点 ∪ fired 今天」、Daily 只取 fired、建议规则 8 只取 pending 且限定
+    now-1h~now+2h 窗口、AI 工具取字面 pending。四处互不自洽且都不报错，实际效果是
+    「红点亮着 1、点进 Daily 空白、问 AI 答没有待触发的提醒」，用户只会认为系统在骗他。
+    现在收敛到 core.utils.pending_reminders 一个函数，而函数本身挡不住以后有人在某个
+    出口旁边抄一份新查询 —— 只有「三个出口报同一个数」这种横向断言能挡住。
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()          # 建议缓存是 locmem 全局的，不清会读到上一个用例的结果
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.request = RequestFactory().get('/')
+        self.request.user = self.user
+        # 基准钉在当天中午：上午跑用例与晚间跑用例的 now± 结果保持一致
+        self.noon = timezone.make_aware(
+            timezone.datetime.combine(timezone.localdate(), timezone.datetime.min.time())
+        ) + timedelta(hours=12)
+
+    def remind(self, content, at, status='pending'):
+        return Reminder.objects.create(
+            user=self.user, content=content, trigger_at=at, status=status)
+
+    def exits(self, run_check=True):
+        """三个出口各自看到的「待处理」，返回 {'badge','daily','ai','ai_upcoming','reply'}
+
+        run_check=False 时把 daily_view 内部顺手调的 check_due_reminders 换成了 no-op，
+        用来模拟「cron 没跑、用户也没打开过任何页面」——那正是旧口径崩掉、也是
+        新口径必须兜住的场景（没这一项的话，Daily 视图自己会把 pending 先改成
+        fired，就算不出「只取 fired 的旧实现错在哪」了）。
+        """
+        from chat.context_processors import chat_widget
+        from core.agent_registry import get_tool
+
+        def scrape(reply, label):
+            hit = re.search(label + r'（(\d+) 条）', reply)
+            return int(hit.group(1)) if hit else 0
+
+        target = 'core.models.check_due_reminders'
+        # 计算顺序有意为之：红点与 AI 先算，Daily 后算。daily_view 会顺手
+        # check_due_reminders 把 pending 改成 fired，先访页面再算红点就永远测不出
+        # 「红点口径限定今天」这类回归（用户恰好是先看到红点才点入 Daily 的）。
+        reply = get_tool('reminders.list_reminders')['fn'](self.user, {})['reply']
+        badge = chat_widget(self.request)['pending_reminder_count']
+        if run_check:
+            daily = self.client.get(
+                reverse('activities:daily')).context['pending_reminders']
+        else:
+            with patch(target, lambda user: 0):
+                daily = self.client.get(
+                    reverse('activities:daily')).context['pending_reminders']
+        return {
+            'badge': badge,
+            'daily': len(daily),
+            'ai': scrape(reply, '待处理'),
+            'ai_upcoming': scrape(reply, '今天稍后'),
+            'reply': reply,
+        }
+
+    def test_all_three_exits_report_the_same_number(self):
+        self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
+        self.remind('到点未落库', self.noon - timedelta(minutes=10))
+        self.remind('下午开会', self.noon + timedelta(hours=3))
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            seen = self.exits()
+        self.assertEqual((seen['badge'], seen['daily'], seen['ai']), (2, 2, 2),
+                         '红点 / Daily 列表 / AI 回答报了三个不同的数（口径又分叉了）')
+        # 今天还没到点的不算「待处理」，但 AI 得另段列出（否则「我今天有什么提醒」会漏答）
+        self.assertEqual(seen['ai_upcoming'], 1)
+
+    def test_count_survives_a_missing_check_due_reminders_run(self):
+        """没跑过 check_due_reminders 时，到期提醒仍然计入了三个出口
+
+        这条是本组的核心：旧 Daily 区只取 fired，新提醒到点但没被改状态时页面是空的；
+        旧 AI 工具只取字面 pending，提醒一被改成 fired 就直接答「没有」。
+        """
+        self.remind('到点未落库', self.noon - timedelta(minutes=10))
+        self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            seen = self.exits(run_check=False)
+        self.assertEqual((seen['badge'], seen['daily'], seen['ai']), (2, 2, 2),
+                         '取数依赖“上一步有没有执行过 check_due_reminders”，口径不稳定')
+
+    def test_running_check_does_not_double_count(self):
+        """pending 被改成 fired 的那一瞬间，计数不得翻倍或归零（两个 status 是并集不是拼接）"""
+        self.remind('到点未落库', self.noon - timedelta(minutes=10))
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            before = self.exits()['badge']
+            check_due_reminders(self.user)
+            check_due_reminders(self.user)
+            after = self.exits()
+        self.assertEqual((before, after['badge'], after['daily'], after['ai']), (1, 1, 1, 1))
+
+    def test_processed_and_stale_items_are_out_of_every_exit(self):
+        """done / dismissed / 昨天及更早的过期提醒，三个出口都不再出现
+
+        旧红点口径对 pending 没限日期：几天前没处理的通知会永久挂着一个消不掉的红点
+        （Daily 只看今天，用户根本找不到条目），本条锁的就是这个回归。
+        旧红点对 fired 限了今天、对 pending 没限，所以只改其中一侧的变异也能被抓到。
+        """
+        self.remind('昨天的过期项', self.noon - timedelta(days=2))
+        self.remind('陈年未处理', self.noon - timedelta(days=5), status='fired')
+        self.remind('今天做完了', self.noon - timedelta(hours=1), status='done')
+        self.remind('今天忽略了', self.noon - timedelta(hours=2), status='dismissed')
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            seen = self.exits()
+        self.assertEqual(
+            (seen['badge'], seen['daily'], seen['ai'], seen['ai_upcoming']), (0, 0, 0, 0),
+            f'已处理或过旧的提醒漏进了某个出口：{seen["reply"]}')
+        self.assertIn('没有待处理的提醒', seen['reply'])
+
+    def test_stale_items_are_still_reachable_by_explicit_status(self):
+        """口径收窄不等于数据丢失：显式问「已触发的提醒」仍然能看到陈年项"""
+        from core.agent_registry import get_tool
+        self.remind('陈年未处理', self.noon - timedelta(days=5), status='fired')
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            self.assertEqual(self.exits()['badge'], 0)
+            reply = get_tool('reminders.list_reminders')[
+                'fn'](self.user, {'status': 'fired'})['reply']
+        self.assertIn('陈年未处理', reply)
+
+    def test_pending_and_upcoming_never_overlap(self):
+        """两个口径严格互斥，并集正好接上「今天全部未处理」
+
+        旧右列预告取「status=pending 且 < 明日零点」，没跑过 check 时一条已到点的提醒
+        会同时出现在左列「提醒」区与右列「待触发」，同一条事情说两遍。
+        """
+        from core.utils import pending_reminders, upcoming_reminders
+        self.remind('到点未落库', self.noon - timedelta(minutes=10))
+        self.remind('下午开会', self.noon + timedelta(hours=3))
+        self.remind('明天再说', self.noon + timedelta(days=1, hours=3))
+        self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            pending = {r.content for r in pending_reminders(self.user)}
+            upcoming = {r.content for r in upcoming_reminders(self.user)}
+        self.assertEqual(pending, {'到点未落库', '已经提醒过'})
+        self.assertEqual(upcoming, {'下午开会'})
+        self.assertEqual(pending & upcoming, set(), '同一条提醒不得同时出现在两个区')
+
+    def test_suggestion_rule_only_chases_pending(self):
+        """建议规则 8 只催「到点没处理」的，不拿未来预告凑数
+
+        旧实现拿 now-1h~now+2h 窗口查字面 pending：提醒一旦被改成 fired 就从建议里
+        彻底消失 —— 用户越没处理越不会被催，恰好反了。
+        """
+        from core.suggestions import generate_suggestions
+        fired = self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
+        self.remind('下午开会', self.noon + timedelta(hours=3))
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            keys = {s['key'] for s in generate_suggestions(self.user)}
+        self.assertIn(f'reminder:{fired.id}', keys, '到期未处理的提醒应当被催')
+        self.assertEqual(len([k for k in keys if k.startswith('reminder:')]), 1,
+                         '未来预告不该进「待处理」建议（右列已有它）')
+
+    def test_no_consumer_reimplements_the_status_filter(self):
+        """静态锁：消费方不得再自己按 status 字面量查 Reminder
+
+        行为锁只能证明「当前这三个出口一致」，证明不了「第四份实现没被抄出来」。
+        剔注释/docstring 再扫（core.layout_asserts.python_code_only）：本批修改的
+        docstring 里就大量引用了旧写法 status='pending'，不剔就是假失败。
+        """
+        base = Path(settings.BASE_DIR)
+        # 必须与 Reminder 同句出现：DailySummary 也有一个 status='pending'，
+        # 扫光所有字面量会误报（views.py 里每日摘要那一行）。
+        # 上限 200 字能盖住旧实现的链式写法（Reminder.objects.filter(user=..).filter(
+        # Q(status='pending', ..)），又不跨到下一个无关查询。
+        pattern = re.compile(
+            r'Reminder[\s\S]{0,200}?status\s*=\s*[\'"](pending|fired)[\'"]')
+        for rel in ('chat/context_processors.py', 'activities/views.py',
+                    'core/suggestions.py', 'core/reminder_tools.py'):
+            code = python_code_only((base / rel).read_text(encoding='utf-8'))
+            self.assertEqual(pattern.findall(code), [],
+                             f'{rel} 自己写了一份提醒状态查询——“待处理”又会有两个答案，'
+                             f'请改成 core.utils.pending_reminders / upcoming_reminders')
+
+
+class PythonCodeOnlyTest(SimpleTestCase):
+    """python_code_only 自身的回归锁（上面那条静态锁的地基）
+
+    为什么单独锁：它坏掉的方式恰好是静默的 —— 少剔一段 docstring 只会让某条锁
+    假失败（有人为了过锁去改注释），多剔一行代码则会让锁空跑（该报的不报）。
+    集成测试分不开这两种情况，只能直接喂样本。
+    """
+
+    SRC = (
+        '"""模块说明：旧写法是 Reminder.objects.filter(status=\'pending\')。"""\n'
+        'def f(user):\n'
+        '    """函数说明：别学它写 status=\'fired\'。"""\n'
+        "    # 注释里的 status='dismissed' 也不算代码\n"
+        "    color = '#fff'  # 引号里的 # 不是注释，这行得整行留下\n"
+        "    return Model.objects.filter(user=user, status='ready')\n"
+    )
+
+    def test_docstrings_and_comments_are_stripped(self):
+        code = python_code_only(self.SRC)
+        for gone in ("status='pending'", "status='fired'", "status='dismissed'"):
+            self.assertNotIn(gone, code, '说明文字没被剔掉：静态锁会因自己的注释假失败')
+
+    def test_real_code_survives(self):
+        code = python_code_only(self.SRC)
+        self.assertIn("status='ready'", code, '真代码被剔掉了 —— 锁会空跑')
+        self.assertIn("color = '#fff'", code,
+                      '引号里的 # 被当成注释，整行赋值会连同后面的代码一起丢')
+
+    def test_line_numbers_are_preserved(self):
+        # 剔行不拆行：否则用 findall 拿到的行号与源码对不上，报错信息会指向错误位置
+        self.assertEqual(len(python_code_only(self.SRC).splitlines()),
+                         len(self.SRC.splitlines()))
 
 
 class ReminderAgentToolTest(TestCase):
@@ -653,11 +868,12 @@ class SuggestionsTruncationTest(TestCase):
             Expense.objects.create(
                 activity=activity, user=self.user, amount=Decimal('200'),
             )
-        # 规则 8：2 个即将到期提醒 → 2 条（共 7 条）
+        # 规则 8：2 个待处理提醒 → 2 条（共 7 条）
+        # 用已过点的时刻：口径收敛后规则 8 只催「到点了没处理」的，不再拿未来预告凑数
         for i in range(2):
             Reminder.objects.create(
                 user=self.user, content=f'提醒{i}',
-                trigger_at=timezone.now() + timedelta(minutes=30),
+                trigger_at=timezone.now() - timedelta(minutes=5),
             )
 
         suggestions = generate_suggestions(self.user)
@@ -1344,16 +1560,35 @@ class DailyPlanTest(TestCase):
         self.assertEqual({c.name for c in group['children']}, {'门票', '高铁'})
 
     def test_reminders_only_pending_before_tomorrow(self):
-        """只取今天内待触发（pending）的提醒，已触发或时间还在几天外的都排除"""
-        # 基准用当天中午而非“现在”：否则晚间跑用例时 now+2h 会跨到明天，导致随机失败
-        Reminder.objects.create(user=self.user, content='下午开会',
-                                trigger_at=self.noon + timedelta(hours=2))
-        Reminder.objects.create(user=self.user, content='下周提交',
-                                trigger_at=self.noon + timedelta(days=7))
-        Reminder.objects.create(user=self.user, content='已触发过',
-                                trigger_at=self.noon - timedelta(hours=1), status='fired')
-        plan = generate_daily_plan(self.user)
-        self.assertEqual([r.content for r in plan['reminders']], ['下午开会'])
+        """「待触发」只列今天还没到点的，且与「待处理」严格互斥
+
+        时刻被钉在当天中午（patch timezone.now）：否则晚间跑用例时 now+2h 会跨到
+        明天，而「已过点」与「未到点」的分界也会随真实时间漂移。
+        """
+        with patch('django.utils.timezone.now', return_value=self.noon):
+            # 应入选：今天还没到点
+            Reminder.objects.create(user=self.user, content='下午开会',
+                                    trigger_at=self.noon + timedelta(hours=2))
+            # 应排除：几天外
+            Reminder.objects.create(user=self.user, content='下周提交',
+                                    trigger_at=self.noon + timedelta(days=7))
+            # 应排除：已触发未处理（属「待处理」，走左列「提醒」区）
+            Reminder.objects.create(user=self.user, content='已触发过',
+                                    trigger_at=self.noon - timedelta(hours=1), status='fired')
+            # 应排除：已过点但还没被 check_due_reminders 落库的 pending
+            # —— 旧口径（status='pending' 且 < 明日零点）会把它同时算进右列预告
+            # 与左列待处理，同一条提醒在 Daily 上出现两次
+            Reminder.objects.create(user=self.user, content='刚过点',
+                                    trigger_at=self.noon - timedelta(minutes=10))
+
+            plan = generate_daily_plan(self.user)
+            self.assertEqual([r.content for r in plan['reminders']], ['下午开会'])
+
+            # 并集正好接上：被预告排除的那两条，全部落在「待处理」口径里
+            from core.utils import pending_reminders
+            self.assertEqual(
+                [r.content for r in pending_reminders(self.user)],
+                ['已触发过', '刚过点'])
 
 
 class SuggestionDeepLinkTest(TestCase):

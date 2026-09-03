@@ -303,23 +303,26 @@ def _rule_budget_warning(user, today):
 
 
 def _rule_upcoming_reminders(user, today):
-    """规则 8：有即将到期的提醒"""
-    from core.models import Reminder
+    """规则 8：有待处理的提醒（到点了还没处理掉）
 
-    upcoming_reminders = Reminder.objects.filter(
-        user=user, status='pending',
-        trigger_at__lte=timezone.now() + timedelta(hours=2),
-        trigger_at__gte=timezone.now() - timedelta(hours=1),
-    )
+    走全站唯一口径 pending_reminders。以前这里自己按 status='pending' + 一个
+    now-1h~now+2h 的窗口查一份，结果是：提醒一旦到期被 check_due_reminders
+    改成 fired，就从建议里彻底消失 —— 用户越没处理，越不会被催，正好反了。
+
+    「今天还没到点」的预告不在此列（由 Daily 右列 generate_daily_plan 负责），
+    两者口径互斥，同一条提醒不会在页面上出现两次。
+    """
+    from core.utils import pending_reminders
+
     return [
         {
-            'text': f'提醒：{r.content}（即将到期）',
+            'text': f'提醒：{r.content}（待处理）',
             'icon': 'alert',
             'key': f'reminder:{r.id}',
             'action': _tool_action('知道了', 'reminders.complete', {'reminder_id': r.id}),
-            'followup': f'提醒“{r.content}”快到期了，帮我想想该怎么处理',
+            'followup': f'提醒“{r.content}”到时间了，帮我想想该怎么处理',
         }
-        for r in upcoming_reminders[:2]
+        for r in pending_reminders(user)[:2]
     ] or None
 
 
@@ -757,11 +760,10 @@ def generate_daily_plan(user):
     返回 dict：
     - habits:         循环活动今日实例列表（打卡状态）
     - subtask_groups: 未完成子活动 Top 5，按父活动分组
-    - reminders:      待触发提醒列表
+    - reminders:      待触发提醒列表（今天还没到点的；已到点未处理的在左列「提醒」区）
     - is_empty:       三组全部为空
     """
     from activities.models import Activity
-    from core.models import Reminder
 
     today = timezone.localdate()
 
@@ -784,12 +786,12 @@ def generate_daily_plan(user):
         else:
             subtask_groups.append({'parent': child.parent, 'children': [child]})
 
-    day_end = timezone.make_aware(
-        timezone.datetime.combine(today + timedelta(days=1), timezone.datetime.min.time())
-    )
-    reminders = list(Reminder.objects.filter(
-        user=user, status='pending', trigger_at__lt=day_end,
-    ).order_by('trigger_at')[:5])
+    # 待触发预告：走全站唯一口径，与左列「提醒」区（pending_reminders）严格互斥，
+    # 不再自己写 status='pending' + 明日零点 —— 那会把已到点但未落库的提醒
+    # 同时算进两个区
+    from core.utils import upcoming_reminders
+
+    reminders = list(upcoming_reminders(user)[:5])
 
     return {
         'habits': habits,

@@ -170,6 +170,60 @@ def pct_change(current, previous, digits=1):
     return round((float(current or 0) - prev) / prev * 100, digits)
 
 
+def pending_reminders(user):
+    """「待处理」提醒 —— 全站唯一定义（浮窗红点、Daily「提醒」区、AI 的 list_reminders 共用）
+
+    口径：今天到点、且用户还没处理掉的提醒。
+
+    必须同时查两个 status：pending→fired 的落库靠 `check_due_reminders`，而它只在
+    Daily 页与对话发送时被顺手调用（没有 cron）。所以「已到点但未触发落库的 pending」
+    与「已触发未处理的 fired」是同一件事的两种存储形态，只查其中一个会让结果
+    取决于用户先打开过哪个页面：曾经红点按两者之和计、Daily 列表只取 fired、
+    AI 工具只取字面 pending，三处互相矛盾（红点亮着 1、页面空白、问 AI 答「没有」）。
+
+    两侧都限定 trigger_at 在今天：
+    - fired 不限今天的话，几年前没处理的老提醒会挂住一个消不掉的红点
+    - pending 不限今天的话，昨天的过期提醒会计入红点，但 Daily 列表（只看今天）
+      里没有它，用户点进来看不到任何东西
+    两种情况都只能靠页面上的「已完成 / 忽略」按钮出口消掉，不自动过期。
+
+    done/dismissed 属于已处理，任何一天都不再出现。
+    """
+    from django.utils import timezone
+
+    from core.models import Reminder
+
+    now = timezone.now()
+    today = timezone.localdate()
+    return Reminder.objects.filter(user=user).filter(
+        models.Q(status='pending', trigger_at__lte=now, trigger_at__date=today)
+        | models.Q(status='fired', trigger_at__date=today)
+    ).order_by('trigger_at')
+
+
+def upcoming_reminders(user, until=None):
+    """「待触发」提醒 —— 今天还没到点的那些（Daily 右列的今日预告）
+
+    与 pending_reminders 严格互斥（下界是 now）：同一条提醒不会既出现在左列「提醒」区
+    又出现在右列「待触发提醒」。以前右列自己按 status='pending' 取，没跑过
+    check_due_reminders 时已到点的提醒会同时出现在两处。
+
+    until 给定时取到该时刻为止（建议规则想拿「接下来几小时」的可以用）。
+    """
+    from django.utils import timezone
+
+    from core.models import Reminder
+
+    now = timezone.now()
+    if until is None:
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        until = timezone.make_aware(
+            timezone.datetime.combine(tomorrow, timezone.datetime.min.time()))
+    return Reminder.objects.filter(
+        user=user, status='pending', trigger_at__gte=now, trigger_at__lt=until,
+    ).order_by('trigger_at')
+
+
 def char_overlap_ratio(a, b, mode='symmetric'):
     """字符重叠率（全站唯一的「两段文本像不像」实现）
 

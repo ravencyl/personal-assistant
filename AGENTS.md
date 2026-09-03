@@ -223,8 +223,12 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 `core.models.Reminder.status`：`pending`（待触发）→ `fired`（已触发但用户未处理）→ `done`（用户确认做完），任何阶段可 `dismissed`（忽略）。
 
 - 自动触发只写 `fired`（`check_due_reminders`，仅改 `pending`，不覆盖用户手动设置的状态）
-- Daily「提醒」区与浮窗红点只取 **fired**；`done`/`dismissed` 属于已处理，不得再出现
+- **「待处理」只有一个实现**：`core.utils.pending_reminders(user)` = `pending 已过点且在今天` ∪ `fired 在今天`。浮窗红点（`chat/context_processors.py`）、Daily「提醒」区（`activities/views.py::daily_view`）、AI 的 `reminders.list_reminders` 默认口径、建议规则 8 全部调它
+- **为什么必须两个 status 一起查**：`pending→fired` 的落库只靠 `check_due_reminders`，而它只在 Daily 页与对话发送时被顺手调用（**没有 cron**）。所以「已到点未落库的 pending」与「已触发未处理的 fired」是同一件事的两种存储形态，只查一个会让结果取决于用户先打开过哪个页面 —— 这正是历史上「红点亮着 1、点进 Daily 空白、问 AI 答没有」的成因
+- **两侧都限定今天**（有意取舍）：过旧的 fired 会挂住一个消不掉的红点，过旧的 pending 在 Daily 里根本没有对应条目。收窄不等于丢数据 —— 用户显式问「已触发的提醒」时 `list_reminders` 按字面 status 查，不限日期
+- **「待处理」与「待触发」严格互斥**：`core.utils.upcoming_reminders(user)`（Daily 右列预告，下界 `now`）只取今天还没到点的。同一条提醒不得既出现在左列又出现在右列
 - 新增状态取值时同步 `core/reminder_tools.py` 的白名单（现在直接读 `STATUS_CHOICES`）与 `ReminderDoneStatusTest`
+- 回归锁：`core/tests.py::PendingReminderSingleSourceTest`（8 条，含「三个出口报同一个数」「没跑过 check_due_reminders 也报同一个数」与一条禁抄新查询的静态锁）、`PythonCodeOnlyTest`（静态锁的地基 `core.layout_asserts.python_code_only`：剔掉 `#` 注释与 docstring 再扫，否则解释「为什么改」的说明自己包含 `status='pending'` 会让锁假失败）。**新增提醒展示/检索入口时必须复用这两个函数**，别在出口旁边再写一份 `filter(status=...)`；变异反证 12 项（把 5 处出口逐一改回旧实现）全需被抓到
 
 ## 前端约定
 
