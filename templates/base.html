@@ -47,6 +47,13 @@
                             </a>
                         </div>
                         {% if user.is_authenticated %}
+                        {% comment %}
+                        主导航只放六个一级模块。模板管理与循环活动不在这里：
+                        它们是「活动记录」的附属设施（模板=活动骨架，循环=活动生成器），
+                        入口在活动记录页头部的按钮组（模板/循环/日历/下一步行动/新建），
+                        挪进导航只会让顶栏变臃肿，且这两个 app_name='activities'
+                        的页面本来就会点亮「活动记录」，归属关系是对的。
+                        {% endcomment %}
                         <div class="hidden md:ml-8 md:flex md:space-x-1">
                             <a href="/"
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'home' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
@@ -64,14 +71,6 @@
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'notes' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 备忘
                             </a>
-                            <a href="{% url 'activities:template_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'template_list' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
-                                模板管理
-                            </a>
-                            <a href="{% url 'activities:recurring_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'recurring_list' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
-                                循环活动
-                            </a>
                             <a href="{% url 'knowledge:article_list' %}"
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'knowledge' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 知识库
@@ -80,7 +79,6 @@
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 记忆
                             </a>
-
                         </div>
                         {% endif %}
                     </div>
@@ -120,9 +118,10 @@
     </div>
 
     {% if user.is_authenticated %}
-    <!-- 移动端底部 Tab 栏（App 式导航，仅 <768px） -->
+    <!-- 移动端底部 Tab 栏（App 式导航，仅 <768px）：与顶栏一致只留一级模块；
+         循环/模板的入口在活动页头部图标组，记忆使用频率低且不在手机上读，暂不占位 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)]/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-        <div class="grid grid-cols-7">
+        <div class="grid grid-cols-5">
             <a href="/" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
@@ -141,18 +140,6 @@
                 </svg>
                 <span class="text-[10px] font-medium">对话</span>
             </a>
-            <a href="{% url 'activities:recurring_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'recurring_list' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                <span class="text-[10px] font-medium">循环</span>
-            </a>
-            <a href="{% url 'activities:template_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'template_list' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 8a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zm10 0a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/>
-                </svg>
-                <span class="text-[10px] font-medium">模板</span>
-            </a>
             <a href="{% url 'notes:note_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'notes' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -165,7 +152,6 @@
                 </svg>
                 <span class="text-[10px] font-medium">知识</span>
             </a>
-
         </div>
     </nav>
     {% endif %}

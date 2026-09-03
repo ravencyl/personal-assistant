@@ -1653,6 +1653,82 @@ class BrandAssetTest(TestCase):
             self.assertContains(resp, asset, msg_prefix=f'登录页没引用 {asset}')
 
 
+class PrimaryNavTest(TestCase):
+    """主导航条目回归锁（一级模块口径）
+
+    为什么锁：2026-09 把「模板管理」「循环活动」从顶栏与底部 Tab 栏撤掉，收进
+    「活动记录」页头部的按钮组。这类瘦身没有任何机制守住 —— 下次加模块时很容易
+    顺手往导航里再塞一项（回到臃肿），或者删了条目却忘了改 `grid-cols-N`
+    （移动端底栏右边留一格空白，Tailwind 还会把多出的项挤到第二行）。
+    底栏列数 == 条目数是这条锁的核心，条目清单只是把决策写下来。
+    """
+
+    TEMPLATES = Path(settings.BASE_DIR) / 'templates'
+
+    # 桌面顶栏：六个一级模块，顺序即视觉顺序
+    DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
+    # 移动底栏：比顶栏少「记忆」（用户定的口径 —— 手机上不读记忆，使用频率也不占位）
+    MOBILE = ['今日', '活动', '对话', '备忘', '知识']
+    # 已合并进「活动记录」的入口，不得再出现在全局导航里
+    MERGED_AWAY = ['activities:template_list', 'activities:recurring_list']
+
+    def _base(self):
+        return (self.TEMPLATES / 'base.html').read_text(encoding='utf-8')
+
+    def _desktop_block(self):
+        src = self._base()
+        start = src.index('<div class="hidden md:ml-8 md:flex md:space-x-1">')
+        return src[start:src.index('</div>', start)]
+
+    def _mobile_block(self):
+        src = self._base()
+        start = src.index('<nav class="md:hidden fixed bottom-0')
+        return src[start:src.index('</nav>', start)]
+
+    @staticmethod
+    def _labels(block):
+        """取每个导航项的可见文案（桌面直接写在 <a> 里，移动端在 <span> 里）"""
+        out = []
+        for body in re.findall(r'<a\b[^>]*>(.*?)</a>', block, re.S):
+            span = re.search(r'<span class="text-\[10px\][^"]*">([^<]+)</span>', body)
+            if span:
+                out.append(span.group(1).strip())
+            else:
+                # 跳过 svg 里的 path 等噪声，取第一行非空文本；没文本时给空串，
+                # 让差异以「清单少一项」的断言失败呈现，而不是 StopIteration
+                out.append(next((line.strip() for line in body.splitlines() if line.strip()), ''))
+        return out
+
+    def test_desktop_nav_lists_exactly_the_first_level_modules(self):
+        self.assertEqual(self._labels(self._desktop_block()), self.DESKTOP,
+                         '顶栏条目变了：若是有意调整，同步这里的清单与下方注释')
+
+    def test_mobile_tab_lists_exactly_the_first_level_modules(self):
+        self.assertEqual(self._labels(self._mobile_block()), self.MOBILE)
+
+    def test_mobile_grid_columns_match_the_item_count(self):
+        """grid-cols-N 必须等于条目数（本次瘦身留下的坑）"""
+        block = self._mobile_block()
+        cols = int(re.search(r'grid grid-cols-(\d+)', block).group(1))
+        self.assertEqual(cols, len(self._labels(block)),
+                         '底栏列数与条目数不一致：会有空格或换行')
+
+    def test_merged_away_entries_stay_out_of_the_global_nav(self):
+        for name in self.MERGED_AWAY:
+            self.assertNotIn(name, self._base(),
+                             f'{name} 又回到全局导航了 —— 它的入口在活动记录页头部')
+
+    def test_activity_list_still_holds_the_merged_entries(self):
+        """合并的另一半：活动记录页必须仍然挂着模板/循环入口
+
+        导航撤掉的前提是「那里进得去」。哪天有人觉得活动页按钮太多给删了，
+        这两个页面就直接变成只有 URL 能到的孤儿页。
+        """
+        src = (self.TEMPLATES / 'activities' / 'activity_list.html').read_text(encoding='utf-8')
+        for name in self.MERGED_AWAY:
+            self.assertIn(name, src, f'活动记录页丢了 {name} 入口')
+
+
 class ServiceWorkerTest(TestCase):
     """Service Worker 根作用域与缓存策略回归锁
 
