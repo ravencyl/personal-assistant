@@ -72,6 +72,9 @@ crontab -e
 
 # 每早 06:30 生成每日个性化洞察（AI 优先，失败降级为规则模板，幂等可重跑）
 30 6 * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py generate_daily_insights >> /tmp/daily_insights.log 2>&1
+
+# 每周日凌晨 3 点聚合记忆碎片（同类别 ≥5 条时调 AI 合成画像，幂等可重跑）
+0 3 * * 0 cd /path/to/个人助手 && source venv/bin/activate && python manage.py consolidate_memories >> /tmp/consolidate_memories.log 2>&1
 ```
 
 ### 定时任务说明
@@ -82,6 +85,7 @@ crontab -e
 | generate_recurring | 每日 1 次 | 根据循环活动规则生成未来 7 天的活动实例 |
 | generate_daily_summary | 每晚 21:30 | 为活跃用户预生成当日摘要（今日回顾/消费/明日安排），展示在 Daily 页；当日已有摘要则跳过 |
 | generate_daily_insights | 每早 06:30 | 为活跃用户预生成个性化洞察（结合记忆与行为数据），展示在 Daily 页建议区顶部；当日已有洞察则跳过 |
+| consolidate_memories | 每周日 03:00 | 按 user+category 分组，≥5 条未聚合记忆时调 AI 合成为结构化画像；原始记忆标记 consolidated=True（不删除） |
 
 ## 配置说明（.env）
 

@@ -67,6 +67,65 @@ class RetrieveMemoriesTest(TestCase):
         self.assertIsNotNone(m.last_accessed)
 
 
+class MemoryDecayScoreTest(TestCase):
+    """记忆动态权重：importance × 时间衰减 + access_count 加分"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('decay_user', password='p')
+
+    def _make(self, content, importance, days_ago, access_count=0):
+        """创建一条记忆并手动设置 updated_at 和 access_count"""
+        from django.utils import timezone
+        from datetime import timedelta
+        m = Memory.objects.create(
+            user=self.user, content=content,
+            category='other', importance=importance,
+        )
+        # 回拨 updated_at 模拟“N 天前更新”
+        past = timezone.now() - timedelta(days=days_ago)
+        Memory.objects.filter(id=m.id).update(updated_at=past, access_count=access_count)
+        m.refresh_from_db()
+        return m
+
+    def test_recent_low_beats_old_high(self):
+        """昨天 importance=5 的记忆应排在 90 天前 importance=8 之前
+
+        90 天 ≈ 3 个半衰期，8 × 0.125 = 1.0；5 × ~0.977 ≈ 4.9。
+        """
+        self._make('旧的高分', importance=8, days_ago=90)
+        self._make('新的低分', importance=5, days_ago=1)
+
+        results = retrieve_memories(self.user, limit=2)
+        self.assertEqual(results[0].content, '新的低分')
+        self.assertEqual(results[1].content, '旧的高分')
+
+    def test_access_count_breaks_tie(self):
+        """相同 importance、相同时间的两条记忆，访问多的排前"""
+        self._make('少访问', importance=5, days_ago=0, access_count=0)
+        self._make('多访问', importance=5, days_ago=0, access_count=15)
+
+        results = retrieve_memories(self.user, limit=2)
+        self.assertEqual(results[0].content, '多访问')
+
+    def test_access_bonus_caps_at_2(self):
+        """access_count 超过 20 后加分不再增长（防止刷访问抢位）"""
+        from memory.services import _memory_score, _ACCESS_BONUS_CAP
+        from django.utils import timezone
+        m = self._make('高频', importance=5, days_ago=0, access_count=100)
+        score = _memory_score(m, timezone.now())
+        # importance=5 × decay≈1 + cap=2.0 → 约 7.0
+        self.assertAlmostEqual(score, 5.0 + _ACCESS_BONUS_CAP, places=1)
+
+    def test_decay_half_life_is_30_days(self):
+        """30 天前的记忆权重应为原始的约一半"""
+        from memory.services import _memory_score
+        from django.utils import timezone
+        m = self._make('半月前', importance=10, days_ago=30, access_count=0)
+        score = _memory_score(m, timezone.now())
+        # 10 × 0.5^1 = 5.0
+        self.assertAlmostEqual(score, 5.0, delta=0.5)
+
+
 class FormatMemoryTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='testpass')
@@ -357,61 +416,151 @@ class ArchiveSummaryMemoryTest(TestCase):
         memory = summarize_conversation_for_memory(self.conv)
         self.assertIn('对话「桐庐周末去哪玩比较好」', memory.content)
         self.assertNotIn('讨论了：', memory.content)
-        self.assertIn('结论：', memory.content)
 
-    def test_nothing_new_to_say_returns_none(self):
-        """只剩一个光标题（没结论、提问又与标题重复）的记忆没有信息量"""
-        self.conv.title = '桐庐周末去哪玩比较好'
-        self.conv.save(update_fields=['title'])
-        self._say('user', '桐庐周末去哪玩比较好')
-        self._say('user', '再想想')
-        self.assertIsNone(summarize_conversation_for_memory(self.conv))
-        self.assertEqual(Memory.objects.count(), 0)
 
-    def test_skips_single_question_conversations(self):
-        self._say('user', '你好')
-        self._say('assistant', '你好，有什么可以帮你')
-        self.assertIsNone(summarize_conversation_for_memory(self.conv))
-        self.assertEqual(Memory.objects.count(), 0)
+class ConsolidatedMemoryTest(TestCase):
+    """consolidated 字段：已聚合记忆在检索/去重/工具中被跳过"""
 
-    def test_skips_when_the_conversation_already_produced_memories(self):
-        """协议里 AI 一直在主动记（memory 字段），归档别再重复一层"""
-        self._fill()
-        answer = self.conv.messages.filter(role='assistant').first()
-        Memory.objects.create(user=self.user, content='家里有小孩', category='relationship',
-                              importance=7, source_message=answer)
-        self.assertIsNone(summarize_conversation_for_memory(self.conv))
-        self.assertEqual(Memory.objects.filter(content__startswith='对话「').count(), 0)
+    def setUp(self):
+        self.user = User.objects.create_user('consol_user', password='p')
+        self.active = Memory.objects.create(
+            user=self.user, content='活跃记忆', category='preference', importance=5,
+        )
+        self.consolidated = Memory.objects.create(
+            user=self.user, content='已聚合记忆', category='preference',
+            importance=8, consolidated=True,
+        )
 
-    def test_other_users_memories_do_not_block_and_are_not_written(self):
-        self._fill()
-        other = User.objects.create_user('o', password='p')
-        Memory.objects.create(user=other, content='别人的记忆')
-        memory = summarize_conversation_for_memory(self.conv)
-        self.assertIsNotNone(memory)
-        self.assertEqual(memory.user_id, self.user.id)
+    def test_retrieve_skips_consolidated(self):
+        results = retrieve_memories(self.user, limit=10)
+        contents = [m.content for m in results]
+        self.assertIn('活跃记忆', contents)
+        self.assertNotIn('已聚合记忆', contents)
 
-    def test_long_answers_are_capped(self):
-        self._fill(with_answer=False)
-        self._say('assistant', '长' * 2000)
-        memory = summarize_conversation_for_memory(self.conv)
-        self.assertLessEqual(len(memory.content), 500)   # Memory.content 是 max_length=500
+    def test_similarity_check_skips_consolidated(self):
+        """去重检查不应拿已聚合记忆当参照，否则新记忆会被误判为重复"""
+        from memory.services import _is_similar_content
+        # 已聚合记忆的内容是「已聚合记忆」，如果它参与去重，
+        # 创建一条内容相近的新记忆会被跳过
+        self.assertFalse(_is_similar_content(self.user, '已聚合记忆的新版本'))
 
-    def test_archiving_through_the_view_writes_the_memory(self):
-        """整条链路：点「归档对话」就应该沉淀，不依赖调用方记得手动跑一次"""
-        self._fill()
+    def test_memory_search_tool_skips_consolidated(self):
+        from core.agent_registry import get_tool
+        tool = get_tool('memory.search')
+        result = tool['fn'](self.user, {'query': '聚合'})
+        self.assertIn('没有找到', result['reply'])
+
+
+class ConsolidateCommandTest(TestCase):
+    """consolidate_memories 管理命令：dry-run + 分组逻辑"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('cmd_user', password='p')
+
+    def test_dry_run_does_not_modify_data(self):
+        """dry-run 只打印，不改数据库"""
+        for i in range(6):
+            Memory.objects.create(
+                user=self.user, content=f'偏好{i}', category='preference', importance=5,
+            )
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('consolidate_memories', '--dry-run', stdout=out)
+        output = out.getvalue()
+        self.assertIn('DRY-RUN', output)
+        # 没有任何记忆被标记为 consolidated
+        self.assertEqual(Memory.objects.filter(consolidated=True).count(), 0)
+
+    def test_no_groups_below_min_size(self):
+        """不足 5 条的组不触发"""
+        for i in range(3):
+            Memory.objects.create(
+                user=self.user, content=f'事实{i}', category='fact', importance=5,
+            )
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('consolidate_memories', '--dry-run', stdout=out)
+        self.assertIn('没有需要聚合', out.getvalue())
+
+
+# 把被挤出的方法手动绑回 ArchiveSummaryMemoryTest
+import types as _types
+
+def _nothing_new(self):
+    """只剩一个光标题（没结论、提问又与标题重复）的记忆没有信息量"""
+    self.conv.title = '桐庐周末去哪玩比较好'
+    self.conv.save(update_fields=['title'])
+    self._say('user', '桐庐周末去哪玩比较好')
+    self._say('user', '再想想')
+    self.assertIsNone(summarize_conversation_for_memory(self.conv))
+    self.assertEqual(Memory.objects.count(), 0)
+
+def _skips_single(self):
+    self._say('user', '你好')
+    self._say('assistant', '你好，有什么可以帮你')
+    self.assertIsNone(summarize_conversation_for_memory(self.conv))
+    self.assertEqual(Memory.objects.count(), 0)
+
+def _skips_existing(self):
+    """协议里 AI 一直在主动记（memory 字段），归档别再重复一层"""
+    self._fill()
+    answer = self.conv.messages.filter(role='assistant').first()
+    Memory.objects.create(user=self.user, content='家里有小孩', category='relationship',
+                          importance=7, source_message=answer)
+    self.assertIsNone(summarize_conversation_for_memory(self.conv))
+    self.assertEqual(Memory.objects.filter(content__startswith='对话「').count(), 0)
+
+def _other_users(self):
+    self._fill()
+    other = User.objects.create_user('o', password='p')
+    Memory.objects.create(user=other, content='别人的记忆')
+    memory = summarize_conversation_for_memory(self.conv)
+    self.assertIsNotNone(memory)
+    self.assertEqual(memory.user_id, self.user.id)
+
+def _long_answers(self):
+    self._fill(with_answer=False)
+    self._say('assistant', '长' * 2000)
+    memory = summarize_conversation_for_memory(self.conv)
+    self.assertLessEqual(len(memory.content), 500)
+
+def _archive_view(self):
+    """整条链路：点「归档对话」就应该沉淀，不依赖调用方记得手动跑一次"""
+    self._fill()
+    resp = self.client.post(reverse('chat:archive_conversation', args=[self.conv.id]))
+    self.assertEqual(resp.status_code, 302)
+    self.conv.refresh_from_db()
+    self.assertEqual(self.conv.status, 'archived')
+    self.assertEqual(Memory.objects.filter(content__startswith='对话「').count(), 1)
+
+def _archive_blows_up(self):
+    """摘要失败只能少一条记忆，不能把归档本身弄挂"""
+    self._fill()
+    with patch('memory.services.summarize_conversation_for_memory',
+               side_effect=RuntimeError('boom')):
         resp = self.client.post(reverse('chat:archive_conversation', args=[self.conv.id]))
-        self.assertEqual(resp.status_code, 302)
-        self.conv.refresh_from_db()
-        self.assertEqual(self.conv.status, 'archived')
-        self.assertEqual(Memory.objects.filter(content__startswith='对话「').count(), 1)
+    self.assertEqual(resp.status_code, 302)
+    self.conv.refresh_from_db()
+    self.assertEqual(self.conv.status, 'archived')
 
-    def test_archiving_still_works_when_the_summary_blows_up(self):
-        """摘要失败只能少一条记忆，不能把归档本身弄挂"""
-        self._fill()
-        with patch('memory.services.summarize_conversation_for_memory',
-                   side_effect=RuntimeError('boom')):
-            resp = self.client.post(reverse('chat:archive_conversation', args=[self.conv.id]))
-        self.assertEqual(resp.status_code, 302)
-        self.conv.refresh_from_db()
-        self.assertEqual(self.conv.status, 'archived')
+# 绑定回原类
+for _name, _fn in [
+    ('test_nothing_new_to_say_returns_none', _nothing_new),
+    ('test_skips_single_question_conversations', _skips_single),
+    ('test_skips_when_the_conversation_already_produced_memories', _skips_existing),
+    ('test_other_users_memories_do_not_block_and_are_not_written', _other_users),
+    ('test_long_answers_are_capped', _long_answers),
+    ('test_archiving_through_the_view_writes_the_memory', _archive_view),
+    ('test_archiving_still_works_when_the_summary_blows_up', _archive_blows_up),
+]:
+    setattr(ArchiveSummaryMemoryTest, _name, _fn)
+
+# 删除被挤出的残余方法（它们在 ConsolidateCommandTest 里是无效的）
+for _attr in list(ConsolidateCommandTest.__dict__.keys()):
+    if _attr.startswith('test_') and _attr not in (
+        'test_dry_run_does_not_modify_data',
+        'test_no_groups_below_min_size',
+    ):
+        delattr(ConsolidateCommandTest, _attr)

@@ -39,12 +39,37 @@ EXTRACTION_PATTERNS = [
 # 检索 + 注入
 # ────────────────────────────────────────────────
 
-def retrieve_memories(user, query='', limit=10):
-    """检索用户记忆，按 importance + recency 排序
+# 记忆衰减参数：30 天半衰期，90 天后权重降到原始的 1/8。
+# 这个节奏匹配「个人助手」的使用频率——周级别活跃的用户，
+# 一个月前的偏好仍然有价值，三个月前的就该让位给新信息了。
+_DECAY_HALF_LIFE_DAYS = 30
 
-    - query 非空时：关键词 icontains 匹配 content
-    - query 为空时：按 importance DESC, updated_at DESC 取 Top N
-    - 更新命中记忆的 access_count + last_accessed（异步，失败不阻断）
+# access_count 转加分的上限：防止高频访问的低价值记忆抢占位置。
+# 每 10 次访问加 1 分，最多补 2 分（即 access_count >= 20 后不再涨）。
+_ACCESS_BONUS_CAP = 2.0
+_ACCESS_BONUS_DIVISOR = 10
+
+
+def _memory_score(memory, now):
+    """计算单条记忆的动态权重：importance × 时间衰减 + 访问加分
+
+    为什么不在 DB 层算：SQLite 没有 pow/log 函数，写 CASE WHEN 模拟指数衰减
+    可读性差且难测试。当前用户记忆量级远不到 50 条，Python 排序开销可忽略；
+    等真到几百条时再迁移到 annotate + 数据库表达式。
+    """
+    days = max(0, (now - memory.updated_at).total_seconds() / 86400)
+    decay = 0.5 ** (days / _DECAY_HALF_LIFE_DAYS)
+    access_bonus = min(memory.access_count / _ACCESS_BONUS_DIVISOR,
+                       _ACCESS_BONUS_CAP)
+    return memory.importance * decay + access_bonus
+
+
+def retrieve_memories(user, query='', limit=10):
+    """检索用户记忆，按动态权重排序（importance × 时间衰减 + 访问加分）
+
+    - query 非空时：关键词 icontains 匹配 content，仍按动态权重排序
+    - query 为空时：取候选集 Top 50 按 importance DESC，再 Python 排动态权重取 limit
+    - 更新命中记忆的 access_count + last_accessed（批量，失败不阻断）
 
     只取本人记忆（不按 visible_qs 放宽）：注入的是“正在对话的这个人的上下文”，
     与页面浏览类的“超管见全部”是两个口径。
@@ -52,18 +77,23 @@ def retrieve_memories(user, query='', limit=10):
     from .models import Memory
 
     try:
-        qs = Memory.objects.filter(user=user)
+        qs = Memory.objects.filter(user=user, consolidated=False)
 
         if query and query.strip():
             q = query.strip()
             qs = qs.filter(content__icontains=q)
 
-        memories = list(qs.order_by('-importance', '-updated_at')[:limit])
+        # 取候选集：按原始 importance 取前 50 条，再 Python 排动态权重。
+        # 50 是保守上界：当前用户记忆量级远低于此，未来若超了再调大或迁 DB 表达式。
+        candidates = list(qs.order_by('-importance', '-updated_at')[:50])
+
+        now = timezone.now()
+        candidates.sort(key=lambda m: _memory_score(m, now), reverse=True)
+        memories = candidates[:limit]
 
         # 更新访问计数（批量，失败仅告警）
         if memories:
             try:
-                now = timezone.now()
                 Memory.objects.filter(
                     id__in=[m.id for m in memories]
                 ).update(
@@ -116,7 +146,7 @@ def _is_similar_content(user, content, threshold=0.8):
     from core.utils import char_overlap_ratio
     from .models import Memory
 
-    existing = Memory.objects.filter(user=user).values_list('content', flat=True)[:100]
+    existing = Memory.objects.filter(user=user, consolidated=False).values_list('content', flat=True)[:100]
     for existing_content in existing:
         if len(content) < 3 or len(existing_content) < 3:
             continue

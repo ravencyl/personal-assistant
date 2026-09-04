@@ -16,7 +16,7 @@ def tool_memory_search(user, params):
 
     category = str(params.get('category') or '').strip()
 
-    qs = Memory.objects.filter(user=user)
+    qs = Memory.objects.filter(user=user, consolidated=False)
 
     # 关键词匹配
     qs = qs.filter(content__icontains=query)

@@ -32,6 +32,10 @@ class Memory(models.Model):
     )
     access_count = models.IntegerField('访问次数', default=0)
     last_accessed = models.DateTimeField('上次访问', null=True, blank=True)
+    consolidated = models.BooleanField(
+        '已被聚合', default=False,
+        help_text='该条记忆已被 consolidate_memories 命令合成为画像，检索时跳过',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
