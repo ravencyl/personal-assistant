@@ -60,6 +60,16 @@ class ProtocolEscapeHatchTest(SimpleTestCase):
         """ask 故意不注册工具：走编排器透传，系统不再做任何动作"""
         self.assertNotIn('ask', INTENT_TOOL_MAP)
 
+    def test_prompt_guides_ai_to_use_memory_search(self):
+        """规则 9：协议必须显式引导 AI 主动调 memory_search 回忆用户信息
+
+        工具已注册、首帧已注入 Top 10，但模型不知道自己能查——补一行规则就能让
+        现有能力活起来。这条断言防止规则被误删或改写后失去引导作用。
+        """
+        self.assertIn('memory_search', self.prompt)
+        self.assertIn('回忆', self.prompt)
+        self.assertIn('不要凭印象编造', self.prompt)
+
 
 class OrchestratorPassthroughTest(SimpleTestCase):
     """编排器：逃生舱的两条透传路径"""

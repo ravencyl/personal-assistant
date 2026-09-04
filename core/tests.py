@@ -534,15 +534,21 @@ class ReminderAgentToolTest(TestCase):
         self.assertIn('没有', result['reply'])
 
     def test_list_reminders_with_data(self):
-        """列出提醒（有数据）"""
-        Reminder.objects.create(
-            user=self.user, content='测试提醒',
-            trigger_at=timezone.now() + timedelta(hours=1),
-        )
-        from core.agent_registry import get_tool
-        tool = get_tool('reminders.list_reminders')
-        result = tool['fn'](self.user, {})
-        self.assertIn('测试提醒', result['reply'])
+        """列出提醒（有数据）—— 钉死在当天中午避免跨日边界"""
+        from unittest.mock import patch
+        from datetime import time as dtime
+        noon = timezone.make_aware(
+            timezone.datetime.combine(timezone.localdate(),
+                                      dtime(12, 0)))
+        with patch('django.utils.timezone.now', return_value=noon):
+            Reminder.objects.create(
+                user=self.user, content='测试提醒',
+                trigger_at=noon + timedelta(hours=1),
+            )
+            from core.agent_registry import get_tool
+            tool = get_tool('reminders.list_reminders')
+            result = tool['fn'](self.user, {})
+            self.assertIn('测试提醒', result['reply'])
 
 
 class ReportGeneratorTest(TestCase):
