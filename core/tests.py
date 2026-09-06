@@ -2233,7 +2233,7 @@ class DesktopLayoutCoverageTest(TestCase):
         'activities/daily.html', 'activities/activity_detail.html',
         'core/dashboard.html', 'core/weekly_report.html',
         'activities/expense_report.html', 'activities/template_list.html',
-        'activities/recurring_list.html', 'chat/conversation_list.html',
+        'activities/recurring_list.html',
         'knowledge/article_list.html', 'knowledge/article_detail.html',
         'notes/note_list.html', 'memory/memory_list.html',
     ]
@@ -2245,6 +2245,7 @@ class DesktopLayoutCoverageTest(TestCase):
         'activities/activity_form.html': '纯表单编辑页，输入宽度就是舒适宽度',
         'knowledge/article_form.html': '纯表单编辑页',
         'chat/conversation_detail.html': '消息流是单一线性时间轴，右列无天然内容',
+        'chat/conversation_list.html': '分栏布局用 .chat-layout 而非通用 .page-cols',
         'registration/login.html': '居中构图 + 全站唯一品牌位，没有辅助信息可提',
     }
 

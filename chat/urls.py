@@ -5,7 +5,10 @@ app_name = 'chat'
 
 urlpatterns = [
     path('', views.conversation_list, name='conversation_list'),
-    path('<int:conversation_id>/', views.conversation_detail, name='conversation_detail'),
+    # 分栏布局：列表页带当前选中对话（桌面端右栏 / 移动端聊天视图）
+    path('<int:conversation_id>/', views.conversation_list, name='conversation_list_with_active'),
+    # 独立详情页：无 JS 降级 + 浮窗「在新页面打开」目标
+    path('<int:conversation_id>/detail/', views.conversation_detail, name='conversation_detail'),
     path('<int:conversation_id>/widget-messages/', views.widget_messages, name='widget_messages'),
     path('create/', views.create_conversation, name='create_conversation'),
     path('<int:conversation_id>/send/', views.send_message, name='send_message'),

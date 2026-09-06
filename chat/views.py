@@ -3,8 +3,8 @@ import logging
 
 import httpx
 
-from django.shortcuts import render, redirect
-from django.http import JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse, Http404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST, require_GET
 from django.db import models
@@ -42,8 +42,12 @@ CHAT_AGENT_PURPOSE = 'knowledge'
 
 
 @login_required
-def conversation_list(request):
-    """对话列表（支持搜索；超级用户可见全部对话）"""
+def conversation_list(request, conversation_id=None):
+    """对话列表 + 可选的当前对话详情（桌面端分栏 / 移动端聊天视图共用）
+
+    conversation_id 由 URL 传入（/chat/<id>/），表示当前选中的对话。
+    桌面端两栏同屏；移动端靠 JS 在列表视图与聊天视图之间切换。
+    """
     conversations = visible_qs(Conversation, request.user)
     agents = AgentConfig.objects.filter(is_active=True)
 
@@ -69,10 +73,23 @@ def conversation_list(request):
         )
     )
 
+    # 如果指定了 conversation_id，额外加载该对话的消息（右栏用）
+    active_conversation = None
+    chat_messages = []
+    if conversation_id:
+        try:
+            active_conversation = get_visible(Conversation, request.user, id=conversation_id)
+            chat_messages = active_conversation.messages.all()
+        except Http404:
+            pass  # 无权或不存在 → 右栏显示空状态
+
     return render(request, 'chat/conversation_list.html', {
         'conversations': conversations,
         'agents': agents,
         'query': query,
+        'active_conversation': active_conversation,
+        'chat_messages': chat_messages,
+        'turn_ttl': TURN_TTL_SECONDS,
     })
 
 
@@ -166,7 +183,7 @@ def create_conversation(request):
                 'conversation_id': conversation.id,
                 'title': conversation.title,
             })
-        return redirect('chat:conversation_detail', conversation_id=conversation.id)
+        return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
     except Exception as e:
         logger.error(f'Failed to create conversation: {e}')
         return JsonResponse({'error': str(e)}, status=500)
@@ -266,7 +283,7 @@ def _turn_response(request, conversation, payload, status=200):
     """
     if 'application/json' in request.headers.get('Accept', ''):
         return JsonResponse(payload, status=status)
-    return redirect('chat:conversation_detail', conversation_id=conversation.id)
+    return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
 
 
 def _build_ai_content(request, conversation, content):
@@ -687,8 +704,8 @@ def conversation_rename(request, conversation_id):
     if title:
         conversation.title = title[:255]
         conversation.save(update_fields=['title', 'updated_at'])
-    # 无论改没改都回到详情页（列表页的 inline 表单也 redirect 回 detail，避免刷新重复提交）
-    return redirect('chat:conversation_detail', conversation_id=conversation.id)
+    # 无论改没改都回到列表页（分栏布局下自动选中当前对话）
+    return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
 
 
 @login_required

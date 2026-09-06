@@ -353,7 +353,7 @@
             if (window.paPanelChat) window.paPanelChat.halt();
             lastConvId = id;
             titleEl.textContent = title || '对话';
-            fullLink.href = '/chat/' + id + '/';
+            fullLink.href = '/chat/' + id + '/detail/';
             showChatView(true);
             messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text-muted)] py-4">加载中...</p>';
             return fetch('/chat/' + id + '/widget-messages/')

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="flex justify-between items-center mb-4">
     <div>
-        <a href="{% url 'chat:conversation_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
+        <a href="{% url 'chat:conversation_list_with_active' conversation.id %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回对话列表</a>
         <h1 class="text-xl font-bold text-[var(--text)] mt-1">{{ conversation.title }}</h1>
     </div>
     <div class="flex items-center gap-3 text-sm">
@@ -72,7 +72,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 // 与右下角浮窗共用同一个 PaChatTurn 实现（详情页与浮窗各写一套必然漂移）
 (function () {
     if (!window.PaChatTurn) return;
-    var base = '{% url "chat:conversation_detail" conversation.id %}';
+    var base = '/chat/' + {{ conversation.id }} + '/';
     var messagesEl = document.getElementById('messages');
     var resumeEl = messagesEl.querySelector('[data-turn-resume]');
     window.paPageChat = window.PaChatTurn({

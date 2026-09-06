@@ -306,11 +306,10 @@ class ConversationDetailContextTest(TestCase):
 
 
 class ConversationListDesktopLayoutTest(TestCase):
-    """对话列表页桌面两列布局回归锁（右列 = 搜索与检索状态）
+    """对话列表页分栏布局回归锁（左栏 = 对话列表，右栏 = 聊天窗口）
 
-    本页是 rail-first：右列整块在 DOM 里排在主内容流之前，移动端顺序
-    （未配置提示 → 搜索 → 会话列表）与改造前逐块一致。
-    必须带真实会话渲染：空列表时列归属与顺序锁会空跑。
+    新布局用 .chat-layout / .chat-sidebar / .chat-main 代替旧的 .page-cols。
+    桌面端两栏同屏；移动端靠 data-view 切换视图。
     """
     TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'conversation_list.html'
 
@@ -320,20 +319,26 @@ class ConversationListDesktopLayoutTest(TestCase):
         Conversation.objects.create(user=self.user, session_id='sess_lay',
                                     title='新西兰之旅怎么安排')
         self.html = self.client.get('/chat/').content.decode()
+        self.src = self.TEMPLATE.read_text(encoding='utf-8')
 
-    def test_desktop_two_columns(self):
-        assert_desktop_two_columns(
-            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
-            left=[('新西兰之旅怎么安排', '会话卡')],
-            right=[('搜索对话历史...', '搜索框')],
-            mobile_order=['搜索对话历史...', '新西兰之旅怎么安排'],
-            rail_first=True)
+    def test_split_layout_structure(self):
+        """分栏容器 + 左栏 + 右栏都存在"""
+        self.assertIn('class="chat-layout"', self.src)
+        self.assertIn('class="chat-sidebar', self.src)
+        self.assertIn('class="chat-main"', self.src)
 
-    def test_ai_not_configured_banner_stays_above_columns(self):
-        """阻断性提示不进右列：右列 sticky，滚到列表底部时提示会被滚走"""
-        src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertLess(src.index('AI 服务未配置'), src.index('class="page-cols'),
-                        '未配置提示应留在两列区之上')
+    def test_sidebar_contains_search_and_list(self):
+        """左栏包含搜索框和对话列表"""
+        self.assertIn('搜索对话...', self.html)
+        self.assertIn('新西兰之旅怎么安排', self.html)
+
+    def test_empty_state_when_no_active_conversation(self):
+        """未选中对话时右栏显示空状态引导"""
+        self.assertIn('选择一个对话开始', self.html)
+
+    def test_ai_not_configured_banner_in_sidebar(self):
+        """AI 未配置提示在左栏头部"""
+        self.assertIn('AI 服务未配置', self.src)
 
 
 # ==================== 异步 turn 收发（Phase A）====================

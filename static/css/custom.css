@@ -513,3 +513,73 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 }
 
 .follow-ups-label { font-size: 0.7rem; color: var(--text-muted); }
+
+/* ===== Chat 分栏布局（桌面端左右分栏 / 移动端 IM 式单栏） ===== */
+
+/* 移动端默认：单栏，列表视图可见，聊天视图隐藏 */
+.chat-layout {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 8rem);
+}
+
+.chat-sidebar {
+    flex: 1;
+    overflow-y: auto;
+    min-width: 0;
+}
+
+.chat-main {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+/* 移动端：data-view="chat" 时切换到聊天视图 */
+.chat-layout[data-view="chat"] .chat-sidebar { display: none; }
+.chat-layout[data-view="chat"] .chat-main { display: flex; }
+
+/* 对话项（左栏列表） */
+.chat-conv-item {
+    display: block;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.chat-conv-item:hover { background: var(--accent-light); }
+.chat-conv-item.active {
+    background: var(--accent-light);
+    border-left: 3px solid var(--accent);
+}
+
+/* 对话标题截断（约 10 个中文字符） */
+.chat-conv-title {
+    max-width: 10em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 桌面端（md+）：左右分栏 */
+@media (min-width: 768px) {
+    .chat-layout {
+        flex-direction: row;
+        height: calc(100dvh - 6rem);
+    }
+
+    .chat-sidebar {
+        width: 300px;
+        flex: none;
+        border-right: 1px solid var(--border);
+    }
+
+    .chat-main {
+        display: flex;
+        flex: 1;
+    }
+
+    /* 桌面端始终显示两栏，data-view 不生效 */
+    .chat-layout[data-view="chat"] .chat-sidebar { display: flex; }
+}

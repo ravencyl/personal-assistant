@@ -70,7 +70,7 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">对话</p>
         {% for c in results.conversations %}
-        <a href="{% url 'chat:conversation_detail' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+        <a href="{% url 'chat:conversation_list_with_active' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
             <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">💬</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ c.title }}</p>
@@ -85,7 +85,7 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">消息记录</p>
         {% for msg, conv in results.messages %}
-        <a href="{% url 'chat:conversation_detail' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
+        <a href="{% url 'chat:conversation_list_with_active' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
             <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">💬</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ msg.content|truncatechars:60 }}</p>

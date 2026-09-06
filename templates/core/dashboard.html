@@ -80,7 +80,7 @@
             <a href="{% url 'chat:conversation_list' %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部</a>
         </div>
         {% for conv in recent_conversations %}
-        <a href="{% url 'chat:conversation_detail' conv.id %}" class="flex items-center gap-2 py-2 border-b border-[var(--border)] last:border-0 hover:bg-[var(--accent-light)] -mx-2 px-2 rounded-lg transition-colors">
+        <a href="{% url 'chat:conversation_list_with_active' conv.id %}" class="flex items-center gap-2 py-2 border-b border-[var(--border)] last:border-0 hover:bg-[var(--accent-light)] -mx-2 px-2 rounded-lg transition-colors">
             <span class="text-sm text-[var(--text)] truncate flex-1">{{ conv.title }}</span>
             <span class="text-xs text-[var(--text-muted)] shrink-0">{{ conv.updated_at|timesince }} 前</span>
         </a>
