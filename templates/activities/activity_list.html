@@ -326,7 +326,7 @@
                 </td>
                 <td class="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{{ activity.date_range }}</td>
                 <td class="px-4 py-3 text-right text-[var(--text)] whitespace-nowrap">
-                    ¥{{ activity.show_cost }}
+                    ¥{{ activity.show_cost|floatformat:"-2" }}
                     {% if activity.sub_count %}<span class="text-xs text-[var(--text-muted)]">含子活动</span>{% endif %}
                 </td>
                 <td class="px-4 py-3 text-center text-[var(--text-secondary)]">{{ activity.expense_count }}</td>
@@ -372,7 +372,7 @@
                 </a>
             </span>
         </div>
-        <p class="text-xs text-[var(--text-secondary)]">{{ activity.date_range }} · 费用 ¥{{ activity.show_cost }}{% if activity.expense_count %} <span class="text-[var(--text-muted)]">· {{ activity.expense_count }} 笔</span>{% endif %}{% if activity.sub_count %} <span class="text-[var(--text-muted)]">· 子活动 {{ activity.sub_count }}</span>{% endif %}</p>
+        <p class="text-xs text-[var(--text-secondary)]">{{ activity.date_range }} · 费用 ¥{{ activity.show_cost|floatformat:"-2" }}{% if activity.expense_count %} <span class="text-[var(--text-muted)]">· {{ activity.expense_count }} 笔</span>{% endif %}{% if activity.sub_count %} <span class="text-[var(--text-muted)]">· 子活动 {{ activity.sub_count }}</span>{% endif %}</p>
         {% if activity.tags.all %}
         <div class="flex flex-wrap gap-1 mt-2">
             {% for tag in activity.tags.all %}

@@ -127,7 +127,7 @@
                 style="width: {% widthratio budget_ratio 1 100 %}%"></div>
         </div>
         <div class="flex justify-between mt-1.5 text-xs text-[var(--text-muted)]">
-            <span>已花费 ¥{{ activity.total_cost|floatformat:"0" }}</span>
+            <span>已花费 ¥{{ activity.total_cost|floatformat:"-2" }}</span>
             {# 余额：只有百分比条时算不出“还能花多少”，超支时直接给负余额的绝对值 #}
             <span>{% if budget_remaining < 0 %}超支 ¥{{ budget_remaining|floatformat:"0"|slice:"1:" }}{% else %}剩余 ¥{{ budget_remaining|floatformat:"0" }}{% endif %}</span>
             <span>预算 ¥{{ activity.budget|floatformat:"0" }}</span>
