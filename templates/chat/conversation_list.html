@@ -137,9 +137,9 @@
             <p>发送消息开始对话</p>
         </div>
         {% endfor %}
-        {% include "chat/partials/turn_resume.html" %}
+        {% include "chat/partials/turn_resume.html" with conversation=active_conversation %}
         {% if active_conversation.turn_state == 'error' %}
-            {% include "chat/partials/turn_error.html" %}
+            {% include "chat/partials/turn_error.html" with conversation=active_conversation note="上一轮没有完成，可以再问一次。" %}
         {% endif %}
         {% else %}
         {# 空状态占位（JS 切换对话时会替换此内容） #}
