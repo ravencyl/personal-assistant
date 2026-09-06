@@ -1078,7 +1078,7 @@ def daily_view(request):
     from core.models import check_due_reminders
     check_due_reminders(request.user)
 
-    # 打卡与提醒（习惯/子任务/提醒）：一次调用注入，早间（<18 点）展示，与晚间摘要按时段互斥
+    # 打卡与提醒（习惯/子任务/提醒）：一次调用注入，早间（<18 点）展示
     from core.suggestions import generate_daily_plan
     today_plan = generate_daily_plan(request.user)
 
@@ -1096,13 +1096,6 @@ def daily_view(request):
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
     attach_costs([*ongoing, *starting_today, *ending_today,
                   *upcoming, *recently_done, *in_progress])
-
-    # 每日摘要（cron 预生成，只读库一次）
-    from core.models import DailySummary
-    daily_summary = DailySummary.objects.filter(
-        user=request.user,
-        summary_date=today,
-    ).exclude(status='pending').first()
 
     return render(request, 'activities/daily.html', {
         'today': today,
@@ -1125,7 +1118,6 @@ def daily_view(request):
         # 左列「提醒」区 = 待处理提醒（与浮窗红点同一个数），截 10 条；
         # 键名与函数同名不冲突：dict 的键是字符串，右侧是函数调用
         'pending_reminders': pending_reminders(request.user)[:10],
-        'daily_summary': daily_summary,
         'today_plan': today_plan,
         'show_today_plan': hour < 18,
     })

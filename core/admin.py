@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django import forms
 
-from .models import Reminder, DailySummary, SuggestionState, DailyInsight
+from .models import Reminder, SuggestionState, DailyInsight
 
 
 # 自定义 Admin 站点标题（品牌名统一取 settings.SITE_NAME）
@@ -16,12 +16,6 @@ admin.site.index_title = '管理面板'
 @admin.register(Reminder)
 class ReminderAdmin(admin.ModelAdmin):
     list_display = ('user', 'content', 'trigger_at', 'status')
-    list_filter = ('status',)
-
-
-@admin.register(DailySummary)
-class DailySummaryAdmin(admin.ModelAdmin):
-    list_display = ('user', 'summary_date', 'status', 'generated_at')
     list_filter = ('status',)
 
 

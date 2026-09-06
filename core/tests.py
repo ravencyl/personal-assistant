@@ -452,8 +452,8 @@ class PendingReminderSingleSourceTest(TestCase):
         docstring 里就大量引用了旧写法 status='pending'，不剔就是假失败。
         """
         base = Path(settings.BASE_DIR)
-        # 必须与 Reminder 同句出现：DailySummary 也有一个 status='pending'，
-        # 扫光所有字面量会误报（views.py 里每日摘要那一行）。
+        # 必须与 Reminder 同句出现：SuggestionState / DailyInsight 等模型也有
+        # status 字面量，只按 status= 扫会误报到无关查询上。
         # 上限 200 字能盖住旧实现的链式写法（Reminder.objects.filter(user=..).filter(
         # Q(status='pending', ..)），又不跨到下一个无关查询。
         pattern = re.compile(

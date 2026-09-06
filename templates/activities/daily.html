@@ -12,7 +12,7 @@
 
 {% comment %}
 桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
-  右列 = 今日概览（打卡与提醒 · 关键数字 · 今日进度 · 今日摘要 · 本周消费），整列随滚动常驻；
+  右列 = 今日概览（打卡与提醒 · 关键数字 · 今日进度 · 本周消费），整列随滚动常驻；
   左列 = 主内容流（快捷入口 · 习惯打卡 · 待处理提醒 · AI 建议 · 活动分组）。
 两个列容器都不加显隐类 —— 移动端它们是普通块级元素，纵向顺序完全由 DOM 决定。
 右列整块在 DOM 里排在左列之前，所以移动端阅读顺序与改造前逐块一致；桌面端靠 rail-first 修饰类的 order 换回右侧。
@@ -21,7 +21,7 @@
 <!-- 右列：今日概览（DOM 在前保证移动端顺序不变，桌面端用 order 换到右侧常驻） -->
 <div class="page-rail">
 
-<!-- 打卡与提醒：早间（<18 点）展示，与晚间摘要按时段互斥；只放下方活动卡片没覆盖的信息 -->
+<!-- 打卡与提醒：早间（<18 点）展示；只放下方活动卡片没覆盖的信息 -->
 {% if show_today_plan %}
 <section class="collapsible-section mb-8 md:mb-6" data-section="daily-plan">
     <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center gap-2 cursor-pointer select-none" onclick="toggleSection('daily-plan')">
@@ -129,26 +129,6 @@
     </div>
 </section>
 {% endif %}
-
-<!-- 每日摘要（cron 预生成） -->
-<section class="collapsible-section mb-8 md:mb-6" data-section="daily-summary">
-    <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center gap-2 cursor-pointer select-none" onclick="toggleSection('daily-summary')">
-        <span>今日摘要</span>
-        <svg class="w-4 h-4 text-[var(--text-muted)] ml-auto transition-transform" id="arrow-daily-summary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-        </svg>
-    </h2>
-    <div class="collapsible-content" id="content-daily-summary">
-        {% if daily_summary %}
-        <div class="text-sm text-[var(--text)] leading-relaxed">{{ daily_summary.content|linebreaks }}</div>
-        <p class="text-xs text-[var(--text-muted)] mt-2">
-            生成于 {{ daily_summary.generated_at|date:"H:i" }}{% if daily_summary.status == 'fallback' %} · 数据摘要{% endif %}
-        </p>
-        {% else %}
-        <p class="text-sm text-[var(--text-muted)]">今晚 21:30 自动生成今日摘要</p>
-        {% endif %}
-    </div>
-</section>
 
 <!-- 本周消费概览 -->
 <a href="{% url 'activities:expense_report' %}"
@@ -446,7 +426,7 @@ function toggleSection(sectionId) {
 
 // 页面加载时恢复折叠状态
 (function() {
-    var sections = ['daily-plan', 'ai-suggestions', 'daily-summary', 'in_progress', 'upcoming', 'recently_done'];
+    var sections = ['daily-plan', 'ai-suggestions', 'in_progress', 'upcoming', 'recently_done'];
     // 这三个是次要长列表：桌面端两列后左列变窄、整页仍要滚很久，首屏默认只留今日相关区；
     // 只改未手动折叠过时的默认值，移动端（matchMedia 不命中）保持与旧版一致的默认展开
     var desktopCollapsed = ['in_progress', 'upcoming', 'recently_done'];

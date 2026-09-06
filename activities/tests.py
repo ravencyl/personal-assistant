@@ -1501,7 +1501,7 @@ class DailyDesktopLayoutTest(TestCase):
     def test_primary_flow_left_auxiliary_right(self):
         rail, main = self._rail(), self._main()
         for anchor, desc in [('data-section="daily-plan"', '打卡与提醒'), ('今日活动', '今日活动计数'),
-                             ('data-section="daily-summary"', '今日摘要'), ('本周消费', '本周消费')]:
+                             ('本周消费', '本周消费')]:
             self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
             self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
         for anchor, desc in [('新建活动', '快捷入口'), ('id="sec-habits"', '习惯打卡'),
@@ -1512,7 +1512,7 @@ class DailyDesktopLayoutTest(TestCase):
     def test_mobile_reading_order_matches_dom(self):
         """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）"""
         anchors = ['data-section="daily-plan"', '今日活动', 'id="habit-progress-fill"',
-                   'data-section="daily-summary"', '本周消费', '新建活动',
+                   '本周消费', '新建活动',
                    'id="sec-habits"', 'id="sec-reminders"', 'data-section="ai-suggestions"',
                    '今日进行中']
         positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
@@ -1521,8 +1521,8 @@ class DailyDesktopLayoutTest(TestCase):
 
     def test_today_progress_card_is_desktop_only_and_inside_right_column(self):
         rail = self._rail()
-        card = rail[:self._at(rail, 'data-section="daily-summary"', '今日进度卡与摘要的先后关系')]
-        self.assertIn('今日进度', card, '今日进度卡丢了或被挤到摘要之后')
+        card = rail[:self._at(rail, '本周消费', '今日进度卡与本周消费的先后关系')]
+        self.assertIn('今日进度', card, '今日进度卡丢了或被挤到本周消费之后')
         self.assertIn('hidden md:block', card,
                       '进度卡必须只在桌面端出现，否则移动端白占高度')
         self.assertEqual(card.count('data-jump='), 2, '习惯/提醒两个定位入口缺一')
@@ -1551,8 +1551,8 @@ class DailyDesktopLayoutTest(TestCase):
                          '默认折叠只能作用于未手动折叠过的区块')
         self.assertIn("localStorage.getItem('daily_section_' + sectionId)", src,
                       '折叠状态仍走既有 localStorage 机制，不另造一套')
-        self.assertIn("'daily-plan', 'ai-suggestions', 'daily-summary', "
-                      "'in_progress', 'upcoming', 'recently_done'", src,
+        self.assertIn("'daily-plan', 'ai-suggestions', 'in_progress', "
+                      "'upcoming', 'recently_done'", src,
                       '恢复脚本的分区清单被改，可能有区的折叠状态不再恢复')
 
     def test_no_structural_sm_breakpoint_in_template(self):
