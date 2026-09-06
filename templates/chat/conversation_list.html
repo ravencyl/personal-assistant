@@ -100,8 +100,7 @@
 
 <!-- ====== 右栏：聊天窗口 ====== -->
 <section class="chat-main">
-    {% if active_conversation %}
-    {# --- 聊天头部 --- #}
+    {# --- 聊天头部（始终渲染，空状态时隐藏操作按钮） --- #}
     <div class="flex-none flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
         {# 移动端返回按钮 #}
         <button type="button" id="split-back-btn"
@@ -109,20 +108,20 @@
             &larr;
         </button>
         <h2 class="text-base font-bold text-[var(--text)] truncate flex-1" id="split-chat-title">
-            {{ active_conversation.title }}
+            {{ active_conversation.title|default:'' }}
         </h2>
-        <div class="flex items-center gap-2 text-xs shrink-0">
-            <form method="post" action="{% url 'chat:conversation_rename' active_conversation.id %}" class="flex items-center gap-1">
+        <div id="split-actions" class="flex items-center gap-2 text-xs shrink-0{% if not active_conversation %} hidden{% endif %}">
+            <form id="split-rename-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_rename' active_conversation.id %}{% endif %}" class="flex items-center gap-1">
                 {% csrf_token %}
-                <input type="text" name="title" value="{{ active_conversation.title }}" maxlength="255"
+                <input type="text" name="title" value="{{ active_conversation.title|default:'' }}" maxlength="255"
                     class="w-28 rounded-full border border-[var(--border-strong)] px-2 py-1 text-xs bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
                 <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">改名</button>
             </form>
-            <form method="post" action="{% url 'chat:archive_conversation' active_conversation.id %}">
+            <form id="split-archive-form" method="post" action="{% if active_conversation %}{% url 'chat:archive_conversation' active_conversation.id %}{% endif %}">
                 {% csrf_token %}
                 <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
             </form>
-            <form method="post" action="{% url 'chat:conversation_delete' active_conversation.id %}"
+            <form id="split-delete-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_delete' active_conversation.id %}{% endif %}"
                   onsubmit="return confirm('确定删除这个对话吗？所有消息都会丢失。');">
                 {% csrf_token %}
                 <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
@@ -130,8 +129,9 @@
         </div>
     </div>
 
-    {# --- 消息列表 --- #}
+    {# --- 消息列表（始终渲染；空状态时显示引导文案，JS 切换对话时替换） --- #}
     <div id="split-messages" class="flex-1 overflow-y-auto p-4 space-y-4" data-turn-resume-host>
+        {% if active_conversation %}
         {% for msg in chat_messages %}{% include "chat/partials/_message.html" %}{% empty %}
         <div class="text-center py-8 text-[var(--text-muted)]">
             <p>发送消息开始对话</p>
@@ -141,14 +141,21 @@
         {% if active_conversation.turn_state == 'error' %}
             {% include "chat/partials/turn_error.html" %}
         {% endif %}
+        {% else %}
+        {# 空状态占位（JS 切换对话时会替换此内容） #}
+        <div id="split-empty-state" class="flex h-full flex-col items-center justify-center text-center px-4">
+            <p class="text-lg font-medium text-[var(--text)]">选择一个对话开始</p>
+            <p class="mt-2 text-sm text-[var(--text-muted)]">从左侧列表选择已有对话，或点击「+ 新建」创建</p>
+        </div>
+        {% endif %}
     </div>
 
     {% include "chat/partials/turn_status.html" %}
     {% include "chat/partials/pin_host.html" with host_id="split-pin" conversation=active_conversation %}
     {% include "chat/partials/quick_chips.html" with chips_id="split-chips" chips_class="px-4 pb-2" %}
 
-    {# --- 发送表单 --- #}
-    <form id="split-form" method="post" action="{% url 'chat:send_message' active_conversation.id %}" class="flex-none px-4 py-3 border-t border-[var(--border)]">
+    {# --- 发送表单（始终渲染；action 由 JS 在切换对话时更新） --- #}
+    <form id="split-form" method="post" action="{% if active_conversation %}{% url 'chat:send_message' active_conversation.id %}{% endif %}" class="flex-none px-4 py-3 border-t border-[var(--border)]">
         {% csrf_token %}
         <div class="flex items-end gap-2">
             <textarea name="content" id="split-input" rows="1" data-auto-grow autofocus
@@ -160,14 +167,6 @@
             </button>
         </div>
     </form>
-
-    {% else %}
-    {# --- 空状态 --- #}
-    <div class="flex-1 flex flex-col items-center justify-center text-center px-4">
-        <p class="text-lg font-medium text-[var(--text)]">选择一个对话开始</p>
-        <p class="mt-2 text-sm text-[var(--text-muted)]">从左侧列表选择已有对话，或点击「+ 新建」创建</p>
-    </div>
-    {% endif %}
 </section>
 </div><!-- /chat-layout -->
 
@@ -232,10 +231,28 @@
         // 更新标题
         if (titleEl) titleEl.textContent = title || '对话';
 
+        // 更新操作按钮区（显示 + 更新 form action）
+        var actionsEl = document.getElementById('split-actions');
+        if (actionsEl) actionsEl.classList.remove('hidden');
+        var base = '/chat/' + id + '/';
+        var renameForm = document.getElementById('split-rename-form');
+        if (renameForm) renameForm.action = base + 'rename/';
+        var archiveForm = document.getElementById('split-archive-form');
+        if (archiveForm) archiveForm.action = base + 'archive/';
+        var deleteForm = document.getElementById('split-delete-form');
+        if (deleteForm) deleteForm.action = base + 'delete/';
+        // 更新改名输入框的值
+        if (renameForm) {
+            var titleInput = renameForm.querySelector('[name="title"]');
+            if (titleInput) titleInput.value = title || '';
+        }
+        // 更新发送表单 action
+        if (form) form.action = base + 'send/';
+
         // 加载消息历史
         if (messagesEl) {
             messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text-muted)] py-4">加载中...</p>';
-            fetch('/chat/' + id + '/widget-messages/', { headers: { 'Accept': 'text/html' } })
+            fetch(base + 'widget-messages/', { headers: { 'Accept': 'text/html' } })
                 .then(function (r) { if (!r.ok) throw new Error(); return r.text(); })
                 .then(function (html) {
                     messagesEl.innerHTML = html;
