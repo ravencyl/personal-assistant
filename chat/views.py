@@ -14,7 +14,8 @@ from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      TURN_IDLE_GRACE_SECONDS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
-from core.agent_registry import (build_protocol_prompt, get_tool,
+from core.agent_registry import (PROTOCOL_REF_REMINDER, REF_REMINDER_MIN_CHARS,
+                                 build_protocol_prompt, get_tool,
                                  make_action_token, orchestrator)
 from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_child,
                         json_login_required)
@@ -303,6 +304,16 @@ def _build_ai_content(request, conversation, content):
             ai_content = knowledge_context + ai_content
     except Exception as exc:
         logger.warning("knowledge injection failed: %s", exc)
+    try:
+        # 引用规则的补发（协议规则 10）：首帧只在建对话时下发一次，存量 session 根
+        # 本没这句话，模型会继续把长正文重抄进 params.content 直到被长度上限截断。
+        # 只在上一条回复足够长（= 有东西可抄）时递一行，不必每轮制造噪声。
+        prev_reply = conversation.messages.filter(
+            role='assistant').order_by('-created_at').first()
+        if prev_reply and len(prev_reply.content) >= REF_REMINDER_MIN_CHARS:
+            ai_content = PROTOCOL_REF_REMINDER + ai_content
+    except Exception as exc:
+        logger.warning('reference reminder injection failed: %s', exc)
     try:
         # 钉选放最后置前：它是用户显式点名的对象，优先级高于“按关键词猜”的知识库注入
         pinned = conversation.pinned_context()

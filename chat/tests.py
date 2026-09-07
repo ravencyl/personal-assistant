@@ -27,7 +27,8 @@ from chat import views as chat_views
 from core.layout_asserts import assert_desktop_two_columns, code_only
 from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
                          TURN_TTL_SECONDS)
-from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_TRUNCATED_NOTE,
+from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_REF_REMINDER,
+                                 PROTOCOL_TRUNCATED_NOTE, REF_REMINDER_MIN_CHARS,
                                  build_protocol_prompt, extract_intent,
                                  looks_like_protocol, orchestrator,
                                  resolve_params_refs)
@@ -1917,6 +1918,68 @@ class KnowledgeCreateFromReferenceTest(TestCase):
         with self.assertRaises(ToolError):
             tool_knowledge_create(self.user, {'title': 'T', 'content': '$LAST_REPLY'})
         self.assertEqual(self.Article.objects.count(), 0)
+
+
+class StaleSessionReferenceReminderTest(TestCase):
+    """行为锁：存量会话也能收到引用规则（二次故障的根因）
+
+    线上实测：修完首帧规则后，用户在 09-06 建的对话 15 里重试，残骸依旧（4031 字符，
+    断在 params.content）—— 因为协议只在 create_conversation 时下发一次，
+    存量 session 永远看不到后来新增的规则。只测 build_protocol_prompt 锁不到这一层。
+    """
+
+    def setUp(self):
+        from django.test.client import RequestFactory
+        self.req = RequestFactory().post('/', {})
+        self.user = User.objects.create_user('stale', password='x')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_stale')
+
+    def _reply(self, body):
+        return Message.objects.create(conversation=self.conv, role='assistant',
+                                      content=body)
+
+    def _build(self, text='把这份方案存进知识库'):
+        return chat_views._build_ai_content(self.req, self.conv, text)
+
+    def test_long_previous_reply_re_sends_the_rule(self):
+        self._reply('## 方案\n\n' + '内容。' * 500)
+        sent = self._build()
+        self.assertTrue(sent.startswith(PROTOCOL_REF_REMINDER),
+                        '存量会话没收到引用规则，模型会继续重抄正文')
+        self.assertIn('$LAST_REPLY', sent)
+        self.assertTrue(sent.endswith('把这份方案存进知识库'), '用户原文必须还在最后')
+
+    def test_short_previous_reply_gets_no_reminder(self):
+        """反向锁：没东西可抄时不递，否则每一轮都在往模型上下文里倒垃圾"""
+        self._reply('好的，已记录。')
+        self.assertEqual(self._build(), '把这份方案存进知识库')
+
+    def test_no_previous_reply_still_sends_nothing(self):
+        self.assertEqual(self._build(), '把这份方案存进知识库')
+
+    def test_reminder_never_pollutes_the_stored_message(self):
+        """提醒只能上线路，不能写回消息历史
+
+        写回去的话，用户看到的自己发的那句话会多出一堆系统文字，而且重试时会
+        叠加（turn_prompt 已经含提醒，再拼一次就变成两份）。
+        """
+        msg = Message.objects.create(conversation=self.conv, role='user',
+                                     content='把这份方案存进知识库')
+        self._reply('内容。' * REF_REMINDER_MIN_CHARS)
+        self.assertIn(PROTOCOL_REF_REMINDER, self._build())
+        msg.refresh_from_db()
+        self.assertEqual(msg.content, '把这份方案存进知识库')
+
+    def test_reminder_and_first_frame_share_the_same_tokens(self):
+        """两处口径不得漂移：提醒里的标记必须是 resolve_params_refs 认的那两个"""
+        for token in ('$LAST_REPLY', '$LAST_USER'):
+            self.assertIn(token, PROTOCOL_REF_REMINDER)
+            self.assertIn(token, build_protocol_prompt().split('规则：', 1)[-1])
+        params, error = resolve_params_refs(
+            {'content': PROTOCOL_REF_REMINDER.split('或 ')[1].split('（')[0].strip('"')},
+            {'LAST_REPLY': 'A', 'LAST_USER': 'B'})
+        self.assertIsNone(error, '提醒里写给模型的标记与实际能展开的对不上')
+        self.assertEqual(params['content'], 'B')
 
 
 class JsonEndpointNeverHtmxTest(SimpleTestCase):

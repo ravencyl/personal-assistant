@@ -109,6 +109,8 @@ def query_activities(user, params):
 
 理由：让模型把几千字正文重抄进 `params.content` 必然撞上平台长度上限，整条指令被截断后静默失败（线上真实故障：对话 15 / 消息 64，回复停在 4075 字符）。走引用后协议 JSON 恒定短小，与长度上限无关。**新增这类工具时描述里必须写明可以用标记**（描述会注入协议 prompt，模型只看得到那里）。
 
+**改协议规则前先记住：首帧只对新建的对话生效**。`build_protocol_prompt()` 只在 `create_conversation` 里下发一次，**存量 session 永远看不到后来新增的规则**（二次故障实锤：规则 10 上线后，用户在 09-06 建的对话 15 里重试，残骸依旧，断点仍是 `params.content` 的 4031 字符）。所以关键规则不能只写首帧：要同时进 `_build_ai_content` 的「每轮补发」通道（`PROTOCOL_REF_REMINDER`，拼在发给平台的正文前、不写回消息历史）。补发要走这条通道而不是「再发一帧」：会话正忙时连发会撞 409。
+
 ## 对话能力的两类分流（改首帧协议前必读）
 
 云端 Agent（Qoder）本身就带着联网工具，**能不能用全看我们的 prompt 让不让用**。首帧协议把每条消息分成两类：
@@ -142,7 +144,7 @@ def query_activities(user, params):
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
 - **“汇总”不等于“重抄”**：正文是本轮已出现过的长内容时，`content` 写 `$LAST_REPLY`（见上节协议规则 10），不得让模型重贴全文 —— 它一重抄就必然撞上单条回复长度上限，整条指令被截断后既不会落库也不会报错
 
-回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
+回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
 
 ## 对话收发是异步 turn（改聊天前必读）
 

@@ -84,6 +84,21 @@ def looks_like_protocol(text):
 _REF_TOKEN = re.compile(r'^\$(LAST_REPLY|LAST_USER)$')
 REF_LABELS = {'LAST_REPLY': '你上一条回复的正文', 'LAST_USER': '用户上一条消息'}
 
+# 存量会话的「协议补发」通道：首帧只在建对话时下发一次（chat/views.py 的
+# create_conversation），所以协议后来新增的规则永远到不了老对话。线上二次故障：
+# 2026-09-07 对话 15（09-06 建的 session）里模型依旧把整篇正文重抄进
+# params.content，4031 字符处断掉 —— 修复对存量会话无效。
+# 因此把规则 10 拼在本轮发给平台的正文前面递一次（走 _build_ai_content，与
+# [钉选对象] 同一条通道：不额外发帧、不撞 409，也不污染用户消息历史）。
+PROTOCOL_REF_REMINDER = (
+    '[协议补充] params 里要放本轮已经出现过的长内容时，字段值只写引用标记 '
+    '"$LAST_REPLY"（上一条你给用户看的正文）或 "$LAST_USER"（用户上一条消息），'
+    '系统会自行展开成原文。把正文重抄进 JSON 会撞上单条回复的长度上限，'
+    '整条指令会被截断而静默失败。\n\n'
+)
+# 上一条回复不够长就没有「可抄的东西」，不必每轮注噪声；阈值远低于会撞上限的长度
+REF_REMINDER_MIN_CHARS = 800
+
 
 def resolve_params_refs(params, refs):
     """把 params 里值为 "$LAST_REPLY" / "$LAST_USER" 的字段换成实际文本
