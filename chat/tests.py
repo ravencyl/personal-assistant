@@ -1827,7 +1827,7 @@ class ProtocolRefExpansionTest(SimpleTestCase):
     def test_empty_reference_reports_error_instead_of_passing_token(self):
         """引用取不到内容时报错，而不是把标记原样交给工具
 
-        放过的话，“$LAST_USER” 这十个字符会被当成正文存进库里，
+        放过的话，“$LAST_USER”这十个字符会被当成正文存进库里，
         看起来成功、实际写了垃圾数据，比直接失败更难发现。
         """
         params, error = resolve_params_refs({'content': '$LAST_USER'}, self.REF)
@@ -2046,6 +2046,58 @@ class RetryAfterFailureReferenceTest(TestCase):
         self._store('短')
         self.assertEqual(self.Article.objects.get(title='短').content, confirm)
 
+    def test_empty_assistant_message_is_skipped(self):
+        """空回复（平台真的没产出时也会落一条）同样不能当正文引用"""
+        Message.objects.create(conversation=self.conv, role='assistant', content='')
+        self.assertTrue(self._build().startswith(PROTOCOL_REF_REMINDER))
+        self._store('空的之后')
+        self.assertEqual(self.Article.objects.get(title='空的之后').content,
+                         self.long_body)
+
+    def test_short_real_reply_starting_like_a_note_is_still_referenceable(self):
+        """开头签名不能太宽：以常见字（这/上/操）开头的短真回复必须还能被引用
+
+        签名一旦取一个字，这类短回复会被当成占位文案跳过，引用就会跨过它去拿更老的
+        长正文（偷换内容）。这条锁把「至少得比一个字的前缀」这个约束实住。
+        """
+        real = '这个方案我先记下了，后面再补细节。'
+        self.assertLessEqual(len(real), chat_views.NOTE_MAX_CHARS)
+        Message.objects.create(conversation=self.conv, role='assistant', content=real)
+        picked = chat_views._referenceable_reply(self.conv)
+        self.assertEqual(picked.content, real, '短真实回复被签名误伤')
+        self.assertNotIn(PROTOCOL_REF_REMINDER, self._build())
+
+    def test_history_note_with_old_wording_is_still_skipped(self):
+        """库里存的是当时的词：改了文案也不能让历史行变成「正文」
+
+        这是实测踩到的：上一版按整串相等判，而我同时改了那句提示的措辞，
+        于是线上 msg 70（改词前写的）依旧被选为 $LAST_REPLY，修复直接落空。
+        """
+        Message.objects.filter(conversation=self.conv, role='assistant').delete()
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=chat_views.LEGACY_NOTE_TEXTS[0])
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=self.long_body)
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=chat_views.LEGACY_NOTE_TEXTS[0])
+        self.assertTrue(self._build().startswith(PROTOCOL_REF_REMINDER))
+        self._store('改词之后')
+        self.assertEqual(self.Article.objects.get(title='改词之后').content,
+                         self.long_body)
+
+    def test_long_reply_starting_like_a_note_is_not_swallowed(self):
+        """反向锁：真的以那句开头长正文必须能被引用（长度上限在保护它）
+
+        只看开头签名会误伤：AI 完全可能写一段以「这一步没有执行成功」开头的长说明。
+        误伤的后果是静默偷换内容，比多报一次错严重。
+        """
+        long_note_like = chat_views.LEGACY_NOTE_TEXTS[0] + '\n\n' + ('补充说明。' * 60)
+        self.assertGreater(len(long_note_like), chat_views.NOTE_MAX_CHARS)
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=long_note_like)
+        picked = chat_views._referenceable_reply(self.conv)
+        self.assertEqual(picked.content, long_note_like, '长正文被当成占位文案吞了')
+
     def test_placeholder_registry_covers_every_note_defined(self):
         """机检：新增任何 *_NOTE / *_REPLY 文案常量都必须登记进 PLACEHOLDER_REPLIES
 
@@ -2060,6 +2112,10 @@ class RetryAfterFailureReferenceTest(TestCase):
         self.assertTrue(defined, '两个模块都没扫到文案常量，这条锁在空跑')
         missing = defined - set(chat_views.PLACEHOLDER_REPLIES)
         self.assertEqual(missing, set(), f'这些占位文案没登记，会被当成正文引用：{missing}')
+        # 历史文案必须仍在「短提示」的尺寸包里，否则长度上限会让它永远匹配不上
+        for text in chat_views.LEGACY_NOTE_TEXTS:
+            self.assertLessEqual(len(text.strip()), chat_views.NOTE_MAX_CHARS,
+                                 f'这条历史文案超过上限，签名判据对它失效：{text[:20]}')
 
 
 class JsonEndpointNeverHtmxTest(SimpleTestCase):

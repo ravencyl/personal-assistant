@@ -42,6 +42,36 @@ PLACEHOLDER_REPLIES = {TURN_EMPTY_NOTE, TURN_CANCELLED_NOTE, TURN_TIMEOUT_NOTE,
                        TURN_INTERRUPTED_NOTE, PROTOCOL_TRUNCATED_NOTE,
                        TOOL_FAILURE_REPLY}
 
+# 已经写进过历史库、但后来改了词的文案（识别靠开头签名，改开头就得同时补一行）。
+LEGACY_NOTE_TEXTS = (
+    # 2026-09-07 改词前的截断提示（线上对话 15 / msg 70 就是这一版）
+    '这一步没有执行成功：我这条回复太长，写到一半被截断了，所以指令没收尾，'
+    '我也没有替你做任何改动。\n\n'
+    '换个更小的目标再来一次就行，比如先只存要点，或者让我分几次写。',
+)
+# 按整串相等判会漏：库里存的是当时的词，改了文案就再也对不上（实测踩过：
+# msg 70 被当成正文引用，用户依旧死在重试循环里）。改成只比开头若干字。
+NOTE_SIGNATURE_CHARS = 12
+# 但这些文案本质上是短提示，真可能有一句「恰好以它开头」的长正文：上限之外不算占位
+NOTE_MAX_CHARS = 200
+PLACEHOLDER_SIGNATURES = {(text or '').strip()[:NOTE_SIGNATURE_CHARS]
+                          for text in PLACEHOLDER_REPLIES | set(LEGACY_NOTE_TEXTS)}
+
+
+def _is_placeholder_reply(body):
+    """这条 assistant 消息是不是「不是正文」的历史/占位内容
+
+    残骸无长度上限（修复前的 msg 64 有 4075 字，它确实是垃圾）；占位文案则必须同时
+    满足「短」与「开头签名命中」，否则一句真的以「这一步没有执行成功」开头的长正文
+    会被吞掉引用（宁可多报一次错）。
+    """
+    if not body:
+        return True
+    if looks_like_protocol(body):
+        return True
+    return (len(body) <= NOTE_MAX_CHARS
+            and body[:NOTE_SIGNATURE_CHARS] in PLACEHOLDER_SIGNATURES)
+
 # 新建对话默认用哪个 Agent（按 purpose 选，不再“取最近更新的那个”）。
 # knowledge-agent 是用户在 Qoder 平台上手工配置过的那一个（version 6）：
 # 工具集含 WebSearch/WebFetch/ImageSearch 且 permission_policy=always_allow（联网工具
@@ -307,9 +337,11 @@ def _referenceable_reply(conversation):
     展开出来却是另一条」的静默错内容。宁可报错也不要存错东西，所以这里
     只按「是不是真正文」筛选，长度判断留给调用方。
     """
-    for msg in conversation.messages.filter(role='assistant').order_by('-created_at')[:10]:
+    # 次级按 id 兜底：同一微秒内的多条（重试、脚本灌数据）靠 created_at 排不出序
+    qs = conversation.messages.filter(role='assistant').order_by('-created_at', '-id')
+    for msg in qs[:10]:
         body = (msg.content or '').strip()
-        if body and body not in PLACEHOLDER_REPLIES and not looks_like_protocol(body):
+        if not _is_placeholder_reply(body):
             return msg
     return None
 
