@@ -15,7 +15,6 @@
     <style>
         body {
             min-height: 100%;
-            background: var(--bg-page) fixed;
             background-color: var(--bg);
             color: var(--text);
         }
@@ -27,7 +26,7 @@
     <link rel="icon" type="image/png" sizes="48x48" href="{% static 'icons/favicon-48.png' %}">
     {# iOS 加到主屏只认这个文件名，且必须方角铺满（系统会再罩一层 mask） #}
     <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
-    <meta name="theme-color" content="#d7d3f5">
+    <meta name="theme-color" content="#ffffff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="{{ SITE_NAME }}">
@@ -121,7 +120,7 @@
     {% if user.is_authenticated %}
     <!-- 移动端底部 Tab 栏（App 式导航，仅 <768px）：与顶栏一致只留一级模块；
          循环/模板的入口在活动页头部图标组，记忆使用频率低且不在手机上读，暂不占位 -->
-    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)] backdrop-blur pb-[env(safe-area-inset-bottom)]">
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)]/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
         <div class="grid grid-cols-5">
             <a href="/" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
@@ -747,7 +746,7 @@
     {% if user.is_authenticated %}
     <!-- 全局搜索面板（桌面导航栏「搜索」按钮打开）——外层 hidden md:block 限定仅桌面端渲染，内层 hidden 仍由 JS classList 控制 -->
     <div class="hidden md:block">
-    <div id="search-overlay" class="fixed inset-0 z-[60] hidden" style="background: rgba(76, 61, 128, 0.30); backdrop-filter: blur(4px);">
+    <div id="search-overlay" class="fixed inset-0 z-[60] hidden" style="background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);">
         <div class="mx-auto mt-[15vh] max-w-lg px-4">
             <div class="panel overflow-hidden bg-[var(--bg-card)]" style="border-radius: 1rem;">
                 <!-- 搜索输入 -->

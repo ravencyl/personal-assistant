@@ -1,19 +1,11 @@
 /* ============================================================
-   全站玻璃拟态设计系统（淡紫渐变底 · 毛玻璃块面 · 紫罗兰主色）
-   视觉基准：2026-09 全站改版参考图（毛玻璃卡片 + 紫色胶囊按钮）
+   全站极简设计系统（白底黑字 · 灰阶层级 · 内容为王）
    ============================================================
 
    【色彩规则】
-   - 页面底 = 淡紫→淡蓝紫→粉紫的固定渐变（--bg-page，不随滚动变化）
-   - 容器 = 白色半透明玻璃（--bg-card）+ backdrop-filter 模糊提饱和
-     + 白色高光细边（--glass-border）+ 柔和紫调投影（--shadow-card）
-   - 主色紫罗兰 #7c3aed：按钮、激活态、进行中状态、图表主色共用
-   - 文字三级（偏紫灰）：主 #241f3a / 次 #55506e / 辅 #8f8aa8
-
-   【玻璃层级】
-   - .app-card/.card：内容块面（页面内容按圆角块组织）
-   - .panel：交互浮层（输入区、浮窗、确认区），模糊更强
-   - 顶栏 / 移动端底部 Tab：条状玻璃（半透明 + 模糊）
+   - 背景纯白 #ffffff；正文黑 #18181b
+   - 灰阶四级：主 #18181b / 次 #52525b / 辅 #a1a1aa / 弱化 #d4d4d8
+   - 禁用彩色、渐变、彩色图标、阴影
 
    【字体层级】
    - 页面标题：text-2xl font-bold
@@ -31,17 +23,12 @@
    - 用留白替代分隔线
 
    【边框原则】
-   - 容器边界由玻璃层负责（.app-card/.card 的白色高光细边）
-   - 分隔线/输入框描边统一用 --border / --border-strong（紫灰半透明）
-   - 需要边界的交互区域统一使用 .panel 类（模糊更强的玻璃）
-
-   【灰阶工具类重映射】（全站唯一定义处，见文件末尾同名段）
-   - 历史模板里的 Tailwind zinc-* 类不逐个改名，由 CSS 等值重映射到本语言
-   - 新增模板代码仍优先写 var(--*) 变量类，不要再新增 zinc-* 硬编码
+   - 仅输入框、聊天浮窗面板、确认操作区保留 1px rgba(0,0,0,0.08) 边框
+   - 普通信息展示无容器、无边框（.app-card/.card 已改为透明无界）
+   - 需要边界的交互区域统一使用 .panel 类
 
    【状态映射】（唯一定义处 = 下方 --status-* 变量与四个工具类）
-   - 进行中 = 紫罗兰（主色），计划 = 灰紫，已完成 = 浅紫 + 紫字，
-     已取消 = 最浅紫灰 + 删除线
+   - 进行中 = 最深（黑），计划 = 中灰，已完成 = 浅灰，已取消 = 最浅灰 + 删除线
    - 模板只写 `.status-bg--{{ status }}`（圆点/色条/日历块）、
      `.status-fg--{{ status }}`（图标描边）、`.badge-status--{{ status }}`（徽章）、
      `.status-fg-on--{{ status }}`（色块上的文字色），
@@ -58,34 +45,25 @@
    ============================================================ */
 
 :root {
-    --accent: #7c3aed;
-    --accent-hover: #6d28d9;
-    --accent-light: rgba(124, 58, 237, 0.08);
-    /* 纯色兜底：既是渐变加载前的底色，也是「玻璃上的反白文字」色（登录按钮等） */
-    --bg: #f1effa;
-    /* 页面渐变底（base.html 内联 body 背景引用；fixed 保证滚动时不动） */
-    --bg-page: linear-gradient(135deg, #c9c5f1 0%, #d7d3f5 28%, #e4e1f9 52%, #eceafb 72%, #f2e7f5 100%);
-    /* 玻璃面板基色与三件套：高光细边 / 模糊度 / 柔和投影 */
-    --bg-card: rgba(255, 255, 255, 0.72);
-    --glass-border: rgba(255, 255, 255, 0.65);
-    --glass-blur: 18px;
-    --shadow-card: 0 8px 24px rgba(93, 76, 166, 0.10), 0 2px 8px rgba(93, 76, 166, 0.06);
-    --radius-card: 1.25rem;
-    --text: #241f3a;
-    --text-secondary: #55506e;
-    --text-muted: #8f8aa8;
-    /* 分隔线/输入框描边：紫灰半透明，在玻璃与渐变底上都可见 */
-    --border: rgba(93, 82, 145, 0.14);
-    --border-strong: rgba(93, 82, 145, 0.28);
+    --accent: #18181b;
+    --accent-hover: #000000;
+    --accent-light: #f4f4f5;
+    --bg: #ffffff;
+    --bg-card: #ffffff;
+    --text: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --border: rgba(0, 0, 0, 0.08);
+    --border-strong: rgba(0, 0, 0, 0.15);
 }
 
 /* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
    日历与图表靠 `var(--status-<status>)` 引用，不再各存一份 hex）*/
 :root {
-    --status-planned: #a49bc4;
-    --status-in_progress: #7c3aed;
-    --status-done: #ddd6fe;
-    --status-cancelled: #e7e4f2;
+    --status-planned: #a1a1aa;
+    --status-in_progress: #18181b;
+    --status-done: #d4d4d8;
+    --status-cancelled: #e4e4e7;
 }
 
 /* 背景用状态色：小圆点、顶部色条、日历色块 */
@@ -102,13 +80,12 @@
 
 /* 状态色块之上的文字色，与 .status-bg--* 成对使用（日历色块等）*/
 .status-fg-on--planned, .status-fg-on--in_progress { color: #ffffff; }
-.status-fg-on--done { color: #6d28d9; }
-.status-fg-on--cancelled { color: #8f8aa8; }
+.status-fg-on--done, .status-fg-on--cancelled { color: #71717a; }
 
 /* 状态徽章（搭配 _status_badge.html 的通用形状类使用）*/
-.badge-status--planned { background: rgba(255, 255, 255, 0.6); color: var(--text-secondary); }
+.badge-status--planned { background: #f4f4f5; color: #52525b; }
 .badge-status--in_progress { background: var(--status-in_progress); color: #ffffff; }
-.badge-status--done { background: #ede9fe; color: #6d28d9; }
+.badge-status--done { background: #fafafa; color: var(--text-muted); }
 .badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
 /* Pill 形按钮/输入框/徽章 */
@@ -123,34 +100,21 @@ input[type="date"] {
     border-radius: 0.5rem;
 }
 
-/* 卡片：内容块面 —— 页面内容按圆角玻璃块组织（参考图的白卡观感）。
-   backdrop-filter 让渐变底透出来形成毛玻璃层次；投影只求「浮起」不求立体。 */
+/* 卡片：透明无界——普通展示内容不再有容器感 */
 .app-card, .card {
-    background: var(--bg-card);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-card);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
 }
 
-/* 面板：交互浮层（输入区/浮窗/确认区），模糊更强、圆角略小 */
+/* 面板：唯一带边界的类，供输入区/浮窗/确认区使用 */
 .panel {
-    background: var(--bg-card);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    backdrop-filter: blur(24px) saturate(1.4);
-    border: 1px solid var(--glass-border);
-    border-radius: 1rem;
-    box-shadow: var(--shadow-card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
 }
 
-/* 条状玻璃：顶栏与移动端底部 Tab（半透明 + 模糊的横条） */
-nav {
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
-}
-
-/* 主按钮（紫底白字，主色唯一定义在 --accent） */
+/* 主按钮（黑底白字，与新风格兼容） */
 .btn-accent {
     background-color: var(--accent) !important;
     color: white !important;
@@ -224,8 +188,8 @@ a {
 
 /* Markdown content */
 .markdown-content pre {
-    background-color: #2b2550;
-    color: #ece9fb;
+    background-color: #1f2937;
+    color: #e5e7eb;
     padding: 1rem;
     border-radius: 0.75rem;
     overflow-x: auto;
@@ -511,12 +475,10 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     max-height: 14rem;
     overflow-y: auto;
     padding: 0.25rem;
-    border: 1px solid var(--glass-border);
-    border-radius: 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.5rem;
     background: var(--bg-card);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    backdrop-filter: blur(24px) saturate(1.4);
-    box-shadow: var(--shadow-card);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 .pin-item {
@@ -668,50 +630,3 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
         overflow-wrap: anywhere;
     }
 }
-
-/* ===== 灰阶工具类 → 玻璃语言等值重映射（全站唯一定义处） =====
-   历史模板里约 300 处 Tailwind zinc-* 类不逐个改名：这里用 body 前缀
-   （特异度 0-1-1）压过运行时构建生成的单类规则（0-1-0，样式签在运行时
-   才追加到 head 末尾，靠源码顺序赢不了，必须靠特异度）。
-   [class~="..."] 只按整词匹配完整类名，不会误伤 hover:bg-zinc-* 这类
-   带前缀的变体 —— 变体单独列出。新增模板代码请直接写 var(--*) 变量类，
-   不要再新增 zinc-* 硬编码。 */
-
-/* 底色：白/浅灰 → 玻璃白；深灰（主按钮/进行中） → 紫罗兰 */
-body [class~="bg-zinc-50"] { background-color: rgba(255, 255, 255, 0.55); }
-body [class~="bg-zinc-100"] { background-color: rgba(255, 255, 255, 0.7); }
-body [class~="bg-zinc-200"] { background-color: rgba(255, 255, 255, 0.85); }
-body [class~="bg-zinc-300"] { background-color: var(--status-done); }
-body [class~="bg-zinc-400"] { background-color: #a99bd8; }
-body [class~="bg-zinc-500"] { background-color: var(--status-planned); }
-body [class~="bg-zinc-700"] { background-color: #4a4370; }
-body [class~="bg-zinc-900"] { background-color: var(--accent); }
-body [class~="hover:bg-zinc-50"]:hover,
-body [class~="hover:bg-zinc-100"]:hover,
-body [class~="hover:bg-zinc-200"]:hover { background-color: rgba(255, 255, 255, 0.6); }
-body [class~="hover:bg-zinc-700"]:hover { background-color: #3d3660; }
-body [class~="hover:bg-black"]:hover { background-color: var(--accent-hover); }
-
-/* 文字色：深灰 → 主/次文字，中灰 → 次文字，浅灰 → 辅助文字 */
-body [class~="text-zinc-900"], body [class~="text-zinc-800"] { color: var(--text); }
-body [class~="text-zinc-700"], body [class~="text-zinc-600"],
-body [class~="text-zinc-500"] { color: var(--text-secondary); }
-body [class~="text-zinc-400"] { color: var(--text-muted); }
-body [class~="text-zinc-300"] { color: #b9b3d0; }
-body [class~="hover:text-zinc-900"]:hover,
-body [class~="hover:text-zinc-800"]:hover { color: var(--text); }
-body [class~="hover:text-zinc-600"]:hover,
-body [class~="hover:text-zinc-700"]:hover { color: var(--text-secondary); }
-
-/* 边框/描边/焦点环：浅灰 → 玻璃细边或紫灰描边，深灰 → 主色 */
-body [class~="border-zinc-100"] { border-color: var(--glass-border); }
-body [class~="border-zinc-200"] { border-color: var(--border); }
-body [class~="border-zinc-300"], body [class~="border-zinc-400"] { border-color: var(--border-strong); }
-body [class~="border-zinc-500"] { border-color: rgba(93, 82, 145, 0.45); }
-body [class~="border-zinc-900"] { border-color: var(--accent); }
-body [class~="hover:border-zinc-900"]:hover { border-color: var(--accent-hover); }
-body [class~="focus:border-zinc-400"]:focus,
-body [class~="focus:border-zinc-500"]:focus { border-color: var(--border-strong); }
-body [class~="focus:border-zinc-900"]:focus { border-color: var(--accent); }
-body [class~="focus:ring-zinc-500"]:focus { --tw-ring-color: #8b7fc0; }
-body [class~="focus:ring-zinc-900"]:focus { --tw-ring-color: var(--accent); }
