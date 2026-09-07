@@ -14,8 +14,10 @@ from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      TURN_IDLE_GRACE_SECONDS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
-from core.agent_registry import (PROTOCOL_REF_REMINDER, REF_REMINDER_MIN_CHARS,
-                                 build_protocol_prompt, get_tool,
+from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
+                                 REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
+                                 build_protocol_prompt,
+                                 looks_like_protocol, get_tool,
                                  make_action_token, orchestrator)
 from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_child,
                         json_login_required)
@@ -33,6 +35,12 @@ TURN_EMPTY_NOTE = '（AI 这轮没有返回内容，可能已超时。可以再�
 TURN_CANCELLED_NOTE = '（已停止这一轮的回答。）'
 TURN_TIMEOUT_NOTE = f'这轮超过 {TURN_TTL_SECONDS} 秒还没回完，已停止等待。'
 TURN_INTERRUPTED_NOTE = '上一轮没有完成，可以再问一次。'
+
+# 不是「正文」的 assistant 消息：占位文案 + 修复前落库的协议残骸。它们不能参与
+# $LAST_REPLY 的取值，也不能用来判断本轮有没有东西可引用（见 _referenceable_reply）。
+PLACEHOLDER_REPLIES = {TURN_EMPTY_NOTE, TURN_CANCELLED_NOTE, TURN_TIMEOUT_NOTE,
+                       TURN_INTERRUPTED_NOTE, PROTOCOL_TRUNCATED_NOTE,
+                       TOOL_FAILURE_REPLY}
 
 # 新建对话默认用哪个 Agent（按 purpose 选，不再“取最近更新的那个”）。
 # knowledge-agent 是用户在 Qoder 平台上手工配置过的那一个（version 6）：
@@ -287,6 +295,25 @@ def _turn_response(request, conversation, payload, status=200):
     return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
 
 
+def _referenceable_reply(conversation):
+    """最近一条「真正给用户看过的正文」assistant 消息，没有则 None
+
+    必须跳过占位文案与协议残骸：否则一次失败就会把重试永久锁死——线上对话 15
+    实际形状是〈长正文→残骸→失败文案〉，按「字面上一条」取会拿到 80 字的
+    「这一步没有执行成功」：既不够 800 字（补发不触发），一旦被当成 $LAST_REPLY
+    展开还会把失败文案存成知识文章（比截断更糟）。
+
+    补发判据和引用池必须用这一个函数：两者不一致会出现「提醒用 $LAST_REPLY，
+    展开出来却是另一条」的静默错内容。宁可报错也不要存错东西，所以这里
+    只按「是不是真正文」筛选，长度判断留给调用方。
+    """
+    for msg in conversation.messages.filter(role='assistant').order_by('-created_at')[:10]:
+        body = (msg.content or '').strip()
+        if body and body not in PLACEHOLDER_REPLIES and not looks_like_protocol(body):
+            return msg
+    return None
+
+
 def _build_ai_content(request, conversation, content):
     """组装真正发给 Qoder 的文本：页面上下文 + 知识库注入 + 用户原文
 
@@ -308,8 +335,7 @@ def _build_ai_content(request, conversation, content):
         # 引用规则的补发（协议规则 10）：首帧只在建对话时下发一次，存量 session 根
         # 本没这句话，模型会继续把长正文重抄进 params.content 直到被长度上限截断。
         # 只在上一条回复足够长（= 有东西可抄）时递一行，不必每轮制造噪声。
-        prev_reply = conversation.messages.filter(
-            role='assistant').order_by('-created_at').first()
+        prev_reply = _referenceable_reply(conversation)
         if prev_reply and len(prev_reply.content) >= REF_REMINDER_MIN_CHARS:
             ai_content = PROTOCOL_REF_REMINDER + ai_content
     except Exception as exc:
@@ -585,8 +611,9 @@ def _finalize_turn(conversation, assistant_text, note=None):
     text = assistant_text or (note or TURN_EMPTY_NOTE)
     # 引用池（协议规则 10）：让模型用 "$LAST_REPLY" 引用上一轮正文，而不必把几千字
     # 重抄一遍——重抄会撞上平台单条回复长度上限，整条指令被截断后静默失败。
-    # 此时本轮的 assistant 消息还没落库，所以 filter 到的就是上一条真正给用户看过的回复。
-    prev_assistant = conversation.messages.filter(role='assistant').order_by('-created_at').first()
+    # 此时本轮的 assistant 消息还没落库，所以取到的就是上一条真正给用户看过的回复
+    # （跳过失败文案与残骸，否则一次失败会把后续重试全部锁死）。
+    prev_assistant = _referenceable_reply(conversation)
     refs = {
         'LAST_REPLY': prev_assistant.content if prev_assistant else '',
         'LAST_USER': conversation.turn_message.content if conversation.turn_message else '',

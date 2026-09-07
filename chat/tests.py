@@ -1982,6 +1982,86 @@ class StaleSessionReferenceReminderTest(TestCase):
         self.assertEqual(params['content'], 'B')
 
 
+class RetryAfterFailureReferenceTest(TestCase):
+    """行为锁：一次失败不得把后续重试永久锁死（三次故障的真实形状）
+
+    线上对话 15 的历史是〈长正文 → 协议残骸 → 失败文案〉。补发判据和引用池原本
+    都取「字面上的上一条 assistant」，拿到的是 80 字的「这一步没有执行成功」：
+    既不够 REF_REMINDER_MIN_CHARS（规则又不发了，模型继续重抄→再截断），一旦被
+    展开还会把失败文案存成知识文章。用户在这个对话里点多少次都是死循环。
+    """
+
+    def setUp(self):
+        from django.test.client import RequestFactory
+        from knowledge.models import Article
+        self.Article = Article
+        self.req = RequestFactory().post('/', {})
+        self.user = User.objects.create_user('retry', password='x')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_retry')
+        self.long_body = ARTICLE_BODY * 30
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=self.long_body)
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=PROTOCOL_TRUNCATED_NOTE)
+        self.conv.turn_message = Message.objects.create(
+            conversation=self.conv, role='user', content='把这份方案存进知识库')
+
+    def _build(self):
+        return chat_views._build_ai_content(self.req, self.conv, '把这份方案存进知识库')
+
+    def _store(self, title, extra=''):
+        return chat_views._finalize_turn(
+            self.conv, '{"intent":"knowledge_create","params":{"title":"%s",'
+                       '"content":"$LAST_REPLY"%s},"reply":"好"}' % (title, extra))
+
+    def test_retry_still_gets_the_rule_after_a_failure_note(self):
+        self.assertTrue(self._build().startswith(PROTOCOL_REF_REMINDER),
+                        '上一条是失败文案就判定「没东西可抄」，重试永远收不到规则')
+
+    def test_retry_references_the_body_not_the_failure_note(self):
+        _, changed = self._store('四周独处训练方案')
+        article = self.Article.objects.get(title='四周独处训练方案')
+        self.assertEqual(article.content, self.long_body, '引用展开成了失败文案')
+        self.assertNotIn('这一步没有执行成功', article.content)
+        self.assertNotIn('$LAST_REPLY', article.content)
+        self.assertTrue(changed)
+
+    def test_protocol_residue_in_history_is_skipped_too(self):
+        """修复前落库的那类残骸（对话 15 msg 64）也算脏历史，不能当正文引用"""
+        Message.objects.create(conversation=self.conv, role='assistant',
+                               content=TRUNCATED_PROTOCOL)
+        self._store('残骸后面')
+        self.assertEqual(self.Article.objects.get(title='残骸后面').content,
+                         self.long_body)
+
+    def test_short_confirmation_never_borrows_an_older_long_body(self):
+        """反向锁（安全性）：只取真正的上一条正文，绝不跨过它去拿更老的长文
+
+        否则「把刚才那段话存一下」这类短目标会被静默写成一篇旧长文——存错内容
+        比报错糟得多。宁可像旧行为那样失败，也不能偷换内容。
+        """
+        confirm = '已存入知识库：《四周独处训练方案》'
+        Message.objects.create(conversation=self.conv, role='assistant', content=confirm)
+        self.assertNotIn(PROTOCOL_REF_REMINDER, self._build())
+        self._store('短')
+        self.assertEqual(self.Article.objects.get(title='短').content, confirm)
+
+    def test_placeholder_registry_covers_every_note_defined(self):
+        """机检：新增任何 *_NOTE / *_REPLY 文案常量都必须登记进 PLACEHOLDER_REPLIES
+
+        漏登记的后果是静默的：那条文案会被当成「上一条正文」引用出去，或直接
+        让补发判据失准，而且只在特定历史形状下才响。
+        """
+        import core.agent_registry as registry
+        defined = {v for k, v in vars(chat_views).items()
+                   if k.endswith(('_NOTE', '_REPLY')) and isinstance(v, str)}
+        defined |= {v for k, v in vars(registry).items()
+                    if k.endswith(('_NOTE', '_REPLY')) and isinstance(v, str)}
+        self.assertTrue(defined, '两个模块都没扫到文案常量，这条锁在空跑')
+        missing = defined - set(chat_views.PLACEHOLDER_REPLIES)
+        self.assertEqual(missing, set(), f'这些占位文案没登记，会被当成正文引用：{missing}')
+
+
 class JsonEndpointNeverHtmxTest(SimpleTestCase):
     """静态锁：返回 JSON 的端点不得被任何 hx-* 引用
 

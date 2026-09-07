@@ -61,8 +61,13 @@ INTENT_TOOL_MAP = {
 PROTOCOL_TRUNCATED_NOTE = (
     '这一步没有执行成功：我这条回复太长，写到一半被截断了，所以指令没收尾，'
     '我也没有替你做任何改动。\n\n'
-    '换个更小的目标再来一次就行，比如先只存要点，或者让我分几次写。'
+    '上面那份内容我这边还留着，你再说一次要做什么就行（比如「存进知识库」），'
+    '不用让我重写一遍。'
 )
+
+# 工具执行炸了（非业务异常）时的兜底文案。也是会落库成 assistant 消息的占位话，
+# 「上一条回复」取引用时要认得它——见 chat/views.py 的 _referenceable_reply。
+TOOL_FAILURE_REPLY = '操作失败，请稍后重试。'
 
 # 意图键的位置不固定，但协议要求 JSON 以 { 开头，所以只从前缀判协议、意图名单独抠
 _PROTOCOL_INTENT = re.compile(r'"intent"\s*:\s*"([\w.]+)"')
@@ -330,7 +335,7 @@ class ChatOrchestrator:
             return f'{reply}\n\n⚠️ {e}'.strip(), None, False
         except Exception as e:
             logger.error(f'Agent 工具 {tool_name} 执行失败: {e}')
-            return reply or '操作失败，请稍后重试。', None, False
+            return reply or TOOL_FAILURE_REPLY, None, False
 
         payload = None
         if result.get('card'):
