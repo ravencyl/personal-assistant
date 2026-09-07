@@ -330,6 +330,9 @@ def activity_list(request):
 
     return render(request, 'activities/activity_list.html', {
         'activities': rows,
+        # 弹窗用的空白表单与 chips 联想数据（字段 partial 与独立创建页共用同一模板）
+        'form': ActivityForm(user=request.user),
+        'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
         'greeting': greeting,
         'today_display': today_display,
         'ongoing_count': ongoing_count,
@@ -479,7 +482,19 @@ def activity_create(request):
                 log_activity(request.user, child, 'created', f'随父活动「{activity.name}」一并创建')
             messages.success(request, f'活动「{activity.name}」已创建'
                            + (f'，已记入费用 ¥{expense.amount}' if expense else ''))
+            # 列表页弹窗提交（fetch 带 HX-Request 头）：回 JSON 由前端跳转；独立页路径保持 302 不变
+            if request.htmx:
+                return JsonResponse({'ok': True,
+                                     'redirect': reverse('activities:activity_detail', args=[activity.id])})
             return redirect('activities:activity_detail', activity.id)
+        if request.htmx:
+            # 弹窗提交校验失败：重渲染弹窗表单体（同一份 ActivityForm 校验，仅换呈现容器），
+            # 以 422 让前端区分「校验不过」与「创建成功」
+            return render(request, 'activities/_activity_form_modal_body.html', {
+                'form': form,
+                'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
+                'all_tags': _user_tag_names(request.user),
+            }, status=422)
     else:
         form = ActivityForm(user=request.user)
 

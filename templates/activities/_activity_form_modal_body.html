@@ -1,0 +1,9 @@
+{# 新建活动弹窗表单体：校验失败时视图以 422 重渲染本模板由前端 fetch 换入 create-modal-body，json_script 随片段换入、chips 由 PaActivityForm.initWidgets 重新挂载 #}
+{% if form.non_field_errors %}
+<div class="mb-4 rounded-md bg-zinc-50 border border-zinc-200 p-3 text-sm text-zinc-800">
+    错误：{{ form.non_field_errors }}
+</div>
+{% endif %}
+{% include "activities/_activity_form_fields.html" with hide_parent=1 %}
+{{ all_participants|json_script:"participant-options" }}
+{{ all_tags|json_script:"tag-options" }}

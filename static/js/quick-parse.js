@@ -55,7 +55,7 @@
      *   parseUrl, submitUrl                                                           —— 必填端点
      *   confirmText    确认按钮空闲文案（默认「确认创建」）
      *   createdLabel   成功提示前缀（默认「已创建」，子任务页传「已创建子任务」）
-     *   editBtn, editUrl                                                              —— 可选「编辑详情」跳转
+     *   editBtn, editUrl              可选「编辑详情」跳转（存草稿后跳表单页）；传 onEdit 则就地回调（弹窗内填入表单）
      * }
      */
     function init(opts) {
@@ -137,11 +137,16 @@
             closeBtn.addEventListener('click', function () { hidePreview(); hideError(); parsed = null; });
         }
 
-        // 「编辑详情」：携带解析结果跳转完整表单页（由创建页读取填充）
-        if (editBtn && opts.editUrl) {
+        // 「编辑详情」：默认携带解析结果跳转完整表单页；传 onEdit 时就地消费（弹窗内填入表单）
+        if (editBtn && (opts.onEdit || opts.editUrl)) {
             editBtn.addEventListener('click', function () {
                 if (!parsed) return;
-                sessionStorage.setItem('quickInputDraft', JSON.stringify(parsed));
+                var d = parsed;
+                hidePreview();
+                hideError();
+                parsed = null;
+                if (opts.onEdit) { opts.onEdit(d); return; }
+                sessionStorage.setItem('quickInputDraft', JSON.stringify(d));
                 window.location.href = opts.editUrl;
             });
         }

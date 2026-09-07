@@ -655,9 +655,17 @@ class QuickParseWiringTest(TestCase):
         self._assert_wired(html, 'PaQuickParse.init(')
 
     def test_form_page_reuses_parse_channel(self):
-        """创建页只做「解析 → 回填表单」，共用 fetch 通道但不自己拼 CSRF"""
+        """创建页只做「解析 → 回填表单」：解析逻辑在共用脚本 activity-form.js，不自己拼 CSRF"""
         html = self.client.get(reverse('activities:activity_create')).content.decode()
-        self._assert_wired(html, 'PaQuickParse.parse(', check_ids=False)
+        self.assertIn('js/quick-parse.js', html, '共用模块未加载')
+        self.assertIn('js/activity-form.js', html, '表单组件脚本未加载')
+        # 普通 <script src> 必须按依赖顺序加载（activity-form.js 的解析调用依赖 PaQuickParse）
+        self.assertLess(html.index('js/quick-parse.js'), html.index('js/activity-form.js'),
+                        '共用模块必须在表单组件脚本之前加载')
+        js = (Path(__file__).resolve().parent.parent
+              / 'static' / 'js' / 'activity-form.js').read_text(encoding='utf-8')
+        self.assertIn('PaQuickParse.parse(', js, '表单组件未复用共用解析通道')
+        self.assertNotIn('function getCookie', js, '表单组件仍在自己解析 cookie 取 CSRF')
         self.assertNotIn('function getCookie', html, '页面仍在自己解析 cookie 取 CSRF')
 
 
