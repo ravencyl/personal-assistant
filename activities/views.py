@@ -19,7 +19,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from .forms import ActivityForm
-from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplate, RecurringActivity, Attachment
+from .models import Activity, Participant, ActivityLog, Expense, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity,
@@ -28,7 +28,7 @@ from .utils import (edit_summary, filter_activities, get_filter_params, log_acti
 from .services import (InputError, add_expense, clean_amount, clean_category,
                        clean_paid_at, create_activity_from_parsed,
                        start_due_activities)
-from core.utils import (visible_qs, get_visible, get_visible_or_json, wants_json,
+from core.utils import (visible_qs, get_visible, wants_json,
                         used_tag_names, week_monday, pct_change, daily_totals,
                         pending_reminders, WEEKDAY_LABELS, WEEKDAY_SHORT)
 from core.ai import ai_round_trip, extract_json_dict
@@ -1111,123 +1111,6 @@ def daily_view(request):
 
 
 @login_required
-def template_list(request):
-    """模板列表页面"""
-    templates = visible_qs(ActivityTemplate, request.user)
-    return render(request, 'activities/template_list.html', {
-        'templates': templates,
-    })
-
-
-@login_required
-@require_POST
-def template_create(request):
-    """创建新模板（JSON 请求）"""
-    try:
-        data = json.loads(request.body or '{}')
-    except ValueError:
-        return JsonResponse({'error': '请求数据格式错误'}, status=400)
-    
-    name = (data.get('name') or '').strip()
-    if not name:
-        return JsonResponse({'error': '模板名称不能为空'}, status=400)
-    
-    description = (data.get('description') or '').strip()
-    default_children = data.get('default_children', [])
-    default_tags = data.get('default_tags', [])
-    
-    # 验证子任务格式
-    if not isinstance(default_children, list):
-        return JsonResponse({'error': '子任务格式错误'}, status=400)
-    
-    template = ActivityTemplate.objects.create(
-        user=request.user,
-        name=name,
-        description=description,
-        default_children=default_children,
-        default_tags=default_tags,
-    )
-    
-    return JsonResponse({
-        'id': template.id,
-        'name': template.name,
-        'description': template.description,
-        'default_children': template.default_children,
-        'default_tags': template.default_tags,
-    })
-
-
-@login_required
-@require_POST
-def template_delete(request, template_id):
-    """删除模板"""
-    template, resp = get_visible_or_json(
-        ActivityTemplate, request.user, message='模板不存在', id=template_id)
-    if resp is not None:
-        return resp
-
-    template.delete()
-    return JsonResponse({'ok': True})
-
-
-@login_required
-@require_POST
-def activity_from_template(request, template_id):
-    """从模板创建活动（含预设子任务 + 标签）"""
-    template, resp = get_visible_or_json(
-        ActivityTemplate, request.user, message='模板不存在', id=template_id)
-    if resp is not None:
-        return resp
-    
-    try:
-        data = json.loads(request.body or '{}')
-    except ValueError:
-        return JsonResponse({'error': '请求数据格式错误'}, status=400)
-    
-    # 活动名称：用户输入优先，否则用模板名
-    name = (data.get('name') or template.name).strip()
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    
-    # 创建主活动
-    activity = Activity.objects.create(
-        user=request.user,
-        name=name,
-        description=template.description,
-        start_date=start_date,
-        end_date=end_date,
-        status='planned',
-    )
-    
-    # 添加预设标签
-    if template.default_tags:
-        activity.tags.add(*template.default_tags)
-    
-    # 创建预设子任务
-    children = []
-    for child_data in template.default_children:
-        child_name = (child_data.get('name') or '').strip()
-        if child_name:
-            child = Activity.objects.create(
-                user=request.user,
-                name=child_name,
-                parent=activity,
-                status='planned',
-            )
-            children.append(child)
-            log_activity(request.user, child, 'created', f'从模板「{template.name}」创建')
-    
-    log_activity(request.user, activity, 'created', f'从模板「{template.name}」创建')
-    
-    return JsonResponse({
-        'id': activity.id,
-        'name': activity.name,
-        'url': reverse('activities:activity_detail', args=[activity.id]),
-        'children_count': len(children),
-    })
-
-
-@login_required
 def expense_chart_data(request):
     """费用图表数据 API"""
     from django.db.models.functions import TruncMonth
@@ -1436,62 +1319,6 @@ def expense_report(request):
         'this_week_total': float(this_week_total),
         'month_change': pct_change(this_month_f, last_month_f),
     })
-
-
-@login_required
-def recurring_list(request):
-    """循环活动列表"""
-    recurring = RecurringActivity.objects.filter(user=request.user)
-    return render(request, 'activities/recurring_list.html', {
-        'recurring': recurring,
-    })
-
-
-@login_required
-@require_POST
-def recurring_create(request):
-    """创建循环活动"""
-    name = (request.POST.get('name') or '').strip()
-    if not name:
-        messages.error(request, '习惯名称不能为空')
-        return redirect('activities:recurring_list')
-    
-    frequency = request.POST.get('frequency', 'daily')
-    day_of_week = request.POST.get('day_of_week')
-    day_of_month = request.POST.get('day_of_month')
-    
-    recurring = RecurringActivity.objects.create(
-        user=request.user,
-        name=name,
-        frequency=frequency,
-        day_of_week=int(day_of_week) if day_of_week else None,
-        day_of_month=int(day_of_month) if day_of_month else None,
-    )
-    messages.success(request, f'循环活动「{name}」已创建')
-    return redirect('activities:recurring_list')
-
-
-@login_required
-@require_POST
-def recurring_delete(request, pk):
-    """删除循环活动"""
-    recurring = get_object_or_404(RecurringActivity, pk=pk, user=request.user)
-    name = recurring.name
-    recurring.delete()
-    messages.success(request, f'循环活动「{name}」已删除')
-    return redirect('activities:recurring_list')
-
-
-@login_required
-@require_POST
-def recurring_toggle(request, pk):
-    """切换启用/暂停"""
-    recurring = get_object_or_404(RecurringActivity, pk=pk, user=request.user)
-    recurring.is_active = not recurring.is_active
-    recurring.save(update_fields=['is_active', 'updated_at'])
-    status_text = '启用' if recurring.is_active else '暂停'
-    messages.success(request, f'「{recurring.name}」已{status_text}')
-    return redirect('activities:recurring_list')
 
 
 @login_required

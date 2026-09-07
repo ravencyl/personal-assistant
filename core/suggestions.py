@@ -569,11 +569,11 @@ def invalidate_suggestions_cache(sender, instance, **kwargs):
 def connect_invalidation_signals():
     """挂载建议缓存失效信号（由 CoreConfig.ready 调用，不得在 import 期执行）"""
     from django.db.models.signals import post_save, post_delete
-    from activities.models import Activity, Expense, RecurringActivity
+    from activities.models import Activity, Expense
     from core.models import Reminder
     from knowledge.models import Article
 
-    for model in (Activity, Expense, RecurringActivity, Reminder, Article):
+    for model in (Activity, Expense, Reminder, Article):
         post_save.connect(
             invalidate_suggestions_cache, sender=model,
             dispatch_uid=f'suggestions_invalidate_save_{model.__name__}',
@@ -590,7 +590,7 @@ def connect_invalidation_signals():
 # ────────────────────────────────────────────────
 
 def generate_daily_plan(user):
-    """生成 Daily 页「打卡与提醒」结构化数据（纯规则，零 AI）
+    """生成 Daily 页「提醒与子任务」结构化数据（纯规则，零 AI）
 
     只放下面活动卡片区覆盖不到的三类信息；今日发生的活动本身不在此列出，
     避免与 daily_view 的「今日进行中」卡片重复（同一活动上下各出现一次）。

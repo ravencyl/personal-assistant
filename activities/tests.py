@@ -19,7 +19,7 @@ from django.utils import timezone
 from django.db.models import Sum
 
 from activities.models import (Activity, ActivityLog, Attachment, Expense, Participant,
-                               ActivityTemplate, RecurringActivity)
+)
 from core.models import Reminder
 from notes.models import Note
 from activities.parsing import parse_quick_input
@@ -840,42 +840,6 @@ class DailyBucketSingleDefinitionTest(TestCase):
         self.assertEqual(reason, 'bucket')
 
 
-class TemplateVisibilityTest(TestCase):
-    """模板 JSON 端点走统一可见性口径（M8）：不再各自手写 filter().first() + 404"""
-
-    def setUp(self):
-        self.owner = User.objects.create_user('owner', password='p')
-        self.client = Client()
-        self.template = ActivityTemplate.objects.create(
-            user=self.owner, name='周末outing', default_children=[])
-
-    def test_superuser_can_delete_other_users_template(self):
-        admin = User.objects.create_superuser('root', password='p')
-        self.client.login(username='root', password='p')
-        resp = self.client.post(
-            reverse('activities:template_delete', args=[self.template.id]))
-        self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertFalse(ActivityTemplate.objects.filter(id=self.template.id).exists())
-
-    def test_other_user_gets_404_json(self):
-        User.objects.create_user('stranger', password='p')
-        self.client.login(username='stranger', password='p')
-        resp = self.client.post(
-            reverse('activities:template_delete', args=[self.template.id]))
-        self.assertEqual(resp.status_code, 404)
-        self.assertIn('error', json.loads(resp.content))
-        self.assertTrue(ActivityTemplate.objects.filter(id=self.template.id).exists())
-
-    def test_superuser_can_instantiate_other_users_template(self):
-        admin = User.objects.create_superuser('root', password='p')
-        self.client.login(username='root', password='p')
-        resp = self.client.post(
-            reverse('activities:activity_from_template', args=[self.template.id]),
-            data=json.dumps({'name': '本周 outing'}),
-            content_type='application/json')
-        self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertTrue(Activity.objects.filter(user=admin, name='本周 outing').exists())
-
 
 class WritePathServiceTest(TestCase):
     """M1 写路径收敛：创建与记费用只留 services 一份实现
@@ -1507,55 +1471,3 @@ class ExpenseReportDesktopLayoutTest(TestCase):
                           f'{canvas} 的定高容器丢了，图会无限长高')
 
 
-class TemplateListDesktopLayoutTest(TestCase):
-    """活动模板页桌面两列布局回归锁（长表单留左列，右列放模板数与用法）"""
-    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'template_list.html'
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.client = Client()
-        self.client.login(username='raven', password='test')
-        ActivityTemplate.objects.create(user=self.user, name='出差模板',
-                                        description='含机票酒店')
-        self.html = self.client.get('/activities/templates/').content.decode()
-
-    def test_desktop_two_columns(self):
-        assert_desktop_two_columns(
-            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
-            left=[('id="template-create-form"', '新建模板表单'), ('我的模板', '模板列表区'),
-                  ('出差模板', '模板卡')],
-            right=[('模板用法', '用法卡标题'), ('共 1 个模板', '模板计数')],
-            mobile_order=['id="template-create-form"', '我的模板', '模板用法'])
-
-    def test_template_modal_is_outside_the_columns(self):
-        """弹窗是 fixed 定位的整页级元素，不该被塞进列容器（塞了会被 sticky 列裁掉）"""
-        html = self.html
-        self.assertGreater(html.index('id="use-template-modal"'),
-                           html.index('</div><!-- /.page-cols -->'),
-                           '弹窗应留在两列区之外')
-
-
-class RecurringListDesktopLayoutTest(TestCase):
-    """循环活动页桌面两列布局回归锁
-
-    右列 = 习惯概览（辅助信息），左列 = 新建表单 + 我的习惯。
-    右列排在主内容流之后，所以移动端顺序逐块不变；
-    概览卡是无条件渲染的，没实例时右列也不能空着。
-    """
-    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'recurring_list.html'
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.client = Client()
-        self.client.login(username='raven', password='test')
-        RecurringActivity.objects.create(user=self.user, name='晨读',
-                                         frequency='daily', is_active=True)
-        self.html = self.client.get('/activities/recurring/').content.decode()
-
-    def test_desktop_two_columns(self):
-        assert_desktop_two_columns(
-            self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
-            left=[('新建循环活动', '创建表单'),
-                  ('id="frequency-select"', '频率选择器'), ('我的习惯', '习惯列表')],
-            right=[('习惯概览', '概览卡')],
-            mobile_order=['新建循环活动', '我的习惯', '习惯概览'])

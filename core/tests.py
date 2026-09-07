@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from django.test import (TestCase, Client, RequestFactory, SimpleTestCase,
                      override_settings)
 from django.urls import reverse
-from activities.models import Activity, Expense, RecurringActivity
+from activities.models import Activity, Expense
 from knowledge.models import Article
 from notes.models import Note
 from chat.models import Conversation, Message
@@ -1649,8 +1649,7 @@ class PrimaryNavTest(TestCase):
     DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
     # 移动底栏：比顶栏少「记忆」（用户定的口径 —— 手机上不读记忆，使用频率也不占位）
     MOBILE = ['今日', '活动', '对话', '备忘', '知识']
-    # 已合并进「活动记录」的入口，不得再出现在全局导航里
-    MERGED_AWAY = ['activities:template_list', 'activities:recurring_list']
+    # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
 
     def _base(self):
         return (self.TEMPLATES / 'base.html').read_text(encoding='utf-8')
@@ -1692,21 +1691,6 @@ class PrimaryNavTest(TestCase):
         cols = int(re.search(r'grid grid-cols-(\d+)', block).group(1))
         self.assertEqual(cols, len(self._labels(block)),
                          '底栏列数与条目数不一致：会有空格或换行')
-
-    def test_merged_away_entries_stay_out_of_the_global_nav(self):
-        for name in self.MERGED_AWAY:
-            self.assertNotIn(name, self._base(),
-                             f'{name} 又回到全局导航了 —— 它的入口在活动记录页头部')
-
-    def test_activity_list_still_holds_the_merged_entries(self):
-        """合并的另一半：活动记录页必须仍然挂着模板/循环入口
-
-        导航撤掉的前提是「那里进得去」。哪天有人觉得活动页按钮太多给删了，
-        这两个页面就直接变成只有 URL 能到的孤儿页。
-        """
-        src = (self.TEMPLATES / 'activities' / 'activity_list.html').read_text(encoding='utf-8')
-        for name in self.MERGED_AWAY:
-            self.assertIn(name, src, f'活动记录页丢了 {name} 入口')
 
 
 class ServiceWorkerTest(TestCase):
@@ -1971,8 +1955,7 @@ class DesktopLayoutCoverageTest(TestCase):
     TWO_COLUMN = [
         'activities/daily.html', 'activities/activity_detail.html',
         'core/dashboard.html', 'core/weekly_report.html',
-        'activities/expense_report.html', 'activities/template_list.html',
-        'activities/recurring_list.html',
+        'activities/expense_report.html',
         'knowledge/article_list.html', 'knowledge/article_detail.html',
         'notes/note_list.html', 'memory/memory_list.html',
     ]

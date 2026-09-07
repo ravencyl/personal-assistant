@@ -51,24 +51,6 @@ def get_visible_child(model, user, parent_lookup, **kwargs):
     return get_object_or_404(visible_child_qs(model, user, parent_lookup), **kwargs)
 
 
-def get_visible_or_json(model, user, message='对象不存在或已删除', **kwargs):
-    """get_visible 的 JSON 端点版：不可见时返回 JsonResponse(404) 而不是抛 Http404
-
-    返回 (obj, None) 或 (None, response)：
-        template, resp = get_visible_or_json(ActivityTemplate, request.user, id=pk)
-        if resp is not None:
-            return resp
-    存在意义是让“需要 JSON 错误体”的端点也能复用同一套可见性口径，
-    而不是每个视图里手写一份 filter(...).first() + 404 JSON。
-    """
-    from django.http import Http404
-
-    try:
-        return get_visible(model, user, **kwargs), None
-    except Http404:
-        return None, JsonResponse({'error': message}, status=404)
-
-
 def wants_json(request):
     """客户端是否要求 JSON（原生 fetch 通道；HTMX / 整页表单不命中）
 

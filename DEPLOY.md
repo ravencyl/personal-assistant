@@ -64,9 +64,6 @@ crontab -e
 # 每 30 分钟自动启动到期活动（planned → in_progress）
 */30 * * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py auto_start_activities >> /tmp/auto_start.log 2>&1
 
-# 每日凌晨 2 点生成循环活动实例（未来 7 天）
-0 2 * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py generate_recurring >> /tmp/generate_recurring.log 2>&1
-
 # 每早 06:30 生成每日个性化洞察（AI 优先，失败降级为规则模板，幂等可重跑）
 30 6 * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py generate_daily_insights >> /tmp/daily_insights.log 2>&1
 
@@ -79,7 +76,6 @@ crontab -e
 | 命令 | 建议频率 | 说明 |
 |------|----------|------|
 | auto_start_activities | 每 30 分钟 | 将 start_date 已到的 planned 活动自动改为 in_progress |
-| generate_recurring | 每日 1 次 | 根据循环活动规则生成未来 7 天的活动实例 |
 | generate_daily_insights | 每早 06:30 | 为活跃用户预生成个性化洞察（结合记忆与行为数据），展示在 Daily 页建议区顶部；当日已有洞察则跳过 |
 | consolidate_memories | 每周日 03:00 | 按 user+category 分组，≥5 条未聚合记忆时调 AI 合成为结构化画像；原始记忆标记 consolidated=True（不删除） |
 
@@ -100,8 +96,8 @@ crontab -e
 2. 进入 Agents > Agent 配置，确认 Agent 已同步
 3. 进入 Agents > Environment 配置，设置默认 Environment
 4. 返回首页开始使用
-   - **今日**：每日简报 + AI 建议 + 习惯打卡
-   - **活动记录**：活动管理 + 费用追踪 + 附件 + 模板
+   - **今日**：每日简报 + AI 建议
+   - **活动记录**：活动管理 + 费用追踪 + 附件
    - **AI 对话**：智能助手（支持查询/创建/修改活动、AA 分账、备忘录等）
    - **备忘**：快速记录与搜索
    - **知识库**：Markdown 文章管理与 AI 问答
@@ -116,9 +112,6 @@ python manage.py init_agents
 
 # 自动启动到期活动
 python manage.py auto_start_activities
-
-# 生成循环活动实例
-python manage.py generate_recurring
 
 # 导入 media/knowledge/ 下的 Markdown 文件为知识库文章
 python manage.py import_knowledge_files
