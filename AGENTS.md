@@ -102,10 +102,12 @@ def query_activities(user, params):
 
 | 标记 | 展开为 | 取自 |
 |------|--------|------|
-| `$LAST_REPLY` | AI 上一条真正给用户看的回复正文 | `conversation.messages` 里上一条 assistant |
+| `$LAST_REPLY` | AI 上一条真正给用户看的回复正文 | `chat/views.py::_referenceable_reply`（最近 10 条 assistant 里第一条「是正文」的） |
 | `$LAST_USER` | 用户本轮发出的消息原文 | `conversation.turn_message` |
 
 引用池在 `chat/views.py::_finalize_turn` 构造，作为 `orchestrator.process(..., refs=refs)` 传入，由 `core.agent_registry.resolve_params_refs` 在派发前展开：**只整字段精确匹配标记**（不做子串替换），取不到内容时报错而不是把标记交给工具；工具侧还要留一道 `_UNRESOLVED_REF` 守卫拦住没递引用池的旁路调用。
+
+**取「上一条回复」不能用 `messages.filter(role='assistant').order_by('-created_at').first()`**（三次故障的原因）。失败轮的回复本身就是 80 字的占位文案（`PROTOCOL_TRUNCATED_NOTE`、各 `TURN_*_NOTE`、`TOOL_FAILURE_REPLY`），修复前还落下过协议残骸：按字面取会拿到这些垃圾 —— 既不够 `REF_REMINDER_MIN_CHARS`（规则又不补发了，模型继续重抄再截断），一旦被展开还会把失败文案存成知识文章。所以统一走 `_referenceable_reply`，跳过 `PLACEHOLDER_REPLIES` 与 `looks_like_protocol`。**新增占位文案时必须登记进 `PLACEHOLDER_REPLIES`**，`RetryAfterFailureReferenceTest::test_placeholder_registry_covers_every_note_defined` 会扫两个模块的 `*_NOTE` / `*_REPLY` 常量机检。补发判据与引用池**必须共用同一个函数**，否则会出现「提醒叫模型用 $LAST_REPLY，展开出来却是另一条」的静默换内容。这里**故意不按长度筛选**：跨过上一条去取更老的长正文属于偷换内容，比报错糟得多。
 
 理由：让模型把几千字正文重抄进 `params.content` 必然撞上平台长度上限，整条指令被截断后静默失败（线上真实故障：对话 15 / 消息 64，回复停在 4075 字符）。走引用后协议 JSON 恒定短小，与长度上限无关。**新增这类工具时描述里必须写明可以用标记**（描述会注入协议 prompt，模型只看得到那里）。
 
@@ -144,7 +146,7 @@ def query_activities(user, params):
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
 - **“汇总”不等于“重抄”**：正文是本轮已出现过的长内容时，`content` 写 `$LAST_REPLY`（见上节协议规则 10），不得让模型重贴全文 —— 它一重抄就必然撞上单条回复长度上限，整条指令被截断后既不会落库也不会报错
 
-回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
+回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，5 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
 
 ## 对话收发是异步 turn（改聊天前必读）
 
