@@ -85,18 +85,59 @@ def looks_like_protocol(text):
 
 
 _PARAMS_KEY = re.compile(r'"params"\s*:\s*\{')
+_REPLY_KEY = re.compile(r'"reply"\s*:\s*"')
+
+
+def _decode_json_string(raw):
+    """解码（可能缺了收尾引号的）JSON 字符串内容，解不出来返回空串
+
+    断在转义序列中途（末尾剩一个孤零零的反斜杠）时先去掉它再试一次：
+    留着它 json.loads 必炸，而它本来也没表达任何内容。
+    """
+    for candidate in (raw, raw.rstrip('\\')):
+        try:
+            return json.loads('"' + candidate + '"')
+        except Exception:
+            continue
+    return ''
+
+
+def _read_reply(text, start):
+    """从 params 收口之后把 reply 读出来 —— 闭合和没闭合都读
+
+    没闭合是线上实测的又一种形状：模型把要给用户看的话写完了，只是漏了收尾的
+    ``"}``（stop_reason=end_turn、is_error=false、265 字符，根本没碰长度上限）。
+    文字是完整的，报「这一步没有执行成功」等于把一句说完了的回复判成失败。
+    """
+    key = _REPLY_KEY.search(text, start)
+    if not key:
+        return ''
+    chars = []
+    esc = False
+    for ch in text[key.end():]:
+        if esc:
+            chars.append(ch)
+            esc = False
+        elif ch == '\\':
+            chars.append(ch)
+            esc = True
+        elif ch == '"':
+            break                     # 字符串自己收尾了，后面最多是漏掉的右括号
+        else:
+            chars.append(ch)
+    return _decode_json_string(''.join(chars))
 
 
 def salvage_partial_protocol(text):
-    """从残缺的协议 JSON 里抢救出 {'intent','params','reply':''}，救不了返回 None
+    """从残缺的协议 JSON 里抢救 ``{'intent','params','reply'}``，救不了返回 None
 
-    线上实测的第三种失效：平台报 model_overloaded_error（错码 10605）后自行重试，
-    重试后的回复写到半路就收尾（289 字符，params 已闭合、只有 reply 没写完），
-    而且 span.model_request_end 还是 is_error=false。动作本身完全可以执行，
-    却因为整串解析失败而什么都没做 —— 等于把一次上游抖动算在用户头上。
+    完整串解析不出来时有两种完全相反的残缺，只有前一种不能执行：
 
-    只救「params 对象自己闭合」的情况。正文没抄完的那类（线上对话 15 / msg 64）
-    截断就发生在 params 内部，扫不到闭合 → 不救；执行它等于拿半篇内容落库。
+    - 正文没抄完（重抄撞长度上限）：截断发生在 params 内部，这里扫不到闭合 → None；
+      执行它等于拿半篇内容落库。
+    - params 已闭合：动作数据是齐的，坏的只是给模型自己看的文本（reply 写到半路
+      就停，或者干脆只是漏了收尾的 ``"}``）→ 按可解析部分执行，并把已经写出来的
+      reply 文字带回去（见 _read_reply）。上游抖动不该算在用户头上。
     """
     m = _PROTOCOL_INTENT.search(text or '')
     if not m:
@@ -129,7 +170,8 @@ def salvage_partial_protocol(text):
                     return None
                 if not isinstance(params, dict):
                     return None
-                return {'intent': m.group(1), 'params': params, 'reply': ''}
+                return {'intent': m.group(1), 'params': params,
+                        'reply': _read_reply(text, i + 1)}
     return None                    # params 从未闭合 → 不救
 
 
@@ -348,12 +390,14 @@ class ChatOrchestrator:
                 name = m.group(1) if m else '?'
                 salvaged = salvage_partial_protocol(ai_text)
                 tool_name = INTENT_TOOL_MAP.get((salvaged or {}).get('intent', ''))
-                if tool_name and _REGISTRY.get(tool_name):
-                    # 只救能对应到真工具的：chitchat / 未知意图的 reply 是空的，
-                    # 走下去会把协议原文当正文透给用户（又泄漏一次）。
+                has_tool = bool(tool_name and _REGISTRY.get(tool_name))
+                if has_tool or (salvaged or {}).get('reply'):
+                    # 有工具可执行，或者至少取出了给用户看的话（chitchat / ask：没工具，
+                    # 但回复文字本身已经写出来了）。两者都不是时走下去会把协议原文当正文透给用户。
                     logger.warning(
-                        f'协议 JSON 残缺但 params 已闭合，按可解析部分执行 '
-                        f'intent={name} 长度={len(ai_text or "")}')
+                        f'协议 JSON 残缺但已捞到可用部分，继续执行 '
+                        f'intent={name} 工具={"有" if has_tool else "无"} '
+                        f'长度={len(ai_text or "")}')
                     intent_data = salvaged
                 else:
                     logger.warning(

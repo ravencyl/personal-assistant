@@ -2159,7 +2159,9 @@ class PartialProtocolSalvageTest(TestCase):
         self.assertIsNotNone(data, 'params 已闭合却没救出来')
         self.assertEqual(data['intent'], 'knowledge_search')
         self.assertEqual(data['params'], {'keyword': '岗位交接 SOP', 'tag': '流程'})
-        self.assertEqual(data['reply'], '', '残缺的 reply 不得当真')
+        # 断掉的 reply 里已经写出来的话不能一起丢掉（那就是用户该看到的内容）
+        self.assertIn('这份手册已经在你的知识库里了', data['reply'])
+        self.assertNotIn('"', data['reply'], '未收尾的残缺里不该混进结构字符')
 
     def test_salvaged_call_actually_runs_the_tool(self):
         """救出来还不够，必须真的走到工具：线上那次是查询意图，工具没被执行"""
@@ -2220,14 +2222,68 @@ class PartialProtocolSalvageTest(TestCase):
         self.assertIsNotNone(data, '转义引号未处理，扫描被字符串里的 } 骗提前收尾')
         self.assertEqual(data['params']['title'], '他说"结束}"就走了')
 
-    def test_residue_without_a_tool_is_not_executed_nor_leaked(self):
-        """救援必须先过「意图有工具」这关：chitchat 的 params 是 {}，闭合了也没东西可执行"""
-        half = '{"intent":"chitchat","params":{},"reply":"谢谢你，'
+    def test_tool_runs_even_when_reply_is_empty(self):
+        """动作数据齐全但模型一个字都没写给用户看：照样执行，由工具的回复顶上"""
+        half = '{"intent":"create","params":{"name":"空话活动","start_date":"2026-09-20"},"reply":"'
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data)
+        self.assertEqual(data['reply'], '', '样本不该带出 reply 文字')
+        content, _, changed = orchestrator.process(self.user, half)
+        self.assertEqual(content, '已创建活动「空话活动」（2026-09-20）')
+        self.assertTrue(changed)
+        self.assertEqual(self.Activity.objects.get(name='空话活动').start_date.isoformat(),
+                         '2026-09-20')
+
+    def test_chitchat_residue_shows_the_recovered_words(self):
+        """线上第四种形状（本次真机复测实测到）：模型把话说完了，只是漏了收尾的引号括号
+
+        事件形状：stop_reason=end_turn、is_error=false、265 字符 —— 没碰任何长度上限。
+        把一句已经说完的回复判成「这一步没有执行成功」，用户只会再点一次然后同样失败。
+        """
+        half = ('{"intent":"chitchat","params":{},"reply":"《岗位交接 SOP 手册》已经在你知识库里了，'
+                '标签就是「流程」。同一篇再存一次只会生成重复条目，所以我没有重复建档。')
+        self.assertIsNone(extract_intent(half))
+        content, _, changed = orchestrator.process(self.user, half)
+        self.assertIn('已经在你知识库里了', content, '模型已经说出来的话被判成失败')
+        self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE)
+        for leaked in ('{"intent"', '"params"', '"reply"'):
+            self.assertNotIn(leaked, content, f'协议原文泄到界面上：{leaked}')
+        self.assertFalse(changed)
+
+    def test_closed_reply_with_missing_final_brace_is_read(self):
+        """字符串自己收了尾、只是外层少了右括号：reply 必须完整取回，不带上垃圾"""
+        half = '{"intent":"chitchat","params":{},"reply":"已经记下了，\\n明天提醒你"'
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data)
+        self.assertEqual(data['reply'], '已经记下了，\n明天提醒你')
+
+    def test_escaped_quotes_inside_reply_survive_the_scan(self):
+        """reply 里的转义引号不是收尾：不认转义就会在这里断成半句"""
+        half = ('{"intent":"chitchat","params":{},"reply":"他说\\"已经存好了\\"，'
+                '还要不要再建个活动')
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data)
+        self.assertEqual(data['reply'], '他说"已经存好了"，还要不要再建个活动')
+
+    def test_dangling_escape_at_the_cut_does_not_break_decoding(self):
+        """断点正好落在转义序列中间（末尾剩一个反斜杠）：丢掉它，整句仍要拿得到"""
+        half = '{"intent":"chitchat","params":{},"reply":"好的，标题叫《方案」\\'
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data)
+        self.assertTrue(data['reply'].startswith('好的，标题叫'), '尾部残缺字符让整句 reply 丢了')
+
+    def test_residue_without_a_tool_and_without_words_is_not_leaked(self):
+        """安全边界：既没工具可执行、又一行的话都没写出来时，仍按失败降级
+
+        不能回一句空话（用户看不到任何反馈），更不能把协议原文当正文透出去。
+        """
+        half = '{"intent":"chitchat","params":{},"reply":"'
         data = salvage_partial_protocol(half)
         self.assertIsNotNone(data, '样本没闭合，测不到这条守卫')
+        self.assertEqual(data['reply'], '')
         content, _, _ = orchestrator.process(self.user, half)
         self.assertNotIn('intent', content, '把协议原文当正文递给了用户')
-        self.assertTrue(content.strip(), '降级成空回复，用户看不到任何反馈')
+        self.assertEqual(content, PROTOCOL_TRUNCATED_NOTE)
 
 
 
