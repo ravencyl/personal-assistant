@@ -572,8 +572,16 @@ def _finalize_turn(conversation, assistant_text, note=None):
     容错铁律：编排器抛异常时降级为原始文本落库，绝不吞掉 AI 已回的正文。
     """
     text = assistant_text or (note or TURN_EMPTY_NOTE)
+    # 引用池（协议规则 10）：让模型用 "$LAST_REPLY" 引用上一轮正文，而不必把几千字
+    # 重抄一遍——重抄会撞上平台单条回复长度上限，整条指令被截断后静默失败。
+    # 此时本轮的 assistant 消息还没落库，所以 filter 到的就是上一条真正给用户看过的回复。
+    prev_assistant = conversation.messages.filter(role='assistant').order_by('-created_at').first()
+    refs = {
+        'LAST_REPLY': prev_assistant.content if prev_assistant else '',
+        'LAST_USER': conversation.turn_message.content if conversation.turn_message else '',
+    }
     try:
-        content, payload, changed = orchestrator.process(conversation.user, text)
+        content, payload, changed = orchestrator.process(conversation.user, text, refs=refs)
     except Exception as e:
         logger.error(f'编排本轮回复失败（对话 {conversation.id}），降级为纯文本: {e}')
         content, payload, changed = text, None, False

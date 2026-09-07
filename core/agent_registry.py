@@ -6,7 +6,8 @@
   AI 回复解析为 {"intent", "params", "reply"} JSON 后分发执行
 - 两类消息分流：操作站点数据→意图协议 JSON；通用问答/需要外部信息→模型自己
   调云端联网工具（WebSearch/WebFetch）后以自然语言回，由本编排器的“非 JSON 透传”分支接手
-- 容错约定：任何环节失败都降级为普通文本回复，绝不阻断对话
+- 容错约定：任何环节失败都降级为普通文本回复，绝不阻断对话。
+  但「降级成文本」不等于「把内部协议原文当文本发出去」——见 PROTOCOL_TRUNCATED_NOTE
 """
 import hmac
 import logging
@@ -49,6 +50,70 @@ INTENT_TOOL_MAP = {
     'generate_report': 'reports.generate',
     'memory_search': 'memory.search',
 }
+
+# ── 协议回复被长度上限截断的兜底 ──────────────────────────────────────────────
+# 云端平台对单条 assistant 回复有长度上限（实测 2026-09-07 线上：模型想把整篇
+# 文章正文塞进 params.content 重抄一遍，回复停在 4075 字符处，花括号只剩 1 个右括号）。
+# 残缺的 JSON 解析不出来，于是按旧逻辑会被当成「普通对话」原文透传，界面上出现一整坨
+# {"intent":"knowledge_create",...}，而工具其实根本没执行 —— 用户看到一屏乱码，
+# 只会以为“要么是没反应，要么是成功了”，永远不会知道这一步什么都没做。
+# 文案必须解释「为什么」并给出可操作的下一步，光说「操作失败」等于没说。
+PROTOCOL_TRUNCATED_NOTE = (
+    '这一步没有执行成功：我这条回复太长，写到一半被截断了，所以指令没收尾，'
+    '我也没有替你做任何改动。\n\n'
+    '换个更小的目标再来一次就行，比如先只存要点，或者让我分几次写。'
+)
+
+# 意图键的位置不固定，但协议要求 JSON 以 { 开头，所以只从前缀判协议、意图名单独抠
+_PROTOCOL_INTENT = re.compile(r'"intent"\s*:\s*"([\w.]+)"')
+
+
+def looks_like_protocol(text):
+    """这段 AI 回复是不是协议 JSON（哪怕已经残缺到解析不出来）
+
+    判据故意保守：必须以 { 开头且带 "intent" 字样。自然语言回答不会以 { 开头，
+    所以不会把「联网问答逃生舱」的正常回复误杀成失败。
+    """
+    t = (text or '').strip()
+    return t.startswith('{') and '"intent"' in t
+
+
+# ── params 引用展开：让模型不必重抄长正文 ────────────────────────────────────
+# 只接受「整个字段值恰好等于标记」，不做子串替换 —— 否则正文里真出现 $LAST_REPLY
+# 字样时会被误伤。
+_REF_TOKEN = re.compile(r'^\$(LAST_REPLY|LAST_USER)$')
+REF_LABELS = {'LAST_REPLY': '你上一条回复的正文', 'LAST_USER': '用户上一条消息'}
+
+
+def resolve_params_refs(params, refs):
+    """把 params 里值为 "$LAST_REPLY" / "$LAST_USER" 的字段换成实际文本
+
+    返回 (展开后的 params, 错误文案或 None)。引用取不到内容时报错而不是把标记
+    原样交给工具：那十个字符被当成正文存进知识库，比失败更糟。
+    """
+    refs = refs or {}
+    out, error = {}, None
+
+    def _one(value):
+        nonlocal error
+        if not isinstance(value, str):
+            return value
+        m = _REF_TOKEN.match(value.strip())
+        if not m:
+            return value
+        key = m.group(1)
+        text = str(refs.get(key) or '').strip()
+        if not text:
+            error = f'没能取到{REF_LABELS[key]}（这一轮没有可引用的内容），请直接说出要处理的内容'
+            return value
+        return text
+
+    for key, value in (params or {}).items():
+        if isinstance(value, list):
+            out[key] = [_one(item) for item in value]
+        else:
+            out[key] = _one(value)
+    return out, error
 
 
 class ToolError(Exception):
@@ -129,7 +194,11 @@ def build_protocol_prompt(today=None):
         '不要为了确认而调 get/query（那等于没读上下文）；只有要改数据或查别的活动才走协议。\n'
         '9. 当你需要回忆用户之前告诉过你的信息（偏好、经历、关系、目标等）时，'
         '调用 memory_search 工具查询；不要凭印象编造。首帧已注入部分记忆，'
-        '但若话题涉及更早或更具体的内容，主动搜索。'
+        '但若话题涉及更早或更具体的内容，主动搜索。\n'
+        '10. params 里要放**本轮对话里已经出现过的长内容**（你上一条回复的正文、用户刚贴的一整段）时，'
+        '不要重新抄写正文：把该字段的值写成引用标记 "$LAST_REPLY"（引用你上一条给用户看的回复）'
+        '或 "$LAST_USER"（引用用户上一条消息），系统会自行替换成原文。'
+        '重抄长正文会撞上单条回复的长度上限，整条指令会被截断而静默失败。\n'
     )
 
 
@@ -182,8 +251,8 @@ class ChatOrchestrator:
     写五遍就是五个会漏改的地方。
     """
 
-    def process(self, user, ai_text):
-        content, payload, changed = self._dispatch(user, ai_text)
+    def process(self, user, ai_text, refs=None):
+        content, payload, changed = self._dispatch(user, ai_text, refs)
         content, items = extract_follow_ups(content)
         if not items:
             # 工具路径下工具的 reply 会顶掉模型自己写的 reply（「下一步」行在里面），
@@ -197,10 +266,20 @@ class ChatOrchestrator:
             payload['follow_ups'] = items
         return content, payload, changed
 
-    def _dispatch(self, user, ai_text):
+    def _dispatch(self, user, ai_text, refs=None):
         intent_data = extract_intent(ai_text)
         if not intent_data:
-            # 非 JSON 回复：按普通对话透传（兼容未走协议的旧会话）
+            # 「不是合法 JSON」有两种完全相反的情况，必须分开：
+            # (a) 模型本来就在用自然语言回答（联网问答逃生舱）→ 透传是对的；
+            # (b) 模型按协议输出了 JSON，但回复被平台长度上限截断在半路 → 解析不出来。
+            # 旧代码只假设了 (a)，于是 (b) 的协议原文直接落到用户脸上（见 PROTOCOL_TRUNCATED_NOTE）。
+            if looks_like_protocol(ai_text):
+                m = _PROTOCOL_INTENT.search(ai_text)
+                logger.warning(
+                    f'协议 JSON 残缺（多半是回复超长被截断），未执行工具 '
+                    f'intent={m.group(1) if m else "?"} 长度={len(ai_text or "")}')
+                return PROTOCOL_TRUNCATED_NOTE, None, False
+            # 情况 (a)：按普通对话透传（兼容未走协议的旧会话）
             return (ai_text or '').strip(), None, False
 
         intent = str(intent_data.get('intent') or '').strip()
@@ -208,6 +287,11 @@ class ChatOrchestrator:
         params = intent_data.get('params') or {}
         if not isinstance(params, dict):
             params = {}
+        # 引用标记展开（协议规则 10）：模型写 "$LAST_REPLY" 而不必重抄正文
+        params, ref_error = resolve_params_refs(params, refs)
+        if ref_error:
+            logger.warning(f'协议引用未能展开: {ref_error}')
+            return f'{reply}\n\n⚠️ {ref_error}'.strip(), None, False
 
         tool_name = INTENT_TOOL_MAP.get(intent)
         # chitchat / ask（未注册工具的意图）：直接把 reply 透给用户，

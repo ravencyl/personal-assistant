@@ -92,7 +92,22 @@ def query_activities(user, params):
 
 **容错铁律**：任何环节失败都降级为普通文本回复，绝不阻断对话。非核心操作（日志写入、知识库注入等）失败仅 `logger.warning`。
 
+**但「降级成文本」不等于「把内部协议原文当文本发出去」**：模型按协议输出 JSON、但这条回复被云端单条长度上限截断在半路时，JSON 解析不出来，而它**不是**普通对话。`_dispatch` 用 `looks_like_protocol(text)`（以 `{` 开头且含 `"intent"`）识别这种残骸，返回 `PROTOCOL_TRUNCATED_NOTE` 并 `logger.warning`。判据故意保守，以免误杀（2）类的自然语言回答。
+
 **写操作必须记录日志**：所有活动写操作调用 `log_activity(user, activity, action, summary)`。
+
+### 长正文走引用，不要让模型重抄（协议规则 10）
+
+凡 params 里需要「本轮对话中已经出现过的长内容」（上一条回复正文、用户刚贴的一整段）的工具，字段值写引用标记而不是真正文：
+
+| 标记 | 展开为 | 取自 |
+|------|--------|------|
+| `$LAST_REPLY` | AI 上一条真正给用户看的回复正文 | `conversation.messages` 里上一条 assistant |
+| `$LAST_USER` | 用户本轮发出的消息原文 | `conversation.turn_message` |
+
+引用池在 `chat/views.py::_finalize_turn` 构造，作为 `orchestrator.process(..., refs=refs)` 传入，由 `core.agent_registry.resolve_params_refs` 在派发前展开：**只整字段精确匹配标记**（不做子串替换），取不到内容时报错而不是把标记交给工具；工具侧还要留一道 `_UNRESOLVED_REF` 守卫拦住没递引用池的旁路调用。
+
+理由：让模型把几千字正文重抄进 `params.content` 必然撞上平台长度上限，整条指令被截断后静默失败（线上真实故障：对话 15 / 消息 64，回复停在 4075 字符）。走引用后协议 JSON 恒定短小，与长度上限无关。**新增这类工具时描述里必须写明可以用标记**（描述会注入协议 prompt，模型只看得到那里）。
 
 ## 对话能力的两类分流（改首帧协议前必读）
 
@@ -101,7 +116,7 @@ def query_activities(user, params):
 | 类型 | 输出形式 | 谁处理 |
 |------|----------|--------|
 | （1）操作站点数据 | `{"intent", "params", "reply"}` JSON | 编排器分发 `@agent_tool` |
-| （2）通用问答（需要外部/最新信息） | **自然语言直答**（模型自己先调 WebSearch/WebFetch） | 编排器「非 JSON 透传」分支 |
+| （2）通用问答（需要外部/最新信息） | **自然语言直答**（模型自己先调 WebSearch/WebFetch） | 编排器「非 JSON 透传」分支（先看 `looks_like_protocol`，残骸不走这里） |
 
 `ask` 是（2）类的显式意图，**故意不注册工具**（`INTENT_TOOL_MAP` 里没有），`tool_name` 为空 → 原样把 `reply` 给用户，系统不再动作。
 
@@ -113,7 +128,7 @@ def query_activities(user, params):
 
 ### 把对话结论落库（写工具的口径）
 
-用户说“把刚才那段结论存下来”时，有两个出口（模型看得到整个 session，所以正文汇总它自己干，服务端只落库）：
+用户说“把刚才那段结论存下来”时，有两个出口（模型看得到整个 session，所以汇总它自己干，服务端只落库）：
 
 | 工具 | 意图 | 适用 |
 |------|------|------|
@@ -125,8 +140,9 @@ def query_activities(user, params):
 - 描述变更要进 `ActivityLog`，所以 `fmt_field('description', ...)` **截断到 40 字**；新增长文本字段上日志同理，整段贴进时间线会爆布局
 - AI 回复正文走 `{{ msg.content|ai_markdown }}`（见下节「AI 回复是服务端 Markdown」），但**链接的可读性仍要靠服务端拼好**：给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 在气泡里是一串 `%E7%BE%8E...`，排不排版都一样难看
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
+- **“汇总”不等于“重抄”**：正文是本轮已出现过的长内容时，`content` 写 `$LAST_REPLY`（见上节协议规则 10），不得让模型重贴全文 —— 它一重抄就必然撞上单条回复长度上限，整条指令被截断后既不会落库也不会报错
 
-回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
+回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
 
 ## 对话收发是异步 turn（改聊天前必读）
 
@@ -258,7 +274,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 ## 前端分端约定（移动端 / 桌面端）
 
 - **唯一分端断点**：`md:`（768px，与导航层一致）。结构性显隐只用成对块：桌面元素 `hidden md:flex` / `hidden md:block`，移动元素 `md:hidden`。禁止新增 `sm:` 结构性断点；`sm:p-*` / `sm:text-*` / `sm:gap-*` 等纯尺寸渐进类不属于结构，保留。640-768px 平板竖屏跟随桌面布局（预期行为）。
-- **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 fetch 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。
+- **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 `fetch` 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。这条口径有机检：`chat/tests.py::JsonEndpointNeverHtmxTest` 从 `@json_login_required` 的标记属性反查 JSON 端点集合（不手维护名单），再扫模板里 `hx-*` 的 `{% url %}` 目标；新增 JSON 端点会自动进锁，新增前先跑它确认自己没有混用。
 - **fetch 端点的登录保护必须用 `@json_login_required`**（`core/utils.py`，是 `@login_required` 的超集）：未登录时 `Accept` 含 `application/json` → `401 + {'error','login_url','reauth'}`，否则保持原生 302。原因：fetch 会自动跟随 302，最终拿到 200 的登录页 HTML，前端只能报「操作失败，请重试」，用户反复重试也不知道是掉线。**不得靠手挂 `HX-Request: true` 骗视图返 JSON**（那样装饰器会当成 HTML 请求返 302，401 分支永远走不到）。聊天侧所有 fetch 必须走 `chat-turn.js` 的 `apiFetch`（对外暴露为 `window.paJsonFetch`），它是 `Accept` 补头 + 401 整页跳转的唯一出口。HTMX 端点仍保持 302 旧行为（换 401 要先验清 `HX-Redirect` 在错误响应上的语义）。
 - **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发聊天浮窗 `r is not a function` 错误）。
 - **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。

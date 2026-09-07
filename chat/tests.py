@@ -24,11 +24,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from chat import views as chat_views
-from core.layout_asserts import assert_desktop_two_columns
+from core.layout_asserts import assert_desktop_two_columns, code_only
 from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
                          TURN_TTL_SECONDS)
-from core.agent_registry import (INTENT_TOOL_MAP, build_protocol_prompt,
-                                 extract_intent, orchestrator)
+from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_TRUNCATED_NOTE,
+                                 build_protocol_prompt, extract_intent,
+                                 looks_like_protocol, orchestrator,
+                                 resolve_params_refs)
 
 User = get_user_model()
 
@@ -1732,3 +1734,237 @@ class ChatBubbleDomContractTest(TestCase):
                         '重试按钮掉出 .chat-message，remove() 会静默留下双气泡')
         self.assertIn('chat-bubble', err[:err.index('data-retry-text')],
                       '中断气泡没挂钩子类，移动端它会一直是窄气泡')
+
+
+# ── 协议回复被长度上限截断（线上真实故障，2026-09-07 对话 15 / 消息 64）─────────
+# 现场重现：用户点「下一步」里的「把这份四周独处训练方案存进知识库」chip（chip 本身
+# 工作正常，文字确实发出去了），模型按协议输出 JSON，但想把整篇文章正文重抄进
+# params.content —— 回复停在 4075 字符，花括号只剩 1 个右括号（实测事件
+# evt_00op6wadl6g3lbkjo207，平台下发的就是半截）。残缺 JSON 解析不出来，旧逻辑认定
+# 「不是 JSON 就是普通对话」，于是：
+#   现象一：一整坨 {"intent":"knowledge_create",...} 被当正文渲染到界面上
+#   现象二：knowledge.create 根本没被调用，知识库里没有新文章
+# 两个现象同一个根因。截断在平台侧（不可控），把原文吐给用户是我们侧的错误（必须锁住）。
+
+# 线上截断样本的结构等价物：外层对象未闭合，content 停在字符串中间
+TRUNCATED_PROTOCOL = (
+    '{"intent":"knowledge_create","params":{"title":"四周独处训练方案",'
+    '"content":"## 核心原理\\n\\n独处是**力量训练**，不是意志力考验。'
+    '思绪飘走，轻轻拉回来就好。\\n\\n下一步：建一个活动「四周独处训练」'
+)
+
+
+class ProtocolTruncationFallbackTest(SimpleTestCase):
+    """协议 JSON 残缺时的降级：绝不把内部协议原文递到用户脸上"""
+
+    def setUp(self):
+        self.user = User(username='u1')
+
+    def test_truncated_json_is_recognised_as_protocol(self):
+        """前提锁：这个样本必须「看着像协议但解析不出来」
+
+        不先钉住这一点，后面所有断言都可能是在锁一个普通文本（锁空跑）。
+        """
+        self.assertIsNone(extract_intent(TRUNCATED_PROTOCOL), '样本已能解析，不再是截断场景')
+        self.assertTrue(looks_like_protocol(TRUNCATED_PROTOCOL))
+
+    def test_protocol_source_never_reaches_the_user(self):
+        content, payload, changed = orchestrator.process(self.user, TRUNCATED_PROTOCOL)
+        for leaked in ('{"intent"', 'knowledge_create', '"params"', '"content"'):
+            self.assertNotIn(leaked, content, f'协议原文泄到界面上：{leaked}')
+        self.assertIn('没有执行成功', content)
+        # 降级不等于报错：不阻断对话、不假装做过
+        self.assertIsNone(payload)
+        self.assertFalse(changed)
+
+    def test_truncation_does_not_claim_a_saved_article(self):
+        """失败文案不得出现「已存入」这类成功口径 —— 那比 JSON 更难发现"""
+        content, _, _ = orchestrator.process(self.user, TRUNCATED_PROTOCOL)
+        for claiming in ('已存入', '已保存', '已完成', '已成功'):
+            self.assertNotIn(claiming, content, f'失败回复里混进了成功口径：{claiming}')
+
+    def test_natural_language_still_passes_through(self):
+        """反向锁：联网问答逃生舱靠透传工作，不得被协议识别误杀
+
+        以 { 开头但不含 "intent" 键（模型给用户看代码片段）必须照常透传，
+        否则就是把一个可用功能换成了一个固定失败文案。
+        """
+        text = '{"timeout": 30} 这个配置里的秒数设成 30 就可以了。'
+        self.assertFalse(looks_like_protocol(text))
+        content, _, _ = orchestrator.process(self.user, text)
+        self.assertEqual(content, text)
+
+    def test_prompt_teaches_the_reference_token(self):
+        """协议规则 10 必须在 prompt 里 —— 模型不知道该用引用时，截断会不断重现
+
+        引用展开的代码在删了规则后仍能运行，但再也没人会发出标记，
+        于是这个缺陷只是被暂藏起来了。所以规则文本本身也要钉住。
+
+        必须把断言限定在「规则：」段：工具描述也会拼进同一个 prompt（「可用意图」），
+        而 knowledge.create 的描述里就带着 $LAST_REPLY 与“不要重新抄写”——
+        扫整段 prompt 的话，规则 10 被整条删掉也不会响（变异实测到）。
+        """
+        prompt = build_protocol_prompt()
+        rules = prompt.split('规则：', 1)[-1]
+        self.assertIn('10.', rules, '规则条数变了，这条锁的范围要跟着调')
+        for kw in ('$LAST_REPLY', '不要重新抄写', '长度上限'):
+            self.assertIn(kw, rules, f'规则段缺了对引用标记的说明：{kw}')
+
+
+class ProtocolRefExpansionTest(SimpleTestCase):
+    """params 引用展开：只展开整字段恰好等于标记的值"""
+
+    REF = {'LAST_REPLY': '完整的文章正文', 'LAST_USER': ''}
+
+    def test_marker_is_replaced_with_referenced_text(self):
+        params, error = resolve_params_refs(
+            {'title': 'T', 'content': '$LAST_REPLY'}, self.REF)
+        self.assertIsNone(error)
+        self.assertEqual(params['content'], '完整的文章正文')
+        self.assertEqual(params['title'], 'T', '非标记字段不得被动到')
+
+    def test_empty_reference_reports_error_instead_of_passing_token(self):
+        """引用取不到内容时报错，而不是把标记原样交给工具
+
+        放过的话，“$LAST_USER” 这十个字符会被当成正文存进库里，
+        看起来成功、实际写了垃圾数据，比直接失败更难发现。
+        """
+        params, error = resolve_params_refs({'content': '$LAST_USER'}, self.REF)
+        self.assertIsNotNone(error)
+        self.assertEqual(params['content'], '$LAST_USER')
+
+    def test_substring_is_not_replaced(self):
+        """正文里真的写到这个标记时不得被误伤（只做整字段匹配）"""
+        params, error = resolve_params_refs(
+            {'content': '例子：把 $LAST_REPLY 写在这个位置'}, self.REF)
+        self.assertIsNone(error)
+        self.assertEqual(params['content'], '例子：把 $LAST_REPLY 写在这个位置')
+
+    def test_list_values_are_expanded_itemwise(self):
+        params, error = resolve_params_refs({'tags': ['$LAST_REPLY', '常用']}, self.REF)
+        self.assertIsNone(error)
+        self.assertEqual(params['tags'], ['完整的文章正文', '常用'])
+
+
+ARTICLE_BODY = '## 核心原理\n\n独处是**力量训练**，不是意志力考验。' * 12
+
+
+class KnowledgeCreateFromReferenceTest(TestCase):
+    """行为锁：点「存入知识库」后确实写一篇对得上正文的文章
+
+    走 _finalize_turn 这个接缝而不是只测工具函数：引用池是在那里从会话里取出来
+    的，只测 resolve_params_refs 锁不到「池子递错了 / 根本没递」这一层（而线上
+    故障恰恰就在递送链路上）。
+    """
+
+    def setUp(self):
+        from knowledge.models import Article
+        self.Article = Article
+        self.user = User.objects.create_user('kb', password='x')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_kb_ref')
+        Message.objects.create(conversation=self.conv, role='user',
+                               content='讲讲独处的好处')
+        self.prev = Message.objects.create(conversation=self.conv, role='assistant',
+                                           content=ARTICLE_BODY)
+        self.conv.turn_message = Message.objects.create(
+            conversation=self.conv, role='user',
+            content='把这份方案存进知识库')
+
+    def _finalize(self, ai_text):
+        return chat_views._finalize_turn(self.conv, ai_text)
+
+    def test_reference_creates_one_article_with_the_exact_body(self):
+        before = self.Article.objects.count()
+        msg, changed = self._finalize(
+            '{"intent":"knowledge_create","params":'
+            '{"title":"四周独处训练方案","content":"$LAST_REPLY"},'
+            '"reply":"好的，这就沉淀下来"}')
+        created = self.Article.objects.all()
+        self.assertEqual(created.count(), before + 1, '文章没落库')
+        article = created.order_by('-id').first()
+        self.assertEqual(article.content, ARTICLE_BODY, '正文与引用的那条回复对不上')
+        self.assertEqual(article.user, self.user, '文章没归属到当前用户')
+        self.assertIn('已存入知识库', msg.content)
+        self.assertTrue(changed)
+        # 库里绝不能留下未展开的标记
+        self.assertNotIn('$LAST_REPLY', article.content)
+
+    def test_reference_survives_a_long_body(self):
+        """长正文走引用时协议 JSON 本身就短，不再依赖模型重抄
+
+        这正是截断的根源：旧路子下正文多长就得重抄一遍，一旦超过上限，整条指令就断在半路。
+        """
+        long_body = ARTICLE_BODY * 30
+        self.prev.content = long_body
+        self.prev.save(update_fields=['content'])
+        text = ('{"intent":"knowledge_create","params":'
+                '{"title":"长文","content":"$LAST_REPLY"},"reply":"好"}')
+        self.assertLess(len(text), 200, '样本太大，不再是在模拟短指令')
+        self._finalize(text)
+        self.assertEqual(self.Article.objects.get(title='长文').content, long_body)
+
+    def test_truncated_protocol_writes_nothing(self):
+        """现象二的锁：半截指令不得留下任何文章，也不得把协议原文落库"""
+        msg, changed = self._finalize(TRUNCATED_PROTOCOL)
+        self.assertEqual(self.Article.objects.count(), 0, '未执行的指令写了库')
+        self.assertFalse(changed)
+        self.assertNotIn('intent', msg.content)
+
+    def test_unexpanded_marker_is_refused_not_stored(self):
+        """旁路防护：没引用池的调用方递上标记时，宁可报错也不写垃圾文章"""
+        from core.agent_registry import ToolError
+        from knowledge.agent_tools import tool_knowledge_create
+        with self.assertRaises(ToolError):
+            tool_knowledge_create(self.user, {'title': 'T', 'content': '$LAST_REPLY'})
+        self.assertEqual(self.Article.objects.count(), 0)
+
+
+class JsonEndpointNeverHtmxTest(SimpleTestCase):
+    """静态锁：返回 JSON 的端点不得被任何 hx-* 引用
+
+    为什么不手维护清单：JSON 端点集合直接从 @json_login_required 的标记属性反查，
+    新增一个 JSON 端点会自动进锁；靠人往名单里补上一句，名单迟早过期。
+    混用的后果本项目已经吃过：HTMX 把 JSON 当纯文本插入 DOM。
+    """
+
+    HX_ATTR = re.compile(r'hx-[a-z-]+\s*=\s*"([^"]*)"')
+    URL_NAME = re.compile(r"\{%\s*url\s+['\"]([\w.:-]+)['\"]")
+
+    @property
+    def json_views(self):
+        from django.urls import get_resolver
+
+        found = set()
+
+        def walk(patterns, prefix):
+            for pattern in patterns:
+                if hasattr(pattern, 'url_patterns'):
+                    ns = getattr(pattern, 'namespace', '') or ''
+                    walk(pattern.url_patterns, f'{prefix}{ns}:' if ns else prefix)
+                elif getattr(pattern.callback, 'json_login_required', False):
+                    found.add(f'{prefix}{pattern.name}')
+
+        walk(get_resolver().url_patterns, '')
+        return found
+
+    def test_marker_lookup_is_not_empty(self):
+        """前提锁：反查为空时下面那条遍历会空跑（没扫到东西 ≠ 没问题）"""
+        self.assertIn('chat:pin_candidates', self.json_views)
+        self.assertGreaterEqual(len(self.json_views), 6, 'JSON 端点反查数量不对，装饰器标记丢了')
+
+    def test_no_hx_attribute_targets_a_json_endpoint(self):
+        templates = (Path(__file__).resolve().parent.parent / 'templates').rglob('*.html')
+        scanned = 0
+        for tpl in templates:
+            # 必须先剔注释：项目里多处注释就在解释「为什么不能挂 hx-*」，
+            # 不剔的话锁会被自己的说明文档打成假失败。
+            for attr in self.HX_ATTR.findall(code_only(tpl.read_text(encoding='utf-8'))):
+                for name in self.URL_NAME.findall(attr):
+                    scanned += 1
+                    self.assertNotIn(
+                        name, self.json_views,
+                        f'{tpl.name} 把 hx-* 挂到了 JSON 端点 {name}：'
+                        'HTMX 会把 JSON 当文本插入 DOM')
+        self.assertGreaterEqual(scanned, 5, '一个 hx- 端点都没扫到，这条锁是空的')
+
+

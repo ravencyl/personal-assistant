@@ -16,6 +16,9 @@ from core.utils import visible_qs
 from .models import Article
 from .utils import search_articles
 
+# 未展开的协议引用标记（$LAST_REPLY / $LAST_USER），定义见 core.agent_registry
+_UNRESOLVED_REF = re.compile(r'^\$LAST_(REPLY|USER)$')
+
 
 def _article_url(article):
     """站内文章链接（可读版）
@@ -73,9 +76,11 @@ def _parse_tags(raw):
 
 
 @agent_tool('knowledge.create', '把一段内容存成一篇知识库文章（用户说“存进知识库 / 记成文章 / '
-                             '把刚才那段结论沉淀下来”时用）。正文由你自己根据当前对话整理完整，'
-                             '不要写“详见上文”这类指代；成功后会向用户给出文章链接',
-            'title（标题，必填）+ content（Markdown 正文，必填，自己整理完整）+ tags（标签数组，可选）')
+                             '把刚才那段结论沉淀下来”时用）。'
+                             '正文是本轮对话里已经出现过的长内容时，content 直接写引用标记 "$LAST_REPLY"，'
+                             '不要重新抄写（重抄长文会被回复长度上限截断）；'
+                             '只有全新内容才自己组织完整正文，不要写“详见上文”这类指代',
+            'title（标题，必填）+ content（Markdown 正文，必填；引用上一轮回复写 "$LAST_REPLY"）+ tags（标签数组，可选）')
 def tool_knowledge_create(user, params):
     title = str(params.get('title') or params.get('name') or '').strip()
     content = str(params.get('content') or '').strip()
@@ -83,6 +88,11 @@ def tool_knowledge_create(user, params):
         raise ToolError('请给这篇知识库文章一个标题')
     if not content:
         raise ToolError('请告诉我要存进去的内容（可以直接说“把刚才那段结论整理成文章”）')
+    if _UNRESOLVED_REF.match(content):
+        # 编排器已经展开过引用（见 core.agent_registry.resolve_params_refs）；
+        # 走到这里说明调用方没递引用池（报告生成、测试等旁路）。宁可报错也不把
+        # “$LAST_REPLY” 十个字符当成文章正文写进库——那是看起来成功的脏数据。
+        raise ToolError('没能取到要保存的上文内容，请把正文完整发一次')
     if len(content) < 10:
         # 太短不像一篇可复用的文章，多半是模型没把上下文展开成正文
         raise ToolError('内容太短，存进去以后也查不出什么；请补完整或说明要保存哪一段结论')
