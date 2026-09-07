@@ -144,9 +144,9 @@ input[type="date"] {
     border-radius: 9999px;
 }
 
-/* 输入框内边距 */
-input[type="text"], input[type="email"], input[type="password"],
-input[type="number"], input[type="search"], textarea {
+/* 输入框内边距：用 :where() 把特异性降到 0，避免压过模板里 Tailwind 的 pl-10 等内边距类（活动列表搜索框 pl-10 曾被这条规则压回 1rem，placeholder 顶进放大镜图标） */
+:where(input[type="text"], input[type="email"], input[type="password"],
+input[type="number"], input[type="search"], textarea) {
     padding-left: 1rem;
     padding-right: 1rem;
 }
