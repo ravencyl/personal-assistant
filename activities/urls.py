@@ -38,7 +38,5 @@ urlpatterns = [
     path('recurring/create/', views.recurring_create, name='recurring_create'),
     path('recurring/<int:pk>/delete/', views.recurring_delete, name='recurring_delete'),
     path('recurring/<int:pk>/toggle/', views.recurring_toggle, name='recurring_toggle'),
-    path('recurring/checkin/<int:activity_id>/', views.recurring_checkin, name='recurring_checkin'),
-    path('recurring/heatmap-data/', views.habit_heatmap_data, name='habit_heatmap_data'),
     path('next-actions/', views.next_actions, name='next_actions'),
 ]

@@ -142,7 +142,7 @@
     // ==================== 解析结果回填（弹窗「填入下方表单」与独立页快速填表共用） ====================
     var PARSE_FIELDS = {
         name: 'id_name', start_date: 'id_start_date', end_date: 'id_end_date',
-        status: 'id_status', budget: 'id_budget', duration_minutes: 'id_duration_minutes',
+        status: 'id_status',
         cost: 'id_parsed_cost'
     };
     var FORM_DEFAULTS = null, lastFilled = [];

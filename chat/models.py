@@ -138,8 +138,9 @@ class Conversation(models.Model):
     def pinned_context(self):
         """钉选对象的注入文本（拼在发给 Qoder 的正文前面）
 
-        为什么要注入现状而不只给个 ID：模型拿到「预算 2 万、已花 1578」才能直接算
-        「还剩多少」，只给 ID 它得先调一次查询工具，多一轮往返就多一次出错机会。
+        为什么要注入现状而不只给个 ID：模型拿到「已花 1578、参与者有谁」才能直接
+        回答「还剩多少、谁一起去」，只给 ID 它得先调一次查询工具，多一轮往返就多
+        一次出错机会。
 
         无钉选 / 对象已失效返回空串（注入失败不得阻断对话，铁律）。
         """
@@ -154,8 +155,6 @@ class Conversation(models.Model):
                      f'状态：{activity.get_status_display()}']
             if activity.date_range:
                 parts.append(f'日期：{activity.date_range}')
-            if activity.budget:
-                parts.append('预算：¥%.2f' % activity.budget)
             parts.append('已花费：¥%.2f' % activity.total_cost)
             names = [p.name for p in activity.participants.all()[:8]]
             if names:

@@ -42,7 +42,6 @@ def collect_report_data(user, report_type, period_start, period_end):
     - top_tags (最常用的标签)
     - prev_period_expense (上一周期费用，用于环比)
     年报额外里程碑字段：
-    - checkin_days (循环活动实例完成打卡天数)
     - top_category (花费最高的费用类别)
     - most_active_month (活动最多的月份，'YYYY-MM' 或 None)
     - monthly_expense (每月费用聚合，避免逐日 N+1)
@@ -162,11 +161,6 @@ def collect_report_data(user, report_type, period_start, period_end):
 
     if is_yearly:
         # ── 年度里程碑数据 ──
-        # 打卡天数：区间内循环活动生成实例的完成数（单次聚合查询）
-        result['checkin_days'] = activities.filter(
-            recurring_source__isnull=False, status='done'
-        ).count()
-
         # 分类费用最高项（基于已有 expense_by_cat，无额外查询）
         if expense_by_cat:
             top_cat, top_cat_amount = max(expense_by_cat.items(), key=lambda kv: kv[1])
@@ -314,7 +308,6 @@ def _fallback_yearly_report(data, period_start, period_end):
         '## 年度里程碑',
         '',
         f'- 总花费：**¥{data["total_expense"]:.0f}**',
-        f'- 打卡天数：**{data.get("checkin_days", 0)}** 天',
     ]
 
     top_cat = data.get('top_category')

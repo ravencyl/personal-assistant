@@ -39,7 +39,6 @@ def collect_insight_data(user, today):
     from django.db.models import Sum
 
     from activities.models import Activity, Expense
-    from core.suggestions import compute_habit_streaks
 
     week_start = week_monday(today)
     last_week_start = week_start - timedelta(days=7)
@@ -51,20 +50,6 @@ def collect_insight_data(user, today):
             end_date__gte=week_start, end_date__lte=today,
         ).order_by('name').values_list('name', flat=True)[:10]
     )
-
-    # 本周投入时间（预估）
-    time_this_week = Activity.objects.filter(
-        user=user, status='done',
-        end_date__gte=week_start, end_date__lte=today,
-        duration_minutes__isnull=False,
-    ).aggregate(total=Sum('duration_minutes'))['total'] or 0
-
-    # 上周投入时间
-    time_last_week = Activity.objects.filter(
-        user=user, status='done',
-        end_date__gte=last_week_start, end_date__lt=week_start,
-        duration_minutes__isnull=False,
-    ).aggregate(total=Sum('duration_minutes'))['total'] or 0
 
     # 本周消费
     week_expense = float(
@@ -85,10 +70,6 @@ def collect_insight_data(user, today):
         ).values('category').annotate(s=Sum('amount')).values_list('category', 's')
     }
 
-    # 习惯连续打卡
-    streaks = compute_habit_streaks(user, today)
-    habit_streaks = [{'name': s['name'], 'streak': s['streak']} for s in streaks[:3]]
-
     # 明日安排
     tomorrow = today + timedelta(days=1)
     tomorrow_activities = list(
@@ -106,12 +87,9 @@ def collect_insight_data(user, today):
     return {
         'date': today.isoformat(),
         'done_this_week': done_this_week,
-        'time_this_week_minutes': time_this_week,
-        'time_last_week_minutes': time_last_week,
         'week_expense': week_expense,
         'last_week_expense': last_week_expense,
         'expense_by_category': expense_by_category,
-        'habit_streaks': habit_streaks,
         'tomorrow_activities': tomorrow_activities,
         'in_progress': in_progress,
     }
@@ -217,30 +195,13 @@ def build_fallback_insights(data):
     """AI 失败时的规则模板洞察"""
     insights = []
 
-    time_this = data.get('time_this_week_minutes', 0)
-    time_last = data.get('time_last_week_minutes', 0)
     done_count = len(data.get('done_this_week', []))
     if done_count > 0:
-        hours = time_this / 60 if time_this else 0
         text = f'本周已完成 {done_count} 项'
-        if hours > 0:
-            text += f'，投入约 {hours:.0f} 小时'
-        if time_last > 0 and time_this > time_last:
-            text += '，比上周更专注了'
         insights.append({
             'text': text, 'icon': 'plan',
             'action': {'kind': 'link', 'label': '看活动', 'url': '/activities/'},
             'followup': f'{text}，帮我看看还有哪些可以本周收尾',
-        })
-
-    streaks = data.get('habit_streaks', [])
-    if streaks and streaks[0]['streak'] >= 3:
-        s = streaks[0]
-        insights.append({
-            'text': f'「{s["name"]}」已连续 {s["streak"]} 天，坚持就是胜利',
-            'icon': 'habit',
-            'action': {'kind': 'link', 'label': '习惯', 'url': '/activities/recurring/'},
-            'followup': f'「{s["name"]}」已连续 {s["streak"]} 天，帮我看看怎么让它更容易坚持',
         })
 
     return insights[:2]
@@ -285,9 +246,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f'[dry-run] {user.username}: '
                     f'完成 {len(data["done_this_week"])} / '
-                    f'投入 {data["time_this_week_minutes"]}min / '
-                    f'消费 ¥{data["week_expense"]:.0f} / '
-                    f'习惯 {len(data["habit_streaks"])} → {action}'
+                    f'消费 ¥{data["week_expense"]:.0f} → {action}'
                 )
                 continue
 

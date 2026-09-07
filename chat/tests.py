@@ -1005,7 +1005,7 @@ class ChatQuickActionsTest(SimpleTestCase):
 class ChatPinTest(TestCase):
     """@ 钉选：会话级上下文（模型注入 + 两个 JSON 端点）
 
-    钉选的价值全在「注入的是现状」：模型拿到预算/已花/参与者才能直接算「还剩多少」，
+    钉选的价值全在「注入的是现状」：模型拿到已花/参与者才能直接算「还剩多少」，
     只给一个 ID 它得先调一次查询工具，多一轮往返就多一次出错机会。
     """
 
@@ -1020,7 +1020,7 @@ class ChatPinTest(TestCase):
         self.activity = Activity.objects.create(
             user=self.user, name='新西兰旅游', status='planned',
             start_date=today + timedelta(days=30),
-            budget=20000, description='住皇后镇，含跳伞')
+            description='住皇后镇，含跳伞')
         self.activity.participants.add(Participant.objects.create(user=self.user, name='YYX'))
         self.activity.tags.add('新西兰')
         self.foreign = Activity.objects.create(user=self.other, name='别人的活动')
@@ -1036,7 +1036,7 @@ class ChatPinTest(TestCase):
         text = self.conv.pinned_context()
         self.assertIn('[钉选对象]', text)
         for needle in ('新西兰旅游', f'ID={self.activity.id}', '状态：计划',
-                       '预算：¥20000.00', '已花费：¥0.00', 'YYX', '住皇后镇'):
+                       '已花费：¥0.00', 'YYX', '住皇后镇'):
             self.assertIn(needle, text)
         # 不点名对象时默认就是它：这句决定模型会不会又去搜一遍活动
         self.assertIn('不要再去搜一遍', text)
@@ -1059,7 +1059,7 @@ class ChatPinTest(TestCase):
         self.conv.refresh_from_db()
         self.assertTrue(self.conv.turn_prompt.startswith('[钉选对象]'),
                         '钉选是用户显式点名的，必须排在按关键词猜的知识库注入之前')
-        self.assertIn('预算：¥20000.00', self.conv.turn_prompt)
+        self.assertIn('已花费：¥0.00', self.conv.turn_prompt)
         self.assertIn('还剩多少预算', self.conv.turn_prompt)
         # 用户消息只存原文（现有约定）：钉选漏进历史会让回看变成一堆方括号
         self.assertEqual(self.conv.messages.filter(role='user').first().content,

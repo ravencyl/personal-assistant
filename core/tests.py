@@ -648,147 +648,6 @@ class ReportAgentToolTest(TestCase):
         self.assertEqual(result['card'], 'report')
 
 
-class SuggestionsBudgetWarningTest(TestCase):
-    """验证 suggestions 包含预算预警建议"""
-    def setUp(self):
-        from django.core.cache import cache
-        cache.clear()
-        self.user = User.objects.create_user('testuser', password='test')
-
-    def test_suggestions_budget_warning(self):
-        """活动接近预算时 suggestions 包含预警"""
-        from core.suggestions import generate_suggestions
-
-        activity = Activity.objects.create(
-            user=self.user, name='预算预警测试',
-            budget=Decimal('1000'), status='in_progress',
-        )
-        Expense.objects.create(
-            activity=activity, user=self.user,
-            amount=Decimal('850'), category='food',
-        )
-
-        suggestions = generate_suggestions(self.user)
-        texts = [s['text'] for s in suggestions]
-        # 应该包含活动名称
-        self.assertTrue(any('预算预警测试' in t for t in texts), f'Expected activity name in suggestions, got: {texts}')
-
-    def test_suggestions_budget_over(self):
-        """活动超支时 suggestions 包含预警"""
-        from core.suggestions import generate_suggestions
-
-        activity = Activity.objects.create(
-            user=self.user, name='超支预警测试',
-            budget=Decimal('1000'), status='in_progress',
-        )
-        Expense.objects.create(
-            activity=activity, user=self.user,
-            amount=Decimal('1200'), category='food',
-        )
-
-        suggestions = generate_suggestions(self.user)
-        texts = [s['text'] for s in suggestions]
-        # 应该包含活动名称
-        self.assertTrue(any('超支预警测试' in t for t in texts), f'Expected activity name in suggestions, got: {texts}')
-
-
-class SuggestionsBudgetBatchQueryTest(TestCase):
-    """规则 7 预算预警：批量聚合取费用，查询数固定（无 N+1）"""
-    def setUp(self):
-        from django.core.cache import cache
-        cache.clear()
-        self.user = User.objects.create_user('testuser', password='test')
-
-    def test_budget_warning_batch_aggregation(self):
-        """多个带预算活动时仅 2 条查询（活动 1 条 + 费用聚合 1 条）"""
-        from core.suggestions import _rule_budget_warning
-
-        for i in range(3):
-            activity = Activity.objects.create(
-                user=self.user, name=f'批量聚合活动{i}',
-                budget=Decimal('1000'), status='in_progress',
-            )
-            for amount in ('500', '350'):
-                Expense.objects.create(
-                    activity=activity, user=self.user,
-                    amount=Decimal(amount), category='food',
-                )
-
-        with self.assertNumQueries(2):
-            result = _rule_budget_warning(self.user, timezone.localdate())
-
-        # 预警最多保留 2 条，金额来自聚合结果而非逐条查询
-        self.assertEqual(len(result), 2)
-        for s in result:
-            self.assertIn('接近预算', s['text'])
-            self.assertIn('已花费 ¥850', s['text'])
-
-
-class SuggestionsHabitMissedTest(TestCase):
-    """规则 10 习惯断签：daily 循环活动昨日实例未完成 → 提示未打卡"""
-    def setUp(self):
-        from django.core.cache import cache
-        cache.clear()
-        self.user = User.objects.create_user('testuser', password='test')
-        self.today = timezone.localdate()
-        self.yesterday = self.today - timedelta(days=1)
-
-    def test_missed_daily_habit(self):
-        """昨日 daily 实例状态非 done → 提示没有打卡"""
-        from core.suggestions import generate_suggestions
-        from activities.models import RecurringActivity
-
-        pattern = RecurringActivity.objects.create(
-            user=self.user, name='晨跑', frequency='daily', is_active=True,
-        )
-        Activity.objects.create(
-            user=self.user, name='晨跑',
-            start_date=self.yesterday, end_date=self.yesterday,
-            status='planned', recurring_source=pattern,
-        )
-
-        texts = [s['text'] for s in generate_suggestions(self.user)]
-        self.assertTrue(
-            any('晨跑' in t and '没有打卡' in t for t in texts),
-            f'Expected habit-missed suggestion, got: {texts}',
-        )
-
-    def test_done_habit_not_suggested(self):
-        """昨日实例已完成 → 不提示"""
-        from core.suggestions import generate_suggestions
-        from activities.models import RecurringActivity
-
-        pattern = RecurringActivity.objects.create(
-            user=self.user, name='晨跑', frequency='daily', is_active=True,
-        )
-        Activity.objects.create(
-            user=self.user, name='晨跑',
-            start_date=self.yesterday, end_date=self.yesterday,
-            status='done', recurring_source=pattern,
-        )
-
-        texts = [s['text'] for s in generate_suggestions(self.user)]
-        self.assertFalse(any('没有打卡' in t for t in texts), texts)
-
-    def test_weekly_habit_not_suggested(self):
-        """非 daily 频率的循环活动不参与断签检查"""
-        from core.suggestions import generate_suggestions
-        from activities.models import RecurringActivity
-
-        pattern = RecurringActivity.objects.create(
-            user=self.user, name='周例会', frequency='weekly',
-            day_of_week=0, is_active=True,
-        )
-        Activity.objects.create(
-            user=self.user, name='周例会',
-            start_date=self.yesterday, end_date=self.yesterday,
-            status='planned', recurring_source=pattern,
-        )
-
-        texts = [s['text'] for s in generate_suggestions(self.user)]
-        self.assertFalse(any('没有打卡' in t for t in texts), texts)
-
-
 class SuggestionsEndingSoonTest(TestCase):
     """规则 11 临期活动：end_date 距今 ≤3 天且状态非 done/cancelled"""
     def setUp(self):
@@ -844,14 +703,14 @@ class SuggestionsEndingSoonTest(TestCase):
 
 
 class SuggestionsTruncationTest(TestCase):
-    """建议总数超过上限时截断为 5 条"""
+    """建议总数受 MAX_SUGGESTIONS 上限约束"""
     def setUp(self):
         from django.core.cache import cache
         cache.clear()
         self.user = User.objects.create_user('testuser', password='test')
 
     def test_max_suggestions(self):
-        """多规则同时命中时最多返回 6 条"""
+        """多规则同时命中时不虚增（预算/习惯规则已随字段删除而下线）"""
         from core.suggestions import generate_suggestions
         today = timezone.localdate()
 
@@ -864,18 +723,8 @@ class SuggestionsTruncationTest(TestCase):
         Activity.objects.create(
             user=self.user, name='没有日期', status='planned',
         )
-        # 规则 6：今日无消费（1 条，费用未设 paid_at）
-        # 规则 7：3 个超预算活动 → 2 条
-        for i in range(3):
-            activity = Activity.objects.create(
-                user=self.user, name=f'超预算{i}', status='in_progress',
-                start_date=today, budget=Decimal('100'),
-            )
-            Expense.objects.create(
-                activity=activity, user=self.user, amount=Decimal('200'),
-            )
-        # 规则 8：2 个待处理提醒 → 2 条（共 7 条）
-        # 用已过点的时刻：口径收敛后规则 8 只催「到点了没处理」的，不再拿未来预告凑数
+        # 规则 7：2 个待处理提醒 → 2 条；另有「今日无消费」提醒 → 1 条（共 5 条）
+        # 用已过点的时刻：口径收敛后规则 7 只催「到点了没处理」的，不再拿未来预告凑数
         for i in range(2):
             Reminder.objects.create(
                 user=self.user, content=f'提醒{i}',
@@ -883,7 +732,7 @@ class SuggestionsTruncationTest(TestCase):
             )
 
         suggestions = generate_suggestions(self.user)
-        self.assertEqual(len(suggestions), 6)
+        self.assertEqual(len(suggestions), 5)
 
 
 class SuggestionsCacheTest(TestCase):
@@ -923,20 +772,15 @@ class SuggestionDismissReadTest(TestCase):
         from core.models import SuggestionState
         from core.suggestions import generate_suggestions
 
-        # 先创建一条建议数据
-        activity = Activity.objects.create(
-            user=self.user, name='测试活动',
-            budget=Decimal('1000'), status='in_progress',
-        )
-        Expense.objects.create(
-            activity=activity, user=self.user,
-            amount=Decimal('900'), category='food',
+        # 先创建一条建议数据（计划中无日期 → 规则 4 命中）
+        Activity.objects.create(
+            user=self.user, name='测试活动', status='planned',
         )
 
         suggestions = generate_suggestions(self.user)
-        budget_suggestions = [s for s in suggestions if s['key'].startswith('budget:')]
-        self.assertTrue(len(budget_suggestions) > 0)
-        key = budget_suggestions[0]['key']
+        no_date_suggestions = [s for s in suggestions if s['key'].startswith('no_start_date:')]
+        self.assertTrue(len(no_date_suggestions) > 0)
+        key = no_date_suggestions[0]['key']
 
         # 关闭
         response = self.client.post(
@@ -1061,28 +905,6 @@ class SuggestionsNewRulesTest(TestCase):
 
         result = _rule_expense_anomaly(self.user, self.today)
         self.assertIsNone(result)
-
-    def test_habit_streak_positive(self):
-        """连续打卡 ≥3 天时正向激励"""
-        from core.suggestions import _rule_habit_streak
-        from activities.models import RecurringActivity
-
-        pattern = RecurringActivity.objects.create(
-            user=self.user, name='冥想', frequency='daily', is_active=True,
-        )
-        # 连续 5 天打卡
-        for i in range(1, 6):
-            Activity.objects.create(
-                user=self.user, name='冥想',
-                start_date=self.today - timedelta(days=i),
-                end_date=self.today - timedelta(days=i),
-                status='done', recurring_source=pattern,
-            )
-
-        result = _rule_habit_streak(self.user, self.today)
-        self.assertIsNotNone(result)
-        self.assertTrue(len(result) > 0)
-        self.assertIn('连续打卡 5 天', result[0]['text'])
 
     def test_subtask_progress_triggers(self):
         """子任务完成 ≥80% 时鼓励"""
@@ -1219,44 +1041,6 @@ class DailyInsightMergeTest(TestCase):
         self.assertNotIn('ai:test:0', ai_keys)
 
 
-class ComputeHabitStreaksTest(TestCase):
-    """compute_habit_streaks 公共函数"""
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.today = timezone.localdate()
-
-    def test_streak_calculation(self):
-        from core.suggestions import compute_habit_streaks
-        from activities.models import RecurringActivity
-
-        pattern = RecurringActivity.objects.create(
-            user=self.user, name='跑步', frequency='daily', is_active=True,
-        )
-        # 连续 3 天打卡（昨天、前天、大前天）
-        for i in range(1, 4):
-            Activity.objects.create(
-                user=self.user, name='跑步',
-                start_date=self.today - timedelta(days=i),
-                status='done', recurring_source=pattern,
-            )
-        # 第 4 天未完成（断签）
-        Activity.objects.create(
-            user=self.user, name='跑步',
-            start_date=self.today - timedelta(days=4),
-            status='planned', recurring_source=pattern,
-        )
-
-        streaks = compute_habit_streaks(self.user, self.today)
-        self.assertEqual(len(streaks), 1)
-        self.assertEqual(streaks[0]['streak'], 3)
-        self.assertEqual(streaks[0]['name'], '跑步')
-
-    def test_no_active_recurring(self):
-        from core.suggestions import compute_habit_streaks
-        streaks = compute_habit_streaks(self.user, self.today)
-        self.assertEqual(streaks, [])
-
-
 class SuggestionActionProtocolTest(TestCase):
     """建议可操作增强：规则 action 协议（tool/post/link）+ followup"""
     def setUp(self):
@@ -1267,30 +1051,6 @@ class SuggestionActionProtocolTest(TestCase):
 
     def _find(self, suggestions, key_prefix):
         return next((s for s in suggestions if s['key'].startswith(key_prefix)), None)
-
-    def test_habit_missed_tool_action(self):
-        """规则 10：补打卡→合法 tool action，params 携精确 activity_id"""
-        from core.suggestions import generate_suggestions, SUGGESTION_TOOLS
-        from activities.models import RecurringActivity
-
-        pattern = RecurringActivity.objects.create(
-            user=self.user, name='晨跑', frequency='daily', is_active=True)
-        a = Activity.objects.create(
-            user=self.user, name='晨跑',
-            start_date=self.today - timedelta(days=1),
-            end_date=self.today - timedelta(days=1),
-            status='planned', recurring_source=pattern)
-
-        s = self._find(generate_suggestions(self.user), 'habit_missed:')
-        self.assertIsNotNone(s)
-        self.assertTrue(s['followup'])
-        action = s['action']
-        self.assertEqual(action['kind'], 'tool')
-        self.assertIn(action['tool'], SUGGESTION_TOOLS)
-        self.assertEqual(action['params'], {'activity_id': a.id, 'status': 'done'})
-        # params 全部为标量
-        self.assertTrue(all(isinstance(v, (str, int, float, bool))
-                            for v in action['params'].values()))
 
     def test_stale_planned_confirm_action(self):
         """规则 5：批量取消→tool action 需确认，target_ids 为整数列表"""
@@ -1324,19 +1084,11 @@ class SuggestionActionProtocolTest(TestCase):
     def test_all_suggestions_have_followup(self):
         """全量规则输出：每条建议 followup 非空，action kind 合法"""
         from core.suggestions import generate_suggestions, SUGGESTION_TOOLS
-        from activities.models import RecurringActivity
 
         Activity.objects.create(user=self.user, name='陈旧计划', status='planned',
                                 start_date=self.today - timedelta(days=40))
         Activity.objects.filter(name='陈旧计划').update(
             updated_at=timezone.now() - timedelta(days=31))
-        RecurringActivity.objects.create(
-            user=self.user, name='晨跑', frequency='daily', is_active=True)
-        Activity.objects.create(
-            user=self.user, name='晨跑',
-            start_date=self.today - timedelta(days=1),
-            end_date=self.today - timedelta(days=1),
-            status='planned')
 
         for s in generate_suggestions(self.user):
             self.assertTrue(s['followup'], f"{s['key']} 缺 followup")
@@ -1441,7 +1193,7 @@ class SuggestionToolRunEndpointTest(TestCase):
         from core.models import SuggestionState
 
         a = Activity.objects.create(user=self.user, name='晨跑', status='planned')
-        resp = self._post({'key': 'habit_missed:1', 'tool': 'activities.set_status',
+        resp = self._post({'key': 'test_direct:1', 'tool': 'activities.set_status',
                            'params': {'activity_id': a.id, 'status': 'done'}})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -1450,7 +1202,7 @@ class SuggestionToolRunEndpointTest(TestCase):
         a.refresh_from_db()
         self.assertEqual(a.status, 'done')
         self.assertTrue(SuggestionState.objects.filter(
-            user=self.user, fingerprint='habit_missed:1', action='read').exists())
+            user=self.user, fingerprint='test_direct:1', action='read').exists())
 
     def test_confirm_two_step_flow(self):
         """需确认工具：首次 need_confirm+token → 带 token 二次执行；错误 token 拒绝"""
@@ -1524,31 +1276,18 @@ class DailyPlanTest(TestCase):
         self.assertTrue(plan['is_empty'])
 
     def test_daily_page_drops_due_group_and_renames_section(self):
-        """顶部区标题改为「打卡与提醒」，不再渲染「今日到期」分组"""
+        """顶部区标题改为「提醒与子任务」，不再渲染「今日到期」分组"""
         self._span_today_activity()
         with patch('django.utils.timezone.localtime', return_value=self.noon):
             html = self.client.get(reverse('activities:daily')).content.decode()
-        self.assertIn('打卡与提醒', html)
+        self.assertIn('提醒与子任务', html)
         self.assertNotIn('今日到期', html)
 
     def test_daily_page_empty_plan_text(self):
-        """三组全空时给出对应空状态文案"""
+        """两组全空时给出对应空状态文案"""
         with patch('django.utils.timezone.localtime', return_value=self.noon):
             html = self.client.get(reverse('activities:daily')).content.decode()
-        self.assertIn('今天没有要打卡的习惯', html)
-
-    def test_habits_group_lists_today_instance_only(self):
-        """习惯只列今日实例，不抓未来实例"""
-        habit = RecurringActivity.objects.create(
-            user=self.user, name='晨跑', frequency='daily')
-        Activity.objects.create(
-            user=self.user, name='晨跑', start_date=self.today, recurring_source=habit)
-        Activity.objects.create(
-            user=self.user, name='晨跑', start_date=self.today + timedelta(days=1),
-            recurring_source=habit)
-        plan = generate_daily_plan(self.user)
-        self.assertEqual([a.name for a in plan['habits']], ['晨跑'])
-        self.assertFalse(plan['is_empty'])
+        self.assertIn('今天没有待办子任务和提醒', html)
 
     def test_subtask_groups_grouped_by_parent(self):
         """未完成子任务按父活动分组，已完成的不列入"""

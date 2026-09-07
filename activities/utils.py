@@ -187,19 +187,6 @@ def edit_summary(old, activity):
     return '；'.join(changes)[:500]
 
 
-def fmt_duration(minutes):
-    """耗时分钟数的人性化展示，如「2 小时 30 分钟」「45 分钟」；空值返回「—」（批次4C 耗时统计）"""
-    if minutes in (None, ''):
-        return '—'
-    minutes = int(minutes)
-    hours, m = divmod(minutes, 60)
-    if hours and m:
-        return f'{hours} 小时 {m} 分钟'
-    if hours:
-        return f'{hours} 小时'
-    return f'{m} 分钟'
-
-
 def normalize_input(data, today):
     """清洗校验解析结果（AI 与规则输出共用），丢弃非法字段"""
     out = {}
@@ -223,26 +210,9 @@ def normalize_input(data, today):
                 out['cost'] = cost
         except (TypeError, ValueError):
             pass
-    # budget 是「预算上限」（写 Activity.budget），与 cost（记一笔支出）两回事，不能合并
-    budget = data.get('budget')
-    if budget is not None and budget != '':
-        try:
-            budget = round(float(budget), 2)
-            if budget >= 0:
-                out['budget'] = budget
-        except (TypeError, ValueError):
-            pass
     status = data.get('status')
     if status in dict(Activity.STATUS_CHOICES):
         out['status'] = status
-    duration = data.get('duration_minutes')
-    if duration not in (None, ''):
-        try:
-            duration = int(duration)
-            if duration >= 0:
-                out['duration_minutes'] = duration
-        except (TypeError, ValueError):
-            pass
     for key in ('tags', 'participants'):
         values = data.get(key)
         if isinstance(values, str):
@@ -316,28 +286,3 @@ def filter_activities(user, params):
         qs = qs.filter(q_or(('name', 'description', 'tags__name',
                              'participants__name'), keyword)).distinct()
     return qs
-
-
-def budget_status(activity):
-    """计算活动预算状态，返回 (ratio, level, label)
-
-    ratio: float (0.0 ~ 1.0+)，已花费/预算
-    level: str，'safe' | 'warning' | 'over' | None
-    label: str，中文状态标签或 None
-    """
-    if not activity.budget:
-        return (None, None, None)
-
-    spent = float(activity.total_cost or 0)
-    budget = float(activity.budget)
-    if budget <= 0:
-        return (None, None, None)
-
-    ratio = spent / budget
-
-    if ratio >= 1.0:
-        return (ratio, 'over', '已超预算')
-    elif ratio >= 0.8:
-        return (ratio, 'warning', '接近预算')
-    else:
-        return (ratio, 'safe', '')

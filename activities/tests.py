@@ -27,41 +27,9 @@ from core.layout_asserts import assert_desktop_two_columns
 from activities.services import (InputError, add_expense, clean_category,
                                  create_activity_from_parsed, record_parsed_cost,
                                  start_due_activities)
-from activities.utils import (budget_status, get_daily_bucket, DAILY_BUCKET_NAME,
+from activities.utils import (get_daily_bucket, DAILY_BUCKET_NAME,
                               DAILY_BUCKET_MARKER, daily_bucket_q, is_daily_bucket,
                               exclude_daily_bucket, resolve_participants)
-
-
-class BudgetStatusTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='测试活动', budget=Decimal('1000'))
-
-    def test_budget_status_safe(self):
-        Expense.objects.create(activity=self.activity, user=self.user, amount=Decimal('500'), category='food')
-        ratio, level, label = budget_status(self.activity)
-        self.assertEqual(level, 'safe')
-        self.assertAlmostEqual(ratio, 0.5)
-
-    def test_budget_status_warning(self):
-        Expense.objects.create(activity=self.activity, user=self.user, amount=Decimal('850'), category='food')
-        ratio, level, label = budget_status(self.activity)
-        self.assertEqual(level, 'warning')
-
-    def test_budget_status_over(self):
-        Expense.objects.create(activity=self.activity, user=self.user, amount=Decimal('1100'), category='food')
-        ratio, level, label = budget_status(self.activity)
-        self.assertEqual(level, 'over')
-
-    def test_budget_status_no_budget(self):
-        self.activity.budget = None
-        ratio, level, label = budget_status(self.activity)
-        self.assertIsNone(level)
-
-    def test_budget_status_zero_budget(self):
-        self.activity.budget = Decimal('0')
-        ratio, level, label = budget_status(self.activity)
-        self.assertIsNone(level)
 
 
 class ExpenseCategorySuggestTest(TestCase):
@@ -85,55 +53,6 @@ class ExpenseCategorySuggestTest(TestCase):
         response = self.client.get(f'/activities/{self.activity.id}/category-suggest/')
         data = response.json()
         self.assertEqual(len(data['categories']), len(Expense.CATEGORY_CHOICES))
-
-
-class SetBudgetAgentToolTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='出差上海')
-
-    def test_set_budget_tool_exists(self):
-        from core.agent_registry import get_tool
-        tool = get_tool('activities.set_budget')
-        self.assertIsNotNone(tool)
-
-
-class BudgetProgressBarTest(TestCase):
-    """验证预算进度条模板渲染"""
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-
-    def test_budget_progress_bar_safe(self):
-        """预算安全时进度条颜色为 zinc-900"""
-        activity = Activity.objects.create(user=self.user, name='安全活动', budget=Decimal('1000'))
-        Expense.objects.create(activity=activity, user=self.user, amount=Decimal('500'), category='food')
-        response = self.client.get(f'/activities/{activity.id}/')
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        # 安全状态应该有进度条
-        self.assertIn('预算', content)
-
-    def test_budget_progress_bar_warning(self):
-        """预算警告时进度条颜色为 amber"""
-        activity = Activity.objects.create(user=self.user, name='警告活动', budget=Decimal('1000'))
-        Expense.objects.create(activity=activity, user=self.user, amount=Decimal('850'), category='food')
-        response = self.client.get(f'/activities/{activity.id}/')
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn('amber', content)
-        self.assertIn('接近预算', content)
-
-    def test_budget_progress_bar_over(self):
-        """预算超支时进度条颜色为 red"""
-        activity = Activity.objects.create(user=self.user, name='超支活动', budget=Decimal('1000'))
-        Expense.objects.create(activity=activity, user=self.user, amount=Decimal('1100'), category='food')
-        response = self.client.get(f'/activities/{activity.id}/')
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn('red', content)
-        self.assertIn('已超预算', content)
 
 
 class AddExpenseAutoTargetTest(TestCase):
@@ -707,54 +626,43 @@ class AttachmentUploadTest(TestCase):
 
 
 class CostVsBudgetParsingTest(TestCase):
-    """「预算 X」与「费用/花了 X」是两个口径
+    """「预算 X」不再写入任何字段（预算上限已随 Activity.budget 字段删除）
 
-    以前两者都归入 cost，“团建预算500”会被记成一笔 500 元支出（预算≠花掉的钱）。
+    以前「预算 500」写 budget、「花了 300」写 cost；字段删除后只保留费用解析。
     """
 
     TODAY = date(2026, 8, 31)   # 周一
 
-    def test_budget_keyword_writes_budget_not_cost(self):
+    def test_budget_keyword_writes_nothing(self):
         result = parse_quick_input('下周五团建预算500元', self.TODAY)
-        self.assertEqual(result['budget'], 500.0)
+        self.assertNotIn('budget', result)
         self.assertNotIn('cost', result)
 
     def test_spent_keywords_write_cost(self):
         for text, amount in [('聚餐费用2千', 2000.0), ('花了300', 300.0), ('打车500元', 500.0)]:
             result = parse_quick_input(text, self.TODAY)
             self.assertEqual(result.get('cost'), amount, text)
-            self.assertNotIn('budget', result)
 
 
 class CostVsBudgetEndpointsTest(TestCase):
-    """预算写字段、费用记支出，两条入口（快速创建 / 新建表单）口径一致"""
+    """费用记支出，两条入口（快速创建 / 新建表单）口径一致"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
         self.client = Client()
         self.client.login(username='testuser', password='test')
 
-    def test_quick_create_splits_budget_and_expense(self):
+    def test_quick_create_expense_writes_expense(self):
         resp = self.client.post(
             reverse('activities:activity_quick_create'),
-            data=json.dumps({'name': '团建', 'budget': 500, 'cost': 120}),
+            data=json.dumps({'name': '团建', 'cost': 120}),
             content_type='application/json')
         self.assertEqual(resp.status_code, 200)
         activity = Activity.objects.get(name='团建')
-        self.assertEqual(activity.budget, Decimal('500.00'))
         self.assertEqual(activity.expenses.count(), 1)
         expense = activity.expenses.first()
         self.assertEqual(expense.amount, Decimal('120.00'))
         self.assertEqual(expense.category, 'other')
-
-    def test_quick_create_budget_only_writes_no_expense(self):
-        self.client.post(
-            reverse('activities:activity_quick_create'),
-            data=json.dumps({'name': '只说了预算', 'budget': 800}),
-            content_type='application/json')
-        activity = Activity.objects.get(name='只说了预算')
-        self.assertEqual(activity.budget, Decimal('800.00'))
-        self.assertEqual(Expense.objects.filter(activity=activity).count(), 0)
 
     def _post_create(self, payload):
         """提交新建表单（status 是必填项，模板靠 select 默认值带上）
@@ -770,25 +678,17 @@ class CostVsBudgetEndpointsTest(TestCase):
         return resp
 
     def test_create_form_persisted_cost_becomes_expense(self):
-        """表单里的「本次费用」不得写进 budget，而是记一笔支出"""
+        """表单里的「本次费用」记一笔支出"""
         self._post_create({'name': '周末行程', 'start_date': '2026-09-05',
                            'parsed_cost': '330.50'})
         activity = Activity.objects.get(name='周末行程')
-        self.assertIsNone(activity.budget)
         self.assertEqual(Expense.objects.filter(activity=activity).count(), 1)
         self.assertEqual(Expense.objects.get(activity=activity).amount, Decimal('330.50'))
-
-    def test_create_form_budget_field_still_independent(self):
-        self._post_create({'name': '有预算没花钱', 'budget': '1000', 'parsed_cost': ''})
-        activity = Activity.objects.get(name='有预算没花钱')
-        self.assertEqual(activity.budget, Decimal('1000.00'))
-        self.assertEqual(Expense.objects.filter(activity=activity).count(), 0)
 
     def test_zero_or_negative_cost_is_not_recorded(self):
         for i, raw in enumerate(('0', '-5')):
             self._post_create({'name': f'不记账{i}', 'parsed_cost': raw})
-            activity = Activity.objects.get(name=f'不记账{i}')
-            self.assertIsNone(activity.budget, f'{raw} 不能被转成预算上限')
+            Activity.objects.get(name=f'不记账{i}')
         self.assertEqual(Expense.objects.count(), 0)
 
     def test_edit_page_does_not_offer_cost_field(self):
@@ -1258,12 +1158,10 @@ class UpdateDescriptionAgentToolTest(TestCase):
 
     def test_other_fields_keep_untouched_on_description_only_update(self):
         activity = Activity.objects.create(user=self.user, name='桐庐周末游',
-                                           start_date=date(2026, 9, 5),
-                                           duration_minutes=90)
+                                           start_date=date(2026, 9, 5))
         self.tool['apply'](self.user, {'target_id': activity.id, 'description': '只改描述'})
         activity.refresh_from_db()
         self.assertEqual(activity.start_date, date(2026, 9, 5))
-        self.assertEqual(activity.duration_minutes, 90)
 
 
 def _css_rules(css, selector):
@@ -1292,7 +1190,7 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         self.client = Client()
         self.client.login(username='raven', password='test')
         self.parent = Activity.objects.create(
-            user=self.user, name='新西兰之旅', budget=Decimal('1000'), description='南岛自驾')
+            user=self.user, name='新西兰之旅', description='南岛自驾')
         Activity.objects.create(user=self.user, name='订机票', parent=self.parent, status='done')
         Activity.objects.create(user=self.user, name='租车', parent=self.parent, status='planned')
         Expense.objects.create(activity=self.parent, user=self.user,
@@ -1379,18 +1277,10 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         self.assertIn('position: sticky', rail[0]['body'], '右列整列常驻是桌面端设计的一部分')
         self.assertIn('max-height', rail[0]['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
 
-    def test_subtask_progress_and_budget_remaining_rendered(self):
-        """概览增强：子任务完成度进度条 + 预算余额文案"""
+    def test_subtask_progress_rendered(self):
+        """概览增强：子任务完成度进度条"""
         self.assertIn('title="子任务完成度 1/2"', self.html)
         self.assertIn('width: 50%', self.html)
-        self.assertIn('剩余 ¥500', self.html)
-
-    def test_over_budget_shows_overage_amount(self):
-        Expense.objects.create(activity=self.parent, user=self.user,
-                               amount=Decimal('700'), category='transport')
-        html = self.client.get(f'/activities/{self.parent.id}/').content.decode()
-        self.assertIn('超支 ¥200', html)
-        self.assertNotIn('剩余 ¥', html)
 
 
 class DailyDesktopLayoutTest(TestCase):
@@ -1415,12 +1305,6 @@ class DailyDesktopLayoutTest(TestCase):
         self.client = Client()
         self.client.login(username='raven', password='test')
         today = timezone.localdate()
-        # 4 个习惯、2 个已打卡 → 完成率 50%。条件渲染块不带数据就整块不渲染，顺序锁会空跑
-        for name, status in [('晨读', 'done'), ('跑步', 'done'), ('冥想', 'planned'), ('写字', 'planned')]:
-            src = RecurringActivity.objects.create(user=self.user, name=name,
-                                                   frequency='daily', is_active=True)
-            Activity.objects.create(user=self.user, name=name, start_date=today,
-                                    status=status, recurring_source=src)
         # 固定放在当天中午：避免跨零点跑测试时 trigger_at__date 不等于 today
         fired_at = timezone.localtime(timezone.now()).replace(
             hour=12, minute=0, second=0, microsecond=0)
@@ -1428,8 +1312,7 @@ class DailyDesktopLayoutTest(TestCase):
                                 trigger_at=fired_at, status='fired')
         trip = Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress',
                                        start_date=today - timedelta(days=1),
-                                       end_date=today + timedelta(days=2),
-                                       budget=Decimal('2000'))
+                                       end_date=today + timedelta(days=2))
         Expense.objects.create(activity=trip, user=self.user, amount=Decimal('600'),
                                category='transport', paid_at=today)
         # 明日开始的活动：让 AI 建议区渲染（建议区在左列，不入顺序锁就白跑）
@@ -1443,7 +1326,7 @@ class DailyDesktopLayoutTest(TestCase):
     def _render_morning(self):
         """按早间（09:00）渲染：show_today_plan 只在 <18 点为真。
 
-        不固定时段的话，「打卡与提醒」整块会在傍晚以后跑测试时直接不渲染，
+        不固定时段的话，「提醒与子任务」整块会在傍晚以后跑测试时直接不渲染，
         顺序锁与右列归属锁都会静默空跑。只替换「取当前时间」这一种调用，
         模板里日期格式化（传 value 的 localtime）仍走原逻辑。
         """
@@ -1498,7 +1381,7 @@ class DailyDesktopLayoutTest(TestCase):
         cols = self._cols()
         self.assertLess(self._at(cols, 'class="page-rail"', '右列'),
                         self._at(cols, 'class="page-main"', '左列'),
-                        '右列改成 DOM 在后会让移动端「打卡与提醒/统计」下跳，阅读顺序回退')
+                        '右列改成 DOM 在后会让移动端「提醒与子任务/统计」下跳，阅读顺序回退')
         self.assertIn('page-cols--rail-first', self.html,
                       '缺 rail-first 修饰类：右列在 DOM 前就会出现在桌面左侧，左右颠倒')
         css = self.CSS.read_text(encoding='utf-8')
@@ -1508,24 +1391,22 @@ class DailyDesktopLayoutTest(TestCase):
 
     def test_primary_flow_left_auxiliary_right(self):
         rail, main = self._rail(), self._main()
-        for anchor, desc in [('data-section="daily-plan"', '打卡与提醒'), ('今日活动', '今日活动计数'),
+        for anchor, desc in [('data-section="daily-plan"', '提醒与子任务'), ('今日活动', '今日活动计数'),
                              ('本周消费', '本周消费')]:
             self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
             self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
-        for anchor, desc in [('新建活动', '快捷入口'), ('id="sec-habits"', '习惯打卡'),
-                             ('id="sec-reminders"', '待处理提醒'),
+        for anchor, desc in [('新建活动', '快捷入口'), ('id="sec-reminders"', '待处理提醒'),
                              ('data-section="ai-suggestions"', 'AI 建议'), ('今日进行中', '活动分组')]:
             self.assertIn(anchor, main, f'{desc}应在左列主内容流')
 
     def test_mobile_reading_order_matches_dom(self):
         """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）"""
-        anchors = ['data-section="daily-plan"', '今日活动', 'id="habit-progress-fill"',
-                   '本周消费', '新建活动',
-                   'id="sec-habits"', 'id="sec-reminders"', 'data-section="ai-suggestions"',
+        anchors = ['data-section="daily-plan"', '今日活动', '本周消费', '新建活动',
+                   'id="sec-reminders"', 'data-section="ai-suggestions"',
                    '今日进行中']
         positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
         self.assertEqual(positions, sorted(positions),
-                         '移动端单列顺序变了：右列四块之后才是快捷入口，再是习惯/提醒/建议/活动分组')
+                         '移动端单列顺序变了：右列三块之后才是快捷入口，再是提醒/建议/活动分组')
 
     def test_today_progress_card_is_desktop_only_and_inside_right_column(self):
         rail = self._rail()
@@ -1533,17 +1414,12 @@ class DailyDesktopLayoutTest(TestCase):
         self.assertIn('今日进度', card, '今日进度卡丢了或被挤到本周消费之后')
         self.assertIn('hidden md:block', card,
                       '进度卡必须只在桌面端出现，否则移动端白占高度')
-        self.assertEqual(card.count('data-jump='), 2, '习惯/提醒两个定位入口缺一')
-        self.assertIn('2/4 已打卡', card, '完成率要用服务端数字，不能在 JS 里另算一套')
-        self.assertIn('width: 50%', card, '习惯完成率进度条未渲染')
+        self.assertEqual(card.count('data-jump='), 1, '提醒定位入口缺一')
         self.assertIn('1 条 →', card, '待处理提醒计数未渲染')
 
-    def test_checkin_htmx_contract_and_progress_refresh(self):
-        """打卡仍走 HTMX 局部替换，且右列进度跟着刷新（否则数字假死）"""
+    def test_no_manual_htmx_process_and_json_tags_clean(self):
+        """模板不手动 htmx.process（避免双重绑定），JSON 端点标签不带 hx-*"""
         src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertIn('hx-swap="outerHTML"', src, '打卡表单的 HTMX 局部替换契约被改')
-        self.assertIn('htmx:afterSwap', src, '打卡后右列「今日进度」需要跟着重算')
-        self.assertIn('data-habit-row', src, '进度重算靠行标记反推完成数，标记丢了就数不准')
         self.assertNotIn('htmx.process', src, '手动 htmx.process 会造成双重绑定与旧节点引用残留')
         for tag in re.findall(r'<[^>]*\bdata-(?:suggestion-tool|suggestion-dismiss|quick-open)\b[^>]*>', src):
             self.assertNotIn('hx-', tag, 'JSON 端点只能由 fetch 消费，元素上不能挂 hx-*')
@@ -1608,8 +1484,7 @@ class ExpenseReportDesktopLayoutTest(TestCase):
         self.user = User.objects.create_user('raven', password='test')
         self.client = Client()
         self.client.login(username='raven', password='test')
-        activity = Activity.objects.create(user=self.user, name='新西兰之旅',
-                                           budget=Decimal('2000'))
+        activity = Activity.objects.create(user=self.user, name='新西兰之旅')
         Expense.objects.create(activity=activity, user=self.user,
                                amount=Decimal('600'), category='transport')
         self.html = self.client.get('/activities/expense-report/').content.decode()
@@ -1620,8 +1495,7 @@ class ExpenseReportDesktopLayoutTest(TestCase):
             left=[('月度趋势', '月度趋势图'), ('id="monthChart"', '趋势图画布'),
                   ('分类占比（近一年）', '饼图'), ('本月分类明细', '明细卡'),
                   ('id="mcList"', '明细列表挂载点')],
-            right=[('关键数字', '概览卡标题'), ('本月合计', '本月数字'),
-                   ('时间花费', '时间花费数字')],
+            right=[('关键数字', '概览卡标题'), ('本月合计', '本月数字')],
             mobile_order=['关键数字', '月度趋势', '本月分类明细'],
             rail_first=True)
 
@@ -1664,9 +1538,9 @@ class TemplateListDesktopLayoutTest(TestCase):
 class RecurringListDesktopLayoutTest(TestCase):
     """循环活动页桌面两列布局回归锁
 
-    右列 = 习惯概览 + 近期实例打卡（辅助信息），左列 = 热力图 + 新建表单 + 我的习惯。
-    新建表单按口径留在左列；右列排在主内容流之后，所以移动端四块顺序逐块不变。
-    概览卡是无条件渲染的：近期实例是条件块，没它时右列也不能空着。
+    右列 = 习惯概览（辅助信息），左列 = 新建表单 + 我的习惯。
+    右列排在主内容流之后，所以移动端顺序逐块不变；
+    概览卡是无条件渲染的，没实例时右列也不能空着。
     """
     TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'recurring_list.html'
 
@@ -1674,30 +1548,14 @@ class RecurringListDesktopLayoutTest(TestCase):
         self.user = User.objects.create_user('raven', password='test')
         self.client = Client()
         self.client.login(username='raven', password='test')
-        self.src = RecurringActivity.objects.create(user=self.user, name='晨读',
-                                                    frequency='daily', is_active=True)
-        Activity.objects.create(user=self.user, name='晨读', recurring_source=self.src,
-                                start_date=timezone.localdate(), status='planned')
+        RecurringActivity.objects.create(user=self.user, name='晨读',
+                                         frequency='daily', is_active=True)
         self.html = self.client.get('/activities/recurring/').content.decode()
 
     def test_desktop_two_columns(self):
         assert_desktop_two_columns(
             self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
-            left=[('打卡热力图（近一年）', '热力图'), ('id="habit-heatmap"', '热力图容器'),
-                  ('新建循环活动', '创建表单'),
+            left=[('新建循环活动', '创建表单'),
                   ('id="frequency-select"', '频率选择器'), ('我的习惯', '习惯列表')],
-            right=[('习惯概览', '概览卡'), ('近期实例', '实例打卡卡')],
-            mobile_order=['打卡热力图（近一年）', '新建循环活动', '我的习惯',
-                          '习惯概览', '近期实例'])
-
-    def test_heatmap_keeps_full_left_width(self):
-        """热力图 53 列 × 12px 需要 636px，只能留在左列（进右列就变成横向滚动）"""
-        rail_at = self.html.index('class="page-rail')
-        self.assertLess(self.html.index('id="habit-heatmap"'), rail_at,
-                        '热力图被搬进右列了')
-
-    def test_checkin_htmx_contract_untouched(self):
-        """近期实例的打卡仍走 HTMX outerHTML 局部替换（搬列不该改协议）"""
-        src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertIn('hx-post="{% url \'activities:recurring_checkin\' a.id %}"', src)
-        self.assertIn('hx-swap="outerHTML"', src)
+            right=[('习惯概览', '概览卡')],
+            mobile_order=['新建循环活动', '我的习惯', '习惯概览'])

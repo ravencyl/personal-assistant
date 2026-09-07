@@ -45,10 +45,12 @@ class Command(BaseCommand):
                     should_create = True
             
             if should_create:
-                # 检查是否已存在（幂等）
+                # 检查是否已存在（幂等）：Activity 已无 recurring_source 外键，
+                # 改用「同用户 + 同名 + 同开始日期」判重；同名普通活动同日会被误判为已存在，
+                # 属于可接受的误伤（宁可少建不重复建）
                 exists = Activity.objects.filter(
                     user=pattern.user,
-                    recurring_source=pattern,
+                    name=pattern.name,
                     start_date=current,
                 ).exists()
                 
@@ -59,7 +61,6 @@ class Command(BaseCommand):
                         start_date=current,
                         end_date=current,
                         status='planned',
-                        recurring_source=pattern,
                     )
                     created += 1
             

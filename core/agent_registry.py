@@ -39,7 +39,6 @@ INTENT_TOOL_MAP = {
     'split_expense': 'activities.split_expense',
     'move_date': 'activities.move_date',
     'batch_status': 'activities.batch_status',
-    'set_budget': 'activities.set_budget',
     'notes_create': 'notes.create',
     'notes_search': 'notes.search',
     'knowledge_search': 'knowledge.search',

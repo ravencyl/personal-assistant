@@ -20,7 +20,7 @@ from .models import Activity
 from .services import (InputError, add_expense, clean_amount, clean_category,
                        create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
-                    fmt_duration, fmt_field, get_daily_bucket, log_activity,
+                    fmt_field, get_daily_bucket, log_activity,
                     normalize_input, resolve_participants, snapshot_activity,
                     expense_totals_map, FILTER_PARAM_KEYS)
 
@@ -57,7 +57,6 @@ def _activity_card_data(activity):
             {'value': s, 'label': STATUS_LABELS[s]} for s in NEXT_STATUS.get(activity.status, [])
         ],
         'date_range': activity.date_range,
-        'duration': activity.duration_display,
         'expense_total': float(activity.total_cost or 0),
         'description': activity.description,
         'tags': list(activity.tags.names()),
@@ -225,7 +224,7 @@ def tool_create(user, params):
 _UPDATE_FIELD_LABELS = [
     ('name', '名称'), ('description', '描述'),
     ('start_date', '开始日期'), ('end_date', '结束日期'),
-    ('status', '状态'), ('duration_minutes', '耗时（分钟）'),
+    ('status', '状态'),
 ]
 
 
@@ -289,11 +288,6 @@ def _update_preview(user, params):
                 continue
         elif str(old_v or '') == str(data[field]):
             continue
-        if field == 'duration_minutes':
-            # 人性化格式展示，如「1 小时 30 分钟」
-            changes.append({'field': field, 'label': label,
-                            'old': fmt_duration(old_v), 'new': fmt_duration(data[field])})
-            continue
         if field == 'description':
             # 长正文只展头一段；追加时要写清“保留原文”，避免用户误读成覆盖
             if desc_mode == 'append':
@@ -340,8 +334,7 @@ def apply_update(user, params):
     data, _desc_mode = _update_data(activity, params)
 
     old = snapshot_activity(activity)
-    old_duration = activity.duration_minutes
-    for field in ('name', 'description', 'start_date', 'end_date', 'status', 'duration_minutes'):
+    for field in ('name', 'description', 'start_date', 'end_date', 'status'):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()
@@ -355,9 +348,6 @@ def apply_update(user, params):
             activity.participants.set(participants)
 
     summary = edit_summary(old, activity)
-    if activity.duration_minutes != old_duration:
-        duration_change = (f'耗时 {fmt_duration(old_duration)} → {fmt_duration(activity.duration_minutes)}')
-        summary = f'{summary}；{duration_change}' if summary else duration_change
     summary = summary or '无实质变更'
     log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
     return {
@@ -370,8 +360,8 @@ def apply_update(user, params):
     }
 
 
-@agent_tool('activities.update', '修改指定活动的字段（名称/描述/日期/状态/标签/参与者/耗时）',
-            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 duration_minutes 耗时分钟数、'
+@agent_tool('activities.update', '修改指定活动的字段（名称/描述/日期/状态/标签/参与者）',
+            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 '
             'description 描述：把一段结论/备注写进活动时传它，**默认追加到原描述末尾**，'
             '整段替换需再传 description_mode="replace"）；先出预览，用户确认后生效',
             apply_fn=apply_update)
@@ -468,8 +458,6 @@ def tool_stats(user, params):
     tags_top = [{'name': r['tags__name'], 'count': r['n']} for r in tag_rows]
 
     cost_total = qs.aggregate(s=Sum('expenses__amount'))['s'] or 0
-    # 时间花费：与卡片内其他指标同口径，同样受 scope 限制
-    duration_total_minutes = qs.aggregate(s=Sum('duration_minutes'))['s'] or 0
 
     return {
         'reply': f'共 {total} 个活动，概况如下：',
@@ -481,7 +469,6 @@ def tool_stats(user, params):
             'month_bars': month_bars,
             'tags_top': tags_top,
             'cost_total': float(cost_total),
-            'duration_total': fmt_duration(duration_total_minutes) if duration_total_minutes else '',
             'list_url': reverse('activities:activity_list'),
         },
     }
@@ -819,58 +806,5 @@ def tool_batch_status(user, params):
         'action': {
             'tool': 'activities.batch_status',
             'params': {'status': status, 'target_ids': list(qs.values_list('id', flat=True))},
-        },
-    }
-
-
-# ==================== P2：设置预算 ====================
-
-def _apply_set_budget(user, params):
-    """set_budget 的确认执行函数"""
-    # 预览与执行共用一份清洗：旧写法直接 Decimal() 遇到脏数据会抛普通异常，退化成「操作失败」
-    budget = _require_positive_amount(params.get('budget'), '预算金额')
-    # 预览时已锁定目标，执行优先按 target_id 精确定位，避免同名活动二次匹配歧义
-    target_id = params.get('target_id')
-    if target_id:
-        activity = _resolve_by_id(user, target_id)
-    else:
-        activity = _resolve_single(user, str(params.get('target') or '').strip())
-    activity.budget = budget
-    activity.save(update_fields=['budget', 'updated_at'])
-    log_activity(user, activity, 'edited', f'设置预算 ¥{budget}（通过 AI 对话）')
-    return {
-        'reply': f'已为「{activity.name}」设置预算 ¥{budget}',
-        'card': 'activity',
-        'card_data': _activity_card_data(activity),
-        'activity_ids': [activity.id],
-        'changed': True,
-    }
-
-
-@agent_tool('activities.set_budget', '为活动设置预算上限',
-            'target（活动名称关键词）+ budget（预算金额，必填，正数）',
-            apply_fn=_apply_set_budget)
-def tool_set_budget(user, params):
-    target = params.get('target', '').strip()
-    if not target:
-        raise ToolError('请告诉我要为哪个活动设置预算')
-
-    budget = _require_positive_amount(params.get('budget'), '预算金额')
-
-    activity = _resolve_single(user, target)
-
-    return {
-        'reply': f'将为「{activity.name}」设置预算 ¥{budget}',
-        'card': 'confirm',
-        'card_data': {
-            'kind': 'set_budget',
-            'name': activity.name,
-            'budget': str(budget),
-            'detail_url': reverse('activities:activity_detail', args=[activity.id]),
-        },
-        'activity_ids': [activity.id],
-        'action': {
-            'tool': 'activities.set_budget',
-            'params': {'target': target, 'budget': str(budget), 'target_id': activity.id},
         },
     }

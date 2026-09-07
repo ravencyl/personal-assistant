@@ -25,7 +25,7 @@ class ActivityForm(forms.ModelForm):
         }),
         help_text='输入子任务名称，保存时自动创建为子活动',
     )
-    # 与「预算上限」区分开：这里是从一句话里识别出的已花金额，保存时记为一笔支出
+    # 从一句话里识别出的已花金额，保存时记为一笔支出
     parsed_cost = forms.DecimalField(
         label='本次费用',
         required=False,
@@ -37,20 +37,18 @@ class ActivityForm(forms.ModelForm):
             'step': '0.01',
             'min': '0',
         }),
-        help_text='保存时记为该活动的第一笔支出（区别于上方预算上限）',
+        help_text='保存时记为该活动的第一笔支出',
     )
 
     class Meta:
         model = Activity
-        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'budget', 'duration_minutes', 'parent', 'tags']
+        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'parent', 'tags']
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
             'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
-            'budget': forms.NumberInput(attrs={'class': INPUT_CLS, 'placeholder': '可选，设置预算上限', 'step': '0.01', 'min': '0'}),
-            'duration_minutes': forms.NumberInput(attrs={'class': INPUT_CLS, 'placeholder': '可选，耗时分钟数，如 150', 'step': '1', 'min': '0'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }
 
@@ -60,7 +58,6 @@ class ActivityForm(forms.ModelForm):
         # 日期字段均非必填，不设置任何默认值
         self.fields['start_date'].required = False
         self.fields['end_date'].required = False
-        self.fields['duration_minutes'].required = False
         # 父活动候选走统一可见性口径（超管不把活动限在自己名下，否则下拉缺项）
         self.fields['parent'].queryset = (
             visible_qs(Activity, user) if user is not None else Activity.objects.none())

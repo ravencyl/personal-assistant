@@ -22,7 +22,7 @@ from .forms import ActivityForm
 from .models import Activity, Participant, ActivityLog, Expense, ActivityTemplate, RecurringActivity, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
-                    normalize_input, snapshot_activity, budget_status,
+                    normalize_input, snapshot_activity,
                     exclude_daily_bucket, get_daily_bucket, resolve_participants,
                     expense_totals_map)
 from .services import (InputError, add_expense, clean_amount, clean_category,
@@ -132,8 +132,8 @@ def _ai_parse(text, today):
             f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。\n'
             f'{_week_anchor_text(today)}\n'
             '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/昨天/上周六/月底/下周五请换算为绝对日期，未写年份用当年）、'
-            'cost（数字，单位元，指已经花掉的钱，不是预算上限）、budget（数字，单位元，仅当用户明说预算时返回）、'
-            'status（planned/in_progress/done/cancelled 之一）、duration_minutes（整数）、'
+            'cost（数字，单位元，指已经花掉的钱）、'
+            'status（planned/in_progress/done/cancelled 之一）、'
             'tags（字符串数组）、participants（字符串数组）。\n'
             f'无法识别的字段不要出现在 JSON 中。用户输入："""{text}"""'
         )
@@ -393,10 +393,6 @@ def activity_detail(request, activity_id):
     # 附件
     attachments = list(activity.attachments.all())
 
-    # 预算状态
-    budget_ratio, budget_level, budget_label = budget_status(activity)
-    # 预算余额（正数=还可花，负数=已超支），无预算为 None
-    budget_remaining = (activity.budget - activity.total_cost) if activity.budget else None
     # 子任务完成度（详情页统计卡进度条）
     subtask_done_count = sum(1 for c in children if c.status == 'done')
 
@@ -415,10 +411,6 @@ def activity_detail(request, activity_id):
         'expense_categories': Expense.CATEGORY_CHOICES,
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
-        'budget_ratio': budget_ratio,
-        'budget_level': budget_level,
-        'budget_label': budget_label,
-        'budget_remaining': budget_remaining,
         'subtask_done_count': subtask_done_count,
         'related_articles': related.get('articles', []),
         'related_notes': related.get('notes', []),
@@ -994,13 +986,6 @@ def attach_costs(activities):
     for a in activities:
         a.expense_total = float(totals.get(a.id, 0) or 0)
         a.expense_count = counts.get(a.id, 0)
-        if a.budget:
-            ratio = a.expense_total / float(a.budget) if float(a.budget) > 0 else 0
-            a.budget_over = ratio >= 1.0
-            a.budget_warning = ratio >= 0.8 and not a.budget_over
-        else:
-            a.budget_over = False
-            a.budget_warning = False
     return activities
 
 
@@ -1093,19 +1078,9 @@ def daily_view(request):
     from core.models import check_due_reminders
     check_due_reminders(request.user)
 
-    # 打卡与提醒（习惯/子任务/提醒）：一次调用注入，早间（<18 点）展示
+    # 打卡与提醒（子任务/提醒）：一次调用注入，早间（<18 点）展示
     from core.suggestions import generate_daily_plan
     today_plan = generate_daily_plan(request.user)
-
-    # 循环活动今日实例（活动列表分区，与上方各组同口径走 qs）
-    # 转成 list：右列「今日进度」卡要数完成度，queryset 在模板里会被走两次
-    today_instances = list(qs.filter(
-        recurring_source__isnull=False,
-        start_date=today,
-        recurring_source__is_active=True,
-    ).select_related('recurring_source'))
-    habit_total_count = len(today_instances)
-    habit_done_count = sum(1 for a in today_instances if a.status == 'done')
 
     # 六个分组互斥，合并后一次 attach_costs：
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
@@ -1127,9 +1102,6 @@ def daily_view(request):
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
         'suggestions': suggestions,
-        'today_instances': today_instances,
-        'habit_total_count': habit_total_count,
-        'habit_done_count': habit_done_count,
         # 左列「提醒」区 = 待处理提醒（与浮窗红点同一个数），截 10 条；
         # 键名与函数同名不冲突：dict 的键是字符串，右侧是函数调用
         'pending_reminders': pending_reminders(request.user)[:10],
@@ -1458,15 +1430,10 @@ def expense_report(request):
     this_month_f = float(this_month_total)
     last_month_f = float(last_month_total)
 
-    # 时间花费：全部活动耗时总和，人性化格式（批次4C，函数内局部导入避免触碰顶部 import 区）
-    from .utils import fmt_duration
-    total_duration_display = fmt_duration(Activity.objects.filter(user=request.user).aggregate(s=Sum('duration_minutes'))['s'])
-
     return render(request, 'activities/expense_report.html', {
         'this_month_total': this_month_f,
         'last_month_total': float(last_month_total),
         'this_week_total': float(this_week_total),
-        'total_duration_display': total_duration_display,
         'month_change': pct_change(this_month_f, last_month_f),
     })
 
@@ -1475,17 +1442,8 @@ def expense_report(request):
 def recurring_list(request):
     """循环活动列表"""
     recurring = RecurringActivity.objects.filter(user=request.user)
-    # 获取今天及未来的循环实例
-    today = timezone.localdate()
-    instances = Activity.objects.filter(
-        user=request.user,
-        recurring_source__isnull=False,
-        start_date__gte=today,
-    ).order_by('start_date')[:30]
-    
     return render(request, 'activities/recurring_list.html', {
         'recurring': recurring,
-        'instances': instances,
     })
 
 
@@ -1534,49 +1492,6 @@ def recurring_toggle(request, pk):
     status_text = '启用' if recurring.is_active else '暂停'
     messages.success(request, f'「{recurring.name}」已{status_text}')
     return redirect('activities:recurring_list')
-
-
-@login_required
-@require_POST
-def recurring_checkin(request, activity_id):
-    """打卡：将循环活动实例标记为 done"""
-    activity = get_visible(Activity, request.user, id=activity_id)
-    if activity.status != 'done':
-        activity.status = 'done'
-        activity.save(update_fields=['status', 'updated_at'])
-        log_activity(request.user, activity, 'status_changed', '打卡完成')
-        cache.delete(f'habit_heatmap_{request.user.id}')  # 失效打卡热力图缓存
-    
-    if request.headers.get('HX-Request'):
-        return HttpResponse('<span class="text-sm text-zinc-400">✓ 已打卡</span>')
-    return redirect(request.META.get('HTTP_REFERER', '/'))
-
-
-@login_required
-def habit_heatmap_data(request):
-    """打卡热力图数据 API：近 365 天循环活动实例打卡（done）按日聚合（JSON）
-
-    返回 {'heatmap': {'YYYY-MM-DD': count, ...}, 'total_days': int}，
-    缓存 1 小时，打卡成功时失效。
-    """
-    cache_key = f'habit_heatmap_{request.user.id}'
-    result = cache.get(cache_key)
-    if result is None:
-        today = timezone.localdate()
-        start = today - timedelta(days=364)
-        rows = list(
-            visible_qs(Activity, request.user)
-            .filter(recurring_source__isnull=False, status='done',
-                    start_date__gte=start, start_date__lte=today)
-            .values('start_date')
-            .annotate(n=Count('id'))
-        )
-        result = {
-            'heatmap': {row['start_date'].isoformat(): row['n'] for row in rows},
-            'total_days': len(rows),
-        }
-        cache.set(cache_key, result, timeout=3600)
-    return JsonResponse(result)
 
 
 @login_required

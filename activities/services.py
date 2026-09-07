@@ -120,9 +120,8 @@ def add_expense(activity, user, raw_amount, *, category=None, paid_at=_UNSET,
 def record_parsed_cost(activity, user, cost, *, note='快速输入创建'):
     """把一句话解析出来的花费记为该活动的一笔支出
 
-    语义是「已经花掉的钱」，与 Activity.budget（预算上限）不是一回事，不得写进 budget。
-    空值 / 0 / 非法金额均返回 None：解析结果里的花费是附加信息，不能因为它
-    不合法就阻断活动创建，故吞掉 InputError 只记日志；0 元视作「本次没花钱」。
+    语义是「已经花掉的钱」。空值 / 0 / 非法金额均返回 None：解析结果里的花费是附加信息，
+    不能因为它不合法就阻断活动创建，故吞掉 InputError 只记日志；0 元视作「本次没花钱」。
     """
     if cost in (None, ''):
         return None
@@ -159,8 +158,6 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
         start_date=data.get('start_date'),
         end_date=data.get('end_date'),
         status=data.get('status', 'planned'),
-        budget=data.get('budget'),
-        duration_minutes=data.get('duration_minutes'),
     )
 
     if cost_note is None:

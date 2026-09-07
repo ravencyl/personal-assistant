@@ -26,9 +26,6 @@
                     </div>
                     <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
                         {{ activity.date_range }}
-                        {% if activity.duration_minutes %}
-                        · 耗时 {{ activity.duration_display }}
-                        {% endif %}
                         {% if activity.parent %}
                         · 所属
                         <a href="{% url 'activities:activity_detail' activity.parent.id %}" class="text-[var(--text-secondary)] hover:text-[var(--text)]">{{ activity.parent.name }}</a>
@@ -107,33 +104,6 @@
             <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ participants|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">人</span></p>
         </div>
     </div>
-
-    <!-- 预算进度（仅当设置了预算时显示） -->
-    {% if activity.budget %}
-    <div class="app-card p-4 sm:p-6">
-        <div class="flex items-center justify-between mb-2">
-            <h2 class="text-sm font-medium text-[var(--text)]">预算</h2>
-            {% if budget_level == 'over' %}
-            <span class="text-xs font-medium text-red-600 bg-red-50 rounded-full px-2 py-0.5">已超预算</span>
-            {% elif budget_level == 'warning' %}
-            <span class="text-xs font-medium text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">接近预算</span>
-            {% endif %}
-        </div>
-        <div class="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
-            <div class="h-full rounded-full transition-all
-                {% if budget_level == 'over' %}bg-red-500
-                {% elif budget_level == 'warning' %}bg-amber-500
-                {% else %}bg-zinc-900{% endif %}"
-                style="width: {% widthratio budget_ratio 1 100 %}%"></div>
-        </div>
-        <div class="flex justify-between mt-1.5 text-xs text-[var(--text-muted)]">
-            <span>已花费 ¥{{ activity.total_cost|floatformat:"-2" }}</span>
-            {# 余额：只有百分比条时算不出“还能花多少”，超支时直接给负余额的绝对值 #}
-            <span>{% if budget_remaining < 0 %}超支 ¥{{ budget_remaining|floatformat:"0"|slice:"1:" }}{% else %}剩余 ¥{{ budget_remaining|floatformat:"0" }}{% endif %}</span>
-            <span>预算 ¥{{ activity.budget|floatformat:"0" }}</span>
-        </div>
-    </div>
-    {% endif %}
 
     {% comment %}
     桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）；
@@ -227,7 +197,7 @@
         <div class="mb-4">
             <div class="flex gap-2">
                 <input type="text" id="sub-quick-input" maxlength="500"
-                       placeholder="快速记一笔子任务，如：下周三去杭州团建 预算5千 #团建 @小王"
+                       placeholder="快速记一笔子任务，如：下周三去杭州团建 #团建 @小王"
                        autocomplete="off"
                        class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
                 <button type="button" id="sub-quick-parse-btn"

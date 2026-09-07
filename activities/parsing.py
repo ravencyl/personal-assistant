@@ -77,7 +77,7 @@ def parse_quick_input(text, today=None):
             spans.append(hit)
             break
 
-    # 4. 金额：「预算 X」写预算上限，其余写已花费用（两者语义不同，绝不互写）
+    # 4. 金额：识别已花费用；「预算 X」语义（预算上限）已随 Activity.budget 字段移除，仅占位不写入
     cost_match = COST_PATTERN.search(text)
     if not cost_match:
         cost_match = COST_YUAN_PATTERN.search(text)
@@ -88,7 +88,8 @@ def parse_quick_input(text, today=None):
             cost *= 1000
         elif g.get('unit') == '万':
             cost *= 10000
-        result['budget' if g.get('kind') == '预算' else 'cost'] = cost
+        if g.get('kind') != '预算':
+            result['cost'] = cost
         spans.append(cost_match.span())
 
     # 5. 日期收集（按文本出现顺序），识别后占位避免重复匹配

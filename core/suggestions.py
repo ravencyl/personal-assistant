@@ -68,42 +68,6 @@ def _normalize(suggestion, rule_name, today):
     return suggestion
 
 
-def compute_habit_streaks(user, today):
-    """计算用户所有活跃 daily 习惯的连续打卡天数（截至昨日）
-
-    返回 [{'recurring': RecurringActivity, 'name': str, 'streak': int}, ...]
-    按 streak 降序。供规则引擎与 AI 洞察命令共用。
-    """
-    from activities.models import Activity
-
-    recurring_sources = list(
-        user.recurring_activities.filter(frequency='daily', is_active=True)
-    )
-    if not recurring_sources:
-        return []
-
-    results = []
-    for rec in recurring_sources:
-        instances = dict(
-            Activity.objects.filter(
-                user=user,
-                recurring_source=rec,
-                start_date__gte=today - timedelta(days=60),
-                start_date__lt=today,
-            ).values_list('start_date', 'status')
-        )
-        streak = 0
-        day = today - timedelta(days=1)
-        while day in instances and instances[day] == 'done':
-            streak += 1
-            day -= timedelta(days=1)
-        if streak > 0:
-            results.append({'recurring': rec, 'name': rec.name, 'streak': streak})
-
-    results.sort(key=lambda x: -x['streak'])
-    return results
-
-
 # ────────────────────────────────────────────────
 # 规则函数（顺序即建议优先级，总数超限时靠后规则被截断）
 # ────────────────────────────────────────────────
@@ -263,47 +227,8 @@ def _rule_today_expense(user, today):
     return None
 
 
-def _rule_budget_warning(user, today):
-    """规则 7：预算预警（批量聚合取费用合计，避免逐活动 N+1 查询）"""
-    from activities.models import Activity, Expense
-
-    acts = list(
-        Activity.objects.filter(user=user, budget__isnull=False).exclude(budget__lte=0)
-    )
-    if not acts:
-        return None
-
-    totals = dict(
-        Expense.objects.filter(activity_id__in=[a.id for a in acts])
-        .values('activity_id').annotate(total=Sum('amount'))
-        .values_list('activity_id', 'total')
-    )
-
-    suggestions = []
-    for a in acts:
-        spent = float(totals.get(a.id, 0) or 0)
-        budget = float(a.budget)
-        ratio = spent / budget
-        if ratio >= 1.0:
-            label = '已超预算'
-        elif ratio >= 0.8:
-            label = '接近预算'
-        else:
-            continue
-        suggestions.append({
-            'text': f'「{a.name}」{label}（已花费 ¥{spent:.0f} / 预算 ¥{a.budget:.0f}）',
-            'icon': 'expense',
-            'key': f'budget:{a.id}',
-            'action': {'kind': 'link', 'label': '查看', 'url': reverse('activities:activity_detail', args=[a.id])},
-            'followup': f'「{a.name}」{label}（¥{spent:.0f}/¥{a.budget:.0f}），帮我分析剩余预算怎么分配',
-        })
-        if len(suggestions) >= 2:
-            break
-    return suggestions or None
-
-
 def _rule_upcoming_reminders(user, today):
-    """规则 8：有待处理的提醒（到点了还没处理掉）
+    """规则 7：有待处理的提醒（到点了还没处理掉）
 
     走全站唯一口径 pending_reminders。以前这里自己按 status='pending' + 一个
     now-1h~now+2h 的窗口查一份，结果是：提醒一旦到期被 check_due_reminders
@@ -327,7 +252,7 @@ def _rule_upcoming_reminders(user, today):
 
 
 def _rule_weekly_report(user, today):
-    """规则 9：每周五提示生成周报"""
+    """规则 8：每周五提示生成周报"""
     if today.weekday() != 4:  # 周五
         return None
     from knowledge.models import Article
@@ -351,32 +276,8 @@ def _rule_weekly_report(user, today):
     return None
 
 
-def _rule_habit_missed(user, today):
-    """规则 10：习惯断签——daily 循环活动昨日生成的实例未完成打卡"""
-    from activities.models import Activity
-
-    yesterday = today - timedelta(days=1)
-    missed = Activity.objects.filter(
-        user=user,
-        start_date=yesterday,
-        recurring_source__isnull=False,
-        recurring_source__frequency='daily',
-    ).exclude(status='done')
-    return [
-        {
-            'text': f'「{a.name}」昨天没有打卡',
-            'icon': 'alert',
-            'key': f'habit_missed:{a.id}',
-            'action': _tool_action('补打卡', 'activities.set_status',
-                                   {'activity_id': a.id, 'status': 'done'}),
-            'followup': f'「{a.name}」昨天断签了，帮我想想怎么调整节奏把习惯恢复',
-        }
-        for a in missed[:2]
-    ] or None
-
-
 def _rule_ending_soon(user, today):
-    """规则 11：临期活动——end_date 距今 ≤3 天且未完结/取消"""
+    """规则 9：临期活动——end_date 距今 ≤3 天且未完结/取消"""
     from activities.models import Activity
 
     soon = Activity.objects.filter(
@@ -402,7 +303,7 @@ def _rule_ending_soon(user, today):
 
 
 def _rule_goal_progress(user, today):
-    """规则 12：目标进度跟踪——Memory 中的目标与活动关联"""
+    """规则 10：目标进度跟踪——Memory 中的目标与活动关联"""
     from memory.models import Memory
     from activities.models import Activity
 
@@ -461,49 +362,8 @@ def _rule_goal_progress(user, today):
     return suggestions or None
 
 
-def _rule_time_investment(user, today):
-    """规则 13：时间投入分析——本周/上周完成活动的预估耗时环比"""
-    from activities.models import Activity
-
-    week_start = week_monday(today)
-    last_week_start = week_start - timedelta(days=7)
-
-    this_week = Activity.objects.filter(
-        user=user, status='done',
-        end_date__gte=week_start, end_date__lte=today,
-        duration_minutes__isnull=False,
-    ).aggregate(total=Sum('duration_minutes'))['total'] or 0
-
-    last_week = Activity.objects.filter(
-        user=user, status='done',
-        end_date__gte=last_week_start, end_date__lt=week_start,
-        duration_minutes__isnull=False,
-    ).aggregate(total=Sum('duration_minutes'))['total'] or 0
-
-    if last_week <= 0 or this_week <= 0:
-        return None
-
-    change_pct = pct_change(this_week, last_week)
-    if abs(change_pct) < 30:
-        return None
-
-    hours_this = this_week / 60
-    if change_pct > 30:
-        text = f'本周投入约 {hours_this:.0f} 小时，比上周多了 {change_pct:.0f}%，注意休息'
-    else:
-        text = f'本周投入约 {hours_this:.0f} 小时，比上周少了 {abs(change_pct):.0f}%'
-    return {
-        'text': text,
-        'icon': 'plan',
-        'key': f'time_invest:{week_start.isoformat()}',
-        'action': {'kind': 'link', 'label': '本周活动',
-                   'url': reverse('activities:activity_list') + '?status=done'},
-        'followup': text + '，帮我分析时间投入的变化是否合理',
-    }
-
-
 def _rule_expense_anomaly(user, today):
-    """规则 14：消费异常检测——单日消费显著高于近期日均"""
+    """规则 11：消费异常检测——单日消费显著高于近期日均"""
     from activities.models import Expense
 
     today_expense = float(
@@ -538,26 +398,8 @@ def _rule_expense_anomaly(user, today):
     return None
 
 
-def _rule_habit_streak(user, today):
-    """规则 15：习惯连续打卡正向激励（≥3 天）"""
-    streaks = compute_habit_streaks(user, today)
-    suggestions = []
-    for item in streaks:
-        if item['streak'] >= 3:
-            suggestions.append({
-                'text': f'「{item["name"]}」已连续打卡 {item["streak"]} 天，继续保持',
-                'icon': 'habit',
-                'key': f'habit_streak:{item["recurring"].id}:{item["streak"]}',
-                'action': {'kind': 'link', 'label': '习惯列表', 'url': reverse('activities:recurring_list')},
-                'followup': f'「{item["name"]}」已连续打卡 {item["streak"]} 天，帮我看看怎么让它更容易坚持',
-            })
-        if len(suggestions) >= 2:
-            break
-    return suggestions or None
-
-
 def _rule_subtask_progress(user, today):
-    """规则 16：子任务接近完成——完成 ≥80% 时鼓励一鼓作气"""
+    """规则 12：子任务接近完成——完成 ≥80% 时鼓励一鼓作气"""
     from django.db.models import Count, Q
     from activities.models import Activity
 
@@ -605,15 +447,11 @@ _RULES = [
     _rule_no_start_date,
     _rule_stale_planned,
     _rule_today_expense,
-    _rule_budget_warning,
     _rule_upcoming_reminders,
     _rule_weekly_report,
-    _rule_habit_missed,
     _rule_ending_soon,
     _rule_goal_progress,
-    _rule_time_investment,
     _rule_expense_anomaly,
-    _rule_habit_streak,
     _rule_subtask_progress,
 ]
 
@@ -747,7 +585,7 @@ def connect_invalidation_signals():
 
 
 # ────────────────────────────────────────────────
-# 每日规划（打卡与提醒）——独立于建议规则引擎，纯规则、不缓存，
+# 每日规划（子任务与提醒）——独立于建议规则引擎，纯规则、不缓存，
 # 由 daily_view 每次请求调用一次，避免重复查询。
 # ────────────────────────────────────────────────
 
@@ -758,21 +596,13 @@ def generate_daily_plan(user):
     避免与 daily_view 的「今日进行中」卡片重复（同一活动上下各出现一次）。
 
     返回 dict：
-    - habits:         循环活动今日实例列表（打卡状态）
     - subtask_groups: 未完成子活动 Top 5，按父活动分组
     - reminders:      待触发提醒列表（今天还没到点的；已到点未处理的在左列「提醒」区）
-    - is_empty:       三组全部为空
+    - is_empty:       两组全部为空
     """
     from activities.models import Activity
 
     today = timezone.localdate()
-
-    habits = list(Activity.objects.filter(
-        user=user,
-        recurring_source__isnull=False,
-        start_date=today,
-        recurring_source__is_active=True,
-    ).select_related('recurring_source').order_by('id')[:10])
 
     children = Activity.objects.filter(
         user=user,
@@ -794,8 +624,7 @@ def generate_daily_plan(user):
     reminders = list(upcoming_reminders(user)[:5])
 
     return {
-        'habits': habits,
         'subtask_groups': subtask_groups,
         'reminders': reminders,
-        'is_empty': not (habits or subtask_groups or reminders),
+        'is_empty': not (subtask_groups or reminders),
     }
