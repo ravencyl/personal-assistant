@@ -31,7 +31,7 @@ from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_REF_REMINDER,
                                  PROTOCOL_TRUNCATED_NOTE, REF_REMINDER_MIN_CHARS,
                                  build_protocol_prompt, extract_intent,
                                  looks_like_protocol, orchestrator,
-                                 resolve_params_refs)
+                                 resolve_params_refs, salvage_partial_protocol)
 
 User = get_user_model()
 
@@ -2116,6 +2116,119 @@ class RetryAfterFailureReferenceTest(TestCase):
         for text in chat_views.LEGACY_NOTE_TEXTS:
             self.assertLessEqual(len(text.strip()), chat_views.NOTE_MAX_CHARS,
                                  f'这条历史文案超过上限，签名判据对它失效：{text[:20]}')
+
+
+# ── 第三种失效：上游过载重试产出的「半条回复」────────────────────────────────
+# 线上实测（对话 17，2026-09-07 真机复测）：平台先报 model_overloaded_error
+# （qoder_error_code 10605，retry_status=retrying）并自行重试，重试后产出的
+# agent.message 只有 289 字符 —— params 已完整闭合，只有 reply 写到半路就收尾，
+# 而 span.model_request_end 仍是 is_error=false（平台认为正常完成）。
+# 下面这份是那次事件的逐字原文（按 60 字符切片拼接，长度锁见下）。
+OVERLOAD_TRUNCATED_PROTOCOL = (
+    '{"intent":"knowledge_search","params":{"keyword":"岗位交接 SOP",'
+    '"tag":"流程"},"reply":"这份手册已经在你的知识库里了，不用再存一遍——标题《岗位交接 SOP 手册》，'
+    '标签「流程」，版本 v1.0（2026-09-07），五个部分齐全（适用场景 / 逐步流程 / 常见错误 / 检验清单 '
+    '/ 风险提示）。我按「岗位交接 SOP」在标签「流程」下检索确认一下，避免重复建档。\\n\\n下一步：给《岗位交接 SOP'
+    ' 手册》再加一个标签「人事」｜把这份手册转成一个 2026-09-14 截止的「交接流程落地」活动'
+)
+
+
+class PartialProtocolSalvageTest(TestCase):
+    """行为锁：动作数据齐全、只有 reply 断掉的半条指令，必须照样执行
+
+    这类残缺和「正文重抄被截断」是两回事：前者 params 完整，执行它是安全的，
+    不执行等于把一次上游抖动算在用户头上（用户侧表现为「我什么都没想到」）。
+    """
+
+    def setUp(self):
+        from activities.models import Activity
+        from knowledge.models import Article
+        self.Activity = Activity
+        self.Article = Article
+        self.user = User.objects.create_user('salv', password='x')
+
+    def test_online_sample_is_protocol_and_really_unparsable(self):
+        """前提锁：样本必须「看着像协议但整串解析不出来」，否则下面的锁全在空跑"""
+        self.assertEqual(len(OVERLOAD_TRUNCATED_PROTOCOL), 289,
+                         '样本不再是线上那条半条回复，锁的靶子变了')
+        self.assertTrue(looks_like_protocol(OVERLOAD_TRUNCATED_PROTOCOL))
+        self.assertIsNone(extract_intent(OVERLOAD_TRUNCATED_PROTOCOL))
+
+    def test_closed_params_is_salvaged(self):
+        data = salvage_partial_protocol(OVERLOAD_TRUNCATED_PROTOCOL)
+        self.assertIsNotNone(data, 'params 已闭合却没救出来')
+        self.assertEqual(data['intent'], 'knowledge_search')
+        self.assertEqual(data['params'], {'keyword': '岗位交接 SOP', 'tag': '流程'})
+        self.assertEqual(data['reply'], '', '残缺的 reply 不得当真')
+
+    def test_salvaged_call_actually_runs_the_tool(self):
+        """救出来还不够，必须真的走到工具：线上那次是查询意图，工具没被执行"""
+        content, payload, changed = orchestrator.process(
+            self.user, OVERLOAD_TRUNCATED_PROTOCOL)
+        self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE,
+                            'params 完整却仍按失败降级，等于救援没接上')
+        for leaked in ('{"intent"', '"params"', '"reply"'):
+            self.assertNotIn(leaked, content, f'协议原文泄到界面上：{leaked}')
+        # knowledge.search 的固定口径 —— 出现它就证明工具真跑了
+        self.assertIn('知识库里没有与「岗位交接 SOP」相关的文章', content)
+        self.assertFalse(changed)
+
+    def test_salvage_executes_write_operations(self):
+        """写操作形状：params 完整时必须落库，不能只在读路径上生效"""
+        half = ('{"intent":"create","params":{"name":"交接流程落地",'
+                '"start_date":"2026-09-14","end_date":"2026-09-14"},"reply":"好的，正在为你建')
+        self.assertIsNone(extract_intent(half))
+        content, payload, changed = orchestrator.process(self.user, half)
+        activity = self.Activity.objects.get(name='交接流程落地')
+        self.assertEqual(str(activity.start_date), '2026-09-14', '日期没按 params 落库')
+        self.assertTrue(changed)
+        self.assertIn('已创建活动', content)
+        self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE)
+
+    def test_params_never_closed_is_not_salvaged(self):
+        """安全边界：正文没抄完的那类（线上 msg 64）绝不救 —— 执行它等于拿半篇内容落库"""
+        self.assertIsNone(salvage_partial_protocol(TRUNCATED_PROTOCOL))
+        before = (self.Activity.objects.count(), self.Article.objects.count())
+        content, payload, changed = orchestrator.process(self.user, TRUNCATED_PROTOCOL)
+        self.assertEqual(content, PROTOCOL_TRUNCATED_NOTE)
+        self.assertEqual((self.Activity.objects.count(), self.Article.objects.count()),
+                         before, '未闭合的指令写了库')
+        self.assertIsNone(payload)
+        self.assertFalse(changed)
+
+    def test_malformed_closed_params_is_not_salvaged(self):
+        """闭合了但不是合法 JSON（多一个逗号）也不救：宁可不执行也不猜参数"""
+        half = '{"intent":"create","params":{"name":"半成品",},"reply":"好'
+        self.assertIsNone(salvage_partial_protocol(half))
+        content, _, _ = orchestrator.process(self.user, half)
+        self.assertEqual(content, PROTOCOL_TRUNCATED_NOTE)
+        self.assertEqual(self.Activity.objects.count(), 0)
+
+    def test_braces_inside_string_values_do_not_fool_the_scan(self):
+        """字符串值里的大括号不是结构：非字符串感知的扫描会在这里提前「闭合」"""
+        half = ('{"intent":"knowledge_create","params":{"title":"含 } 和 { 的标题",'
+                '"content":"正文"},"reply":"好')
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data)
+        self.assertEqual(data['params']['title'], '含 } 和 { 的标题')
+
+    def test_escaped_quote_inside_string_does_not_end_the_string(self):
+        """转义引号后的 } 仍在字符串里：漏掉反斜杠处理会在这里误判闭合"""
+        half = ('{"intent":"knowledge_create","params":{"title":"他说\\"结束}\\"就走了",'
+                '"content":"正文"},"reply":"好')
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data, '转义引号未处理，扫描被字符串里的 } 骗提前收尾')
+        self.assertEqual(data['params']['title'], '他说"结束}"就走了')
+
+    def test_residue_without_a_tool_is_not_executed_nor_leaked(self):
+        """救援必须先过「意图有工具」这关：chitchat 的 params 是 {}，闭合了也没东西可执行"""
+        half = '{"intent":"chitchat","params":{},"reply":"谢谢你，'
+        data = salvage_partial_protocol(half)
+        self.assertIsNotNone(data, '样本没闭合，测不到这条守卫')
+        content, _, _ = orchestrator.process(self.user, half)
+        self.assertNotIn('intent', content, '把协议原文当正文递给了用户')
+        self.assertTrue(content.strip(), '降级成空回复，用户看不到任何反馈')
+
 
 
 class JsonEndpointNeverHtmxTest(SimpleTestCase):

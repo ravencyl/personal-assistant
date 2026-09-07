@@ -94,6 +94,15 @@ def query_activities(user, params):
 
 **但「降级成文本」不等于「把内部协议原文当文本发出去」**：模型按协议输出 JSON、但这条回复被云端单条长度上限截断在半路时，JSON 解析不出来，而它**不是**普通对话。`_dispatch` 用 `looks_like_protocol(text)`（以 `{` 开头且含 `"intent"`）识别这种残骸，返回 `PROTOCOL_TRUNCATED_NOTE` 并 `logger.warning`。判据故意保守，以免误杀（2）类的自然语言回答。
 
+**残骸有两种形状，只有一种能救**（三次线上故障是三类不同失效，别当成同一件事去修）：
+
+| 残缺形状 | 成因（均为线上实测） | 处置 |
+|------|-----------------|------|
+| `params` 从未闭合 | 模型把整篇正文重抄进 `params.content`，撞平台单条回复上限（对话 15 / msg 64，停在 4075 字符） | 不执行，返回 `PROTOCOL_TRUNCATED_NOTE` —— 执行它等于拿半篇内容落库 |
+| `params` 已闭合、只有 `reply` 断在半路 | 平台 `model_overloaded_error`（错码 10605）自行重试后产出半条回复，而 `span.model_request_end` 仍是 `is_error=false`（对话 17，289 字符） | `salvage_partial_protocol()` 按可解析部分执行，`reply` 置空由工具自己的回复顶上 |
+
+救援的三条硬边界（见 `core/agent_registry.py::salvage_partial_protocol`）：括号扫描必须**字符串感知**（值里的 `{` `}` 和转义引号不是结构）、只在 `params` 对象自己闭合处收口、意图必须能映射到**已注册工具**（`chitchat` / 未知意图救出来也是空 `reply`，走下去会把协议原文再透给用户一次）。上游抖动不该算在用户头上，但宁可多报一次错也不能执行内容不全的指令。
+
 **写操作必须记录日志**：所有活动写操作调用 `log_activity(user, activity, action, summary)`。
 
 ### 长正文走引用，不要让模型重抄（协议规则 10）
@@ -146,7 +155,7 @@ def query_activities(user, params):
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
 - **“汇总”不等于“重抄”**：正文是本轮已出现过的长内容时，`content` 写 `$LAST_REPLY`（见上节协议规则 10），不得让模型重贴全文 —— 它一重抄就必然撞上单条回复长度上限，整条指令被截断后既不会落库也不会报错
 
-回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，5 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
+回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，9 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`PartialProtocolSalvageTest`（`params` 完整但 `reply` 断掉的半条指令必须照样执行，9 条 + 6 项变异反证，含「未闭合绝不救」的安全边界）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
 
 ## 对话收发是异步 turn（改聊天前必读）
 

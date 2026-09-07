@@ -10,6 +10,7 @@
   但「降级成文本」不等于「把内部协议原文当文本发出去」——见 PROTOCOL_TRUNCATED_NOTE
 """
 import hmac
+import json
 import logging
 import re
 from hashlib import sha256
@@ -81,6 +82,55 @@ def looks_like_protocol(text):
     """
     t = (text or '').strip()
     return t.startswith('{') and '"intent"' in t
+
+
+_PARAMS_KEY = re.compile(r'"params"\s*:\s*\{')
+
+
+def salvage_partial_protocol(text):
+    """从残缺的协议 JSON 里抢救出 {'intent','params','reply':''}，救不了返回 None
+
+    线上实测的第三种失效：平台报 model_overloaded_error（错码 10605）后自行重试，
+    重试后的回复写到半路就收尾（289 字符，params 已闭合、只有 reply 没写完），
+    而且 span.model_request_end 还是 is_error=false。动作本身完全可以执行，
+    却因为整串解析失败而什么都没做 —— 等于把一次上游抖动算在用户头上。
+
+    只救「params 对象自己闭合」的情况。正文没抄完的那类（线上对话 15 / msg 64）
+    截断就发生在 params 内部，扫不到闭合 → 不救；执行它等于拿半篇内容落库。
+    """
+    m = _PROTOCOL_INTENT.search(text or '')
+    if not m:
+        return None
+    key = _PARAMS_KEY.search(text)
+    if not key:
+        return None
+    start = key.end() - 1          # 指向那个 {
+    depth = 0
+    in_str = esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    params = json.loads(text[start:i + 1])
+                except Exception:
+                    return None
+                if not isinstance(params, dict):
+                    return None
+                return {'intent': m.group(1), 'params': params, 'reply': ''}
+    return None                    # params 从未闭合 → 不救
 
 
 # ── params 引用展开：让模型不必重抄长正文 ────────────────────────────────────
@@ -295,12 +345,24 @@ class ChatOrchestrator:
             # 旧代码只假设了 (a)，于是 (b) 的协议原文直接落到用户脸上（见 PROTOCOL_TRUNCATED_NOTE）。
             if looks_like_protocol(ai_text):
                 m = _PROTOCOL_INTENT.search(ai_text)
-                logger.warning(
-                    f'协议 JSON 残缺（多半是回复超长被截断），未执行工具 '
-                    f'intent={m.group(1) if m else "?"} 长度={len(ai_text or "")}')
-                return PROTOCOL_TRUNCATED_NOTE, None, False
+                name = m.group(1) if m else '?'
+                salvaged = salvage_partial_protocol(ai_text)
+                tool_name = INTENT_TOOL_MAP.get((salvaged or {}).get('intent', ''))
+                if tool_name and _REGISTRY.get(tool_name):
+                    # 只救能对应到真工具的：chitchat / 未知意图的 reply 是空的，
+                    # 走下去会把协议原文当正文透给用户（又泄漏一次）。
+                    logger.warning(
+                        f'协议 JSON 残缺但 params 已闭合，按可解析部分执行 '
+                        f'intent={name} 长度={len(ai_text or "")}')
+                    intent_data = salvaged
+                else:
+                    logger.warning(
+                        f'协议 JSON 残缺（正文可能被抄进 params 后截断），未执行工具 '
+                        f'intent={name} 长度={len(ai_text or "")}')
+                    return PROTOCOL_TRUNCATED_NOTE, None, False
             # 情况 (a)：按普通对话透传（兼容未走协议的旧会话）
-            return (ai_text or '').strip(), None, False
+            if not intent_data:
+                return (ai_text or '').strip(), None, False
 
         intent = str(intent_data.get('intent') or '').strip()
         reply = str(intent_data.get('reply') or '').strip()
