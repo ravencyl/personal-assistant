@@ -8,7 +8,8 @@
 变量：msg（Message 实例）
 {% endcomment %}
 <div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}" data-message-id="{{ msg.id }}">
-    <div class="rounded-lg p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
+    {# chat-bubble 不是 Tailwind 类，是 custom.css 末尾移动端段（全宽 + 左侧角色竖条）的选择器钩子 #}
+    <div class="chat-bubble rounded-lg p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
         <div class="flex items-center gap-2 mb-1">
             <span class="text-xs font-medium text-[var(--text-secondary)]">{% if msg.role == 'user' %}你{% else %}AI 助手{% endif %}</span>
             <span class="text-xs text-[var(--text-muted)]">{{ msg.created_at|timesince }}前</span>

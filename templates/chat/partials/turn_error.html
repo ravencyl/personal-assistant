@@ -2,7 +2,8 @@
 同用这个模板 —— 前端不再自己拼一套，避免两处措辞漂移。
 「重试」把原文带在 data-retry-text 里，点了就按同一份内容重发（不新造端点）。{% endcomment %}
 <div class="chat-message assistant">
-    <div class="rounded-lg p-3 md:p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
+    {# chat-bubble：与 _message.html 共用同一份移动端覆盖（满宽 + 左侧角色竖条），不必再写第三条规则 #}
+    <div class="chat-bubble rounded-lg p-3 md:p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
         <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs text-[var(--text-secondary)]">⚠️ {{ note }}</span>
             {% if conversation.turn_message %}

@@ -879,10 +879,15 @@ class ChatMarkdownRenderTest(TestCase):
         self.assertNotIn('<strong>', html)
 
     def test_rendered_container_does_not_keep_pre_wrap(self):
-        """渲染出的块级结构若还带 whitespace-pre-wrap，会跟 <br> 叠成双倍行距"""
+        """渲染出的块级结构（含气泡、卡片等一切祖先）若带 whitespace-pre-wrap，会跟 <br> 叠成双倍行距
+
+        历史版本按 index('markdown-content') … index('</div>') 切片，而起点在终点之后
+        （实测 719 > 665）→ 切片恒空、断言恒真，是一条静默空跑的假锁。
+        改成整份片段比对：祖先挂错类也拦得住，且不存在切空的可能。
+        """
         html = self._fragment('assistant', '一段\n两段')
-        body = html[html.index('markdown-content'):html.index('</div>')]
-        self.assertNotIn('whitespace-pre-wrap', body)
+        self.assertIn('一段', html, '片段没渲染出东西，这条锁就是空的')
+        self.assertNotIn('whitespace-pre-wrap', html)
 
     def test_raw_html_in_reply_cannot_reach_the_dom(self):
         """模板只允许通过 ai_markdown 一个出口输出 HTML：模型被诱导吐出的 <script>
@@ -1564,3 +1569,166 @@ class ConversationRenameDeleteTest(TestCase):
         resp = self.client.get(reverse('chat:conversation_delete', args=[self.conv.id]))
         self.assertEqual(resp.status_code, 405)
         self.assertTrue(Conversation.objects.filter(id=self.conv.id).exists())
+
+
+class ChatMobileBubbleLayoutTest(SimpleTestCase):
+    """移动端消息流「全宽 + 左侧角色竖条」的 CSS 锁
+
+    为什么必须专门锁：气泡的宽度上限与左右分离过去在 CSS 侧没有任何测试引用（只有一条
+    渲染断言锁住类名前缀），「上限漏进移动端」与「去掉了左右分离却忘了补角色编码」都只在
+    真实屏幕上看得出来 —— 而后者正是这次改动的目的本身。
+
+    断言一律走 core.layout_asserts.css_rules（按选择器串匹配 + 回溯所在 @media），不用
+    css.index('.chat-message') 取首次出现、也不用 index('.chat-bubble') 的跨度切片：
+    后者与既有注释撞词就会切出空串，变成一条恒真的假锁（本项目已踩过）。
+    """
+
+    DESKTOP = '(min-width: 768px)'
+    MOBILE = '(max-width: 767px)'
+    # 气泡元素的 class 属性串（用 rounded-lg p-3 md:p-4 这组工具类认出本体）
+    BUBBLE_CLASS = re.compile(r'class="([^"]*rounded-lg p-3 md:p-4[^"]*)"')
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from core.layout_asserts import CSS_PATH
+        cls.css = CSS_PATH.read_text(encoding='utf-8')
+
+    def _blocks(self, selector):
+        from core.layout_asserts import css_rules
+        return css_rules(self.css, selector)
+
+    def _bodies(self, selector, media):
+        return ' '.join(b['body'] for b in self._blocks(selector) if b['media'] == media)
+
+    def test_bubble_width_cap_only_exists_inside_the_desktop_breakpoint(self):
+        """气泡宽度上限只允许在 md+ 生效（移动端必须满宽）
+
+        故意不限定「必须等于 80%」：改数值是调优，漏媒体查询才是这次要防的退化。
+        """
+        capped = [b for b in self._blocks('.chat-message')
+                  if re.search(r'max-width:\s*\d', b['body'])]
+        self.assertTrue(capped, '找不到 .chat-message 的宽度上限声明 —— 桌面端 80% 被删了？')
+        for block in capped:
+            self.assertEqual(block['media'], self.DESKTOP,
+                             '宽度上限漏出 md+，移动端又会变成窄气泡：%s' % block['selectors'])
+
+    def test_desktop_bubble_separation_declaration_survives(self):
+        """桌面端（md+）仍是 80% + 左右分离 —— 本次只改移动端，这条是零回归保证"""
+        bodies = self._bodies('.chat-message', self.DESKTOP)
+        self.assertIn('max-width: 80%', bodies)
+        self.assertIn('margin-left: auto', bodies)
+        self.assertIn('margin-right: auto', bodies)
+
+    def test_mobile_gives_the_bubble_no_width_cap_or_side_alignment(self):
+        """移动端范围内不得有宽度上限或 margin-*-auto：全宽 + 左边缘对齐就是本次改造的目的
+
+        防的是「又把气泡夹住 / 推到右边」，不是禁止一切复位写法 —— 真要复位桌面声明时
+        写的是 max-width: none / margin-left: 0，那些不匹配下面两条。
+        """
+        bodies = self._bodies('.chat-message', self.MOBILE)
+        for pattern in (r'max-width:\s*\d', r'margin-(?:left|right):\s*auto'):
+            hits = re.findall(pattern, bodies)
+            self.assertEqual(hits, [], '移动端出现气泡夹宽/右对齐声明：%s' % hits)
+
+    def test_mobile_role_marker_exists_for_both_roles(self):
+        """去掉左右分离后，角色全靠左竖条 + 底色 + 文字编码 —— 少一个 role 就没法区分"""
+        mobile = [b for b in self._blocks('.chat-bubble') if b['media'] == self.MOBILE]
+        self.assertTrue(mobile, '移动端角色竖条整段没了，三个 role 都退回无法区分')
+        spines = {}
+        for role in ('user', 'assistant'):
+            blocks = [b for b in mobile if role in b['selectors']]
+            self.assertTrue(blocks, '移动端缺少 %s 的角色标识竖条' % role)
+            body = ' '.join(b['body'] for b in blocks)
+            self.assertIn('border-left', body, '%s 没有 border-left，移动端只剩底色差' % role)
+            spines[role] = body.split('border-left')[1].split(';')[0]
+        self.assertNotEqual(spines['user'], spines['assistant'],
+                            '两个 role 的竖条同色，色带区分不出谁说的')
+
+    def test_mobile_overrides_beat_tailwind_specificity(self):
+        """覆盖气泡上工具类的规则必须 ≥ 两个类
+
+        Tailwind 是浏览器构建，它的 <style> 在运行时才 append 到 head 末尾（在本文件之后），
+        单类选择器靠源码顺序赢不了 p-3 / rounded-lg / border 这些工具类。
+        """
+        blocks = self._blocks('.chat-bubble')
+        self.assertTrue(blocks, '移动端覆盖段整块没了')
+        for block in blocks:
+            self.assertGreaterEqual(block['selectors'].count('.'), 2,
+                                    '单类覆盖会输给 Tailwind 注入顺序：%s' % block['selectors'])
+
+    def test_bubble_shell_style_lives_in_two_templates_behind_one_hook(self):
+        """气泡本体样式只允许这两份抄本，且两份都挂了钩子类
+
+        第三份抄本会静默拿不到移动端覆盖，症状只是「某类气泡在手机上还是窄的」，
+        没人会想到是漏挂钩子。
+        """
+        from core.layout_asserts import code_only
+        root = Path(__file__).resolve().parent.parent / 'templates'
+        copiers = sorted(str(p.relative_to(root)) for p in root.rglob('*.html')
+                         if 'rounded-lg p-3 md:p-4' in code_only(p.read_text(encoding='utf-8')))
+        self.assertEqual(copiers, ['chat/partials/_message.html',
+                                   'chat/partials/turn_error.html'],
+                         '气泡本体样式被抄了第三份：移动端的覆盖会漏掉新处')
+        for rel in copiers:
+            src = code_only((root / rel).read_text(encoding='utf-8'))
+            # 只看气泡元素自己的 class 属性：整份文件里提到 chat-bubble 的不算 ——
+            # 那句「为什么加这个类」的注释就会把锁糊过去（变异反证实测抓到）
+            attrs = self.BUBBLE_CLASS.findall(src)
+            self.assertTrue(attrs, '%s 里找不到气泡的 class 属性，这条锁就是空的' % rel)
+            for attr in attrs:
+                self.assertIn('chat-bubble', attr.split(),
+                              '%s 的气泡没挂钩子类，移动端覆盖命不中它' % rel)
+
+
+class ChatBubbleDomContractTest(TestCase):
+    """chat-turn.js 的三处 DOM 锚点必须仍是「祖先包住后代」的形状
+
+    这三处失效没有任何症状、也没有既有测试挡着：既有那条只断言 JS 源码里出现了
+    `querySelector('.md-body')` 这个字符串（锁的是 JS 文本，不是 DOM 真找得到它）。
+      · 复制：closest('.chat-message') 里再 querySelector('.md-body') → 命不中就是复制空串
+      · 重试：closest('.chat-message').remove() → 命不中就是历史里留两个「已中断」气泡
+      · 悬停：.group 包住 .hover-actions → 脱钩就是桌面端复制按钮永久 opacity:0
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('dom', password='p')
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_dom', agent_id='ag_dom', title='形状')
+
+    def test_copy_button_and_body_share_one_chat_message_ancestor(self):
+        from django.template.loader import render_to_string
+        msg = Message.objects.create(conversation=self.conv, role='assistant',
+                                     content='结论：值得去')
+        html = render_to_string('chat/partials/_message.html', {'msg': msg})
+        # 从 .chat-message 开标签到气泡正文之间的「头部」：group / chat-bubble /
+        # data-copy-msg 必须都在这里（= 都还包住正文）
+        head = html[:html.index('markdown-content')]
+        self.assertGreater(len(head), 120, '头部切片切空了，这条锁就是假的')
+        self.assertIn('class="chat-message assistant', head)
+        self.assertIn('chat-bubble', head)
+        self.assertIn('group', head, '丢了 group，桌面端复制按钮会永久 opacity:0')
+        self.assertIn('data-copy-msg', head, '复制按钮掉出气泡，复制会静默返回空串')
+        # 正文必须在气泡之内：md-body 与 markdown-content 是同一个类属性（不能脱钩），
+        # 且正文文本出现在它之后。这里不做跨度切片 —— 起点在终点之后的切片恒空，
+        # 断言就恒真，正是本项目踩过的那类假锁。
+        self.assertIn('class="markdown-content md-body', html,
+                      'md-body 与 markdown-content 脱钩，closest + querySelector 会拿不到正文')
+        self.assertGreater(html.index('结论：值得去'), html.index('markdown-content'),
+                           '正文掉到气泡结构之外')
+
+    def test_retry_button_is_inside_the_error_bubble(self):
+        """中断气泡的「重试」必须在 .chat-message 内部：holder.remove() 靠它清掉旧气泡"""
+        from django.template.loader import render_to_string
+        pending = Message.objects.create(conversation=self.conv, role='user',
+                                         content='帮我查一下')
+        self.conv.turn_message = pending
+        self.conv.turn_state = Conversation.TURN_ERROR
+        self.conv.save()
+        err = render_to_string('chat/partials/turn_error.html',
+                               {'note': '本轮已中断', 'conversation': self.conv})
+        self.assertIn('data-retry-text', err, '没渲染出重试按钮，这条锁就是空的')
+        self.assertLess(err.index('class="chat-message'), err.index('data-retry-text'),
+                        '重试按钮掉出 .chat-message，remove() 会静默留下双气泡')
+        self.assertIn('chat-bubble', err[:err.index('data-retry-text')],
+                      '中断气泡没挂钩子类，移动端它会一直是窄气泡')

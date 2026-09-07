@@ -168,15 +168,22 @@ a {
 
 /* ===== 原有样式保留 ===== */
 
-/* Chat styles */
-.chat-message {
-    max-width: 80%;
-}
-.chat-message.user {
-    margin-left: auto;
-}
-.chat-message.assistant {
-    margin-right: auto;
+/* Chat styles：**仅桌面端（md+）**的左右气泡分离。
+   移动端（<768px）放弃左右分离 —— 390px 下 80% 上限只剩 260px 盒子、正文 237px，
+   一条长回答要滚十几屏。全宽与角色竖条见文件末尾【聊天消息流移动端】段。
+   为什么是「包一层媒体查询」而不是「在移动端写覆盖」：移动端根本不存在上限可覆盖，
+   不必与本文件的声明做特异度/顺序竞争；而 margin 简写复位会连带清掉宿主 space-y
+   给子元素的上外边距，块间距当场塌 —— 只有长手属性能安全复位。 */
+@media (min-width: 768px) {
+    .chat-message {
+        max-width: 80%;
+    }
+    .chat-message.user {
+        margin-left: auto;
+    }
+    .chat-message.assistant {
+        margin-right: auto;
+    }
 }
 
 /* Markdown content */
@@ -582,4 +589,44 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 
     /* 桌面端始终显示两栏，data-view 不生效 */
     .chat-layout[data-view="chat"] .chat-sidebar { display: flex; }
+}
+
+/* ===== 聊天消息流移动端（<768px）：全宽 + 左侧角色竖条 =====
+   移动端放弃左右气泡分离：窄屏上 80% 上限把正文压到 237px（约 17 个中文字），一条长回答
+   要滚十几屏，宽表格与代码块基本没法看。满宽以后正文 302px（+27%）。
+   去掉「左右位置」这层强编码后，角色改由三条不占横向的冗余表达：
+   左竖条（黑 = 你 / 浅灰 = AI 助手）+ 模板里既有的底色差 + 元信息文字标签。
+   手法沿用本文件既有的左侧色条，不引第二个断点、不引彩色（站点禁彩色/渐变/阴影）。
+
+   写在文件末尾而不是紧贴上面的桌面段：有几个回归锁是按「某个类名在 CSS 里首次出现的位置
+   + 往后 N 个字」取锚点的，而本段注释不可避免地要解释正文断行与表格的横向滚动行为，
+   放在前面会把那三个锚点带偏（假失败）。
+
+   两条硬约束：
+   ① 覆盖气泡上那些工具类（内边距、圆角、边框、底色）必须写到两个类的特异度 —— Tailwind
+      用的是浏览器构建，它生成的 style 标签在运行时才追加到 head 末尾，位置在本文件之后，
+      单类选择器靠源码顺序赢不了。
+   ② 只用长手属性。margin / padding 简写复位会连带清掉宿主 space-y 给子元素的上外边距与
+      模板里的垂直内边距，间距当场塌。 */
+@media (max-width: 767px) {
+    /* 竖条压在气泡自己的左边框位置上，其余三边仍是模板里那 1px 细边。
+       左上/左下不带圆角：竖条是一根「脊」，带圆角会断线。 */
+    .chat-message.user .chat-bubble {
+        border-left: 3px solid var(--accent);
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    .chat-message.assistant .chat-bubble {
+        border-left: 3px solid var(--border-strong);
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    /* 满宽以后，长 token 的溢出从「撑破小盒子」升级成「整页横向滚动」，在气泡这一层兜一道
+       断行（用户消息那一支没有正文断行规则，AI 回复那一支有）。只写这一个属性，别写 overflow
+       简写 —— 那会把气泡变成滚动容器、裁掉里面卡片的圆角。 */
+    .chat-message .chat-bubble {
+        overflow-wrap: anywhere;
+    }
 }
