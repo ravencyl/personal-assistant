@@ -11,7 +11,7 @@
     </div>
 
     <!-- 快速创建区域 -->
-    <div class="app-card">
+    <div class="app-card p-4">
         <form method="post" action="{% url 'notes:note_create' %}" class="space-y-3">
             {% csrf_token %}
             <div class="flex items-start gap-2">
@@ -89,7 +89,7 @@
 
     <!-- 编辑模式（内联编辑） -->
     {% if edit_note %}
-    <div class="app-card border-2 border-[var(--accent)]">
+    <div class="app-card border-2 border-[var(--accent)] p-4">
         <form method="post" action="{% url 'notes:note_edit' edit_note.id %}" class="space-y-3">
             {% csrf_token %}
             <div>
@@ -123,7 +123,7 @@
     <!-- 笔记列表 -->
     <div class="space-y-3">
         {% for note in notes %}
-        <div class="app-card group">
+        <div class="app-card group p-4">
             <div class="flex items-start gap-3">
                 <!-- 置顶标记 -->
                 {% if note.pinned %}
