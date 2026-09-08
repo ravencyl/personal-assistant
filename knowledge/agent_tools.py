@@ -30,17 +30,26 @@ def _article_url(article):
     return unquote(reverse('knowledge:article_detail', kwargs={'slug': article.slug}))
 
 
-@agent_tool('knowledge.search', '在用户自己保存的知识库文章里检索（只能查本地存量内容；'
-                        '通用知识/时效/攻略类问题不要用它，应直接联网回答或走 ask）',
-            'keyword（搜索关键词，必填）+ tag（标签，可选）')
+@agent_tool('knowledge.search', '在用户自己保存的知识库文章里检索（语义检索，能命中近义表达；'
+                        '只能查本地存量内容，通用知识/时效/攻略类问题不要用它，应直接联网回答或走 ask）',
+            'keyword（搜索关键词或自然语言问题，必填）+ tag（标签，可选）')
 def tool_knowledge_search(user, params):
     keyword = str(params.get('keyword') or '').strip()
     if not keyword:
         raise ToolError('请告诉我搜索关键词')
     tag = str(params.get('tag') or '').strip()
 
-    articles = search_articles(visible_qs(Article, user), keyword, tag=tag, limit=5)
-    if not articles:
+    if tag:
+        # 带标签条件时走本地检索（QMind 不支持按站内标签过滤）
+        articles = search_articles(visible_qs(Article, user), keyword, tag=tag, limit=5)
+        hits = [{'title': a.title, 'content': a.content, 'score': None, 'article': a}
+                for a in articles]
+    else:
+        from .retrieval import search_knowledge
+
+        hits = search_knowledge(user, keyword, limit=5)
+
+    if not hits:
         # 工具返回的 reply 会直接展示给用户（不会再送回模型），所以只写给用户看的口语，
         # 不能写成对模型的指令；同时给出可操作的下一步（知识库存量以外的信息可以联网问）
         hint = f'（标签：{tag}）' if tag else ''
@@ -48,11 +57,12 @@ def tool_knowledge_search(user, params):
                          '外部信息直接问我就行（例如“上网查一下美国出差要提前准备什么”）。'}
 
     items = []
-    for a in articles:
-        summary = a.content[:200].replace('\n', ' ').strip()
-        ellipsis = '...' if len(a.content) > 200 else ''
-        url = _article_url(a)
-        items.append(f'• {a.title}：{summary}{ellipsis}（{url}）')
+    for h in hits:
+        summary = h['content'][:200].replace('\n', ' ').strip()
+        ellipsis = '...' if len(h['content']) > 200 else ''
+        url = _article_url(h['article']) if h.get('article') else ''
+        suffix = f'（{url}）' if url else ''
+        items.append(f'• {h["title"]}：{summary}{ellipsis}{suffix}')
     return {
         'reply': f'找到 {len(items)} 篇相关知识库文章：\n' + '\n'.join(items),
     }
