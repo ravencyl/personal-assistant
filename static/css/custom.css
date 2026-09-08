@@ -326,6 +326,26 @@ a {
     }
 }
 
+/* iOS 弹窗内控件自适应宽度（手机端弹窗出现横向拖动条的修复）。
+   iOS 的 date/select 等原生控件固有宽度大且默认 min-width:auto，字号提到
+   16px 后更容易撑破弹窗滚动容器（overflow-y:auto 时 overflow-x 也变 auto，
+   于是出现横向拖动条）。三件事：① 解除表单字段的最小宽度限制，允许收缩；
+   ② 状态 select 撑满弹窗宽（原本无 w-full，宽度由选项内容决定）；
+   ③ 弹窗滚动容器禁止横向滚动兜底——任何意外超宽都被裁剪而非拖动。 */
+@media (max-width: 767px) {
+    #create-activity-modal .w-full {
+        min-width: 0;
+    }
+
+    #create-activity-modal select {
+        width: 100%;
+    }
+
+    #create-activity-modal .overflow-y-auto {
+        overflow-x: hidden;
+    }
+}
+
 /* ===== AI 回复的 Markdown 排版（结构由 core/markdown_render.py 生成） =====
    本项目没装 Tailwind typography 插件，模板上的 prose 类其实不出任何样式，
    所以正文排版全部由这一份规则负责；行长仍由外层 max-w-* 控制。 */
