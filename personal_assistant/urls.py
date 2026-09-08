@@ -6,7 +6,6 @@ from django.conf.urls.static import static
 from core.views import (dashboard, search_api, weekly_report, monthly_report, yearly_report,
                         report_send_to_chat, service_worker)
 from activities.views import daily_view
-from core.reminder_views import reminder_dismiss, reminder_done
 from core.suggestion_views import suggestion_dismiss, suggestion_read, suggestion_tool_run
 
 urlpatterns = [
@@ -44,10 +43,6 @@ urlpatterns = [
     path('reports/monthly/', monthly_report, name='monthly_report'),
     path('reports/yearly/', yearly_report, name='yearly_report'),
     path('reports/send-to-chat/', report_send_to_chat, name='report_send_to_chat'),
-
-    # Reminders
-    path('reminders/<int:reminder_id>/dismiss/', reminder_dismiss, name='reminder_dismiss'),
-    path('reminders/<int:reminder_id>/done/', reminder_done, name='reminder_done'),
 
     # Suggestions
     path('suggestions/dismiss/', suggestion_dismiss, name='suggestion_dismiss'),

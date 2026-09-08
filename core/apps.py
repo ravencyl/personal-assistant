@@ -11,7 +11,6 @@ class CoreConfig(AppConfig):
         autodiscover_modules('agent_tools')
 
         # 显式导入 core 内的工具模块（文件名不是 agent_tools.py，不会被自动发现）
-        import core.reminder_tools  # noqa: F401
         import core.report_tools  # noqa: F401
 
         # 关联推荐缓存失效信号

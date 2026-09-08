@@ -240,10 +240,6 @@ def send_message(request, conversation_id):
     """
     conversation = get_visible(Conversation, request.user, id=conversation_id)
 
-    # 触发到期提醒（每次对话时检查）
-    from core.models import check_due_reminders
-    check_due_reminders(request.user)
-
     content = request.POST.get('content', '').strip()
     if not content:
         return JsonResponse({'error': '消息内容不能为空'}, status=400)
@@ -408,16 +404,24 @@ def _deliver(service, conversation):
 
 
 def _build_knowledge_context(user, text):
-    """按用户消息检索相关知识库文章，构造注入上下文；无命中返回空串"""
-    from knowledge.models import Article
-    from knowledge.utils import search_articles
+    """按用户消息检索相关知识库内容，构造注入上下文；无命中返回空串
 
-    articles = search_articles(visible_qs(Article, user), text, limit=3)
-    if not articles:
+    走 knowledge.retrieval 统一检索层（QMind 语义优先，失败自动降级本地
+    关键词），本函数不感知后端差异。
+    """
+    from knowledge.retrieval import search_knowledge
+
+    try:
+        results = search_knowledge(user, text, limit=3)
+    except Exception as e:
+        # 检索层内部已降级，这里是双保险：注入失败绝不能阻断对话
+        logger.warning(f'知识注入失败（降级为无注入）: {e}')
+        return ''
+    if not results:
         return ''
     context = '\n\n[相关知识库内容]\n'
-    for a in articles:
-        context += f'--- {a.title} ---\n{a.content[:800]}\n\n'
+    for r in results:
+        context += f"--- {r['title']} ---\n{r['content'][:800]}\n\n"
     return context
 
 

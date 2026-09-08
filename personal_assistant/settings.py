@@ -2,6 +2,8 @@
 Django settings for personal_assistant project.
 """
 
+import sys
+
 import environ
 from pathlib import Path
 
@@ -166,6 +168,12 @@ else:
 QODER_ACCESS_TOKEN = env('QODER_ACCESS_TOKEN', default='')
 QODER_API_BASE_URL = env('QODER_API_BASE_URL', default='https://api.qoder.com.cn/api/v1/cloud')
 QODER_DEFAULT_ENVIRONMENT_ID = env('QODER_DEFAULT_ENVIRONMENT_ID', default='')
+
+# QMind 云端知识库（knowledge/qmind.py）：QODER_ACCESS_TOKEN 即 QMind 个人令牌；
+# QMIND_NOTEBOOK_ID 为空 = 同步与语义检索全部关闭，检索层自动降级本地关键词。
+# 测试进程强制关闭：避免 500+ 用例里混入真实网络外呼（个别用例用 override_settings 打开并 mock）
+QMIND_SASH_URL = env('QMIND_SASH_URL', default='https://openapi.qoder.com.cn')
+QMIND_NOTEBOOK_ID = '' if 'test' in sys.argv else env('QMIND_NOTEBOOK_ID', default='')
 
 
 # Login

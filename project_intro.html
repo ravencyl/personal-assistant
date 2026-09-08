@@ -265,8 +265,8 @@ footer {
       <div class="card">
         <h3><span class="tag">凭什么</span>AI 驱动的主动性</h3>
         <ul>
-          <li>首页即「今日」简报：提醒、子任务、建议一屏读</li>
-          <li>建议规则引擎 12 条规则 + AI 洞察混排</li>
+          <li>首页即「今日」简报：子任务、建议、活动一屏读</li>
+          <li>建议规则引擎 11 条规则自动生成</li>
           <li>建议可一键执行（跳转 / 调工具 / 唤起快记浮层）</li>
           <li>一句话建活动：AI 解析自然语言回填表单</li>
         </ul>
@@ -336,7 +336,6 @@ footer {
           </div>
         </div>
         <div class="core-abilities">
-          <span>提醒 Reminder</span>
           <span>建议规则引擎 suggestions</span>
           <span>报告生成 周报/月报/年报</span>
           <span>全局搜索 api/search</span>
@@ -354,7 +353,7 @@ footer {
           <tr><th>模块</th><th>职责</th><th>代表路由</th></tr>
           <tr><td>personal_assistant</td><td>settings（django-environ 读 .env）、全站 urls 入口、wsgi 部署入口；首页 <code class="inline">/</code> 直接指向 Daily 简报视图</td><td><code class="inline">/</code></td></tr>
           <tr><td>activities</td><td>活动 CRUD、费用记账（Expense）、子任务树、标签（django-taggit）、参与者、附件、日历、Daily 简报、费用报告、CSV/JSON 导出、AI 一句话建活动</td><td><code class="inline">/activities/*</code></td></tr>
-          <tr><td>core</td><td>提醒（到期触发 / 忽略 / 完成）、建议引擎（12 条规则 + AI 洞察，10 分钟缓存 + 信号失效）、报告生成、全局搜索、跨模块关联、Agent 工具注册表与编排器、建议执行端点（白名单 + HMAC 两步确认）</td><td><code class="inline">/reports/*</code> <code class="inline">/suggestions/*</code></td></tr>
+          <tr><td>core</td><td>建议引擎（11 条规则，10 分钟缓存 + 信号失效）、报告生成、全局搜索、跨模块关联、Agent 工具注册表与编排器、建议执行端点（白名单 + HMAC 两步确认）</td><td><code class="inline">/reports/*</code> <code class="inline">/suggestions/*</code></td></tr>
           <tr><td>notes</td><td>快速备忘的增删查，最轻量的一个 app</td><td><code class="inline">/notes/</code></td></tr>
           <tr><td>knowledge</td><td>Markdown 文章知识库，支持 AI 问答与文件批量导入（import_knowledge_files 命令）</td><td><code class="inline">/knowledge/*</code></td></tr>
           <tr><td>memory</td><td>双层记忆：对话中 AI 主动提取 + 规则兜底；consolidate_memories 命令按用户聚合成长期画像</td><td><code class="inline">/memory/</code></td></tr>
@@ -410,15 +409,15 @@ footer {
         <span class="num">5</span>
         <h3><span class="tag">建议引擎</span>三态 action 一键执行</h3>
         <p>每条建议可携带 <code class="inline">kind: link / tool / post</code> 的动作：跳转对应页面、调用白名单工具（如一键完成活动），或唤起快记浮层。工具调用走 <code class="inline">SUGGESTION_TOOLS</code> 白名单 + HMAC token 两步确认，执行后自动标记已读；旧缓存建议缺少字段时优雅降级为纯链接。</p>
-        <pre class="code"><span class="c"># core/suggestions.py —— 12 条规则顺序执行 + AI 洞察置顶</span>
+        <pre class="code"><span class="c"># core/suggestions.py —— 规则顺序执行</span>
 _RULES = [_rule_tomorrow_starts, _rule_no_start_date,
-          _rule_pending_reminders, _rule_subtask_progress, ...]</pre>
+          _rule_subtask_progress, ...]</pre>
       </div>
 
       <div class="card hl-card">
         <span class="num">6</span>
         <h3><span class="tag">容错</span>AI 链路全量降级</h3>
-        <p>所有 AI 调用都有规则兜底：一句话解析 AI 失败 → 本地规则解析；每日洞察 AI 失败 → 规则模板；记忆聚合失败 → 静默跳过。非核心操作失败只记日志（logger.warning），用户侧无感。</p>
+        <p>所有 AI 调用都有规则兜底：一句话解析 AI 失败 → 本地规则解析；记忆聚合失败 → 静默跳过。非核心操作失败只记日志（logger.warning），用户侧无感。</p>
       </div>
     </div>
 
@@ -449,7 +448,7 @@ python manage.py test core activities    <span class="c"># 指定模块</span></
           <tr><td>django-htmx + HTMX</td><td>局部渲染与无刷新交互（hx-post / hx-target / hx-swap）</td></tr>
           <tr><td>Tailwind CSS</td><td>原子类 + CSS 变量（--text / --bg / --border）黑白灰阶设计系统</td></tr>
           <tr><td>Redis</td><td>生产环境缓存后端（建议结果、会话等），开发用 LocMemCache</td></tr>
-          <tr><td>httpx[http2]</td><td>调用 Qoder Cloud AI 平台（对话、解析、洞察、周报）</td></tr>
+          <tr><td>httpx[http2]</td><td>调用 Qoder Cloud AI 平台（对话、解析、周报）</td></tr>
           <tr><td>django-taggit / django-environ</td><td>活动标签 / .env 配置管理</td></tr>
         </table>
       </div>
@@ -461,9 +460,8 @@ python manage.py test core activities    <span class="c"># 指定模块</span></
           <tr><td>nginx</td><td>HTTPS（Let's Encrypt 自动续期）、staticfiles 别名、<code class="inline">client_max_body_size 12m</code> 配套 10MB 附件上传</td></tr>
           <tr><td>PWA</td><td><code class="inline">/sw.js</code> 由 Django 视图从站点根下发（控制全站 scope），manifest 定义「三磊」安装名与 maskable 图标</td></tr>
         </table>
-        <pre class="code"><span class="c"># crontab —— 三个幂等定时任务</span>
+        <pre class="code"><span class="c"># crontab —— 幂等定时任务</span>
 */30 * * * *  auto_start_activities   <span class="c"># 到期活动自动启动</span>
-30 6  * * *  generate_daily_insights <span class="c"># 预生成 AI 洞察（失败降级模板）</span>
 0  3  * * 0  consolidate_memories    <span class="c"># 每周聚合记忆画像</span></pre>
       </div>
     </div>
@@ -478,7 +476,7 @@ python manage.py test core activities    <span class="c"># 指定模块</span></
     <div class="card">
       <table class="tbl">
         <tr><th>页面</th><th>路径</th><th>内容</th></tr>
-        <tr><td>今日（首页）</td><td><code class="inline">/</code></td><td>每日简报：提醒与子任务、关键数字、AI 建议（可一键执行）、活动分组、新建活动 Lightbox 弹窗</td></tr>
+        <tr><td>今日（首页）</td><td><code class="inline">/</code></td><td>每日简报：子任务、关键数字、AI 建议（可一键执行）、活动分组、新建活动 Lightbox 弹窗</td></tr>
         <tr><td>活动列表</td><td><code class="inline">/activities/</code></td><td>搜索 / 筛选 / 树形父子展示、弹窗新建、CSV/JSON 导出</td></tr>
         <tr><td>活动详情</td><td><code class="inline">/activities/&lt;id&gt;/</code></td><td>状态快捷切换、费用记账、子任务（支持一句话创建）、附件、操作历史</td></tr>
         <tr><td>日历 / 下一步行动</td><td><code class="inline">/activities/calendar/</code> 等</td><td>月历视图与按优先级排布的行动清单</td></tr>

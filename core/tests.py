@@ -20,7 +20,6 @@ from core.cross_link import get_related_content, _tag_intersection_scores
 from core.search import global_search
 from datetime import timedelta
 from django.utils import timezone
-from core.models import Reminder, check_due_reminders
 from core.suggestions import generate_daily_plan
 from core.layout_asserts import (assert_desktop_two_columns, code_only,
                                 python_code_only)
@@ -182,290 +181,6 @@ class GlobalSearchTest(TestCase):
         self.assertEqual(response.status_code, 200)
 
 
-class ReminderModelTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-
-    def test_reminder_create(self):
-        """创建提醒实例"""
-        r = Reminder.objects.create(
-            user=self.user,
-            content='测试提醒',
-            trigger_at=timezone.now() + timedelta(hours=1),
-        )
-        self.assertEqual(r.status, 'pending')
-        self.assertEqual(str(r), '测试提醒 (待触发)')
-
-    def test_reminder_check_due(self):
-        """到期提醒状态变更"""
-        r = Reminder.objects.create(
-            user=self.user,
-            content='到期提醒',
-            trigger_at=timezone.now() - timedelta(minutes=5),
-        )
-        triggered = check_due_reminders(self.user)
-        r.refresh_from_db()
-        self.assertEqual(r.status, 'fired')
-        self.assertEqual(triggered, 1)
-
-    def test_reminder_not_due(self):
-        """未到期的提醒不触发"""
-        r = Reminder.objects.create(
-            user=self.user,
-            content='未来提醒',
-            trigger_at=timezone.now() + timedelta(hours=1),
-        )
-        check_due_reminders(self.user)
-        r.refresh_from_db()
-        self.assertEqual(r.status, 'pending')
-
-    def test_reminder_dismiss(self):
-        """忽略提醒"""
-        client = Client()
-        client.login(username='testuser', password='test')
-        r = Reminder.objects.create(
-            user=self.user,
-            content='忽略测试',
-            trigger_at=timezone.now(),
-        )
-        response = client.post(f'/reminders/{r.id}/dismiss/')
-        self.assertEqual(response.status_code, 302)
-        r.refresh_from_db()
-        self.assertEqual(r.status, 'dismissed')
-
-
-class ReminderDoneStatusTest(TestCase):
-    """L8：「已完成」写 done，与系统自动触发的 fired 分开
-
-    两者曾共用 fired：点完「已完成」条目仍留在 Daily「提醒」区（该区取「待处理」
-    口径，状态没变就看不出差异），浮窗红点也分不了「提醒过了」与「用户做完了」。
-    """
-
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-
-    def fired_reminder(self, content='带伞'):
-        reminder = Reminder.objects.create(
-            user=self.user, content=content,
-            trigger_at=timezone.now() - timedelta(minutes=5))
-        check_due_reminders(self.user)
-        reminder.refresh_from_db()
-        self.assertEqual(reminder.status, 'fired')
-        return reminder
-
-    def test_done_endpoint_writes_done_not_fired(self):
-        reminder = self.fired_reminder()
-        self.assertEqual(self.client.post(
-            f'/reminders/{reminder.id}/done/').status_code, 302)
-        reminder.refresh_from_db()
-        self.assertEqual(reminder.status, 'done')
-
-    def test_done_leaves_daily_pending_list(self):
-        reminder = self.fired_reminder()
-        self.assertIn('带伞', self.client.get(reverse('activities:daily')).content.decode())
-        self.client.post(f'/reminders/{reminder.id}/done/')
-        self.assertNotIn('带伞', self.client.get(reverse('activities:daily')).content.decode())
-
-    def test_widget_badge_counts_today_fired_and_stops_at_done(self):
-        from chat.context_processors import chat_widget
-        request = RequestFactory().get('/')
-        request.user = self.user
-        reminder = self.fired_reminder()
-        self.assertEqual(chat_widget(request)['pending_reminder_count'], 1)
-        self.client.post(f'/reminders/{reminder.id}/done/')
-        self.assertEqual(chat_widget(request)['pending_reminder_count'], 0)
-
-    def test_complete_tool_treats_done_as_processed(self):
-        from core.agent_registry import get_tool
-        reminder = self.fired_reminder(content='办签证')
-        self.client.post(f'/reminders/{reminder.id}/done/')
-        result = get_tool('reminders.complete')['fn'](self.user, {'target': '办签证'})
-        self.assertIn('之前已经处理过了', result['reply'])
-
-
-class PendingReminderSingleSourceTest(TestCase):
-    """「待处理提醒」全站只有一个数：浮窗红点 == Daily「提醒」区 == AI 的 list_reminders
-
-    为什么锁：这条数据曾有四份独立实现，各自挑各自的 status —— 红点算
-    「pending 已过点 ∪ fired 今天」、Daily 只取 fired、建议规则 8 只取 pending 且限定
-    now-1h~now+2h 窗口、AI 工具取字面 pending。四处互不自洽且都不报错，实际效果是
-    「红点亮着 1、点进 Daily 空白、问 AI 答没有待触发的提醒」，用户只会认为系统在骗他。
-    现在收敛到 core.utils.pending_reminders 一个函数，而函数本身挡不住以后有人在某个
-    出口旁边抄一份新查询 —— 只有「三个出口报同一个数」这种横向断言能挡住。
-    """
-
-    def setUp(self):
-        from django.core.cache import cache
-        cache.clear()          # 建议缓存是 locmem 全局的，不清会读到上一个用例的结果
-        self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-        self.request = RequestFactory().get('/')
-        self.request.user = self.user
-        # 基准钉在当天中午：上午跑用例与晚间跑用例的 now± 结果保持一致
-        self.noon = timezone.make_aware(
-            timezone.datetime.combine(timezone.localdate(), timezone.datetime.min.time())
-        ) + timedelta(hours=12)
-
-    def remind(self, content, at, status='pending'):
-        return Reminder.objects.create(
-            user=self.user, content=content, trigger_at=at, status=status)
-
-    def exits(self, run_check=True):
-        """三个出口各自看到的「待处理」，返回 {'badge','daily','ai','ai_upcoming','reply'}
-
-        run_check=False 时把 daily_view 内部顺手调的 check_due_reminders 换成了 no-op，
-        用来模拟「cron 没跑、用户也没打开过任何页面」——那正是旧口径崩掉、也是
-        新口径必须兜住的场景（没这一项的话，Daily 视图自己会把 pending 先改成
-        fired，就算不出「只取 fired 的旧实现错在哪」了）。
-        """
-        from chat.context_processors import chat_widget
-        from core.agent_registry import get_tool
-
-        def scrape(reply, label):
-            hit = re.search(label + r'（(\d+) 条）', reply)
-            return int(hit.group(1)) if hit else 0
-
-        target = 'core.models.check_due_reminders'
-        # 计算顺序有意为之：红点与 AI 先算，Daily 后算。daily_view 会顺手
-        # check_due_reminders 把 pending 改成 fired，先访页面再算红点就永远测不出
-        # 「红点口径限定今天」这类回归（用户恰好是先看到红点才点入 Daily 的）。
-        reply = get_tool('reminders.list_reminders')['fn'](self.user, {})['reply']
-        badge = chat_widget(self.request)['pending_reminder_count']
-        if run_check:
-            daily = self.client.get(
-                reverse('activities:daily')).context['pending_reminders']
-        else:
-            with patch(target, lambda user: 0):
-                daily = self.client.get(
-                    reverse('activities:daily')).context['pending_reminders']
-        return {
-            'badge': badge,
-            'daily': len(daily),
-            'ai': scrape(reply, '待处理'),
-            'ai_upcoming': scrape(reply, '今天稍后'),
-            'reply': reply,
-        }
-
-    def test_all_three_exits_report_the_same_number(self):
-        self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
-        self.remind('到点未落库', self.noon - timedelta(minutes=10))
-        self.remind('下午开会', self.noon + timedelta(hours=3))
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            seen = self.exits()
-        self.assertEqual((seen['badge'], seen['daily'], seen['ai']), (2, 2, 2),
-                         '红点 / Daily 列表 / AI 回答报了三个不同的数（口径又分叉了）')
-        # 今天还没到点的不算「待处理」，但 AI 得另段列出（否则「我今天有什么提醒」会漏答）
-        self.assertEqual(seen['ai_upcoming'], 1)
-
-    def test_count_survives_a_missing_check_due_reminders_run(self):
-        """没跑过 check_due_reminders 时，到期提醒仍然计入了三个出口
-
-        这条是本组的核心：旧 Daily 区只取 fired，新提醒到点但没被改状态时页面是空的；
-        旧 AI 工具只取字面 pending，提醒一被改成 fired 就直接答「没有」。
-        """
-        self.remind('到点未落库', self.noon - timedelta(minutes=10))
-        self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            seen = self.exits(run_check=False)
-        self.assertEqual((seen['badge'], seen['daily'], seen['ai']), (2, 2, 2),
-                         '取数依赖“上一步有没有执行过 check_due_reminders”，口径不稳定')
-
-    def test_running_check_does_not_double_count(self):
-        """pending 被改成 fired 的那一瞬间，计数不得翻倍或归零（两个 status 是并集不是拼接）"""
-        self.remind('到点未落库', self.noon - timedelta(minutes=10))
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            before = self.exits()['badge']
-            check_due_reminders(self.user)
-            check_due_reminders(self.user)
-            after = self.exits()
-        self.assertEqual((before, after['badge'], after['daily'], after['ai']), (1, 1, 1, 1))
-
-    def test_processed_and_stale_items_are_out_of_every_exit(self):
-        """done / dismissed / 昨天及更早的过期提醒，三个出口都不再出现
-
-        旧红点口径对 pending 没限日期：几天前没处理的通知会永久挂着一个消不掉的红点
-        （Daily 只看今天，用户根本找不到条目），本条锁的就是这个回归。
-        旧红点对 fired 限了今天、对 pending 没限，所以只改其中一侧的变异也能被抓到。
-        """
-        self.remind('昨天的过期项', self.noon - timedelta(days=2))
-        self.remind('陈年未处理', self.noon - timedelta(days=5), status='fired')
-        self.remind('今天做完了', self.noon - timedelta(hours=1), status='done')
-        self.remind('今天忽略了', self.noon - timedelta(hours=2), status='dismissed')
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            seen = self.exits()
-        self.assertEqual(
-            (seen['badge'], seen['daily'], seen['ai'], seen['ai_upcoming']), (0, 0, 0, 0),
-            f'已处理或过旧的提醒漏进了某个出口：{seen["reply"]}')
-        self.assertIn('没有待处理的提醒', seen['reply'])
-
-    def test_stale_items_are_still_reachable_by_explicit_status(self):
-        """口径收窄不等于数据丢失：显式问「已触发的提醒」仍然能看到陈年项"""
-        from core.agent_registry import get_tool
-        self.remind('陈年未处理', self.noon - timedelta(days=5), status='fired')
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            self.assertEqual(self.exits()['badge'], 0)
-            reply = get_tool('reminders.list_reminders')[
-                'fn'](self.user, {'status': 'fired'})['reply']
-        self.assertIn('陈年未处理', reply)
-
-    def test_pending_and_upcoming_never_overlap(self):
-        """两个口径严格互斥，并集正好接上「今天全部未处理」
-
-        旧右列预告取「status=pending 且 < 明日零点」，没跑过 check 时一条已到点的提醒
-        会同时出现在左列「提醒」区与右列「待触发」，同一条事情说两遍。
-        """
-        from core.utils import pending_reminders, upcoming_reminders
-        self.remind('到点未落库', self.noon - timedelta(minutes=10))
-        self.remind('下午开会', self.noon + timedelta(hours=3))
-        self.remind('明天再说', self.noon + timedelta(days=1, hours=3))
-        self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            pending = {r.content for r in pending_reminders(self.user)}
-            upcoming = {r.content for r in upcoming_reminders(self.user)}
-        self.assertEqual(pending, {'到点未落库', '已经提醒过'})
-        self.assertEqual(upcoming, {'下午开会'})
-        self.assertEqual(pending & upcoming, set(), '同一条提醒不得同时出现在两个区')
-
-    def test_suggestion_rule_only_chases_pending(self):
-        """建议规则 8 只催「到点没处理」的，不拿未来预告凑数
-
-        旧实现拿 now-1h~now+2h 窗口查字面 pending：提醒一旦被改成 fired 就从建议里
-        彻底消失 —— 用户越没处理越不会被催，恰好反了。
-        """
-        from core.suggestions import generate_suggestions
-        fired = self.remind('已经提醒过', self.noon - timedelta(hours=2), status='fired')
-        self.remind('下午开会', self.noon + timedelta(hours=3))
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            keys = {s['key'] for s in generate_suggestions(self.user)}
-        self.assertIn(f'reminder:{fired.id}', keys, '到期未处理的提醒应当被催')
-        self.assertEqual(len([k for k in keys if k.startswith('reminder:')]), 1,
-                         '未来预告不该进「待处理」建议（右列已有它）')
-
-    def test_no_consumer_reimplements_the_status_filter(self):
-        """静态锁：消费方不得再自己按 status 字面量查 Reminder
-
-        行为锁只能证明「当前这三个出口一致」，证明不了「第四份实现没被抄出来」。
-        剔注释/docstring 再扫（core.layout_asserts.python_code_only）：本批修改的
-        docstring 里就大量引用了旧写法 status='pending'，不剔就是假失败。
-        """
-        base = Path(settings.BASE_DIR)
-        # 必须与 Reminder 同句出现：SuggestionState / DailyInsight 等模型也有
-        # status 字面量，只按 status= 扫会误报到无关查询上。
-        # 上限 200 字能盖住旧实现的链式写法（Reminder.objects.filter(user=..).filter(
-        # Q(status='pending', ..)），又不跨到下一个无关查询。
-        pattern = re.compile(
-            r'Reminder[\s\S]{0,200}?status\s*=\s*[\'"](pending|fired)[\'"]')
-        for rel in ('chat/context_processors.py', 'activities/views.py',
-                    'core/suggestions.py', 'core/reminder_tools.py'):
-            code = python_code_only((base / rel).read_text(encoding='utf-8'))
-            self.assertEqual(pattern.findall(code), [],
-                             f'{rel} 自己写了一份提醒状态查询——“待处理”又会有两个答案，'
-                             f'请改成 core.utils.pending_reminders / upcoming_reminders')
-
-
 class PythonCodeOnlyTest(SimpleTestCase):
     """python_code_only 自身的回归锁（上面那条静态锁的地基）
 
@@ -498,57 +213,6 @@ class PythonCodeOnlyTest(SimpleTestCase):
         # 剔行不拆行：否则用 findall 拿到的行号与源码对不上，报错信息会指向错误位置
         self.assertEqual(len(python_code_only(self.SRC).splitlines()),
                          len(self.SRC.splitlines()))
-
-
-class ReminderAgentToolTest(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-
-    def test_set_reminder_tool_exists(self):
-        from core.agent_registry import get_tool
-        tool = get_tool('reminders.set_reminder')
-        self.assertIsNotNone(tool)
-
-    def test_list_reminders_tool_exists(self):
-        from core.agent_registry import get_tool
-        tool = get_tool('reminders.list_reminders')
-        self.assertIsNotNone(tool)
-
-    def test_set_reminder_tool_execute(self):
-        """AI 工具创建提醒"""
-        from core.agent_registry import get_tool
-        tool = get_tool('reminders.set_reminder')
-        result = tool['fn'](self.user, {
-            'content': '买机票',
-            'remind_at': (timezone.now() + timedelta(hours=2)).isoformat(),
-        })
-        self.assertIn('买机票', result['reply'])
-        self.assertEqual(result['card'], 'reminder')
-        self.assertTrue(Reminder.objects.filter(user=self.user, content='买机票').exists())
-
-    def test_list_reminders_empty(self):
-        """列出提醒（空列表）"""
-        from core.agent_registry import get_tool
-        tool = get_tool('reminders.list_reminders')
-        result = tool['fn'](self.user, {})
-        self.assertIn('没有', result['reply'])
-
-    def test_list_reminders_with_data(self):
-        """列出提醒（有数据）—— 钉死在当天中午避免跨日边界"""
-        from unittest.mock import patch
-        from datetime import time as dtime
-        noon = timezone.make_aware(
-            timezone.datetime.combine(timezone.localdate(),
-                                      dtime(12, 0)))
-        with patch('django.utils.timezone.now', return_value=noon):
-            Reminder.objects.create(
-                user=self.user, content='测试提醒',
-                trigger_at=noon + timedelta(hours=1),
-            )
-            from core.agent_registry import get_tool
-            tool = get_tool('reminders.list_reminders')
-            result = tool['fn'](self.user, {})
-            self.assertIn('测试提醒', result['reply'])
 
 
 class ReportGeneratorTest(TestCase):
@@ -723,16 +387,9 @@ class SuggestionsTruncationTest(TestCase):
         Activity.objects.create(
             user=self.user, name='没有日期', status='planned',
         )
-        # 规则 7：2 个待处理提醒 → 2 条；另有「今日无消费」提醒 → 1 条（共 5 条）
-        # 用已过点的时刻：口径收敛后规则 7 只催「到点了没处理」的，不再拿未来预告凑数
-        for i in range(2):
-            Reminder.objects.create(
-                user=self.user, content=f'提醒{i}',
-                trigger_at=timezone.now() - timedelta(minutes=5),
-            )
 
         suggestions = generate_suggestions(self.user)
-        self.assertEqual(len(suggestions), 5)
+        self.assertEqual(len(suggestions), 3)
 
 
 class SuggestionsCacheTest(TestCase):
@@ -954,93 +611,6 @@ class SuggestionsNewRulesTest(TestCase):
         self.assertIn('进行中', result[0]['text'])
 
 
-class ParseInsightsTest(TestCase):
-    """AI 洞察 JSON 解析校验"""
-    def test_valid_json(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = '[{"text": "测试洞察", "icon": "plan", "action": {"label": "查看", "url": "/activities/"}}]'
-        result = parse_insights(raw)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]['text'], '测试洞察')
-
-    def test_invalid_json(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        self.assertEqual(parse_insights('not json'), [])
-        self.assertEqual(parse_insights(''), [])
-        self.assertEqual(parse_insights(None), [])
-
-    def test_url_whitelist_filtering(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = '[{"text": "测试", "icon": "plan", "action": {"label": "查看", "url": "https://evil.com"}}]'
-        result = parse_insights(raw)
-        self.assertEqual(len(result), 1)
-        self.assertIsNone(result[0]['action'])
-
-    def test_max_two_insights(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = '[{"text": "1", "icon": "plan", "action": null}, {"text": "2", "icon": "goal", "action": null}, {"text": "3", "icon": "habit", "action": null}]'
-        result = parse_insights(raw)
-        self.assertEqual(len(result), 2)
-
-    def test_markdown_fence_stripped(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = '```json\n[{"text": "测试", "icon": "plan", "action": null}]\n```'
-        result = parse_insights(raw)
-        self.assertEqual(len(result), 1)
-
-
-class DailyInsightMergeTest(TestCase):
-    """AI 洞察合并到建议列表"""
-    def setUp(self):
-        from django.core.cache import cache
-        cache.clear()
-        self.user = User.objects.create_user('testuser', password='test')
-
-    def test_insights_merged_at_top(self):
-        """DailyInsight 置顶，总上限 6"""
-        from core.models import DailyInsight
-        from core.suggestions import generate_suggestions
-
-        today = timezone.localdate()
-        DailyInsight.objects.create(
-            user=self.user,
-            insight_date=today,
-            insights=[
-                {'text': 'AI 洞察 1', 'icon': 'goal', 'key': 'ai:test:0', 'action': None, 'source': 'ai'},
-                {'text': 'AI 洞察 2', 'icon': 'habit', 'key': 'ai:test:1', 'action': None, 'source': 'ai'},
-            ],
-            status='ready',
-        )
-
-        suggestions = generate_suggestions(self.user)
-        # AI 洞察应在最前
-        if suggestions:
-            self.assertEqual(suggestions[0]['source'], 'ai')
-            self.assertEqual(suggestions[0]['text'], 'AI 洞察 1')
-
-    def test_dismissed_insight_hidden(self):
-        """已关闭的洞察不再显示"""
-        from core.models import DailyInsight, SuggestionState
-        from core.suggestions import generate_suggestions
-
-        today = timezone.localdate()
-        DailyInsight.objects.create(
-            user=self.user,
-            insight_date=today,
-            insights=[
-                {'text': 'AI 洞察', 'icon': 'goal', 'key': 'ai:test:0', 'action': None, 'source': 'ai'},
-            ],
-            status='ready',
-        )
-        SuggestionState.objects.create(
-            user=self.user, fingerprint='ai:test:0', action='dismissed'
-        )
-
-        suggestions = generate_suggestions(self.user)
-        ai_keys = [s['key'] for s in suggestions if s.get('source') == 'ai']
-        self.assertNotIn('ai:test:0', ai_keys)
-
-
 class SuggestionActionProtocolTest(TestCase):
     """建议可操作增强：规则 action 协议（tool/post/link）+ followup"""
     def setUp(self):
@@ -1111,48 +681,6 @@ class SuggestionActionProtocolTest(TestCase):
                        'test_rule', date(2026, 1, 1))
         self.assertEqual(s['action'], {'label': '查看', 'url': '/activities/'})
         self.assertTrue(s['followup'])
-
-
-class ParseInsightsActionTest(TestCase):
-    """AI 洞察协议：tool action 白名单校验 + followup 兜底"""
-
-    def test_valid_tool_action_passes(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = ('[{"text": "晨跑断签了", "icon": "habit", '
-               '"followup": "怎么恢复习惯", '
-               '"action": {"kind": "tool", "label": "补打卡", '
-               '"tool": "activities.set_status", "params": {"target": "晨跑", "status": "done"}}}]')
-        result = parse_insights(raw)
-        self.assertEqual(len(result), 1)
-        action = result[0]['action']
-        self.assertEqual(action['kind'], 'tool')
-        self.assertEqual(action['tool'], 'activities.set_status')
-        self.assertFalse(action['confirm'])  # set_status 白名单声明免确认
-        self.assertEqual(result[0]['followup'], '怎么恢复习惯')
-
-    def test_non_whitelist_tool_downgraded(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = ('[{"text": "测试", "icon": "plan", '
-               '"action": {"kind": "tool", "label": "删掉", '
-               '"tool": "activities.delete", "params": {"target": "x"}}}]')
-        result = parse_insights(raw)
-        self.assertIsNone(result[0]['action'])
-
-    def test_nested_params_downgraded(self):
-        """params 携非标量值（嵌套结构）→ 降级 None"""
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = ('[{"text": "测试", "icon": "plan", '
-               '"action": {"kind": "tool", "label": "打卡", '
-               '"tool": "activities.set_status", "params": {"evil": {"a": 1}}}}]')
-        result = parse_insights(raw)
-        self.assertIsNone(result[0]['action'])
-
-    def test_missing_followup_fallback(self):
-        from core.management.commands.generate_daily_insights import parse_insights
-        raw = '[{"text": "一条洞察", "icon": "plan", "action": null}]'
-        result = parse_insights(raw)
-        self.assertTrue(result[0]['followup'])
-        self.assertIn('一条洞察', result[0]['followup'])
 
 
 class SuggestionToolRunEndpointTest(TestCase):
@@ -1275,19 +803,19 @@ class DailyPlanTest(TestCase):
         self.assertNotIn('due_today', plan)
         self.assertTrue(plan['is_empty'])
 
-    def test_daily_page_drops_due_group_and_renames_section(self):
-        """顶部区标题改为「提醒与子任务」，不再渲染「今日到期」分组"""
+    def test_daily_page_renames_section(self):
+        """顶部区标题为「子任务」，不再渲染「今日到期」分组"""
         self._span_today_activity()
         with patch('django.utils.timezone.localtime', return_value=self.noon):
             html = self.client.get(reverse('activities:daily')).content.decode()
-        self.assertIn('提醒与子任务', html)
+        self.assertIn('子任务', html)
         self.assertNotIn('今日到期', html)
 
     def test_daily_page_empty_plan_text(self):
-        """两组全空时给出对应空状态文案"""
+        """空分组时给出对应空状态文案"""
         with patch('django.utils.timezone.localtime', return_value=self.noon):
             html = self.client.get(reverse('activities:daily')).content.decode()
-        self.assertIn('今天没有待办子任务和提醒', html)
+        self.assertIn('今天没有待办子任务', html)
 
     def test_subtask_groups_grouped_by_parent(self):
         """未完成子任务按父活动分组，已完成的不列入"""
@@ -1303,37 +831,6 @@ class DailyPlanTest(TestCase):
         group = plan['subtask_groups'][0]
         self.assertEqual(group['parent'].name, '桐庐周末游')
         self.assertEqual({c.name for c in group['children']}, {'门票', '高铁'})
-
-    def test_reminders_only_pending_before_tomorrow(self):
-        """「待触发」只列今天还没到点的，且与「待处理」严格互斥
-
-        时刻被钉在当天中午（patch timezone.now）：否则晚间跑用例时 now+2h 会跨到
-        明天，而「已过点」与「未到点」的分界也会随真实时间漂移。
-        """
-        with patch('django.utils.timezone.now', return_value=self.noon):
-            # 应入选：今天还没到点
-            Reminder.objects.create(user=self.user, content='下午开会',
-                                    trigger_at=self.noon + timedelta(hours=2))
-            # 应排除：几天外
-            Reminder.objects.create(user=self.user, content='下周提交',
-                                    trigger_at=self.noon + timedelta(days=7))
-            # 应排除：已触发未处理（属「待处理」，走左列「提醒」区）
-            Reminder.objects.create(user=self.user, content='已触发过',
-                                    trigger_at=self.noon - timedelta(hours=1), status='fired')
-            # 应排除：已过点但还没被 check_due_reminders 落库的 pending
-            # —— 旧口径（status='pending' 且 < 明日零点）会把它同时算进右列预告
-            # 与左列待处理，同一条提醒在 Daily 上出现两次
-            Reminder.objects.create(user=self.user, content='刚过点',
-                                    trigger_at=self.noon - timedelta(minutes=10))
-
-            plan = generate_daily_plan(self.user)
-            self.assertEqual([r.content for r in plan['reminders']], ['下午开会'])
-
-            # 并集正好接上：被预告排除的那两条，全部落在「待处理」口径里
-            from core.utils import pending_reminders
-            self.assertEqual(
-                [r.content for r in pending_reminders(self.user)],
-                ['已触发过', '刚过点'])
 
 
 class SuggestionDeepLinkTest(TestCase):

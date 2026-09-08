@@ -24,16 +24,15 @@ from django.utils import timezone
 from core.utils import week_monday, pct_change, char_overlap_ratio
 
 SUGGESTION_CACHE_TIMEOUT = 600  # 10 分钟
-MAX_SUGGESTIONS = 6  # 最多返回 6 条建议（规则 5 + AI 洞察 1-2）
+MAX_SUGGESTIONS = 6  # 最多返回 6 条建议
 
 # 建议动作可调用的 Agent 工具白名单：{工具名: 是否需要确认弹窗}
-# 新增工具前评估误操作风险；规则引擎与 AI 洞察共用这份白名单，
+# 新增工具前评估误操作风险；规则引擎共用这份白名单，
 # 端点校验见 core/suggestion_views.py。
 SUGGESTION_TOOLS = {
     'activities.set_status': False,
     'activities.batch_status': True,
     'activities.move_date': True,
-    'reminders.complete': False,
 }
 
 
@@ -225,30 +224,6 @@ def _rule_today_expense(user, today):
             'followup': '今天还没有记消费，帮我回顾一下今天可能有哪些开支需要补记',
         }
     return None
-
-
-def _rule_upcoming_reminders(user, today):
-    """规则 7：有待处理的提醒（到点了还没处理掉）
-
-    走全站唯一口径 pending_reminders。以前这里自己按 status='pending' + 一个
-    now-1h~now+2h 的窗口查一份，结果是：提醒一旦到期被 check_due_reminders
-    改成 fired，就从建议里彻底消失 —— 用户越没处理，越不会被催，正好反了。
-
-    「今天还没到点」的预告不在此列（由 Daily 右列 generate_daily_plan 负责），
-    两者口径互斥，同一条提醒不会在页面上出现两次。
-    """
-    from core.utils import pending_reminders
-
-    return [
-        {
-            'text': f'提醒：{r.content}（待处理）',
-            'icon': 'alert',
-            'key': f'reminder:{r.id}',
-            'action': _tool_action('知道了', 'reminders.complete', {'reminder_id': r.id}),
-            'followup': f'提醒“{r.content}”到时间了，帮我想想该怎么处理',
-        }
-        for r in pending_reminders(user)[:2]
-    ] or None
 
 
 def _rule_weekly_report(user, today):
@@ -447,7 +422,6 @@ _RULES = [
     _rule_no_start_date,
     _rule_stale_planned,
     _rule_today_expense,
-    _rule_upcoming_reminders,
     _rule_weekly_report,
     _rule_ending_soon,
     _rule_goal_progress,
@@ -459,8 +433,7 @@ _RULES = [
 def generate_suggestions(user):
     """生成今日建议列表，每条建议包含 text/icon/key/action/source
 
-    AI 洞察（DailyInsight）置顶，规则建议跟随，总上限 6 条。
-    结果按用户缓存 10 分钟；数据源模型变更时经信号失效，
+    规则建议，总上限 6 条。结果按用户缓存 10 分钟；数据源模型变更时经信号失效，
     最坏情况下依赖 TTL 过期。
     """
     key = _cache_key(user.id)
@@ -473,15 +446,7 @@ def generate_suggestions(user):
     # 获取已关闭/已读指纹集合
     dismissed, read_states = _get_suggestion_states(user)
 
-    # AI 洞察置顶（来自 DailyInsight，cron 预生成）
     suggestions = []
-    ai_insights = _get_daily_insights(user, today)
-    for item in ai_insights:
-        if item.get('key') not in dismissed:
-            item['is_read'] = item.get('key') in read_states
-            suggestions.append(item)
-
-    # 规则建议跟随
     for rule in _RULES:
         if len(suggestions) >= MAX_SUGGESTIONS:
             break
@@ -500,32 +465,6 @@ def generate_suggestions(user):
 
     cache.set(key, suggestions, SUGGESTION_CACHE_TIMEOUT)
     return suggestions
-
-
-def _get_daily_insights(user, today):
-    """获取当日 AI 洞察（已生成的），返回格式化后的建议列表"""
-    from core.models import DailyInsight
-
-    insight_obj = DailyInsight.objects.filter(
-        user=user, insight_date=today, status__in=('ready', 'fallback')
-    ).first()
-    if not insight_obj or not insight_obj.insights:
-        return []
-
-    results = []
-    for item in insight_obj.insights:
-        if not isinstance(item, dict) or not item.get('text'):
-            continue
-        text = item['text']
-        results.append({
-            'text': text,
-            'icon': item.get('icon', 'plan'),
-            'key': item.get('key', f'ai:{today.isoformat()}:{len(results)}'),
-            'action': item.get('action'),
-            'followup': item.get('followup') or f'关于这条洞察：“{text[:40]}”，帮我具体分析并给出下一步',
-            'source': 'ai',
-        })
-    return results
 
 
 def _get_suggestion_states(user):
@@ -570,10 +509,9 @@ def connect_invalidation_signals():
     """挂载建议缓存失效信号（由 CoreConfig.ready 调用，不得在 import 期执行）"""
     from django.db.models.signals import post_save, post_delete
     from activities.models import Activity, Expense
-    from core.models import Reminder
     from knowledge.models import Article
 
-    for model in (Activity, Expense, Reminder, Article):
+    for model in (Activity, Expense, Article):
         post_save.connect(
             invalidate_suggestions_cache, sender=model,
             dispatch_uid=f'suggestions_invalidate_save_{model.__name__}',
@@ -597,12 +535,9 @@ def generate_daily_plan(user):
 
     返回 dict：
     - subtask_groups: 未完成子活动 Top 5，按父活动分组
-    - reminders:      待触发提醒列表（今天还没到点的；已到点未处理的在左列「提醒」区）
-    - is_empty:       两组全部为空
+    - is_empty:       分组为空
     """
     from activities.models import Activity
-
-    today = timezone.localdate()
 
     children = Activity.objects.filter(
         user=user,
@@ -616,15 +551,7 @@ def generate_daily_plan(user):
         else:
             subtask_groups.append({'parent': child.parent, 'children': [child]})
 
-    # 待触发预告：走全站唯一口径，与左列「提醒」区（pending_reminders）严格互斥，
-    # 不再自己写 status='pending' + 明日零点 —— 那会把已到点但未落库的提醒
-    # 同时算进两个区
-    from core.utils import upcoming_reminders
-
-    reminders = list(upcoming_reminders(user)[:5])
-
     return {
         'subtask_groups': subtask_groups,
-        'reminders': reminders,
-        'is_empty': not (subtask_groups or reminders),
+        'is_empty': not subtask_groups,
     }

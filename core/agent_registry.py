@@ -44,9 +44,6 @@ INTENT_TOOL_MAP = {
     'knowledge_search': 'knowledge.search',
     # 把对话结论沉淀成文章（正文由模型自己根据当前会话整理，服务端只负责落库）
     'knowledge_create': 'knowledge.create',
-    'set_reminder': 'reminders.set_reminder',
-    'list_reminders': 'reminders.list_reminders',
-    'complete_reminder': 'reminders.complete',
     'generate_report': 'reports.generate',
     'memory_search': 'memory.search',
 }

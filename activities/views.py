@@ -30,7 +30,7 @@ from .services import (InputError, add_expense, clean_amount, clean_category,
                        start_due_activities)
 from core.utils import (visible_qs, get_visible, wants_json,
                         used_tag_names, week_monday, pct_change, daily_totals,
-                        pending_reminders, WEEKDAY_LABELS, WEEKDAY_SHORT)
+                        WEEKDAY_LABELS, WEEKDAY_SHORT)
 from core.ai import ai_round_trip, extract_json_dict
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
 
@@ -1071,14 +1071,7 @@ def daily_view(request):
     from core.suggestions import generate_suggestions
     suggestions = generate_suggestions(request.user)
 
-    # 提醒：顺手把到期的落库为 fired（保持 status 真实，其它直读 status 的地方才能看到），
-    # 但取数一律走全站唯一口径 core.utils.pending_reminders：它同时覆盖
-    # 「已到点未落库的 pending」与「已触发未处理的 fired」，结果不再取决于
-    # 上一步有没有执行过（以前本区只取 fired，与新用户首次进页 / cron 没跑时矛盾）
-    from core.models import check_due_reminders
-    check_due_reminders(request.user)
-
-    # 打卡与提醒（子任务/提醒）：一次调用注入，早间（<18 点）展示
+    # 打卡与子任务（早间 <18 点展示）
     from core.suggestions import generate_daily_plan
     today_plan = generate_daily_plan(request.user)
 
@@ -1106,9 +1099,6 @@ def daily_view(request):
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
         'suggestions': suggestions,
-        # 左列「提醒」区 = 待处理提醒（与浮窗红点同一个数），截 10 条；
-        # 键名与函数同名不冲突：dict 的键是字符串，右侧是函数调用
-        'pending_reminders': pending_reminders(request.user)[:10],
         'today_plan': today_plan,
         'show_today_plan': hour < 18,
     })

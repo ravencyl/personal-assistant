@@ -20,7 +20,6 @@ from django.db.models import Sum
 
 from activities.models import (Activity, ActivityLog, Attachment, Expense, Participant,
 )
-from core.models import Reminder
 from notes.models import Note
 from activities.parsing import parse_quick_input
 from core.layout_asserts import assert_desktop_two_columns
@@ -1269,11 +1268,6 @@ class DailyDesktopLayoutTest(TestCase):
         self.client = Client()
         self.client.login(username='raven', password='test')
         today = timezone.localdate()
-        # 固定放在当天中午：避免跨零点跑测试时 trigger_at__date 不等于 today
-        fired_at = timezone.localtime(timezone.now()).replace(
-            hour=12, minute=0, second=0, microsecond=0)
-        Reminder.objects.create(user=self.user, content='给车做保养',
-                                trigger_at=fired_at, status='fired')
         trip = Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress',
                                        start_date=today - timedelta(days=1),
                                        end_date=today + timedelta(days=2))
@@ -1355,31 +1349,22 @@ class DailyDesktopLayoutTest(TestCase):
 
     def test_primary_flow_left_auxiliary_right(self):
         rail, main = self._rail(), self._main()
-        for anchor, desc in [('data-section="daily-plan"', '提醒与子任务'), ('今日活动', '今日活动计数'),
+        for anchor, desc in [('data-section="daily-plan"', '子任务'), ('今日活动', '今日活动计数'),
                              ('本周消费', '本周消费')]:
             self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
             self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
-        for anchor, desc in [('新建活动', '快捷入口'), ('id="sec-reminders"', '待处理提醒'),
+        for anchor, desc in [('新建活动', '快捷入口'),
                              ('data-section="ai-suggestions"', 'AI 建议'), ('今日进行中', '活动分组')]:
             self.assertIn(anchor, main, f'{desc}应在左列主内容流')
 
     def test_mobile_reading_order_matches_dom(self):
         """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）"""
         anchors = ['data-section="daily-plan"', '今日活动', '本周消费', '新建活动',
-                   'id="sec-reminders"', 'data-section="ai-suggestions"',
+                   'data-section="ai-suggestions"',
                    '今日进行中']
         positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
         self.assertEqual(positions, sorted(positions),
                          '移动端单列顺序变了：右列三块之后才是快捷入口，再是提醒/建议/活动分组')
-
-    def test_today_progress_card_is_desktop_only_and_inside_right_column(self):
-        rail = self._rail()
-        card = rail[:self._at(rail, '本周消费', '今日进度卡与本周消费的先后关系')]
-        self.assertIn('今日进度', card, '今日进度卡丢了或被挤到本周消费之后')
-        self.assertIn('hidden md:block', card,
-                      '进度卡必须只在桌面端出现，否则移动端白占高度')
-        self.assertEqual(card.count('data-jump='), 1, '提醒定位入口缺一')
-        self.assertIn('1 条 →', card, '待处理提醒计数未渲染')
 
     def test_no_manual_htmx_process_and_json_tags_clean(self):
         """模板不手动 htmx.process（避免双重绑定），JSON 端点标签不带 hx-*"""
