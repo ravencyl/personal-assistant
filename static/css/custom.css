@@ -311,6 +311,16 @@ a {
     line-height: 1.5;
 }
 
+/* iOS Safari：聚焦 font-size < 16px 的输入控件会自动放大页面（viewport 缩放）。
+   移动端把聊天输入框字号提到 16px 规避；桌面 Safari 无此行为，维持 text-sm 紧凑。
+   特异度 textarea.chat-input（0-1-1）> Tailwind 运行时 style 里的 .text-sm（0-1-0），
+   靠选择器赢而不是靠源码顺序（Tailwind 浏览器构建的 style 标签在本文件之后）。 */
+@media (max-width: 767px) {
+    textarea.chat-input {
+        font-size: 16px;
+    }
+}
+
 /* ===== AI 回复的 Markdown 排版（结构由 core/markdown_render.py 生成） =====
    本项目没装 Tailwind typography 插件，模板上的 prose 类其实不出任何样式，
    所以正文排版全部由这一份规则负责；行长仍由外层 max-w-* 控制。 */
