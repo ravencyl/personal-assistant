@@ -324,6 +324,16 @@ a {
     select {
         font-size: 16px !important;
     }
+
+    /* iOS 的 <input type="date"> 按完整日期格式预留极大的固有宽度
+       （min-width:0 也压不住 min-content，随字号 16px 更大），会把弹窗/表单
+       撑出横向滚动（真机截图实证）。移动端统一 appearance:none 退化为普通
+       文本框外观后即可正常收缩自适应；点击仍弹系统原生日期选择器，功能不变。
+       桌面 ≥768px 不受影响，保留原生外观与日历图标。 */
+    input[type="date"] {
+        -webkit-appearance: none;
+        appearance: none;
+    }
 }
 
 /* iOS 弹窗内控件自适应宽度（手机端弹窗出现横向拖动条的修复）。
