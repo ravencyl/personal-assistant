@@ -1067,12 +1067,8 @@ def daily_view(request):
     weekdays = WEEKDAY_LABELS
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
-    # AI 建议
-    from core.suggestions import generate_suggestions
-    suggestions = generate_suggestions(request.user)
-
-    # 打卡与子任务（早间 <18 点展示）
-    from core.suggestions import generate_daily_plan
+    # 子任务分组（早间 <18 点展示）
+    from core.daily_plan import generate_daily_plan
     today_plan = generate_daily_plan(request.user)
 
     # 六个分组互斥，合并后一次 attach_costs：
@@ -1098,7 +1094,6 @@ def daily_view(request):
         'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
-        'suggestions': suggestions,
         'today_plan': today_plan,
         'show_today_plan': hour < 18,
     })

@@ -342,7 +342,7 @@
         var lastConvId = null;
 
         // 打开一个对话：先停掉上一个对话的轮询（不取消服务端的本轮），再拉历史。
-        // 返回 Promise：paChatAsk 要等历史渲染完才能发送，否则刚 append 的用户消息
+        // 返回 Promise：调用方要等历史渲染完才能发消息，否则刚 append 的用户消息
         // 会被随后到达的历史 innerHTML 替换掉。
         function openConversation(id, title) {
             if (window.paPanelChat) window.paPanelChat.halt();
@@ -407,7 +407,7 @@
             showChatView(false);
         });
 
-        // 新建对话（返回 conversation_id，失败返回 null；供按钮与全局 paChatAsk 复用）
+        // 新建对话（返回 conversation_id，失败返回 null；供「+ 新对话」按钮复用）
         function createConversation() {
             // 走聊天共用的 JSON 出口 paJsonFetch（定义在 chat-turn.js），由它补
             // Accept: application/json。以前这里手挂一个假的 'HX-Request': 'true' 去骗视图
@@ -477,29 +477,6 @@
         // 发送入口全部交给 PaChatTurn（它在内部绑了 form 的 submit；输入框是 textarea，
         // Enter 天然只换行，不会隐式提交）
 
-        // 全局 API：其他页面（如 Daily 建议行）点击后直接向 AI 追问：
-        // 打开面板 → 复用最近对话或新建 → 等历史渲染完再发追问 prompt
-        window.paChatAsk = function (text) {
-            text = (text || '').trim();
-            if (!text) return;
-            panel.classList.remove('hidden');
-            setQuickFabHidden(true);
-            var qp = document.getElementById('quick-panel');
-            if (qp) qp.classList.add('hidden');
-            var proceed = function (id) {
-                openConversation(id, titleEl.textContent || '对话')
-                    .then(function () { window.paPanelChat.send(text); });
-            };
-            if (lastConvId) {
-                proceed(lastConvId);
-            } else {
-                createConversation().then(function (id) {
-                    if (id) { proceed(id); }
-                    else { showStatus('创建对话失败，请检查网络或 Agent 配置'); }
-                });
-            }
-        };
-
         // 面板内的轻提示（不用原生 alert：阻塞式弹窗在浮窗里尤其累）
         function showStatus(text) {
             var el = panel.querySelector('[data-turn-text]');
@@ -547,12 +524,6 @@
         tabBtns.forEach(function (b) {
             b.addEventListener('click', function () { switchTab(b.getAttribute('data-quick-tab')); });
         });
-
-        // 全局 API：其他页面（如 Daily 建议「记一笔」）直接打开快记浮层并切到指定 Tab
-        window.paQuickOpen = function (tab) {
-            openPanel();
-            if (tab) switchTab(tab);
-        };
 
         function setStatus(el, msg) { el.textContent = msg; el.classList.remove('hidden'); }
         function setBtnLoading(btn, loading, text) {

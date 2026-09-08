@@ -253,7 +253,7 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
         """
         base = self._tpl('base.html')
         self.assertIn('function setQuickFabHidden', base)
-        self.assertEqual(base.count('setQuickFabHidden('), 3, '1 定义 + 2 展开入口（FAB 点击 / paChatAsk）')
+        self.assertEqual(base.count('setQuickFabHidden('), 2, '1 定义 + 1 展开入口（FAB 点击）')
 
 
 class ConversationDetailContextTest(TestCase):
@@ -842,7 +842,7 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         opener = base[base.index('function openConversation'):base.index('// 快记 FAB 跟聊天面板几何重叠')]
         self.assertIn('.halt()', opener)
         self.assertIn('data-turn-resume', opener, '历史加载完要接上进行中的轮次')
-        self.assertIn('return fetch(', opener, 'openConversation 必须返回 Promise，paChatAsk 要等历史渲染完再发')
+        self.assertIn('return fetch(', opener, 'openConversation 必须返回 Promise，调用方要等历史渲染完再发消息')
 
     def test_cancel_does_not_broadcast_a_data_change(self):
         """取消没写过任何数据：无条件广播会让点「停止」后弹出「活动数据已更新」（实测踩到）"""

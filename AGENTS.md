@@ -6,7 +6,7 @@ Django 5.0+ 个人 Web 应用，集成活动管理、笔记、知识库、AI 对
 
 ```
 personal_assistant/   根配置（settings、urls、wsgi）
-core/                 横切能力层：报告生成、全局搜索、跨模块关联、提醒、建议
+core/                 横切能力层：报告生成、全局搜索、跨模块关联
 activities/           业务 app：活动 CRUD、费用、预算、模板、循环活动、附件
 notes/                业务 app：快速备忘
 knowledge/            业务 app：Markdown 知识库文章 + AI 问答
@@ -14,7 +14,7 @@ chat/                 对话层：会话管理、消息收发、AI 卡片渲染
 agents/               代理层：Qoder Cloud Agent 配置同步、Environment 管理
 ```
 
-**依赖方向单向**：`core` 被其他 app 调用，但 `core` 不反向依赖业务 app（除 `Reminder → Activity/Message` 的 FK 外）。`chat` 和 `agents` 仅消费 `core` 提供的编排能力。
+**依赖方向单向**：`core` 被其他 app 调用，但 `core` 不反向依赖业务 app。`chat` 和 `agents` 仅消费 `core` 提供的编排能力。
 
 **路由挂载**：所有 app 路由通过 `personal_assistant/urls.py` 统一 include，各 app 内部维护自己的 `urls.py`。
 
@@ -48,7 +48,7 @@ msg = get_visible_child(Message, request.user, 'conversation', id=message_id)
 | 口径 | 适用 | 写法 |
 |------|------|------|
 | 个人指标 | 花费合计、预算消耗等“我花了多少”的统计数字 | `filter(user=request.user)`（超管也不混他人数据） |
-| 个人上下文 | 记忆注入/AI 检索、提醒、每日摘要、建议生成 | `filter(user=<当前用户>)`，`memory/services.py` 有说明 |
+| 个人上下文 | 记忆注入/AI 检索、每日摘要生成 | `filter(user=<当前用户>)`，`memory/services.py` 有说明 |
 | 可见范围 | 列表页、日历、Daily 的活动分区、全局搜索、模板、笔记/文章/记忆页面 | `visible_qs` / `get_visible` |
 
 新增检索入口必须复用 `core.utils.q_or(fields, term)`（一个词跨多列 OR）与 `knowledge.utils.tokenize`；相似度判定复用 `core.utils.char_overlap_ratio(a, b, mode=...)`（`symmetric` 双向相似、`contains` 单向覆盖，两者不等价，勿合并）。
@@ -242,18 +242,6 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）；写法不同的同人（如 `Joe` → `Joe Yan`）用 `--map "别名:保留名"` 显式合并，保留名不存在直接报错，绝不静默新建
 - **名字相似不构成合并依据**：只有用户明确确认“是同一个人”才能写 `--map`。已确认的反例：线上 `id=28「Joey」` 与 `id=9「Joe Yan」` 是两个不同的人，不得处理
 
-## 提醒状态口径
-
-`core.models.Reminder.status`：`pending`（待触发）→ `fired`（已触发但用户未处理）→ `done`（用户确认做完），任何阶段可 `dismissed`（忽略）。
-
-- 自动触发只写 `fired`（`check_due_reminders`，仅改 `pending`，不覆盖用户手动设置的状态）
-- **「待处理」只有一个实现**：`core.utils.pending_reminders(user)` = `pending 已过点且在今天` ∪ `fired 在今天`。浮窗红点（`chat/context_processors.py`）、Daily「提醒」区（`activities/views.py::daily_view`）、AI 的 `reminders.list_reminders` 默认口径、建议规则 8 全部调它
-- **为什么必须两个 status 一起查**：`pending→fired` 的落库只靠 `check_due_reminders`，而它只在 Daily 页与对话发送时被顺手调用（**没有 cron**）。所以「已到点未落库的 pending」与「已触发未处理的 fired」是同一件事的两种存储形态，只查一个会让结果取决于用户先打开过哪个页面 —— 这正是历史上「红点亮着 1、点进 Daily 空白、问 AI 答没有」的成因
-- **两侧都限定今天**（有意取舍）：过旧的 fired 会挂住一个消不掉的红点，过旧的 pending 在 Daily 里根本没有对应条目。收窄不等于丢数据 —— 用户显式问「已触发的提醒」时 `list_reminders` 按字面 status 查，不限日期
-- **「待处理」与「待触发」严格互斥**：`core.utils.upcoming_reminders(user)`（Daily 右列预告，下界 `now`）只取今天还没到点的。同一条提醒不得既出现在左列又出现在右列
-- 新增状态取值时同步 `core/reminder_tools.py` 的白名单（现在直接读 `STATUS_CHOICES`）与 `ReminderDoneStatusTest`
-- 回归锁：`core/tests.py::PendingReminderSingleSourceTest`（8 条，含「三个出口报同一个数」「没跑过 check_due_reminders 也报同一个数」与一条禁抄新查询的静态锁）、`PythonCodeOnlyTest`（静态锁的地基 `core.layout_asserts.python_code_only`：剔掉 `#` 注释与 docstring 再扫，否则解释「为什么改」的说明自己包含 `status='pending'` 会让锁假失败）。**新增提醒展示/检索入口时必须复用这两个函数**，别在出口旁边再写一份 `filter(status=...)`；变异反证 12 项（把 5 处出口逐一改回旧实现）全需被抓到
-
 ## 前端约定
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
@@ -287,7 +275,7 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发聊天浮窗 `r is not a function` 错误）。
 - **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
 - **详情页两列具体内容分配**：`activity_detail.html` 用通用列容器（类名口径见上面【前端约定】的 `.page-cols` 条）包住左列（描述·费用·子任务）与右列（快捷操作卡·附件·参与者·关联）。右列整块 DOM 排在左列之后，所以移动端相对旧版只有一处变化：子任务从页底提到费用之后。改这个模板的块顺序就是改移动端顺序，必须同步 `ActivityDetailDesktopLayoutTest` 的顺序锁。
-- **Daily 页两列具体内容分配**：`daily.html` 是 **rail-first**（右列整块 DOM 排在左列之前：今日概览 = 提醒与子任务·关键数字·今日进度·今日摘要·本周消费），桌面端靠 `page-cols--rail-first` 的 `order` 换到右侧，因此移动端阅读顺序与改造前逐块一致。sticky 列有高度预算（`max-height: calc(100vh - 5.5rem)`）：往 `.page-rail` 里加卡片要算总高，超了会出现列内滚动并裁掉底部卡片（靠压缩内容解决，别改 `max-height`）；rail 顶层子块间距统一 `md:mb-6`。三个次要长列表（今日进行中 / 即将开始 / 最近完成）**桌面端默认折叠**，靠 `window.matchMedia('(min-width: 768px)')` 门控默认值，移动端仍默认展开 —— 新增折叠分区要同时进 restore 脚本的 `sections` 数组，且禁止另写一套折叠逻辑（复用 `toggleSection()` + `localStorage['daily_section_'+id]`）。改这个模板的块顺序/显隐要同步 `DailyDesktopLayoutTest` 的顺序锁与进度卡锁。
+- **Daily 页两列具体内容分配**：`daily.html` 是 **rail-first**（右列整块 DOM 排在左列之前：今日概览 = 子任务·关键数字·本周消费），桌面端靠 `page-cols--rail-first` 的 `order` 换到右侧，因此移动端阅读顺序与改造前逐块一致。sticky 列有高度预算（`max-height: calc(100vh - 5.5rem)`）：往 `.page-rail` 里加卡片要算总高，超了会出现列内滚动并裁掉底部卡片（靠压缩内容解决，别改 `max-height`）；rail 顶层子块间距统一 `md:mb-6`。三个次要长列表（今日进行中 / 即将开始 / 最近完成）**桌面端默认折叠**，靠 `window.matchMedia('(min-width: 768px)')` 门控默认值，移动端仍默认展开 —— 新增折叠分区要同时进 restore 脚本的 `sections` 数组，且禁止另写一套折叠逻辑（复用 `toggleSection()` + `localStorage['daily_section_'+id]`）。改这个模板的块顺序/显隐要同步 `DailyDesktopLayoutTest` 的顺序锁。
 - **禁用全局键盘快捷键**：用户因误触（尤其 AI 对话时）已要求移除全部键盘快捷键（Daily J/K/D/I/P/X/E、Cmd+K 搜索、Esc 关闭、搜索结果方向键导航等）。表单内的 Enter 提交仍属正常行为（但 AI 对话输入框已按上一条约定改成 Enter 只换行、只能点按钮发送）；新增功能禁止再挂 `document` 级 `keydown` 全局监听。
 
 ## 配置

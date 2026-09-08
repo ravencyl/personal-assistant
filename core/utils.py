@@ -155,10 +155,10 @@ def pct_change(current, previous, digits=1):
 def char_overlap_ratio(a, b, mode='symmetric'):
     """字符重叠率（全站唯一的「两段文本像不像」实现）
 
-    mode='symmetric'：交集大小 / 两者较大的字符集，衡量双向相似度（建议行的目标进展匹配用）。
+    mode='symmetric'：交集大小 / 两者较大的字符集，衡量双向相似度。
     mode='contains' ：a 中出现在 b 里的字符数 / len(a)，衡量 a 是否已被 b 覆盖（记忆查重）。
 
-    两种口径此前分别写在 core/suggestions 与 memory/services 里，语义并不等价（双向 vs 单向），
+    两种口径此前分别写在建议引擎与 memory/services 里，语义并不等价（双向 vs 单向），
     因此收敛为一个函数的两个 mode，而不是强行统一——那会悄悄改变判定结果。
     """
     if not a or not b:

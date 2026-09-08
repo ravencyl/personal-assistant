@@ -1273,9 +1273,6 @@ class DailyDesktopLayoutTest(TestCase):
                                        end_date=today + timedelta(days=2))
         Expense.objects.create(activity=trip, user=self.user, amount=Decimal('600'),
                                category='transport', paid_at=today)
-        # 明日开始的活动：让 AI 建议区渲染（建议区在左列，不入顺序锁就白跑）
-        Activity.objects.create(user=self.user, name='下周团建', status='planned',
-                                start_date=today + timedelta(days=1))
         # 近期完成分组
         Activity.objects.create(user=self.user, name='旧项目结项', status='done',
                                 start_date=today - timedelta(days=2))
@@ -1353,24 +1350,22 @@ class DailyDesktopLayoutTest(TestCase):
                              ('本周消费', '本周消费')]:
             self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
             self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
-        for anchor, desc in [('新建活动', '快捷入口'),
-                             ('data-section="ai-suggestions"', 'AI 建议'), ('今日进行中', '活动分组')]:
+        for anchor, desc in [('新建活动', '快捷入口'), ('今日进行中', '活动分组')]:
             self.assertIn(anchor, main, f'{desc}应在左列主内容流')
 
     def test_mobile_reading_order_matches_dom(self):
         """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）"""
         anchors = ['data-section="daily-plan"', '今日活动', '本周消费', '新建活动',
-                   'data-section="ai-suggestions"',
                    '今日进行中']
         positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
         self.assertEqual(positions, sorted(positions),
-                         '移动端单列顺序变了：右列三块之后才是快捷入口，再是提醒/建议/活动分组')
+                         '移动端单列顺序变了：右列三块之后才是快捷入口，再 是活动分组')
 
     def test_no_manual_htmx_process_and_json_tags_clean(self):
         """模板不手动 htmx.process（避免双重绑定），JSON 端点标签不带 hx-*"""
         src = self.TEMPLATE.read_text(encoding='utf-8')
         self.assertNotIn('htmx.process', src, '手动 htmx.process 会造成双重绑定与旧节点引用残留')
-        for tag in re.findall(r'<[^>]*\bdata-(?:suggestion-tool|suggestion-dismiss|quick-open)\b[^>]*>', src):
+        for tag in re.findall(r'<[^>]*\bdata-status-url\b[^>]*>', src):
             self.assertNotIn('hx-', tag, 'JSON 端点只能由 fetch 消费，元素上不能挂 hx-*')
 
     def test_secondary_lists_default_collapsed_on_desktop_only(self):
@@ -1384,7 +1379,7 @@ class DailyDesktopLayoutTest(TestCase):
                          '默认折叠只能作用于未手动折叠过的区块')
         self.assertIn("localStorage.getItem('daily_section_' + sectionId)", src,
                       '折叠状态仍走既有 localStorage 机制，不另造一套')
-        self.assertIn("'daily-plan', 'ai-suggestions', 'in_progress', "
+        self.assertIn("'daily-plan', 'in_progress', "
                       "'upcoming', 'recently_done'", src,
                       '恢复脚本的分区清单被改，可能有区的折叠状态不再恢复')
 
