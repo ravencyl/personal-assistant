@@ -1434,6 +1434,49 @@ class DailyDesktopLayoutTest(TestCase):
             self.assertNotIn(token, self.html, f'渲染结果里出现 {token}，模板语法泄漏')
 
 
+class DailyCreateModalTest(TestCase):
+    """Daily 页「新建活动」弹窗接入回归锁
+
+    为什么锁：入口从独立创建页改为与列表页共用的 Lightbox 弹窗，改回去
+    （链接跳 /activities/new/ 或局部拷一份弹窗 DOM）不会报错，只有体验分裂。
+    弹窗骨架的唯一实现在 _activity_create_modal.html，两页共同 include。
+    """
+    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'daily.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        self.html = self.client.get('/activities/daily/').content.decode()
+
+    def test_create_entries_open_modal_not_page(self):
+        """快捷入口与空态按钮都走弹窗，不再跳独立创建页"""
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.assertEqual(src.count('data-open-create-modal'), 2,
+                         '快捷操作区 + 空态应各有一个弹窗入口')
+        self.assertNotIn("url 'activities:activity_create'", src,
+                         'Daily 页不应再直链独立创建页')
+
+    def test_modal_skeleton_shared_with_list_page(self):
+        """弹窗骨架来自共享 partial，两页渲染出同一份 DOM"""
+        self.assertIn('{% include "activities/_activity_create_modal.html" %}',
+                      self.TEMPLATE.read_text(encoding='utf-8'),
+                      '弹窗骨架必须 include 共享 partial，禁止局部拷贝')
+        list_src = (Path(settings.BASE_DIR) / 'templates' / 'activities'
+                    / 'activity_list.html').read_text(encoding='utf-8')
+        self.assertIn('{% include "activities/_activity_create_modal.html" %}', list_src)
+        for token in ('id="create-activity-modal"', 'id="modal-quick-input"'):
+            self.assertEqual(self.html.count(token), 1, f'{token} 应恰好渲染一份')
+
+    def test_modal_context_and_scripts_rendered(self):
+        """视图注入弹窗表单与 chips 联想数据，页面加载弹窗所需三个脚本"""
+        self.assertIn('id="create-activity-form"', self.html, '弹窗表单未渲染')
+        self.assertIn('id="participant-options"', self.html, '参与者联想数据未渲染')
+        self.assertIn('id="tag-options"', self.html, '标签联想数据未渲染')
+        for script in ('js/pinyin-pro.js', 'js/activity-form.js', 'js/quick-parse.js'):
+            self.assertIn(script, self.html, f'弹窗依赖脚本未加载：{script}')
+
+
 class ExpenseReportDesktopLayoutTest(TestCase):
     """费用报告页桌面两列布局回归锁
 

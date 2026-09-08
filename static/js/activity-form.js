@@ -2,7 +2,7 @@
  *
  * 消费方：
  * - templates/activities/activity_form.html   独立创建/编辑页（DOM 就绪后自动初始化，含快速填表区）
- * - templates/activities/activity_list.html   「新建活动」弹窗（校验失败换入错误片段后手动调 initWidgets 重挂）
+ * - templates/activities/_activity_create_modal.html 「新建活动」弹窗（列表页与 Daily 页共用；校验失败换入错误片段后手动调 initWidgets 重挂）
  *
  * 约定：initWidgets() 幂等，可在表单字段 DOM 被整体替换后重复调用；
  * FORM_DEFAULTS 只在首次调用时快照（弹窗内表单以初始空白为基准）。

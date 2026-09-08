@@ -5,7 +5,7 @@
  * CSRF 一律读 base.html 的 <meta name="csrf-token">，不再各页自己解析 cookie。
  *
  * 消费方：
- * - templates/activities/activity_list.html   快速记活动（带「编辑详情」跳转）
+ * - templates/activities/_activity_create_modal.html 快速建活动弹窗（列表页与 Daily 页共用，带 onEdit 就地回填）
  * - templates/activities/activity_detail.html 快速记子任务
  * - templates/activities/activity_form.html   解析后回填表单（只用 PaQuickParse.parse）
  */

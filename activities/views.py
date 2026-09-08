@@ -1091,6 +1091,10 @@ def daily_view(request):
         'today': today,
         'today_display': today_display,
         'greeting': greeting,
+        # 新建活动弹窗（与列表页共用 partial）：空白表单 + chips 联想数据
+        'form': ActivityForm(user=request.user),
+        'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
+        'all_tags': _user_tag_names(request.user),
         'ongoing': ongoing,
         'starting_today': starting_today,
         'ending_today': ending_today,
