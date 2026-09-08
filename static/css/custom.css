@@ -312,12 +312,17 @@ a {
 }
 
 /* iOS Safari：聚焦 font-size < 16px 的输入控件会自动放大页面（viewport 缩放）。
-   移动端把聊天输入框字号提到 16px 规避；桌面 Safari 无此行为，维持 text-sm 紧凑。
-   特异度 textarea.chat-input（0-1-1）> Tailwind 运行时 style 里的 .text-sm（0-1-0），
-   靠选择器赢而不是靠源码顺序（Tailwind 浏览器构建的 style 标签在本文件之后）。 */
+   【全站规范】移动端统一把所有可输入控件字号提到 16px 规避；桌面 Safari 无此
+   行为，维持设计系统的 text-sm 紧凑。新增输入控件无需单独处理。
+   用 !important 是因为 Tailwind 为浏览器运行时构建，其 style 标签后置于本文件，
+   元素选择器（0-0-1）对类选择器（.text-sm，0-1-0）靠源码顺序必输；
+   限 ≤767px + 单属性，影响面可控。不建议用 transform:scale 补偿字号——
+   会破坏 flex 容器宽度与 paFitTextarea 的 scrollHeight 高度拟合。 */
 @media (max-width: 767px) {
-    textarea.chat-input {
-        font-size: 16px;
+    input,
+    textarea,
+    select {
+        font-size: 16px !important;
     }
 }
 
