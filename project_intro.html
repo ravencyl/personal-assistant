@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三磊 · 个人助手 — 项目介绍</title>
+<style>
+/* ============ 基础：黑白灰阶，零外部依赖 ============ */
+:root {
+  --text: #18181b;
+  --text-2: #52525b;
+  --text-3: #a1a1aa;
+  --bg: #fafafa;
+  --card: #ffffff;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --accent-light: #f4f4f5;
+  --ink: #ffffff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+code, pre, .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+.container { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+/* ============ 顶部导航 ============ */
+nav.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+nav.topbar .inner {
+  max-width: 1080px; margin: 0 auto; padding: 10px 20px;
+  display: flex; align-items: center; gap: 16px; overflow-x: auto;
+  white-space: nowrap;
+}
+nav.topbar .brand { font-weight: 700; font-size: 14px; flex-shrink: 0; }
+nav.topbar .brand .dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--text); margin-right: 7px; vertical-align: 1px;
+}
+nav.topbar a.chip {
+  font-size: 13px; color: var(--text-2); text-decoration: none;
+  padding: 4px 12px; border-radius: 999px; flex-shrink: 0;
+  transition: background .15s, color .15s;
+}
+nav.topbar a.chip:hover { background: var(--accent-light); color: var(--text); }
+nav.topbar a.chip.active { background: var(--text); color: var(--ink); }
+
+/* ============ Hero ============ */
+header.hero { padding: 72px 0 56px; text-align: center; }
+header.hero .kicker {
+  display: inline-block; font-size: 12px; letter-spacing: .12em;
+  color: var(--text-2); border: 1px solid var(--border-strong);
+  border-radius: 999px; padding: 4px 14px; margin-bottom: 20px;
+}
+header.hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+header.hero h1 .muted { color: var(--text-3); font-weight: 600; }
+header.hero p.sub {
+  max-width: 640px; margin: 18px auto 0; font-size: 17px; color: var(--text-2);
+}
+header.hero .stats {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 28px;
+}
+header.hero .stats span {
+  font-size: 13px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 14px; color: var(--text-2);
+}
+header.hero .stats b { color: var(--text); font-weight: 700; }
+
+/* ============ 分区骨架 ============ */
+section.block { padding: 44px 0; border-top: 1px solid var(--border); }
+section.block > .container > h2 {
+  font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 6px;
+}
+section.block > .container > p.lead { color: var(--text-2); margin-bottom: 26px; max-width: 720px; }
+h2 .index { color: var(--text-3); font-weight: 700; margin-right: 10px; font-variant-numeric: tabular-nums; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 22px;
+}
+.grid { display: grid; gap: 14px; }
+.grid > * { min-width: 0; } /* 防 pre/表格把 grid 轨道撑开导致窄屏横向溢出 */
+.grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.card h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.card p, .card li { font-size: 14px; color: var(--text-2); }
+.card .tag {
+  font-size: 11px; font-weight: 600; color: var(--text-2);
+  background: var(--accent-light); border: 1px solid var(--border);
+  border-radius: 6px; padding: 1px 8px; flex-shrink: 0;
+}
+.card ul { list-style: none; margin-top: 6px; }
+.card ul li { padding: 3px 0 3px 18px; position: relative; }
+.card ul li::before {
+  content: ""; position: absolute; left: 4px; top: 12px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong);
+}
+code.inline {
+  background: var(--accent-light); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 6px; font-size: 12.5px; color: var(--text);
+  white-space: nowrap;
+}
+
+/* ============ 架构示意（纯 CSS 色块 + 箭头） ============ */
+.arch { margin-top: 26px; }
+.arch .layer {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px;
+}
+.arch .layer-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .08em;
+  color: var(--text-3); text-transform: uppercase; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+.arch .apps { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.arch .app {
+  border: 1px solid var(--border-strong); border-radius: 10px;
+  padding: 10px 8px; text-align: center; background: var(--bg);
+}
+.arch .app b { display: block; font-size: 13.5px; }
+.arch .app span { font-size: 11px; color: var(--text-3); display: block; margin-top: 2px; line-height: 1.4; }
+.arch .app.root { background: var(--text); border-color: var(--text); }
+.arch .app.root b, .arch .app.root span { color: var(--ink); }
+.arch .app.core { background: var(--accent-light); border-style: dashed; }
+.arch .arrow-row {
+  display: flex; justify-content: center; align-items: center;
+  height: 44px; position: relative;
+}
+.arch .arrow-row .line {
+  position: absolute; left: 24px; right: 24px; top: 50%;
+  border-top: 2px dashed var(--border-strong);
+}
+.arch .arrow-row .label {
+  position: relative; z-index: 1; background: var(--bg);
+  font-size: 12px; color: var(--text-2); border: 1px solid var(--border-strong);
+  border-radius: 999px; padding: 3px 14px;
+}
+.arch .arrow-row .head {
+  position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-top: 8px solid var(--border-strong);
+}
+.arch .core-abilities { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.arch .core-abilities span {
+  font-size: 12.5px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 12px; color: var(--text-2);
+}
+
+/* ============ 代码块 / 表格 ============ */
+pre.code {
+  background: #18181b; color: #e4e4e7; border-radius: 10px;
+  padding: 14px 16px; font-size: 12.5px; line-height: 1.65;
+  overflow-x: auto; margin-top: 12px;
+}
+pre.code .c { color: #71717a; }
+pre.code .k { color: #fafafa; font-weight: 600; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 4px; display: block; overflow-x: auto; }
+table.tbl th {
+  text-align: left; font-size: 11.5px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-3);
+  border-bottom: 2px solid var(--border-strong); padding: 8px 10px;
+}
+table.tbl td { border-bottom: 1px solid var(--border); padding: 9px 10px; color: var(--text-2); vertical-align: top; }
+table.tbl td:first-child { color: var(--text); font-weight: 600; white-space: nowrap; }
+table.tbl tr:last-child td { border-bottom: none; }
+
+/* ============ 亮点编号卡 ============ */
+.hl-card { position: relative; }
+.hl-card .num {
+  position: absolute; top: 18px; right: 20px;
+  font-size: 30px; font-weight: 800; color: var(--accent-light);
+  -webkit-text-stroke: 1px var(--border-strong);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+
+/* ============ 折叠面板 ============ */
+details.fold {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; margin-top: 10px; overflow: hidden;
+}
+details.fold summary {
+  cursor: pointer; list-style: none; padding: 14px 18px;
+  font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: space-between;
+}
+details.fold summary::-webkit-details-marker { display: none; }
+details.fold summary::after { content: "＋"; color: var(--text-3); font-weight: 400; font-size: 16px; }
+details.fold[open] summary::after { content: "－"; }
+details.fold .fold-body { padding: 0 18px 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+
+/* ============ 页脚 ============ */
+footer {
+  border-top: 1px solid var(--border); padding: 34px 0 60px;
+  text-align: center; font-size: 13px; color: var(--text-3);
+}
+
+/* ============ 响应式：简单单列塌缩（本页自身约定，与站点 md: 断点无关） ============ */
+@media (max-width: 900px) {
+  header.hero h1 { font-size: 32px; }
+  header.hero { padding: 48px 0 40px; }
+  .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+  .arch .apps { grid-template-columns: repeat(4, 1fr); }
+  .arch .app.root, .arch .app.core-wrap { grid-column: span 4; }
+}
+@media (max-width: 560px) {
+  .arch .apps { grid-template-columns: repeat(2, 1fr); }
+  .arch .app.root, .arch .app.core-wrap { grid-column: span 2; }
+}
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="inner">
+    <span class="brand"><span class="dot"></span>三磊 · 项目介绍</span>
+    <a class="chip" href="#overview">概览</a>
+    <a class="chip" href="#arch">模块架构</a>
+    <a class="chip" href="#highlights">设计亮点</a>
+    <a class="chip" href="#stack">技术栈与部署</a>
+    <a class="chip" href="#pages">页面导览</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <span class="kicker">PROJECT INTRO · DJANGO 5 单体应用</span>
+    <h1>三磊 <span class="muted">/ 个人助手</span></h1>
+    <p class="sub">一个面向个人的 Web 助手：把活动安排、费用记账、笔记、知识库与 AI 对话收进同一个站点，由规则引擎 + AI 生成每天可一键执行的建议。</p>
+    <div class="stats">
+      <span><b>7</b> 个 Django app</span>
+      <span><b>5</b> 个三方依赖</span>
+      <span><b>524</b> 个自动化测试</span>
+      <span>PWA 可安装</span>
+      <span>移动 / 桌面双端适配</span>
+    </div>
+  </div>
+</header>
+
+<!-- ================= 1. 项目定位 ================= -->
+<section class="block" id="overview">
+  <div class="container">
+    <h2><span class="index">01</span>项目定位与概览</h2>
+    <p class="lead">站点名「三磊」，基于 Django 5 构建的单用户 / 少用户个人助手。数据全部本地持有（SQLite），AI 能力通过 Qoder Cloud 平台接入，整体形态是「自托管 + 轻量 + 可离线安装（PWA）」。</p>
+    <div class="grid cols-3">
+      <div class="card">
+        <h3><span class="tag">是什么</span>个人事务中枢</h3>
+        <ul>
+          <li>活动 / 行程管理：状态流转、子任务、标签、参与者</li>
+          <li>费用记账：逐笔消费挂到活动，自动累计与报表</li>
+          <li>Markdown 知识库 + 快速备忘</li>
+          <li>AI 对话：直接用自然语言查活动、记费用、写知识</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="tag">凭什么</span>AI 驱动的主动性</h3>
+        <ul>
+          <li>首页即「今日」简报：提醒、子任务、建议一屏读</li>
+          <li>建议规则引擎 12 条规则 + AI 洞察混排</li>
+          <li>建议可一键执行（跳转 / 调工具 / 唤起快记浮层）</li>
+          <li>一句话建活动：AI 解析自然语言回填表单</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="tag">怎么用</span>PWA + 多端</h3>
+        <ul>
+          <li>Service Worker + manifest，可安装到主屏离线壳</li>
+          <li>移动端堆叠 / 桌面端双列，断点唯一（768px）</li>
+          <li>日志与部署脚本齐备，一台 VPS 即可跑起来</li>
+          <li>Django Admin 兜底管理所有数据</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 2. 模块架构 ================= -->
+<section class="block" id="arch">
+  <div class="container">
+    <h2><span class="index">02</span>模块架构</h2>
+    <p class="lead">七个业务 app + 一个横切能力层 <code class="inline">core</code>。依赖方向严格单向：业务 app 调用 core，core 不反向依赖任何业务 app（跨 app 引用一律延迟 import 解耦）。</p>
+
+    <div class="arch">
+      <!-- 根配置层 -->
+      <div class="layer">
+        <div class="layer-label">根配置层</div>
+        <div class="apps" style="grid-template-columns: 1fr;">
+          <div class="app root">
+            <b>personal_assistant</b>
+            <span>settings · urls（全站路由入口）· wsgi</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-row">
+        <div class="line"></div>
+        <span class="label">include 挂载各 app 路由<span class="head"></span></span>
+      </div>
+
+      <!-- 业务 app 层 -->
+      <div class="layer">
+        <div class="layer-label">业务 app 层（数据模型 + 视图 + Agent 工具）</div>
+        <div class="apps">
+          <div class="app"><b>activities</b><span>活动 · 费用<br>子任务 · 日历<br>Daily 首页</span></div>
+          <div class="app"><b>notes</b><span>快速备忘</span></div>
+          <div class="app"><b>knowledge</b><span>Markdown 知识库<br>+ AI 问答</span></div>
+          <div class="app"><b>memory</b><span>双层记忆<br>AI 提取 + 规则兜底</span></div>
+          <div class="app"><b>chat</b><span>AI 会话<br>卡片渲染</span></div>
+          <div class="app"><b>agents</b><span>Qoder Cloud Agent<br>配置同步</span></div>
+          <div class="app"><b>admin</b><span>Django Admin<br>数据兜底管理</span></div>
+        </div>
+      </div>
+
+      <div class="arrow-row">
+        <div class="line"></div>
+        <span class="label">单向依赖：调用 core 提供的能力，互不反向<span class="head"></span></span>
+      </div>
+
+      <!-- 横切层 -->
+      <div class="layer core-wrap">
+        <div class="layer-label">横切能力层</div>
+        <div class="apps" style="grid-template-columns: 1fr;">
+          <div class="app core">
+            <b>core</b>
+            <span>被所有业务 app 调用，自身不 import 任何业务模型（延迟字符串引用除外）</span>
+          </div>
+        </div>
+        <div class="core-abilities">
+          <span>提醒 Reminder</span>
+          <span>建议规则引擎 suggestions</span>
+          <span>报告生成 周报/月报/年报</span>
+          <span>全局搜索 api/search</span>
+          <span>跨模块关联 cross_link</span>
+          <span>Agent 工具注册表 agent_registry</span>
+          <span>可见性工具 visible_qs</span>
+        </div>
+      </div>
+    </div>
+
+    <details class="fold">
+      <summary>各 app 职责明细（点击展开）</summary>
+      <div class="fold-body">
+        <table class="tbl">
+          <tr><th>模块</th><th>职责</th><th>代表路由</th></tr>
+          <tr><td>personal_assistant</td><td>settings（django-environ 读 .env）、全站 urls 入口、wsgi 部署入口；首页 <code class="inline">/</code> 直接指向 Daily 简报视图</td><td><code class="inline">/</code></td></tr>
+          <tr><td>activities</td><td>活动 CRUD、费用记账（Expense）、子任务树、标签（django-taggit）、参与者、附件、日历、Daily 简报、费用报告、CSV/JSON 导出、AI 一句话建活动</td><td><code class="inline">/activities/*</code></td></tr>
+          <tr><td>core</td><td>提醒（到期触发 / 忽略 / 完成）、建议引擎（12 条规则 + AI 洞察，10 分钟缓存 + 信号失效）、报告生成、全局搜索、跨模块关联、Agent 工具注册表与编排器、建议执行端点（白名单 + HMAC 两步确认）</td><td><code class="inline">/reports/*</code> <code class="inline">/suggestions/*</code></td></tr>
+          <tr><td>notes</td><td>快速备忘的增删查，最轻量的一个 app</td><td><code class="inline">/notes/</code></td></tr>
+          <tr><td>knowledge</td><td>Markdown 文章知识库，支持 AI 问答与文件批量导入（import_knowledge_files 命令）</td><td><code class="inline">/knowledge/*</code></td></tr>
+          <tr><td>memory</td><td>双层记忆：对话中 AI 主动提取 + 规则兜底；consolidate_memories 命令按用户聚合成长期画像</td><td><code class="inline">/memory/</code></td></tr>
+          <tr><td>chat</td><td>会话与消息管理、AI 回复编排（ChatOrchestrator）、结构化卡片渲染（活动卡 / 候选卡 / 确认卡 / 报表卡 / 统计卡）</td><td><code class="inline">/chat/*</code></td></tr>
+          <tr><td>agents</td><td>Qoder Cloud Agent 配置同步（init_agents 命令把预定义 Agent 推到平台）与 Environment 管理</td><td><code class="inline">/api/agents/*</code></td></tr>
+        </table>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= 3. 设计亮点 ================= -->
+<section class="block" id="highlights">
+  <div class="container">
+    <h2><span class="index">03</span>核心设计亮点</h2>
+    <p class="lead">这些约定全部落在代码与回归测试里：改错会被测试拦下，而不是等上线后暴露。</p>
+
+    <div class="grid cols-2">
+      <div class="card hl-card">
+        <span class="num">1</span>
+        <h3><span class="tag">安全</span>按用户的数据可见性隔离</h3>
+        <p>所有业务查询必须经由 <code class="inline">core.utils</code> 的两个入口，禁止裸用 <code class="inline">Model.objects.all()</code>：超级用户可见全量数据，普通用户只见自己的。</p>
+        <pre class="code"><span class="c"># core/utils.py —— 全站唯一口径</span>
+<span class="k">qs</span> = visible_qs(Activity, request.user)   <span class="c"># 列表</span>
+<span class="k">obj</span> = get_visible(Activity, request.user, id=aid)  <span class="c"># 单对象，无权即 404</span></pre>
+      </div>
+
+      <div class="card hl-card">
+        <span class="num">2</span>
+        <h3><span class="tag">AI 编排</span>Agent 工具协议与分级降级</h3>
+        <p>各 app 用 <code class="inline">@agent_tool</code> 装饰器把业务能力注册进 <code class="inline">core.agent_registry</code>；对话编排器按错误类型分级降级，<b>任何失败都转为友好文本，绝不阻断对话</b>。</p>
+        <table class="tbl">
+          <tr><th>异常</th><th>行为</th></tr>
+          <tr><td>CandidateToolError</td><td>渲染候选卡片让用户选择</td></tr>
+          <tr><td>ToolError</td><td>拼接 ⚠️ 提示返回</td></tr>
+          <tr><td>Exception</td><td>固定文案 + logger.error</td></tr>
+        </table>
+      </div>
+
+      <div class="card hl-card">
+        <span class="num">3</span>
+        <h3><span class="tag">前端</span>HTMX 与原生 fetch 双协议</h3>
+        <p>UI 局部更新走 HTMX + HTML 片段；返回 JSON 的数据端点必须用原生 <code class="inline">fetch()</code> 消费，元素上<b>严禁挂 <code class="inline">hx-*</code></b>（HTMX 会把 JSON 当纯文本插入 DOM，还会与 fetch 竞争）。CSRF 统一读 <code class="inline">&lt;meta name="csrf-token"&gt;</code>，并禁止手动 <code class="inline">htmx.process()</code>（内置 MutationObserver 已足够，重复处理会双重绑定）。</p>
+      </div>
+
+      <div class="card hl-card">
+        <span class="num">4</span>
+        <h3><span class="tag">响应式</span>md: 768px 唯一断点</h3>
+        <p>移动端堆叠、桌面端横排，结构性显隐只用成对类：<code class="inline">hidden md:flex</code> / <code class="inline">md:hidden</code>。模板里出现第二个结构性断点会被回归测试直接判失败；640–768px 平板竖屏跟随桌面布局是预期行为。</p>
+      </div>
+
+      <div class="card hl-card">
+        <span class="num">5</span>
+        <h3><span class="tag">建议引擎</span>三态 action 一键执行</h3>
+        <p>每条建议可携带 <code class="inline">kind: link / tool / post</code> 的动作：跳转对应页面、调用白名单工具（如一键完成活动），或唤起快记浮层。工具调用走 <code class="inline">SUGGESTION_TOOLS</code> 白名单 + HMAC token 两步确认，执行后自动标记已读；旧缓存建议缺少字段时优雅降级为纯链接。</p>
+        <pre class="code"><span class="c"># core/suggestions.py —— 12 条规则顺序执行 + AI 洞察置顶</span>
+_RULES = [_rule_tomorrow_starts, _rule_no_start_date,
+          _rule_pending_reminders, _rule_subtask_progress, ...]</pre>
+      </div>
+
+      <div class="card hl-card">
+        <span class="num">6</span>
+        <h3><span class="tag">容错</span>AI 链路全量降级</h3>
+        <p>所有 AI 调用都有规则兜底：一句话解析 AI 失败 → 本地规则解析；每日洞察 AI 失败 → 规则模板；记忆聚合失败 → 静默跳过。非核心操作失败只记日志（logger.warning），用户侧无感。</p>
+      </div>
+    </div>
+
+    <details class="fold">
+      <summary>回归锁文化：布局与约定都有测试守着（点击展开）</summary>
+      <div class="fold-body">
+        <p>全量 524 个测试中，除功能用例外还有一类「回归锁」：断言桌面两列布局的 DOM 顺序、右列 sticky 是否还在、模板是否混入 <code class="inline">sm:</code> 结构断点、品牌名是否写死、{# #} 注释是否跨行等。这类锁防的是「不报错、只在真机上退化」的问题。</p>
+        <pre class="code">python manage.py test                    <span class="c"># 全量 524 个用例</span>
+python manage.py test core activities    <span class="c"># 指定模块</span></pre>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= 4. 技术栈与部署 ================= -->
+<section class="block" id="stack">
+  <div class="container">
+    <h2><span class="index">04</span>技术栈与部署</h2>
+    <p class="lead">依赖刻意保持最少：requirements.txt 只有 5 个直接依赖，其余能力全部用 Django 原生与标准库实现。</p>
+
+    <div class="grid cols-2">
+      <div class="card">
+        <h3><span class="tag">技术栈</span>框架与存储</h3>
+        <table class="tbl">
+          <tr><th>选型</th><th>说明</th></tr>
+          <tr><td>Django 5.2</td><td><code class="inline">django&gt;=5.0,&lt;6.0</code>，函数视图为主，混用少量 CBV</td></tr>
+          <tr><td>SQLite</td><td>单文件数据库，个人规模够用且备份简单</td></tr>
+          <tr><td>django-htmx + HTMX</td><td>局部渲染与无刷新交互（hx-post / hx-target / hx-swap）</td></tr>
+          <tr><td>Tailwind CSS</td><td>原子类 + CSS 变量（--text / --bg / --border）黑白灰阶设计系统</td></tr>
+          <tr><td>Redis</td><td>生产环境缓存后端（建议结果、会话等），开发用 LocMemCache</td></tr>
+          <tr><td>httpx[http2]</td><td>调用 Qoder Cloud AI 平台（对话、解析、洞察、周报）</td></tr>
+          <tr><td>django-taggit / django-environ</td><td>活动标签 / .env 配置管理</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3><span class="tag">部署形态</span>gunicorn + nginx + cron</h3>
+        <table class="tbl">
+          <tr><th>组件</th><th>说明</th></tr>
+          <tr><td>gunicorn</td><td>3 workers + unix socket，<code class="inline">--timeout 180</code>（AI 请求最长 90s，网关必须外大内小）</td></tr>
+          <tr><td>nginx</td><td>HTTPS（Let's Encrypt 自动续期）、staticfiles 别名、<code class="inline">client_max_body_size 12m</code> 配套 10MB 附件上传</td></tr>
+          <tr><td>PWA</td><td><code class="inline">/sw.js</code> 由 Django 视图从站点根下发（控制全站 scope），manifest 定义「三磊」安装名与 maskable 图标</td></tr>
+        </table>
+        <pre class="code"><span class="c"># crontab —— 三个幂等定时任务</span>
+*/30 * * * *  auto_start_activities   <span class="c"># 到期活动自动启动</span>
+30 6  * * *  generate_daily_insights <span class="c"># 预生成 AI 洞察（失败降级模板）</span>
+0  3  * * 0  consolidate_memories    <span class="c"># 每周聚合记忆画像</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 5. 页面导览 ================= -->
+<section class="block" id="pages">
+  <div class="container">
+    <h2><span class="index">05</span>页面导览</h2>
+    <p class="lead">从首页出发的一圈主要页面。移动端与桌面端共用同一套路由，仅布局分端。</p>
+    <div class="card">
+      <table class="tbl">
+        <tr><th>页面</th><th>路径</th><th>内容</th></tr>
+        <tr><td>今日（首页）</td><td><code class="inline">/</code></td><td>每日简报：提醒与子任务、关键数字、AI 建议（可一键执行）、活动分组、新建活动 Lightbox 弹窗</td></tr>
+        <tr><td>活动列表</td><td><code class="inline">/activities/</code></td><td>搜索 / 筛选 / 树形父子展示、弹窗新建、CSV/JSON 导出</td></tr>
+        <tr><td>活动详情</td><td><code class="inline">/activities/&lt;id&gt;/</code></td><td>状态快捷切换、费用记账、子任务（支持一句话创建）、附件、操作历史</td></tr>
+        <tr><td>日历 / 下一步行动</td><td><code class="inline">/activities/calendar/</code> 等</td><td>月历视图与按优先级排布的行动清单</td></tr>
+        <tr><td>费用报告</td><td><code class="inline">/activities/expense-report/</code></td><td>月度趋势 / 分类占比 / 周消费三图表 + 明细</td></tr>
+        <tr><td>周报 · 月报 · 年报</td><td><code class="inline">/reports/*</code></td><td>AI 生成的周期总结，可发送进对话继续追问</td></tr>
+        <tr><td>AI 对话</td><td><code class="inline">/chat/</code></td><td>会话列表与对话详情；AI 可调工具查改数据并渲染结构化卡片</td></tr>
+        <tr><td>知识库</td><td><code class="inline">/knowledge/</code></td><td>Markdown 文章 + AI 问答</td></tr>
+        <tr><td>备忘 / 记忆 / 仪表盘</td><td><code class="inline">/notes/</code> <code class="inline">/memory/</code> <code class="inline">/dashboard/</code></td><td>快速备忘、长期记忆画像、全站数据概览</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  三磊 · 个人助手 — 项目介绍 · 基于 AGENTS.md 与源码整理 · Django 5.2 · 2026-09
+</footer>
+
+<script>
+/* 仅做导航高亮：当前分区对应的锚点亮起 */
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.topbar a.chip'));
+  var sections = links.map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); });
+  function highlight() {
+    var idx = -1;
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i] && sections[i].getBoundingClientRect().top <= 120) idx = i;
+    }
+    links.forEach(function (a, i) { a.classList.toggle('active', i === idx); });
+  }
+  window.addEventListener('scroll', highlight, { passive: true });
+  highlight();
+})();
+</script>
+</body>
+</html>
