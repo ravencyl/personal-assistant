@@ -1,7 +1,19 @@
 from django.contrib import admin
 from django.conf import settings
 
+from taggit.models import Tag as TaggitTag
+
 from .models import Tag
+
+
+# taggit 已被自建 core.Tag 取代（其数据表已由 activities.0016 删除），但
+# app 注册必须保留——历史迁移的 dependencies 引用 taggit 迁移节点，移除会
+# 断迁移图。这里把它自带的 admin 注册注销掉，避免管理后台出现指向已删表
+# 的死入口（点进去直接 no such table 500）。
+try:
+    admin.site.unregister(TaggitTag)
+except admin.sites.NotRegistered:
+    pass
 
 
 @admin.register(Tag)

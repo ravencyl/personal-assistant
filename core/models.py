@@ -30,6 +30,8 @@ class Tag(models.Model):
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
 
     class Meta:
+        verbose_name = '标签'
+        verbose_name_plural = verbose_name
         constraints = [
             models.UniqueConstraint(fields=['scope', 'name'], name='uniq_tag_scope_name'),
         ]
