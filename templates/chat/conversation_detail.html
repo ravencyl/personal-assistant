@@ -29,7 +29,7 @@
 </div>
 
 {% comment %}消息列表（变量名带 chat_ 前缀：裸 messages 会被 base.html 的 flash 提示条当成
-Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_message.html，与浮窗历史共用一份。
+Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_message.html，与分栏页加载的历史共用一份。
 末尾两个 include 是异步收发的接线：
   turn_resume → 「这一轮还在跑」的隐藏数据，JS 读到就接上轮询（刷新不丢本轮）
   turn_error  → 本轮中断的气泡 + 「重试」（原文带在 data-retry-text 里）{% endcomment %}
@@ -69,7 +69,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 </form>
 
 <script>
-// 与右下角浮窗共用同一个 PaChatTurn 实现（详情页与浮窗各写一套必然漂移）
+// 与分栏页共用同一个 PaChatTurn 实现（两处各写一套必然漂移）
 (function () {
     if (!window.PaChatTurn) return;
     var base = '/chat/' + {{ conversation.id }} + '/';
@@ -84,7 +84,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
         urls: function () {
             return { send: base + 'send/', poll: base + 'turn/', cancel: base + 'turn/cancel/' };
         },
-        // 页面上下文的 hint 由 base.html 的浮窗逻辑统一探测，这里复用同一份，避免两处判定漂移
+        // 页面上下文的 hint 由 base.html 的 paPageContext 统一探测，这里复用同一份，避免两处判定漂移
         extraParams: function () {
             return (window.paPageContext && window.paPageContext()) || {};
         },
@@ -108,7 +108,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 })();
 </script>
 
-<!-- 底部预留空间：确保滚动到底时发送按钮位于右下角 AI 浮窗 FAB 固定区域之上（移动端 FAB 占视口底部 96~144px，表单底边距底 112+80=192px；桌面端 FAB 占 16~64px，表单底边距底 32+80=112px） -->
+<!-- 底部预留空间：确保滚动到底时发送按钮位于右下角快记 FAB 固定区域之上（移动端 FAB 占视口底部 144~192px，表单底边距底 112+80=192px，刚好贴住不重叠；桌面端 FAB 占 16~64px，表单底边距底 32+80=112px） -->
 <div class="h-20" aria-hidden="true"></div>
 
 {% endblock %}

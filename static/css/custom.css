@@ -290,20 +290,9 @@ a {
     }
 }
 
-/* 聊天浮窗高度：移动端放宽 max-height 以适配软键盘场景，桌面端维持原值 */
-#chat-panel {
-    height: 480px;
-    max-height: calc(100dvh - 8rem);
-}
-@media (min-width: 768px) {
-    #chat-panel {
-        max-height: calc(100dvh - 11rem);
-    }
-}
-
 /* 对话多行输入框：Enter 只换行、不提交（只允许点「发送」按钮）。
    高度由 base.html 的 paFitTextarea 跟随内容增长，到顶后在框内滚动；
-   resize:none 关掉手动拖拽，避免拖出破坏浮窗布局的大框 */
+   resize:none 关掉手动拖拽，避免拖出破坏页面布局的大框 */
 .chat-input {
     resize: none;
     overflow-y: auto;
@@ -569,10 +558,14 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 /* ===== Chat 分栏布局（桌面端左右分栏 / 移动端 IM 式单栏） ===== */
 
 /* 移动端默认：单栏，列表视图可见，聊天视图隐藏 */
+/* 高度算术（勿随意改 9.5rem）：容器顶部距视口顶 = 顶栏 h-14(56px) + main pt-6(24px) = 80px；
+   底部要让出 Tab 栏实高（py-2×2 + 图标 22 + 标签 ≈54px）+ 呼吸空隙 18px + iOS 安全区，
+   即 100dvh - 80px(顶部) - 72px(底部) = 100dvh - 9.5rem - safe-area。
+   改小会让发送框被 Tab 栏遮住（线上实测过）。 */
 .chat-layout {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - 8rem);
+    height: calc(100dvh - 9.5rem - env(safe-area-inset-bottom, 0px));
 }
 
 .chat-sidebar {

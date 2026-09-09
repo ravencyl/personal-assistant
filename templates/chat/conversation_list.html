@@ -191,6 +191,8 @@
     var chatTurn = null;   // 当前 PaChatTurn 实例
     var pinCtrl = null;    // 当前 PaChatPin 实例
 
+    // 聊天浮窗已整体下线，快记 FAB 是全站唯一悬浮入口
+
     // ── 高亮管理 ──
     function highlightItem(id) {
         if (!convListEl) return;
@@ -208,6 +210,13 @@
         } else {
             layoutEl.removeAttribute('data-view');
         }
+        // 移动端聊天视图隐藏快记 FAB：它叠在输入框上沿；返回列表视图时恢复。
+        // 依赖 quick-fab-root 在 base.html 中位于 content block 之前——若移到
+        // content 之后，本内联脚本执行时 getElementById 会拿到 null，
+        // 「if (quickFab)」静默跳过，直接 URL 进入 /chat/<id>/ 时 FAB 漏隐藏（实测踩过）。
+        // 初始化路径之外的所有 setView 都发生在用户交互时（DOM 已就绪），不受影响。
+        var quickFab = document.getElementById('quick-fab-root');
+        if (quickFab) quickFab.style.display = view === 'chat' ? 'none' : '';
     }
 
     function isMobile() {
@@ -412,6 +421,6 @@
 })();
 </script>
 
-{# 底部预留空间：避开移动端底部 Tab 栏和浮窗 FAB #}
+{# 底部预留空间：避开移动端底部 Tab 栏与快记 FAB #}
 <div class="h-20 md:h-0" aria-hidden="true"></div>
 {% endblock %}

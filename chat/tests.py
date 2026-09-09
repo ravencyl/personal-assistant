@@ -182,7 +182,8 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
     起因：输入框原本是单行 input，对话页还显式绑了 Enter → requestSubmit()，
     打字打字就误发一条（AI 一轮要等几十秒，误发代价高）。改成 textarea 后
     Enter 天然换行、也不会隐式提交表单。这里锁住结构，防止以后又改回 input
-    或重新加回 Enter 监听。
+    或重新加回 Enter 监听。两个入口：详情页 #message-input、分栏页 #split-input
+    （右下角聊天浮窗及其 #chat-input 已于 2026-09 整体下线）。
     """
 
     ENTER_SUBMIT = re.compile(r"(?:key|keyCode|which)\s*(?:===|==)\s*['\"]?(?:Enter|13)")
@@ -194,16 +195,16 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
     def test_both_chat_inputs_are_multiline_textareas(self):
         """两个输入框都必须是 textarea：单行 input 物理上换不了行"""
         page = self._tpl('chat', 'conversation_detail.html')
-        base = self._tpl('base.html')
+        split = self._tpl('chat', 'conversation_list.html')
         self.assertIn('id="message-input"', page)
-        self.assertIn('id="chat-input"', base)
+        self.assertIn('id="split-input"', split)
         self.assertIn('<textarea name="content" id="message-input"', page)
-        self.assertIn('<textarea name="content" id="chat-input"', base)
-        for html in (page, base):
+        self.assertIn('<textarea name="content" id="split-input"', split)
+        for html in (page, split):
             self.assertNotIn('<input type="text" name="content"', html)
 
     def test_no_enter_key_submit_handler_anywhere_in_chat_inputs(self):
-        for parts in (('chat', 'conversation_detail.html'), ('base.html',)):
+        for parts in (('chat', 'conversation_detail.html'), ('chat', 'conversation_list.html')):
             html = self._tpl(*parts)
             self.assertEqual(self.ENTER_SUBMIT.findall(html), [],
                              f'{parts} 里又出现了 Enter 提交逻辑')
@@ -231,29 +232,17 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
         self.assertIn('data-auto-grow', base)
 
     def test_auto_grow_never_runs_on_unrendered_textarea(self):
-        """未渲染的 textarea 不能参与高度计算（实测踩过：浮窗输入框被压成 0 高）
+        """未渲染的 textarea 不能参与高度计算（实测踩过：浮层输入框被压成 0 高）
 
-        浮窗面板初始是 display:none，此时 scrollHeight 恒为 0，页面加载时跑那一遍
-        初始化会把 #chat-input 的 style.height 写成 0px，placeholder 直接裁掉半截。
+        快记浮层面板初始是 display:none，此时 scrollHeight 恒为 0，页面加载时跑
+        那一遍初始化会把面板内 textarea 的 style.height 写成 0px，placeholder 直接
+        裁掉半截。聊天浮窗时代已踩过一次（#chat-input 被压成 0 高）。
         """
         base = self._tpl('base.html')
         fit = base.split('window.paFitTextarea = function', 1)[1].split('};', 1)[0]
         self.assertIn('getClientRects', fit, '缺少「元素是否已渲染」的守卫')
         self.assertLess(fit.find('getClientRects'), fit.find('ta.style.height = Math.min'),
                         '守卫必须在写高度之前，否则 0 已经写回去了')
-        # 面板展开时要补一次拟合，否则被守卫跳过后就再没人算高度
-        show_view = base.split('function showChatView', 1)[1].split('}', 1)[0]
-        self.assertIn('paFitTextarea', show_view, '面板展开后没补高度拟合')
-
-    def test_quick_fab_yields_while_chat_panel_is_open(self):
-        """快记 FAB 会盖住浮窗的「发送」按钮，聊天面板展开期间必须让开
-
-        两个浮窗都锚定 right-4，实测面板底边只比快记 FAB 顶边高 12px，重叠 23px；
-        既然只能点按钮发送，就不能让按钮被另一个 FAB 盖住大半。
-        """
-        base = self._tpl('base.html')
-        self.assertIn('function setQuickFabHidden', base)
-        self.assertEqual(base.count('setQuickFabHidden('), 2, '1 定义 + 1 展开入口（FAB 点击）')
 
 
 class ConversationDetailContextTest(TestCase):
@@ -342,6 +331,43 @@ class ConversationListDesktopLayoutTest(TestCase):
     def test_ai_not_configured_banner_in_sidebar(self):
         """AI 未配置提示在左栏头部"""
         self.assertIn('AI 服务未配置', self.src)
+
+    def test_mobile_composer_not_covered(self):
+        """聊天页输入框不被 Tab 栏 / 悬浮按钮遮挡（线上实测回归锁）
+
+        两层防线，缺一不可：
+        ① .chat-layout 移动端高度必须扣除 顶栏+main 顶距(80px)、Tab 栏实高+空隙(72px)
+          与 iOS 安全区 —— 改小会让发送框被 Tab 栏压住；
+        ② 移动端进入聊天视图时快记 FAB 隐藏（叠在输入框上沿），返回列表时恢复 ——
+          因此 base.html 的 quick-fab-root wrapper id 不能丢。
+          （聊天浮窗 FAB 与配套的 page-chat 隐藏链路已随浮窗整体下线）
+        """
+        base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
+        css = (Path(__file__).resolve().parent.parent / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        self.assertIn(
+            'calc(100dvh - 9.5rem - env(safe-area-inset-bottom, 0px))', css,
+            '移动端 .chat-layout 高度算术被改，发送框会被底部 Tab 栏遮住')
+        self.assertIn('id="quick-fab-root"', base)
+        self.assertIn("document.getElementById('quick-fab-root')", self.src)
+        self.assertIn("view === 'chat' ? 'none' : ''", self.src,
+                      '返回列表视图时必须恢复快记 FAB 显隐')
+        self.assertNotIn('chat-fab-root', base,
+                         '聊天浮窗 FAB 已下线，base.html 不应再有残留引用')
+
+    def test_quick_fab_dom_precedes_content_block(self):
+        """quick-fab-root 必须在 base.html 的 content block 之前（线上实测回归锁）
+
+        分栏页（conversation_list.html）的内联脚本随 content block 同步执行，
+        初始化时直接 getElementById('quick-fab-root') 来隐藏移动端 FAB。
+        若 FAB DOM 被移到 content block 之后，脚本执行时它还没进 DOM，
+        「if (quickFab)」静默跳过——直接 URL 进入 /chat/<id>/ 时 FAB 漏隐藏、
+        叠在输入框上沿（实测踩过：2026-09 浮窗下线收尾阶段）。
+        """
+        base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertLess(base.index('id="quick-fab-root"'),
+                        base.index('{% block content %}'),
+                        'quick-fab-root 被移到了 content block 之后，'
+                        '分栏页内联脚本执行时拿不到它，移动端 FAB 会漏隐藏')
 
 
 # ==================== 异步 turn 收发（Phase A）====================
@@ -729,7 +755,7 @@ class ChatTurnTemplateWiringTest(SimpleTestCase):
         self.assertIn('PaChatTurn', detail)
 
     def test_one_message_renderer_for_page_and_panel(self):
-        """详情页、浮窗历史、轮询新片段共用 _message.html：两份实现必然漂移成两种长相"""
+        """详情页、分栏页加载的历史片段、轮询新片段共用 _message.html：两份实现必然漂移成两种长相"""
         for rel in (('chat', 'partials', 'message_pair.html'),
                    ('chat', 'partials', 'widget_messages.html')):
             self.assertIn('chat/partials/_message.html', self._tpl(*rel), str(rel))
@@ -757,11 +783,12 @@ class ChatTurnTemplateWiringTest(SimpleTestCase):
         self.assertIn('data-retry-text', self._tpl('chat', 'partials', 'turn_error.html'))
 
     def test_both_hosts_load_the_shared_flow_once(self):
-        """chat-turn.js 由 base.html 统一引入（详情页与浮窗同一个实例来源）"""
+        """chat-turn.js 由 base.html 统一引入（分栏页与详情页同一个实例来源）"""
         base = self._tpl('base.html')
         self.assertIn("{% staticv 'js/chat-turn.js' %}", base)
-        self.assertEqual(base.count('PaChatTurn('), 1, '浮窗侧只应有一个 PaChatTurn 实例')
-        self.assertIn('paPageContext', base, '详情页要复用同一份页面上下文判定')
+        self.assertEqual(base.count('PaChatTurn('), 0,
+                         'base.html 不应再初始化 PaChatTurn（浮窗已下线，实例只在两个聊天页）')
+        self.assertIn('paPageContext', base, '聊天页要复用同一份页面上下文判定')
 
 
 class ChatTurnFlowJsTest(SimpleTestCase):
@@ -779,6 +806,7 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         cls.flow = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.flow_code = cls._strip_js_comments(cls.flow)
         cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
         cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
 
     @staticmethod
@@ -833,16 +861,17 @@ class ChatTurnFlowJsTest(SimpleTestCase):
 
     def test_each_host_has_exactly_one_status_bar(self):
         """两处各一个进度条（include 同一模板）；多一个就会有两个「停止」按钮互相抢事件"""
-        self.assertEqual(self.base.count('chat/partials/turn_status.html'), 1)
+        self.assertEqual(self.split.count('chat/partials/turn_status.html'), 1)
         self.assertEqual(self.detail.count('chat/partials/turn_status.html'), 1)
 
     def test_panel_halts_flow_before_loading_another_conversation(self):
         """切对话必须先 halt()：否则上一个对话的轮询会往新对话的消息流里 append 回复"""
-        base = self.base
-        opener = base[base.index('function openConversation'):base.index('// 快记 FAB 跟聊天面板几何重叠')]
+        split = self.split
+        opener = split[split.index('function selectConversation'):split.index('// ── 初始化 PaChatTurn')]
         self.assertIn('.halt()', opener)
         self.assertIn('data-turn-resume', opener, '历史加载完要接上进行中的轮次')
-        self.assertIn('return fetch(', opener, 'openConversation 必须返回 Promise，调用方要等历史渲染完再发消息')
+        self.assertIn("fetch(base + 'widget-messages/'", opener,
+                      '切换对话时必须拉取历史片段')
 
     def test_cancel_does_not_broadcast_a_data_change(self):
         """取消没写过任何数据：无条件广播会让点「停止」后弹出「活动数据已更新」（实测踩到）"""
@@ -933,7 +962,8 @@ class ChatQuickActionsTest(SimpleTestCase):
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
         cls.chips = (root / 'templates' / 'chat' / 'partials' / 'quick_chips.html')\
             .read_text(encoding='utf-8')
-        cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html')\
+            .read_text(encoding='utf-8')
         cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html')\
             .read_text(encoding='utf-8')
 
@@ -969,11 +999,11 @@ class ChatQuickActionsTest(SimpleTestCase):
 
     def test_chips_mounted_on_both_surfaces_with_distinct_ids(self):
         self.assertIn('quick_chips.html', self.detail)
-        self.assertIn('quick_chips.html', self.base)
-        ids = re.findall(r'chips_id="([^"]+)"', self.detail + self.base)
+        self.assertIn('quick_chips.html', self.split)
+        ids = re.findall(r'chips_id="([^"]+)"', self.detail + self.split)
         self.assertEqual(len(ids), 2, '两个宿主各挂一份，多了就是写了第三处')
         self.assertEqual(len(set(ids)), 2, 'id 撞了 getElementById 只会拿到第一个')
-        for src, name in ((self.detail, '详情页'), (self.base, '浮窗')):
+        for src, name in ((self.detail, '详情页'), (self.split, '分栏页')):
             self.assertIn('chipsEl: document.getElementById', src,
                           '%s 没有把 chips 容器交给 PaChatTurn' % name)
 
@@ -1156,7 +1186,11 @@ class ChatPinTest(TestCase):
 
 
 class ChatPinWiringTest(SimpleTestCase):
-    """钉选的前端接线：两个宿主各一份、状态随历史片段带出、不拼 HTML 字符串"""
+    """钉选的前端接线：两个宿主各一份、状态随历史片段带出、不拼 HTML 字符串
+
+    两个宿主：详情页（message-pin）与分栏页（split-pin）。
+    （右下角浮窗宿主 chat-panel-pin 已随浮窗整体下线。）
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -1164,7 +1198,7 @@ class ChatPinWiringTest(SimpleTestCase):
         root = Path(__file__).resolve().parent.parent
         js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
-        cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
         cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html')\
             .read_text(encoding='utf-8')
         cls.widget = (root / 'templates' / 'chat' / 'partials' / 'widget_messages.html')\
@@ -1173,28 +1207,22 @@ class ChatPinWiringTest(SimpleTestCase):
 
     def test_both_surfaces_mount_a_host_with_distinct_ids(self):
         self.assertIn('pin_host.html', self.detail)
-        self.assertIn('pin_host.html', self.base)
-        ids = re.findall(r'host_id="([^"]+)"', self.detail + self.base)
+        self.assertIn('pin_host.html', self.split)
+        ids = re.findall(r'host_id="([^"]+)"', self.detail + self.split)
         self.assertEqual(len(ids), 2, '两个宿主各挂一份，多了就是写了第三处')
         self.assertEqual(len(set(ids)), 2, 'id 撞了 getElementById 只会拿到第一个')
-        for src, name in ((self.detail, '详情页'), (self.base, '浮窗')):
+        for src, name in ((self.detail, '详情页'), (self.split, '分栏页')):
             self.assertIn('window.PaChatPin({', src, '%s 没有初始化钉选交互' % name)
-
-    def test_panel_host_does_not_inherit_the_page_conversation(self):
-        """base.html 的浮窗在详情页里渲染时上下文带着 conversation，不显式清空
-        会把详情页的钉选状态画进浮窗的槽里（两个对话串数据）"""
-        self.assertIn('pin_host.html" with host_id="chat-panel-pin" conversation=None',
-                      self.base)
 
     def test_pin_state_travels_with_the_history_fragment(self):
         """切对话时钉选状态必须跟着换：没钉也要带出隐藏位，否则槽里留着上一个对话的 chip
 
-        搬运发生在宿主页（base.html 的 openConversation），不在 chat-turn.js 里：
+        搬运发生在分栏页（selectConversation 的 fetch 回调），不在 chat-turn.js 里：
         PaChatPin 只供一个 paint()，所以断言要分别看两个文件。"""
         self.assertIn('pin_bar.html', self.widget)
         self.assertIn('mount=True', self.widget)
-        self.assertIn('[data-pin-mount]', self.base)
-        self.assertIn('paPanelPin.paint(', self.base)
+        self.assertIn('[data-pin-mount]', self.split)
+        self.assertIn('pinCtrl.paint(', self.split)
 
     def test_candidate_list_is_built_with_text_content_not_html_strings(self):
         """活动名是用户数据：用 innerHTML 拼字符串等于给自己埋 XSS（与 Markdown
@@ -1388,6 +1416,7 @@ class ChatAuthExpiryWiringTest(SimpleTestCase):
         js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
         cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
 
     def test_only_the_shared_outlet_uses_raw_fetch(self):
         """只允许 apiFetch 内部那一处裸 fetch；第二处就是同时丢了 Accept 与 401 处理
@@ -1419,20 +1448,20 @@ class ChatAuthExpiryWiringTest(SimpleTestCase):
         self.assertEqual(block.count('return new Promise(function () {});'), 2,
                          '两个 401 分支都要抹掉后续链路（JSON 成功分支与解析失败分支）')
 
-    def test_host_page_uses_the_same_outlet_for_create(self):
-        """base.html 的「+ 新对话」以前靠假的 HX-Request 头骗视图返 JSON
+    def test_split_page_uses_the_same_outlet_for_create(self):
+        """base.html 浮窗的「+ 新对话」以前靠假的 HX-Request 头骗视图返 JSON（浮窗已下线）；
 
-        那样未登录时装饰器会按 HTML 请求返 302，401 分支永远走不到（所以不只是一个
-        雅观问题）。
+        分栏页的「新对话」按钮必须继续走共用出口：否则未登录时装饰器会按 HTML 请求
+        返 302，401 分支永远走不到（所以不只是一个雅观问题）。
         """
         from core.layout_asserts import code_only
         # 两道都得剔：code_only 只剔 HTML/{% comment %} 注释，而这段说明写在内联
         # JS 的 // 注释里 —— 不剔就会把「旧的骗法不得回来」的说明当成违规（本项目老坑）
-        code = ChatTurnFlowJsTest._strip_js_comments(code_only(self.base))
-        self.assertIn("paJsonFetch('/chat/create/'", code)
+        code = ChatTurnFlowJsTest._strip_js_comments(code_only(self.split))
+        self.assertIn("paJsonFetch('{% url \"chat:create_conversation\" %}'", code)
         self.assertNotIn("'HX-Request': 'true'", code, '旧的骗法不得回来')
-        self.assertLess(self.base.index('chat-turn.js'), self.base.index('paJsonFetch'),
-                        'chat-turn.js 必须先于内联脚本加载，否则 paJsonFetch 是 undefined')
+        self.assertIn("{% staticv 'js/chat-turn.js' %}", self.base,
+                      'chat-turn.js 由 base.html 统一引入，否则分栏页里 paJsonFetch 是 undefined')
 
     def test_no_chat_endpoint_is_public(self):
         """遍历路由：每个聊天端点未登录时要么 302 要么 401，绝不真进视图

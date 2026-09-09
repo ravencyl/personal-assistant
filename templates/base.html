@@ -9,7 +9,7 @@
     <script src="{% staticv 'js/tailwind.js' %}"></script>
     <script src="{% staticv 'js/htmx.min.js' %}"></script>
     <script src="{% staticv 'js/offline-queue.js' %}"></script>
-    {# 聊天异步收发流（详情页与浮窗共用一份）#}
+    {# 聊天异步收发流（分栏页与详情页共用一份）#}
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
     <link rel="stylesheet" href="{% staticv 'css/custom.css' %}">
     <style>
@@ -111,114 +111,11 @@
         </div>
         {% endif %}
 
-        <!-- Main content（移动端底部预留 Tab 栏高度） -->
-        <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-28 md:pb-8">
-            {% block content %}{% endblock %}
-        </main>
-    </div>
-
     {% if user.is_authenticated %}
-    <!-- 移动端底部 Tab 栏（App 式导航，仅 <768px）：与顶栏一致只留一级模块；
-         循环/模板的入口在活动页头部图标组，记忆使用频率低且不在手机上读，暂不占位 -->
-    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)]/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-        <div class="grid grid-cols-5">
-            <a href="/" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-                </svg>
-                <span class="text-[10px] font-medium">今日</span>
-            </a>
-            <a href="{% url 'activities:activity_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'activities' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                </svg>
-                <span class="text-[10px] font-medium">活动</span>
-            </a>
-            <a href="{% url 'chat:conversation_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'chat' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                </svg>
-                <span class="text-[10px] font-medium">对话</span>
-            </a>
-            <a href="{% url 'notes:note_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'notes' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                <span class="text-[10px] font-medium">备忘</span>
-            </a>
-            <a href="{% url 'knowledge:article_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'knowledge' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-                </svg>
-                <span class="text-[10px] font-medium">知识</span>
-            </a>
-        </div>
-    </nav>
-    {% endif %}
-
-    {% if user.is_authenticated %}
-    <!-- AI 聊天浮窗（右下角；移动端抬高避开底部 Tab 栏） -->
-    <div class="fixed bottom-24 right-4 z-50 md:bottom-4">
-        <!-- 展开面板 -->
-        <div id="chat-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
-            <!-- 视图一：对话选择 -->
-            <div id="chat-view-list" class="flex flex-col h-full">
-                <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-                    <span class="font-medium text-[var(--text)]">AI 助手</span>
-                    <button type="button" id="chat-new-btn" class="text-sm text-white hover:opacity-90 rounded-full px-3 py-1.5 transition-opacity" style="background: var(--accent);">+ 新对话</button>
-                </div>
-                <div class="flex-1 overflow-y-auto">
-                    <p class="px-4 pt-3 pb-1 text-xs text-[var(--text-muted)]">继续之前的对话</p>
-                    <div id="chat-conv-list">
-                        {% for conv in widget_conversations %}
-                        <a href="javascript:void(0)" class="chat-conv-item block px-4 py-2.5 hover:bg-[var(--accent-light)] border-b border-[var(--border)]"
-                           data-id="{{ conv.id }}" data-title="{{ conv.title }}">
-                            <span class="block text-sm text-[var(--text)] truncate">{{ conv.title }}</span>
-                            <span class="block text-xs text-[var(--text-muted)] mt-0.5">{{ conv.updated_at|timesince }} 前更新</span>
-                        </a>
-                        {% empty %}
-                        <p class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">暂无对话，点击上方「新对话」开始</p>
-                        {% endfor %}
-                    </div>
-                </div>
-                <div class="px-4 py-2 border-t border-[var(--border)]">
-                    <a href="{% url 'chat:conversation_list' %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部对话 &rarr;</a>
-                </div>
-            </div>
-            <!-- 视图二：聊天窗口 -->
-            <div id="chat-view-chat" class="hidden flex-col h-full">
-                <div class="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
-                    <button type="button" id="chat-back-btn" class="text-[var(--text-secondary)] hover:text-[var(--text)] text-sm" title="返回对话列表">&larr;</button>
-                    <span id="chat-conv-title" class="font-medium text-[var(--text)] truncate flex-1"></span>
-                    <a id="chat-open-full" href="#" target="_blank" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]" title="在新页面打开">↗</a>
-                </div>
-                <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2.5"></div>
-                {% include "chat/partials/turn_status.html" %}
-                {# conversation=None：浮窗宿主不继承详情页的 conversation，槽先空着，打开对话时由 JS 从历史片段搬进来 #}
-                {% include "chat/partials/pin_host.html" with host_id="chat-panel-pin" conversation=None %}
-                {% include "chat/partials/quick_chips.html" with chips_id="chat-panel-chips" chips_class="px-3 pb-1" %}
-                <form id="chat-form" class="flex items-end gap-2 p-3 border-t border-[var(--border)]">
-                    {% csrf_token %}
-                    {# 多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮 #}
-                    <textarea name="content" id="chat-input" rows="1" data-auto-grow
-                              placeholder="输入消息..."
-                              class="chat-input flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]"></textarea>
-                    <button type="submit" class="rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">发送</button>
-                </form>
-            </div>
-        </div>
-        <!-- 悬浮按钮 -->
-        <button type="button" id="chat-toggle-btn"
-                class="relative w-12 h-12 rounded-full text-white flex items-center justify-center" style="background: var(--accent);" title="AI 助手">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-            </svg>
-        </button>
-    </div>
-
-    <!-- 一键快记浮窗（聊天 FAB 上方；移动端 bottom-36 避让底部 Tab 栏，桌面 md:bottom-16 避让聊天 FAB） -->
-    <div class="fixed bottom-36 right-4 z-50 md:bottom-16 flex flex-col items-end">
-        <!-- 展开面板（复制 #chat-panel 开合模式；所有表单走原生 fetch，严禁挂 hx-*） -->
+    <!-- 一键快记浮窗（聊天浮窗下线后为全站唯一悬浮入口；移动端 bottom-36 避让底部 Tab 栏，
+         桌面 md:bottom-16 避让分栏页底部的发送按钮，改小会叠上去实测踩过） -->
+    <div id="quick-fab-root" class="fixed bottom-36 right-4 z-50 md:bottom-16 flex flex-col items-end">
+        <!-- 展开面板（panel 开合模式；所有表单走原生 fetch，严禁挂 hx-*） -->
         <div id="quick-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
             <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
                 <span class="font-medium text-[var(--text)]">快记</span>
@@ -288,215 +185,85 @@
             <span id="quick-outbox-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-zinc-700 text-white text-[10px] font-bold flex items-center justify-center">0</span>
         </button>
     </div>
+    {% endif %}
 
+        <!-- Main content（移动端底部预留 Tab 栏高度） -->
+        <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-28 md:pb-8">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    {% if user.is_authenticated %}
+    <!-- 移动端底部 Tab 栏（App 式导航，仅 <768px）：与顶栏一致只留一级模块；
+         循环/模板的入口在活动页头部图标组，记忆使用频率低且不在手机上读，暂不占位 -->
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)]/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+        <div class="grid grid-cols-5">
+            <a href="/" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <span class="text-[10px] font-medium">今日</span>
+            </a>
+            <a href="{% url 'activities:activity_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'activities' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                <span class="text-[10px] font-medium">活动</span>
+            </a>
+            <a href="{% url 'chat:conversation_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'chat' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
+                <span class="text-[10px] font-medium">对话</span>
+            </a>
+            <a href="{% url 'notes:note_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'notes' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <span class="text-[10px] font-medium">备忘</span>
+            </a>
+            <a href="{% url 'knowledge:article_list' %}" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.app_name == 'knowledge' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                </svg>
+                <span class="text-[10px] font-medium">知识</span>
+            </a>
+        </div>
+    </nav>
+    {% endif %}
+
+    {% if user.is_authenticated %}
     <script>
+    // 页面上下文感知：聊天页（分栏 / 详情）发送消息时携带同一份「用户正在看什么」。
+    // 判定逻辑只有这一份实现（原属聊天浮窗脚本，浮窗下线后独立成块）
     (function () {
-        var panel = document.getElementById('chat-panel');
-        var viewList = document.getElementById('chat-view-list');
-        var viewChat = document.getElementById('chat-view-chat');
-        var convList = document.getElementById('chat-conv-list');
-        var messagesEl = document.getElementById('chat-messages');
-        var form = document.getElementById('chat-form');
-        var input = document.getElementById('chat-input');
-        var titleEl = document.getElementById('chat-conv-title');
-        var fullLink = document.getElementById('chat-open-full');
-        var newBtn = document.getElementById('chat-new-btn');
-        var csrf = form.querySelector('input[name=csrfmiddlewaretoken]').value;
-
-        // ── 页面上下文感知 ──
-        var pageCtx = (function () {
-            var path = location.pathname;
-            var m = path.match(/^\/activities\/(\d+)\/?$/);
-            if (m) {
-                var el = document.querySelector('[data-page-activity]');
-                var name = el ? el.getAttribute('data-page-activity') : '';
-                return {
-                    type: 'activity_detail',
-                    id: m[1],
-                    name: name,
-                    placeholder: name ? '关于「' + name + '」需要什么帮助？' : '需要我做什么？修改活动信息还是帮你创建一笔费用',
-                    hint: name ? '用户正在查看活动「' + name + '」（ID: ' + m[1] + '）的详情页。可以帮用户修改活动信息、创建费用、添加参与者等。' : ''
-                };
-            }
-            if (/^\/activities\/new\//.test(path)) return { type: 'activity_create', placeholder: '需要帮你填写活动信息吗？', hint: '' };
-            if (/^\/activities/.test(path)) return { type: 'activity_list', placeholder: '需要创建或查找活动吗？', hint: '' };
-            if (/^\/chat/.test(path)) return { type: 'chat', placeholder: '输入消息...', hint: '' };
-            return { type: 'home', placeholder: '有什么需要帮忙的？', hint: '' };
-        })();
-        input.placeholder = pageCtx.placeholder;
-        // 暴露给详情页：对话页的发送也要带同一份页面上下文，两处判定只有一份实现
+        var path = location.pathname;
+        var m = path.match(/^\/activities\/(\d+)\/?$/);
+        if (m) {
+            var el = document.querySelector('[data-page-activity]');
+            var name = el ? el.getAttribute('data-page-activity') : '';
+            window.paPageContext = function () {
+                var hint = name ? '用户正在查看活动「' + name + '」（ID: ' + m[1] + '）的详情页。可以帮用户修改活动信息、创建费用、添加参与者等。' : '';
+                return { page_context: hint || 'activity_detail' };
+            };
+            return;
+        }
+        var type = 'home';
+        if (/^\/activities\/new\//.test(path)) type = 'activity_create';
+        else if (/^\/activities/.test(path)) type = 'activity_list';
+        else if (/^\/chat/.test(path)) type = 'chat';
         window.paPageContext = function () {
-            return { page_context: pageCtx.hint || pageCtx.type };
+            return { page_context: type };
         };
-
-        function showChatView(show) {
-            viewList.classList.toggle('hidden', show);
-            viewChat.classList.toggle('hidden', !show);
-            viewChat.classList.toggle('flex', show);
-            // 隐藏期间量不到高度（见模板末尾 paFitTextarea 的注释），展开后补拟合一次
-            if (show && window.paFitTextarea) window.paFitTextarea(input);
-        }
-
-        function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
-
-        var lastConvId = null;
-
-        // 打开一个对话：先停掉上一个对话的轮询（不取消服务端的本轮），再拉历史。
-        // 返回 Promise：调用方要等历史渲染完才能发消息，否则刚 append 的用户消息
-        // 会被随后到达的历史 innerHTML 替换掉。
-        function openConversation(id, title) {
-            if (window.paPanelChat) window.paPanelChat.halt();
-            lastConvId = id;
-            titleEl.textContent = title || '对话';
-            fullLink.href = '/chat/' + id + '/detail/';
-            showChatView(true);
-            messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text-muted)] py-4">加载中...</p>';
-            return fetch('/chat/' + id + '/widget-messages/')
-                .then(function (r) { if (!r.ok) throw new Error('加载失败'); return r.text(); })
-                .then(function (html) {
-                    messagesEl.innerHTML = html;
-                    // 历史片段末尾带了 turn_resume 就是「这一轮还在跑」：接上轮询（刷新/切对话不丢本轮）
-                    var resumeEl = messagesEl.querySelector('[data-turn-resume]');
-                    if (resumeEl && window.paPanelChat) {
-                        window.paPanelChat.resume(resumeEl.dataset.state, parseInt(resumeEl.dataset.ttl, 10));
-                        resumeEl.remove();
-                    }
-                    // 钉选状态也随历史片段带出来：搬到输入区上方的槽里，读一次即撤
-                    var pinMount = messagesEl.querySelector('[data-pin-mount]');
-                    if (pinMount) {
-                        if (window.paPanelPin) window.paPanelPin.paint(pinMount.innerHTML);
-                        pinMount.remove();
-                    }
-                    scrollBottom();
-                    input.focus();
-                })
-                .catch(function () {
-                    messagesEl.innerHTML = '<p class="text-center text-sm text-[var(--text)] font-semibold py-4">消息加载失败，请重试</p>';
-                });
-        }
-
-        // 快记 FAB 跟聊天面板几何重叠（两个浮窗都锚定 right-4，面板底边只比快记 FAB
-        // 顶边高 12px），展开时正好盖住面板右下角的「发送」按钮大半块。两个面板本来就
-        // 互斥，所以聊天面板展开期间把快记 FAB 让开（用 inline display 而不是 .hidden，
-        // 因为 FAB 自带 flex，跟 Tailwind 的 hidden 同层谁赢取决于生成顺序）
-        function setQuickFabHidden(hidden) {
-            var fab = document.getElementById('quick-toggle-btn');
-            if (fab) fab.style.display = hidden ? 'none' : '';
-        }
-
-        // 展开/收起面板（与快记浮层互斥，同时只开一个）
-        document.getElementById('chat-toggle-btn').addEventListener('click', function () {
-            panel.classList.toggle('hidden');
-            var open = !panel.classList.contains('hidden');
-            if (open) {
-                var qp = document.getElementById('quick-panel');
-                if (qp) qp.classList.add('hidden');
-                input.focus();
-            }
-            setQuickFabHidden(open);
-        });
-
-        // 选择历史对话（事件委托，兼容动态新增项）
-        convList.addEventListener('click', function (e) {
-            var item = e.target.closest('.chat-conv-item');
-            if (item) openConversation(item.dataset.id, item.dataset.title);
-        });
-
-        // 返回对话列表
-        document.getElementById('chat-back-btn').addEventListener('click', function () {
-            showChatView(false);
-        });
-
-        // 新建对话（返回 conversation_id，失败返回 null；供「+ 新对话」按钮复用）
-        function createConversation() {
-            // 走聊天共用的 JSON 出口 paJsonFetch（定义在 chat-turn.js），由它补
-            // Accept: application/json。以前这里手挂一个假的 'HX-Request': 'true' 去骗视图
-            // 走 JSON 分支：视图的 request.htmx 确实为真，但登录态过期时会被
-            // json_login_required 当成 HTML 请求返 302（fetch 跟随后拿到登录页
-            // HTML），401 + 整页跳转那条分支永远走不到。
-            return window.paJsonFetch('/chat/create/', {
-                method: 'POST',
-                headers: { 'X-CSRFToken': csrf }
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (data) { return data.conversation_id || null; })
-                .catch(function () { return null; });
-        }
-
-        // 收发交给共用的 PaChatTurn：发送秒返回、轮询取结果、可停止、切对话不丢本轮
-        window.paPanelChat = window.PaChatTurn({
-            messagesEl: messagesEl,
-            statusEl: panel.querySelector('[data-turn-status]'),
-            chipsEl: document.getElementById('chat-panel-chips'),
-            form: form,
-            input: input,
-            noConversationHint: '先点「+ 新对话」',
-            urls: function () {
-                if (!lastConvId) return {};
-                var base = '/chat/' + lastConvId + '/';
-                return { send: base + 'send/', poll: base + 'turn/', cancel: base + 'turn/cancel/' };
-            },
-            extraParams: function () { return { page_context: pageCtx.hint || pageCtx.type }; },
-            onActivityChanged: function () {
-                document.dispatchEvent(new CustomEvent('activities:changed'));
-            }
-        });
-
-        // @ 钉选：候选与设置都是 JSON 端点，原生 fetch（禁挂 hx-*）
-        window.paPanelPin = window.PaChatPin({
-            host: document.getElementById('chat-panel-pin'),
-            input: input,
-            urls: function () {
-                if (!lastConvId) return {};
-                var base = '/chat/' + lastConvId + '/';
-                return { set: base + 'pin/', search: '{% url "chat:pin_candidates" %}' };
-            }
-        });
-
-        newBtn.addEventListener('click', function () {
-            newBtn.disabled = true;
-            newBtn.textContent = '创建中...';
-            createConversation()
-                .then(function (id) {
-                    if (!id) { alert('创建对话失败，请检查网络或 Agent 配置'); return null; }
-                    // 同步更新选择列表
-                    var item = document.createElement('a');
-                    item.href = 'javascript:void(0)';
-                    item.className = 'chat-conv-item block px-4 py-2.5 hover:bg-[var(--accent-light)] border-b border-[var(--border)]';
-                    item.dataset.id = id;
-                    item.dataset.title = '新对话';
-                    item.innerHTML = '<span class="block text-sm text-[var(--text)] truncate">新对话</span>' +
-                        '<span class="block text-xs text-[var(--text-muted)] mt-0.5">刚刚更新</span>';
-                    convList.prepend(item);
-                    openConversation(id, '新对话');
-                })
-                .catch(function () { alert('创建对话失败，请检查网络或 Agent 配置'); })
-                .finally(function () { newBtn.disabled = false; newBtn.textContent = '+ 新对话'; });
-        });
-
-        // 发送入口全部交给 PaChatTurn（它在内部绑了 form 的 submit；输入框是 textarea，
-        // Enter 天然只换行，不会隐式提交）
-
-        // 面板内的轻提示（不用原生 alert：阻塞式弹窗在浮窗里尤其累）
-        function showStatus(text) {
-            var el = panel.querySelector('[data-turn-text]');
-            var bar = panel.querySelector('[data-turn-status]');
-            if (el && bar) { el.textContent = text; bar.classList.remove('hidden'); }
-        }
     })();
     </script>
-
     <!-- 快记浮层脚本：三端点全部原生 fetch + meta[name="csrf-token"]；无 hx-*、无 htmx.process() -->
     <script>
     (function () {
         var panel = document.getElementById('quick-panel');
-        var chatPanel = document.getElementById('chat-panel');
         var csrf = document.querySelector('meta[name="csrf-token"]').content;
 
-        function openPanel() {
-            panel.classList.remove('hidden');
-            if (chatPanel) chatPanel.classList.add('hidden');
-        }
+        function openPanel() { panel.classList.remove('hidden'); }
         function closePanel() { panel.classList.add('hidden'); }
 
         document.getElementById('quick-toggle-btn').addEventListener('click', function () {
@@ -786,7 +553,7 @@
     <script>
     // 多行输入框高度自适应：对话输入框改成 Enter 换行后，不跟着长高就会把内容藏起来，
     // 而 rows 给大了又会留一大片空白。超过 max-height 后靠 CSS 内部滚动。
-    // 放在模板末尾，所以对话详情页（走 HTMX 的表单）与全站聊天浮窗都能用。
+    // 放在模板末尾，两个聊天页（分栏 / 详情）与快记浮层的输入框都能用。
     window.paFitTextarea = function (ta) {
         if (!ta || ta.tagName !== 'TEXTAREA') return;
         // 元素还没被渲染时（浮窗面板初始是 display:none）scrollHeight 恒为 0，直接写回去
