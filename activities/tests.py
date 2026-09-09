@@ -15,13 +15,17 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.urls import reverse
+from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import (Activity, ActivityLog, Attachment, Expense, Participant,
+from activities.models import (Activity, ActivityLog, Attachment, Expense, ExpenseCategory,
+                               Participant,
 )
 from notes.models import Note
 from activities.parsing import parse_quick_input
+from activities.categories import (active_category_choices, category_label_map,
+                                   invalidate_category_cache)
 from core.agent_registry import CandidateToolError, ToolError
 from core.layout_asserts import assert_desktop_two_columns
 from activities.services import (InputError, add_expense, clean_category,
@@ -47,12 +51,14 @@ class ExpenseCategorySuggestTest(TestCase):
             Expense.objects.create(activity=self.activity, user=self.user, amount=100, category='transport')
         response = self.client.get(f'/activities/{self.activity.id}/category-suggest/')
         data = response.json()
-        self.assertEqual(data['categories'][0], 'food')
+        # 服务端直接返回 key+label（类别配置在 ExpenseCategory 表），前端不再映射
+        self.assertEqual(data['categories'][0]['key'], 'food')
+        self.assertEqual(data['categories'][0]['label'], '餐饮')
 
     def test_category_suggest_empty(self):
         response = self.client.get(f'/activities/{self.activity.id}/category-suggest/')
         data = response.json()
-        self.assertEqual(len(data['categories']), len(Expense.CATEGORY_CHOICES))
+        self.assertEqual(len(data['categories']), len(active_category_choices()))
 
 
 class AddExpenseAutoTargetTest(TestCase):
@@ -845,7 +851,7 @@ class WritePathServiceTest(TestCase):
     """M1 写路径收敛：创建与记费用只留 services 一份实现
 
     锁住收敛后的四条口径：空值/0 的金额语义、日期的单一回落、
-    类别清洗复用 CATEGORY_CHOICES、子活动归属继承父活动。
+    类别清洗来自 ExpenseCategory 表（数据库驱动）、子活动归属继承父活动。
     """
 
     def setUp(self):
@@ -880,7 +886,7 @@ class WritePathServiceTest(TestCase):
         self.assertIsNone(add_expense(self.activity, self.user, 10, clear_date=True).paid_at)
 
     def test_category_accepts_display_name_and_key(self):
-        """中文显示名直接由 CATEGORY_CHOICES 反查，不另存别名表"""
+        """中文显示名由 ExpenseCategory 表反查，不另存别名表"""
         self.assertEqual(clean_category('餐饮'), 'food')
         self.assertEqual(clean_category('food'), 'food')
         self.assertEqual(clean_category('住宿'), 'accommodation')
@@ -1711,3 +1717,158 @@ class UpdateParentAgentToolTest(TestCase):
         self.assertIn('parent（父活动名称关键词', prompt)
         self.assertIn('移出父活动', prompt)
         self.assertIn('全部可编辑字段', prompt)
+
+
+class ExpenseCategoryConfigTest(TestCase):
+    """数据库驱动类别体系的核心口径：迁移正确性 / 停用兼容 / 各入口一致
+
+    类别配置在 ExpenseCategory 表（admin 可管理），所有入口从
+    activities.categories 读取。这里锁住任务书的四个硬性要求：
+    初始数据正确、停用类别的历史费用照常展示统计、各入口同步、
+    admin 变更即时生效。
+    """
+
+    INITIAL = [
+        ('transport', '交通', 10), ('accommodation', '住宿', 20),
+        ('food', '餐饮', 30), ('ticket', '门票', 40),
+        ('shopping', '购物', 50), ('work', '工作', 60),
+        ('digital', '数码', 70), ('health', '健康', 80),
+        ('other', '其他', 90),
+    ]
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='成都之行')
+        self.expense = Expense.objects.create(
+            activity=self.activity, user=self.user,
+            amount=200, category='food', note='火锅',
+            paid_at=timezone.localdate())  # 图表端点按 paid_at 过滤近 12 个月
+
+    def _set_active(self, key, is_active):
+        ExpenseCategory.objects.filter(key=key).update(is_active=is_active)
+        invalidate_category_cache()
+
+    # ---------- 迁移正确性 ----------
+
+    def test_initial_categories_seeded_by_migration(self):
+        """data migration 把原硬编码 9 类灌入表：key/label/sort 全部正确且启用"""
+        rows = list(ExpenseCategory.objects.order_by('sort'))
+        self.assertEqual([(r.key, r.label, r.sort) for r in rows], self.INITIAL)
+        self.assertTrue(all(r.is_active for r in rows))
+
+    def test_existing_expense_keys_untouched(self):
+        """存量 Expense.category 保留字符串 key，无损迁移（不做 FK 的关键理由）"""
+        self.assertEqual(self.expense.category, 'food')
+        self.assertEqual(self.expense.get_category_display(), '餐饮')
+
+    # ---------- 停用兼容：展示与统计不丢 ----------
+
+    def test_disabled_category_still_displayed_and_counted(self):
+        """停用餐饮后：历史费用照常显示「餐饮」，报表统计照常包含——
+        不允许「表单选不到但统计里还在算」的反向不一致，也不允许丢数据。
+
+        报表页 HTML 本身不带类别数据，分类饼图/单月明细走
+        expense_chart_data JSON 端点，兼容性在那里验证。
+        """
+        self._set_active('food', False)
+        self.expense = Expense.objects.get(pk=self.expense.pk)
+        self.assertEqual(self.expense.get_category_display(), '餐饮')
+
+        resp = self.client.get(
+            reverse('activities:expense_chart_data'), {'range': 'category'})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn('餐饮', data['labels'])
+
+        resp = self.client.get(
+            reverse('activities:expense_chart_data'), {'range': 'month_category'})
+        items = resp.json()['items']
+        self.assertTrue(any(
+            i['label'] == '餐饮' and i['amount'] == 200 for i in items))
+
+    def test_disabled_category_not_in_any_choice_entry(self):
+        """停用餐饮后：可选项口径（读取层/快记浮窗/建议）全部消失"""
+        self._set_active('food', False)
+        self.assertNotIn(('food', '餐饮'), active_category_choices())
+        resp = self.client.get(reverse('activities:activity_list'))
+        content = resp.content.decode()
+        # base.html 快记浮窗的下拉由类别表渲染，停用项不再出现
+        self.assertNotIn('>餐饮</option>', content)
+
+        Expense.objects.create(activity=self.activity, user=self.user,
+                               amount=10, category='food')
+        data = self.client.get(
+            f'/activities/{self.activity.id}/category-suggest/').json()
+        self.assertNotIn('food', [c['key'] for c in data['categories']])
+
+    def test_deleted_category_label_falls_back_to_key(self):
+        """类别被删（而非停用）：展示回落 key 本身，不报错不丢统计"""
+        ExpenseCategory.objects.filter(key='food').delete()
+        invalidate_category_cache()
+        self.expense = Expense.objects.get(pk=self.expense.pk)
+        self.assertEqual(self.expense.get_category_display(), 'food')
+
+    # ---------- clean_category 与默认值的停用回落 ----------
+
+    def test_clean_category_respects_explicit_disabled_label(self):
+        """用户明确说出停用类别的名字时尊重（编辑历史费用回传不静默改写）"""
+        self._set_active('food', False)
+        self.assertEqual(clean_category('餐饮'), 'food')
+        self.assertEqual(clean_category('food'), 'food')
+
+    def test_clean_category_default_falls_back_when_inactive(self):
+        """默认类别被停用后，解析失败的脏写回落到排序第一个启用类别"""
+        self._set_active('other', False)
+        self.assertEqual(clean_category(''), 'transport')
+        self.assertEqual(clean_category('一个无法识别的类别'), 'transport')
+
+    # ---------- 各入口一致性：admin 改完即全局生效 ----------
+
+    def test_new_category_appears_in_quick_form_and_agent_hint(self):
+        """admin 新增「宠物」：快记浮窗下拉 + Agent 协议 hint 同步出现（零代码）"""
+        ExpenseCategory.objects.create(key='pet', label='宠物', sort=95)
+        invalidate_category_cache()
+
+        resp = self.client.get(reverse('activities:activity_list'))
+        self.assertIn('>宠物</option>', resp.content.decode())
+
+        from core.agent_registry import build_protocol_prompt
+        self.assertIn('宠物', build_protocol_prompt())
+
+    def test_agent_hint_lists_every_active_label(self):
+        """add_expense 的动态 hint 覆盖全部启用类别（修复旧枚举漏数码/健康）"""
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        for _key, label in active_category_choices():
+            self.assertIn(label, prompt)
+
+    def test_cache_token_changes_with_config(self):
+        """配置指纹随类别变更变化 → suggest 视图旧缓存自动失效"""
+        from activities.categories import category_cache_token
+        before = category_cache_token()
+        ExpenseCategory.objects.create(key='pet', label='宠物', sort=95)
+        invalidate_category_cache()
+        self.assertNotEqual(category_cache_token(), before)
+
+    def test_admin_formfield_uses_active_choices(self):
+        """admin 的 Expense inline 表单下拉来自类别表启用口径，而非硬编码
+
+        （回归锁：模型去掉 choices 后，直接 kwargs['choices'] 会落到
+        CharField 而炸 TypeError，必须显式 TypedChoiceField）"""
+        from activities.admin import ExpenseInline
+        inline = ExpenseInline(Expense, admin.site)
+        field = inline.formfield_for_dbfield(
+            Expense._meta.get_field('category'), request=None)
+        self.assertEqual([tuple(c) for c in field.choices],
+                         list(active_category_choices()))
+
+    def test_stats_tool_uses_label_map_for_disabled(self):
+        """expense_stats 卡片数据对停用类别仍给出中文标签"""
+        self._set_active('food', False)
+        from core.agent_registry import get_tool
+        result = get_tool('activities.expense_stats')['fn'](self.user, {})
+        cats = result['card_data']['categories']
+        self.assertTrue(any(c['label'] == '餐饮' and c['total'] == 200 for c in cats))

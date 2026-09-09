@@ -17,6 +17,7 @@ from django.utils import timezone
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
+from .categories import active_category_choices, category_label_map
 from .models import Activity, Expense
 from .services import (InputError, add_expense, clean_amount, clean_category,
                        create_activity_from_parsed)
@@ -589,8 +590,8 @@ def tool_expense_stats(user, params):
                               'count': 0, 'categories': [], 'activities': [],
                               'report_url': reverse('activities:expense_report')}}
 
-    # 按类别汇总（降序，金额占比直接画横条）
-    cat_map = dict(Expense.CATEGORY_CHOICES)
+    # 按类别汇总（降序，金额占比直接画横条）；label 全量口径（含停用类别）
+    cat_map = category_label_map()
     cat_rows = (qs.values('category').annotate(total=Sum('amount'), n=Count('id'))
                 .order_by('-total'))
     categories = [{'label': cat_map.get(r['category'], r['category']),
@@ -678,11 +679,21 @@ def _auto_expense_target(user, note):
     return get_daily_bucket(user), 'bucket'
 
 
+def _category_hint_fragment():
+    """动态类别清单片段：类别配置在 ExpenseCategory 表里，每帧实时求值
+
+    （原静态枚举「交通/住宿/餐饮/门票/购物/工作/其他」漏了数码/健康——
+    硬编码必然漂移的实证，现在从类别表生成，永不同步遗漏）
+    """
+    labels = ' / '.join(label for _key, label in active_category_choices())
+    return f'category（费用类别，可选，取值：{labels}；传中文显示名或英文 key 均可）'
+
+
 @agent_tool('activities.add_expense', '为活动添加一笔费用（目标可省略，自动归属）',
-            'target（活动名称关键词，可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
+            lambda: 'target（活动名称关键词，可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
             'note 关键词唯一命中的进行中活动，都没有则记入「日常开支」）+ '
             'amount（金额，必填）+ '
-            'category（类别：交通/住宿/餐饮/门票/购物/工作/其他）+ '
+            + _category_hint_fragment() + ' + '
             'note（备注，可选，也参与归属匹配）+ paid_at（消费日期 YYYY-MM-DD，可选；'
             '相对日期需换算：“今天”用当前日期，“昨天”用当前日期减一天）')
 def tool_add_expense(user, params):
@@ -786,7 +797,9 @@ def apply_split_expense(user, params):
 
 
 @agent_tool('activities.split_expense', '将活动的一笔费用 AA 分给所有参与者',
-            'target（活动名称关键词）+ amount（总金额，必填）+ category（类别，可选）+ note（备注，可选）',
+            lambda: 'target（活动名称关键词）+ amount（总金额，必填）+ '
+            + _category_hint_fragment() + ' + '
+            'note（备注，可选）',
             apply_fn=apply_split_expense)
 def tool_split_expense(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'))

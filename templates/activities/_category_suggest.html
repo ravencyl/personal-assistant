@@ -12,20 +12,16 @@ HTMX 分类推荐片段：基于用户历史费用数据推荐类别排序
     fetch('{% url "activities:expense_category_suggest" activity.id %}')
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            var labels = {
-                transport: '交通', accommodation: '住宿', food: '餐饮',
-                ticket: '门票', shopping: '购物', work: '工作',
-                digital: '数码', health: '健康', other: '其他'
-            };
             el.innerHTML = '';
+            // 类别中文名由服务端返回（来自 ExpenseCategory 表），前端不再维护 labels 映射
             (data.categories || []).forEach(function(cat) {
                 var btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'text-xs rounded-full border border-zinc-200 px-2 py-0.5 text-[var(--text-secondary)] hover:bg-zinc-100 transition-colors';
-                btn.textContent = labels[cat] || cat;
+                btn.textContent = cat.label;
                 btn.addEventListener('click', function() {
                     var select = document.querySelector('#expense-form select[name="category"]');
-                    if (select) select.value = cat;
+                    if (select) select.value = cat.key;
                 });
                 el.appendChild(btn);
             });

@@ -242,6 +242,7 @@ def _ai_generate_report(user, data, report_type, period_start, period_end):
 def _fallback_report(data, report_type, period_start, period_end):
     """AI 失败时的纯数据模板报告"""
     from activities.models import Expense
+    from activities.categories import category_label_map
 
     if report_type == 'yearly':
         return _fallback_yearly_report(data, period_start, period_end)
@@ -275,7 +276,7 @@ def _fallback_report(data, report_type, period_start, period_end):
         lines.append('')
         lines.append('| 类别 | 金额 |')
         lines.append('|------|------|')
-        cat_labels = dict(Expense.CATEGORY_CHOICES)
+        cat_labels = category_label_map()
         for cat, amount in sorted(data['expense_by_category'].items(), key=lambda x: -x[1]):
             label = cat_labels.get(cat, cat)
             lines.append(f'| {label} | ¥{amount:.0f} |')
@@ -294,8 +295,9 @@ def _fallback_report(data, report_type, period_start, period_end):
 def _fallback_yearly_report(data, period_start, period_end):
     """年报的纯数据降级模板（含年度里程碑）"""
     from activities.models import Expense
+    from activities.categories import category_label_map
 
-    cat_labels = dict(Expense.CATEGORY_CHOICES)
+    cat_labels = category_label_map()
 
     lines = [
         f'# 年报 · {period_start.year}',

@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from .categories import category_rows, default_category_key
 from .models import Activity, Expense
 from .utils import log_activity, resolve_participants
 
@@ -59,20 +60,23 @@ def clean_amount(raw, *, label='金额', positive=False, required=False):
 def clean_category(raw, *, default=PARSED_EXPENSE_CATEGORY):
     """费用类别 → 合法取值（英文 key 或中文显示名），识别不了静默落 default
 
-    中文→key 的映射直接由 Expense.CATEGORY_CHOICES 反查得出，不另存一份别名表，
-    否则新增类别时这里会漏同步。
+    合法集来自 ExpenseCategory 表（activities.categories，数据库驱动）：
+    - key 全量口径接受（含停用）：编辑历史费用时回传停用 key 不得被静默改写；
+    - 中文 label 反查也是全量口径：用户明确说出的类别词即使已停用也尊重，
+      比静默改成「其他」更符合预期；
+    - default 不在启用集时回落排序第一个启用类别（如「其他」被停用后，
+      解析失败的脏写不能落一个表单里选不到的值）。
     """
     text = str(raw or '').strip()
     if not text:
-        return default
-    choices = dict(Expense.CATEGORY_CHOICES)
-    if text in choices:
+        return default_category_key(default)
+    rows = category_rows()
+    if any(r['key'] == text for r in rows):
         return text
-    return _CATEGORY_BY_LABEL.get(text, default)
-
-
-# 中文显示名 → key（CATEGORY_CHOICES 的反查）
-_CATEGORY_BY_LABEL = {label: key for key, label in dict(Expense.CATEGORY_CHOICES).items()}
+    by_label = {r['label']: r['key'] for r in rows}
+    if text in by_label:
+        return by_label[text]
+    return default_category_key(default)
 
 
 def clean_paid_at(raw, *, invalid='today'):

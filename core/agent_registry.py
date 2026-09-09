@@ -247,6 +247,9 @@ def agent_tool(name, description, params_hint='', apply_fn=None):
                'card_data': 卡片快照数据, 'list_url': 列表页链接, 'changed': 是否写操作,
                'action': 待确认动作 {'tool', 'params'}（两步确认流）}
     apply_fn：两步确认流中确认后的实际执行函数，签名同 fn。
+    params_hint：静态字符串，或 () -> str 的 callable——内容随数据库配置变化的
+    工具（如费用类别清单在 ExpenseCategory 表里，admin 改完即生效）用它，
+    每帧生成协议时实时求值，避免进程常驻后 hint 与数据脱节。
     """
     def deco(fn):
         _REGISTRY[name] = {'fn': fn, 'description': description,
@@ -268,8 +271,16 @@ def build_protocol_prompt(today=None):
         if not tool:
             continue
         line = f'- {intent}：{tool["description"]}'
-        if tool['params_hint']:
-            line += f'。params：{tool["params_hint"]}'
+        hint = tool['params_hint']
+        if callable(hint):
+            # 动态 hint 求值失败不能炸掉整个协议 prompt，降级为无参数说明
+            try:
+                hint = hint()
+            except Exception:
+                logger.warning('动态 params_hint 求值失败: tool=%s', tool_name, exc_info=True)
+                hint = ''
+        if hint:
+            line += f'。params：{hint}'
         lines.append(line)
 
     return (

@@ -1,4 +1,4 @@
-{% load static core_tags %}
+{% load static core_tags activities_tags %}
 <!DOCTYPE html>
 <html lang="zh-CN" class="h-full">
 <head>
@@ -133,15 +133,14 @@
                     <input type="number" name="amount" step="0.01" min="0" placeholder="金额" required
                            class="tap-target flex-none w-24 rounded-full border border-[var(--border-strong)] bg-transparent px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                     <select name="category" class="tap-target flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]">
-                        <option value="food">餐饮</option>
-                        <option value="transport">交通</option>
-                        <option value="accommodation">住宿</option>
-                        <option value="ticket">门票</option>
-                        <option value="shopping">购物</option>
-                        <option value="work">工作</option>
-                        <option value="digital">数码</option>
-                        <option value="health">健康</option>
-                        <option value="other" selected>其他</option>
+                        <!-- 类别清单来自 ExpenseCategory 表（admin 可配，零代码变更）；
+                             默认选中排序第一个启用类别 -->
+                        <!-- simple_tag 需先 as 赋值再循环：直接写在 for 的迭代位置
+                             会被当作未定义变量静默解析为空（不报错，只丢选项） -->
+                        {% active_expense_categories as category_choices %}
+                        {% for val, label in category_choices %}
+                        <option value="{{ val }}" {% if forloop.first %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <input type="text" name="note" placeholder="备注（可选）" maxlength="255"

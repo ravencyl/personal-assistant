@@ -19,6 +19,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from .forms import ActivityForm
+from .categories import (active_category_choices, active_category_keys,
+                         category_cache_token, category_label_map)
 from .models import Activity, Participant, ActivityLog, Expense, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
@@ -390,6 +392,15 @@ def activity_detail(request, activity_id):
     # 费用明细
     expenses = list(activity.expenses.all())
 
+    # 类别下拉：启用类别 + 本活动历史费用里出现过的停用类别（编辑回填时
+    # 若 option 不存在，select 会静默落第一个 option，把历史类别改丢）
+    detail_categories = list(active_category_choices())
+    have = {k for k, _ in detail_categories}
+    for e in expenses:
+        if e.category not in have:
+            have.add(e.category)
+            detail_categories.append((e.category, e.get_category_display()))
+
     # 附件
     attachments = list(activity.attachments.all())
 
@@ -408,7 +419,7 @@ def activity_detail(request, activity_id):
         'status_choices': Activity.STATUS_CHOICES,
         'logs': activity.logs.select_related('user')[:50],
         'expenses': expenses,
-        'expense_categories': Expense.CATEGORY_CHOICES,
+        'expense_categories': detail_categories,
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
         'subtask_done_count': subtask_done_count,
@@ -1150,7 +1161,7 @@ def expense_chart_data(request):
             .annotate(total=Sum('amount'))
             .order_by('-total')
         )
-        category_labels = dict(Expense.CATEGORY_CHOICES)
+        category_labels = category_label_map()
         return JsonResponse({
             'labels': [category_labels.get(d['category'], d['category']) for d in data],
             'values': [float(d['total']) for d in data],
@@ -1169,7 +1180,7 @@ def expense_chart_data(request):
             .annotate(total=Sum('amount'))
             .order_by('-total')
         )
-        category_labels = dict(Expense.CATEGORY_CHOICES)
+        category_labels = category_label_map()
         grand_total = sum(float(d['total']) for d in data)
         items = [{
             'category': d['category'],
@@ -1253,7 +1264,8 @@ def expense_category_suggest(request, activity_id):
     # 仅作为可见性/存在性校验：推荐结果按当前用户费用统计，与该活动无关
     get_visible(Activity, request.user, id=activity_id)
 
-    cache_key = f'expense_cat_dist_{request.user.id}'
+    # 缓存 key 带类别配置指纹：类别一变（admin 增删改停）旧缓存自动失效
+    cache_key = f'expense_cat_dist_{request.user.id}_{category_cache_token()}'
     cat_dist = cache.get(cache_key)
     if cat_dist is None:
         cat_dist = list(
@@ -1261,19 +1273,23 @@ def expense_category_suggest(request, activity_id):
             .values('category').annotate(n=Count('id'))
             .order_by('-n')
         )
-        # 短 TTL：新增费用后类别建议能快速更新（长 TTL 无任何失效点，会整天不变化）
+        # 短 TTL：新增费用后类别建议能快速更新（长 TTL 无任何失效点，会整天不变 化）
         cache.set(cache_key, cat_dist, timeout=300)
-
-    # 按历史频率排序的类别列表；无历史数据时用默认顺序
-    ordered = [c['category'] for c in cat_dist]
-    default = [c[0] for c in Expense.CATEGORY_CHOICES]
-    # 合并：历史有的排前面，没有的补后面
+    
+    # 建议只推启用类别：历史高频但已停用的不再出现；启用的按历史频率排前，
+    # 无历史的补后（按类别表 sort 顺序）
+    choices = active_category_choices()
+    active_set = {k for k, _ in choices}
+    ordered = [c['category'] for c in cat_dist if c['category'] in active_set]
     seen = set(ordered)
-    for c in default:
-        if c not in seen:
-            ordered.append(c)
-
-    return JsonResponse({'categories': ordered})
+    for key, _label in choices:
+        if key not in seen:
+            ordered.append(key)
+    
+    labels = category_label_map()
+    return JsonResponse({'categories': [
+        {'key': key, 'label': labels.get(key, key)} for key in ordered
+    ]})
 
 
 @login_required
