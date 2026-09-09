@@ -2,11 +2,12 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models
-from taggit.models import Tag
 
 from .models import Article
 from .forms import ArticleForm
-from core.utils import used_tags, visible_qs, get_visible
+from core.models import Tag
+from core.tags import apply_tags, used_tags
+from core.utils import visible_qs, get_visible
 
 
 @login_required
@@ -14,10 +15,10 @@ def article_list(request):
     """文章列表，支持标签筛选和关键词搜索"""
     articles = visible_qs(Article, request.user)
     
-    # 标签筛选
+    # 标签筛选（自建 core.Tag 无 slug，直接用标签名匹配）
     tag_slug = request.GET.get('tag')
     if tag_slug:
-        articles = articles.filter(tags__slug=tag_slug)
+        articles = articles.filter(tags__name=tag_slug)
     
     # 关键词搜索
     q = request.GET.get('q', '').strip()
@@ -26,11 +27,10 @@ def article_list(request):
             models.Q(title__icontains=q) | models.Q(content__icontains=q)
         )
     
-    # 获取所有用过的标签（限定 content_type，否则 taggit 的 object_id 会跨模型撞号，
-    # 把笔记/活动的标签混进文章标签栏）
-    all_tags = used_tags(Article, visible_qs(Article, request.user))
+    # 用过的标签（core.tags 按 scope='knowledge' + 可见性过滤，天然不含别的模块）
+    all_tags = used_tags('knowledge', request.user)
     
-    current_tag = Tag.objects.filter(slug=tag_slug).first() if tag_slug else None
+    current_tag = Tag.objects.filter(scope='knowledge', name=tag_slug).first() if tag_slug else None
     
     return render(request, 'knowledge/article_list.html', {
         'articles': articles,
@@ -65,7 +65,7 @@ def article_create(request):
             article = form.save(commit=False)
             article.user = request.user
             article.save()
-            form.save_m2m()  # 保存标签
+            apply_tags(article, form.cleaned_data.get('tags'))  # 保存标签
             messages.success(request, f'文章「{article.title}」已创建')
             return redirect('knowledge:article_detail', slug=article.slug)
     else:
@@ -86,6 +86,7 @@ def article_edit(request, pk):
         form = ArticleForm(request.POST, instance=article)
         if form.is_valid():
             article = form.save()
+            apply_tags(article, form.cleaned_data.get('tags'))
             messages.success(request, f'文章「{article.title}」已更新')
             return redirect('knowledge:article_detail', slug=article.slug)
     else:

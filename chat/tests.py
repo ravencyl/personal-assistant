@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from core.tags import apply_tags
 from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
@@ -1052,7 +1053,7 @@ class ChatPinTest(TestCase):
             start_date=today + timedelta(days=30),
             description='住皇后镇，含跳伞')
         self.activity.participants.add(Participant.objects.create(user=self.user, name='YYX'))
-        self.activity.tags.add('新西兰')
+        apply_tags(self.activity, ['新西兰'])
         self.foreign = Activity.objects.create(user=self.other, name='别人的活动')
 
     @property
@@ -1149,7 +1150,7 @@ class ChatPinTest(TestCase):
         """用户记得的是「新西兰」而不是活动全名，所以标签也参与匹配"""
         from activities.models import Activity
         trip = Activity.objects.create(user=self.user, name='10 月出行', status='planned')
-        trip.tags.add('新西兰')
+        apply_tags(trip, ['新西兰'])
         names = [c['name'] for c in
                  self.client.get('/chat/pin/search/', {'q': '新西兰'}).json()['candidates']]
         self.assertIn('10 月出行', names)

@@ -4,6 +4,7 @@
 约定：权限一律按 user 过滤；目标不明确时抛 ToolError 让用户澄清。
 """
 from core.agent_registry import ToolError, agent_tool
+from core.tags import apply_tags
 from .models import Note
 
 
@@ -15,9 +16,9 @@ def tool_notes_create(user, params):
         raise ToolError('请告诉我备忘录的内容')
 
     note = Note.objects.create(user=user, content=content)
-    tags = params.get('tags') or []
+    tags = params.get('tags')
     if tags:
-        note.tags.add(*tags)
+        apply_tags(note, tags)
 
     return {
         'reply': f'已创建备忘录：「{content[:50]}{"..." if len(content) > 50 else ""}」',

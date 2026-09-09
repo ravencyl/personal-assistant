@@ -9,6 +9,10 @@ from django.contrib.auth.models import User
 from django.test import (TestCase, Client, RequestFactory, SimpleTestCase,
                      override_settings)
 from django.urls import reverse
+
+from core.tags import (add_tags, apply_tags, active_tag_names, split_tag_names,
+                       tag_names, tag_suggestions, used_tags)
+from core.models import Tag
 from activities.models import Activity, Expense
 from knowledge.models import Article
 from notes.models import Note
@@ -32,18 +36,18 @@ class CrossLinkTest(TestCase):
         self.user = User.objects.create_user('testuser', password='test')
         # 创建带标签的活动
         self.activity = Activity.objects.create(user=self.user, name='桐庐旅行')
-        self.activity.tags.add('旅行', '周末')
+        apply_tags(self.activity, ['旅行', '周末'])
 
         # 创建带共同标签的知识库文章
         self.article1 = Article.objects.create(user=self.user, title='桐庐攻略', content='详细攻略...')
-        self.article1.tags.add('旅行', '桐庐')
+        apply_tags(self.article1, ['旅行', '桐庐'])
 
         self.article2 = Article.objects.create(user=self.user, title='杭州周边游', content='推荐...')
-        self.article2.tags.add('旅行')
+        apply_tags(self.article2, ['旅行'])
 
         # 创建带共同标签的笔记
         self.note1 = Note.objects.create(user=self.user, content='周末去桐庐玩，记得带泳衣')
-        self.note1.tags.add('旅行', '周末')
+        apply_tags(self.note1, ['旅行', '周末'])
 
     def test_tag_intersection_basic(self):
         """标签交集计算正确"""
@@ -100,7 +104,7 @@ class CrossLinkTest(TestCase):
         # 使用一个名称分词后能独立匹配 article3 的活动
         # "桐庐" 分词为 ["桐庐"]，article3 标题含 "桐庐" → icontains 匹配
         activity2 = Activity.objects.create(user=self.user, name='桐庐')
-        activity2.tags.add('户外')  # 与 article3 无标签交集
+        apply_tags(activity2, ['户外'])  # 与 article3 无标签交集
         related = get_related_content(self.user, Activity, activity2, limit=10)
         article_ids = [r['object'].id for r in related['articles']]
         self.assertIn(article3.id, article_ids)
@@ -115,7 +119,7 @@ class CrossLinkTest(TestCase):
         """推荐结果不包含源实例自身（同模型类型时）"""
         # 创建两个互相有共同标签的活动
         activity2 = Activity.objects.create(user=self.user, name='杭州周末游')
-        activity2.tags.add('旅行', '周末')
+        apply_tags(activity2, ['旅行', '周末'])
         related = get_related_content(self.user, Activity, activity2, limit=5)
         # 结果中不应包含 activity2 自身（Activity 结果在 'articles'/'notes' 里，不含 'activities'）
         self.assertNotIn('activities', related)
@@ -137,7 +141,7 @@ class GlobalSearchTest(TestCase):
 
         # 创建测试数据
         self.activity = Activity.objects.create(user=self.user, name='桐庐旅行计划')
-        self.activity.tags.add('旅行')
+        apply_tags(self.activity, ['旅行'])
 
         self.article = Article.objects.create(user=self.user, title='桐庐攻略', content='详细攻略内容')
         self.note = Note.objects.create(user=self.user, content='周末去桐庐玩')
@@ -400,7 +404,7 @@ class VisibilityHelperTest(TestCase):
 
     def test_q_or_matches_any_field(self):
         a = Activity.objects.create(user=self.owner, name='骑行计划')
-        a.tags.add('运动')
+        apply_tags(a, ['运动'])
         Activity.objects.create(user=self.owner, name='工作总结')
         qs = Activity.objects.filter(q_or(('name', 'tags__name'), '运动'))
         self.assertEqual(list(qs), [a])
@@ -1363,3 +1367,104 @@ class FollowUpLineTest(SimpleTestCase):
         content, payload, _ = orchestrator.process(user, text)
         self.assertEqual(content, '好的。')
         self.assertEqual(payload['follow_ups'], ['看看本周安排'])
+
+
+class TagConfigTest(TestCase):
+    """自建 core.Tag 标签体系：scope 隔离 / 停用兼容 / 清洗口径 / 各入口一致"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='测试活动')
+        self.expense = Expense.objects.create(
+            activity=self.activity, user=self.user, amount=Decimal('99.00'))
+
+    def test_scope_isolation_same_name(self):
+        """同名标签跨 scope 是不同实体，互不干扰"""
+        apply_tags(self.activity, ['旅行'])
+        apply_tags(self.expense, ['旅行'])
+        apply_tags(Note.objects.create(user=self.user, content='x'), ['旅行'])
+        self.assertEqual(Tag.objects.filter(name='旅行').count(), 3)
+        self.assertEqual(
+            {t.scope for t in Tag.objects.filter(name='旅行')},
+            {'activity', 'expense', 'note'})
+
+    def test_used_tags_filters_by_scope_and_visibility(self):
+        """used_tags 只返回该 scope 且该用户可见对象上的标签"""
+        apply_tags(self.activity, ['团建'])
+        apply_tags(self.expense, ['差旅'])
+        self.assertEqual(set(used_tags('activity', self.user).values_list('name', flat=True)),
+                         {'团建'})
+        self.assertEqual(set(used_tags('expense', self.user).values_list('name', flat=True)),
+                         {'差旅'})
+        self.assertEqual(used_tags('knowledge', self.user).count(), 0)
+
+    def test_apply_tags_set_semantics_and_clear(self):
+        """apply_tags 整体替换，空列表 = 清空"""
+        apply_tags(self.activity, ['a', 'b'])
+        apply_tags(self.activity, ['b', 'c'])
+        self.assertEqual(set(tag_names(self.activity)), {'b', 'c'})
+        apply_tags(self.activity, [])
+        self.assertEqual(tag_names(self.activity), [])
+
+    def test_add_tags_append_semantics(self):
+        """add_tags 追加不覆盖"""
+        apply_tags(self.activity, ['a'])
+        add_tags(self.activity, ['b', 'a'])
+        self.assertEqual(set(tag_names(self.activity)), {'a', 'b'})
+
+    def test_split_tag_names_cleanup(self):
+        """中英文逗号/顿号分隔 + 去空去重 + 限量"""
+        self.assertEqual(split_tag_names('a，b、c,d , ,a'),
+                         ['a', 'b', 'c', 'd'])
+        self.assertEqual(split_tag_names(['x', 'y、z']), ['x', 'y', 'z'])
+        self.assertEqual(len(split_tag_names([f'n{i}' for i in range(20)])), 10)
+
+    def test_deactivated_tag_reused_not_revived(self):
+        """停用标签被显式输入时直接复用（不复活、不重建），建议列表不再推荐"""
+        apply_tags(self.activity, ['旧标签'])
+        tag = Tag.objects.get(scope='activity', name='旧标签')
+        tag.is_active = False
+        tag.save()
+        self.assertNotIn('旧标签', active_tag_names('activity'))
+        # 建议列表仍包含用户用过的停用标签（编辑历史对象时回填不能丢）
+        self.assertIn('旧标签', tag_suggestions('activity', self.user))
+        # 再写入不创建新行
+        apply_tags(self.activity, ['旧标签'])
+        self.assertEqual(Tag.objects.filter(scope='activity', name='旧标签').count(), 1)
+        tag.refresh_from_db()
+        self.assertFalse(tag.is_active)
+
+    def test_suggestions_prebuilt_first_then_used(self):
+        """预建启用标签在前（sort 序），用户用过的补后去重"""
+        Tag.objects.create(scope='activity', name='预建甲', sort=1)
+        Tag.objects.create(scope='activity', name='预建乙', sort=0)
+        Tag.objects.create(scope='activity', name='停用丙', sort=2, is_active=False)
+        apply_tags(self.activity, ['用过的'])
+        names = tag_suggestions('activity', self.user)
+        self.assertEqual(names[:2], ['预建乙', '预建甲'])
+        self.assertNotIn('停用丙', names[:2])
+        self.assertIn('用过的', names)
+
+    def test_tag_suggestions_scope_separated_for_forms(self):
+        """费用表单建议只含 expense scope，与活动标签隔离（各入口口径一致）"""
+        apply_tags(self.activity, ['活动专属'])
+        apply_tags(self.expense, ['费用专属'])
+        self.assertIn('活动专属', tag_suggestions('activity', self.user))
+        self.assertNotIn('活动专属', tag_suggestions('expense', self.user))
+        self.assertIn('费用专属', tag_suggestions('expense', self.user))
+
+    def test_expense_tag_via_add_expense_service(self):
+        """AI 记账/视图层共用 add_expense 服务：tags 参数落库为 expense scope"""
+        from activities.services import add_expense
+        expense = add_expense(self.activity, self.user, '66.5',
+                              category='transport', tags='通勤,地铁')
+        self.assertEqual(set(tag_names(expense)), {'通勤', '地铁'})
+        self.assertEqual(
+            set(used_tags('expense', self.user).values_list('name', flat=True)),
+            {'通勤', '地铁'})
+
+    def test_scope_of_rejects_unregistered_model(self):
+        """未注册的标签宿主模型直接报错，不静默写错 scope"""
+        from core.tags import _scope_of
+        with self.assertRaises(ValueError):
+            _scope_of(self.user)

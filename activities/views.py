@@ -30,8 +30,9 @@ from .utils import (edit_summary, filter_activities, get_filter_params, log_acti
 from .services import (InputError, add_expense, clean_amount, clean_category,
                        clean_paid_at, create_activity_from_parsed,
                        start_due_activities)
+from core.tags import apply_tags, tag_names, tag_suggestions
 from core.utils import (visible_qs, get_visible, wants_json,
-                        used_tag_names, week_monday, pct_change, daily_totals,
+                        week_monday, pct_change, daily_totals,
                         WEEKDAY_LABELS, WEEKDAY_SHORT)
 from core.ai import ai_round_trip, extract_json_dict
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
@@ -40,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 
 def _user_tag_names(user):
-    """可见范围内活动上使用过的全部标签名（供表单 autocomplete 建议）"""
-    return used_tag_names(Activity, visible_qs(Activity, user))
+    """autocomplete 建议源：预建启用标签在前 + 用户用过的补后（core.Tag scope 口径）"""
+    return tag_suggestions('activity', user)
 
 
 @login_required
@@ -389,8 +390,10 @@ def activity_detail(request, activity_id):
 
     children = _subactivity_timeline(activity)
 
-    # 费用明细
+    # 费用明细（tags_str 供模板徽章展示与编辑回填一次取齐，避免模板里 join 不动 M2M）
     expenses = list(activity.expenses.all())
+    for e in expenses:
+        e.tags_str = ', '.join(e.tags.values_list('name', flat=True))
 
     # 类别下拉：启用类别 + 本活动历史费用里出现过的停用类别（编辑回填时
     # 若 option 不存在，select 会静默落第一个 option，把历史类别改丢）
@@ -425,8 +428,10 @@ def activity_detail(request, activity_id):
         'subtask_done_count': subtask_done_count,
         'related_articles': related.get('articles', []),
         'related_notes': related.get('notes', []),
-        # 手动内联创建子任务表单的 autocomplete 建议
+        # 手动内联创建子任务表单的 autocomplete 建议（scope=activity）
         'tag_suggestions': _user_tag_names(request.user),
+        # 费用表单的 autocomplete 建议（scope=expense，与活动标签隔离）
+        'expense_tag_suggestions': tag_suggestions('expense', request.user),
         'participant_suggestions': list(Participant.objects.filter(
             user=activity.user).values_list('name', flat=True).order_by('name')),
     })
@@ -477,6 +482,8 @@ def activity_create(request):
             activity.user = request.user
             activity.save()
             form.save_m2m()
+            # tags 已改为普通文本字段（core.Tag M2M），ModelForm 不再代管，视图落库
+            apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
             children = form.save_children(activity)
             expense = form.save_cost(activity)
@@ -520,6 +527,7 @@ def activity_edit(request, activity_id):
         form = ActivityForm(request.POST, instance=activity, user=owner)
         if form.is_valid():
             form.save()
+            apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
             log_activity(request.user, activity, 'edited', edit_summary(old, activity))
             messages.success(request, f'活动「{activity.name}」已更新')
@@ -662,7 +670,7 @@ def subactivity_manual_create(request, activity_id):
         add_expense(child, activity.user, amount, note=f'子任务「{child.name}」费用')
     tags = _split_name_input(data.get('tags'))
     if tags:
-        child.tags.add(*tags)
+        apply_tags(child, tags)
     participant_names = _split_name_input(data.get('participants'))
     created = []
     if participant_names:
@@ -703,6 +711,7 @@ def expense_create(request, activity_id):
             paid_at=request.POST.get('paid_at'),
             note=request.POST.get('note'),
             positive=True,
+            tags=request.POST.get('tags'),
         )
         if expense is None:
             raise InputError('金额不能为空')
@@ -749,6 +758,7 @@ def expense_quick_create(request):
             paid_at=request.POST.get('paid_at'),
             note=request.POST.get('note'),
             positive=True,
+            tags=request.POST.get('tags'),
         )
         if expense is None:
             raise InputError('费用金额不能为空')
@@ -786,6 +796,7 @@ def expense_edit(request, expense_id):
     expense.paid_at = clean_paid_at(request.POST.get('paid_at'), invalid=None)
     expense.note = request.POST.get('note', '').strip()[:255]
     expense.save()
+    apply_tags(expense, request.POST.get('tags'))
     log_activity(request.user, activity, 'edited',
                  f'编辑费用 ¥{amount} [{expense.get_category_display()}]'
                  + (f' {expense.note}' if expense.note else ''))
@@ -797,6 +808,7 @@ def expense_edit(request, expense_id):
             'category': expense.get_category_display(),
             'note': expense.note,
             'paid_at': expense.paid_at,
+            'tags': tag_names(expense),
         })
     return redirect('activities:activity_detail', activity.id)
 
@@ -975,7 +987,7 @@ def calendar_data(request):
             'status': a.status,
             'status_label': a.get_status_display(),
             'url': reverse('activities:activity_detail', args=[a.id]),
-            'tags': list(a.tags.names()),
+            'tags': tag_names(a),
         })
 
     return JsonResponse({'activities': data})
@@ -1164,6 +1176,21 @@ def expense_chart_data(request):
         category_labels = category_label_map()
         return JsonResponse({
             'labels': [category_labels.get(d['category'], d['category']) for d in data],
+            'values': [float(d['total']) for d in data],
+        })
+
+    elif range_type == 'tag':
+        # 标签饼图（近 12 个月；一笔费用可多标签，各标签独立计入金额）
+        year_ago = today - timedelta(days=365)
+        data = list(
+            qs.filter(paid_at__gte=year_ago)
+            .values('tags__name')
+            .annotate(total=Sum('amount'))
+            .order_by('-total')
+            .exclude(tags__name__isnull=True)
+        )
+        return JsonResponse({
+            'labels': [d['tags__name'] for d in data],
             'values': [float(d['total']) for d in data],
         })
 

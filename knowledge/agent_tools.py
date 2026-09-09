@@ -11,6 +11,7 @@ from urllib.parse import unquote
 from django.urls import reverse
 
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
+from core.tags import add_tags, apply_tags
 from core.utils import visible_qs
 
 from .models import Article
@@ -111,7 +112,7 @@ def tool_knowledge_create(user, params):
     article = Article.objects.create(user=user, title=title[:255], content=content)
     tags = _parse_tags(params.get('tags'))
     if tags:
-        article.tags.add(*tags)
+        apply_tags(article, tags)
 
     url = _article_url(article)
     tag_note = f'，标签：{"、".join(tags)}' if tags else ''
@@ -183,7 +184,7 @@ def tool_knowledge_update(user, params):
         existing = set(article.tags.values_list('name', flat=True))
         fresh = [t for t in tags if t not in existing]
         if fresh:
-            article.tags.add(*fresh)
+            add_tags(article, fresh)
             changes.append('追加标签：' + '、'.join(fresh))
     if not changes:
         return {'reply': f'《{article.title}》已经是最新内容，没有需要修改的地方',

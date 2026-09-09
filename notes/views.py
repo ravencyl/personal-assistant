@@ -8,19 +8,20 @@ from django.views.decorators.http import require_POST
 
 from .forms import NoteForm
 from .models import Note
-from core.utils import used_tag_names, visible_qs, get_visible
+from core.tags import apply_tags, tag_suggestions
+from core.utils import visible_qs, get_visible
 from core.utils import wants_json as is_json_request
 
 logger = logging.getLogger(__name__)
 
 
 def _user_tag_names(user):
-    """可见笔记中使用过的全部标签名（供筛选栏展示）
+    """筛选栏/autocomplete 建议源：预建启用标签在前 + 用户用过的补后
 
-    走 visible_qs 而不是 filter(user=)：超级用户要能看到全部笔记的标签，
-    与活动模块同一口径（AGENTS.md 数据可见性规则）。
+    走 core.tags（scope='note'），内部经 visible_qs 过滤：超级用户能看到
+    全部笔记的标签，与活动模块同一口径（AGENTS.md 数据可见性规则）。
     """
-    return used_tag_names(Note, visible_qs(Note, user))
+    return tag_suggestions('note', user)
 
 
 @login_required
@@ -72,11 +73,9 @@ def note_create(request):
         pinned=pinned,
     )
 
-    # 处理标签（逗号分隔）
+    # 处理标签（分隔符清洗与 scope 隔离统一走 core.tags）
     if tags_str:
-        tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
-        if tag_names:
-            note.tags.add(*tag_names)
+        apply_tags(note, tags_str)
 
     if wants_json:
         return JsonResponse({'success': True, 'id': note.id, 'content': note.content})
@@ -94,6 +93,7 @@ def note_edit(request, note_id):
         form = NoteForm(request.POST, instance=note)
         if form.is_valid():
             form.save()
+            apply_tags(note, form.cleaned_data.get('tags'))
             messages.success(request, '备忘录已更新')
             return redirect('notes:note_list')
     else:

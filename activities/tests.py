@@ -11,6 +11,7 @@ from django.conf import settings
 from django.test import TestCase, Client, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
+from core.tags import apply_tags
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -145,7 +146,7 @@ class ActivitySearchTest(TestCase):
         a1 = Activity.objects.create(user=self.user, name='团建策划')
         a2 = Activity.objects.create(user=self.user, name='会议', description='季度团建复盘')
         a3 = Activity.objects.create(user=self.user, name='爬山')
-        a3.tags.add('团建活动')
+        apply_tags(a3, ['团建活动'])
         a4 = Activity.objects.create(user=self.user, name='晚餐')
         p = Participant.objects.create(user=self.user, name='团建达人小王')
         a4.participants.add(p)
@@ -1166,11 +1167,11 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         Expense.objects.create(activity=self.parent, user=self.user,
                                amount=Decimal('500'), category='food')
         # 右列三个条件渲染块（参与者/关联等）不带数据就整块不渲染，顺序锁会空跑
-        self.parent.tags.add('自驾')
+        apply_tags(self.parent, ['自驾'])
         self.parent.participants.add(
             Participant.objects.create(user=self.user, name='小王'))
         note = Note.objects.create(user=self.user, content='新西兰南岛自驾路线草稿')
-        note.tags.add('自驾')
+        apply_tags(note, ['自驾'])
         ActivityLog.objects.create(user=self.user, activity=self.parent,
                                    action='created', summary='手动创建')
         resp = self.client.get(f'/activities/{self.parent.id}/')

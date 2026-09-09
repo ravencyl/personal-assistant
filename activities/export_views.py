@@ -41,7 +41,7 @@ def export_csv(request):
         yield bom + buf.getvalue()
 
         for a in activities:
-            tags = ','.join(a.tags.names())
+            tags = ','.join(a.tags.values_list('name', flat=True))
             participants = ','.join(a.participants.values_list('name', flat=True))
             expense_total = float(expense_totals.get(a.id, 0) or 0)
             buf = io.StringIO()
@@ -65,7 +65,7 @@ def export_csv(request):
 
 def _activity_to_dict(activity, expense_totals, children_map):
     """将活动对象序列化为字典（含嵌套子任务）"""
-    tags = list(activity.tags.names()) if hasattr(activity.tags, 'names') else []
+    tags = list(activity.tags.values_list('name', flat=True))
     participants = list(activity.participants.values_list('name', flat=True))
     expense_total = float(expense_totals.get(activity.id, 0) or 0)
 

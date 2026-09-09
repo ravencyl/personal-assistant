@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from core.tags import apply_tags
 from django.core.cache import cache
 from django.test import TestCase, Client, override_settings
 
@@ -38,7 +39,7 @@ class KnowledgeCreateAgentToolTest(TestCase):
                                      'tags': ['出差', '签证']})
         article = Article.objects.get(title='美国出差准备清单')
         self.assertEqual(article.user, self.user)
-        self.assertEqual(set(article.tags.names()), {'出差', '签证'})
+        self.assertEqual(set(article.tags.values_list('name', flat=True)), {'出差', '签证'})
         self.assertTrue(result['changed'])
         # 回复里要带可读、可点的文章链接（不能被百分号编码成一串乱码）
         self.assertIn(f'/knowledge/{article.slug}/', result['reply'])
@@ -65,7 +66,7 @@ class KnowledgeCreateAgentToolTest(TestCase):
         _create(self.user, {'title': '标签拆分', 'content': self.content,
                             'tags': '签证、EVUS，面签，EVUS'})
         article = Article.objects.get(title='标签拆分')
-        self.assertEqual(set(article.tags.names()), {'签证', 'EVUS', '面签'})
+        self.assertEqual(set(article.tags.values_list('name', flat=True)), {'签证', 'EVUS', '面签'})
 
     def test_missing_title_or_content_raises_tool_error(self):
         with self.assertRaises(ToolError):
@@ -167,10 +168,10 @@ class KnowledgeUpdateAgentToolTest(TestCase):
         self.assertFalse(result['changed'])
 
     def test_tags_are_merged_not_replaced(self):
-        self.article.tags.add('漂流')
+        apply_tags(self.article, ['漂流'])
         _update(self.user, {'target': '桐庐', 'tags': ['漂流', '周末游']})
         self.article.refresh_from_db()
-        self.assertEqual(set(self.article.tags.names()), {'漂流', '周末游'})
+        self.assertEqual(set(self.article.tags.values_list('name', flat=True)), {'漂流', '周末游'})
 
     def test_retitle_keeps_slug_stable(self):
         """改标题不能换 slug，否则对话里刚发出去的链接立刻失效"""
@@ -195,7 +196,7 @@ class ArticleListDesktopLayoutTest(TestCase):
         self.client.login(username='raven', password='test')
         article = Article.objects.create(user=self.user, title='桐庐周末游',
                                          content='# 行程\n龙井峡漂流')
-        article.tags.add('亲子')
+        apply_tags(article, ['亲子'])
         self.html = self.client.get('/knowledge/').content.decode()
 
     def test_desktop_two_columns(self):
@@ -229,12 +230,12 @@ class ArticleDetailDesktopLayoutTest(TestCase):
         self.client.login(username='raven', password='test')
         self.article = Article.objects.create(user=self.user, title='桐庐周末游',
                                               content='# 行程\n\n龙井峡漂流，记得带泳衣。')
-        self.article.tags.add('自驾')
+        apply_tags(self.article, ['自驾'])
         # 「相关活动与笔记」是条件块，没有共同标签就整块不渲染，顺序锁会空跑
         trip = Activity.objects.create(user=self.user, name='新西兰之旅')
-        trip.tags.add('自驾')
+        apply_tags(trip, ['自驾'])
         note = Note.objects.create(user=self.user, content='新西兰南岛自驾路线草稿')
-        note.tags.add('自驾')
+        apply_tags(note, ['自驾'])
         self.html = self.client.get(f'/knowledge/{self.article.slug}/').content.decode()
 
     def test_desktop_two_columns(self):

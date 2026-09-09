@@ -3,7 +3,8 @@ import hashlib
 from django.db import models
 from django.conf import settings
 from django.utils.text import slugify
-from taggit.managers import TaggableManager
+
+from core.models import Tag
 
 
 class Article(models.Model):
@@ -16,7 +17,7 @@ class Article(models.Model):
     title = models.CharField('标题', max_length=255)
     slug = models.SlugField('URL 标识', max_length=255, unique=True, blank=True)
     content = models.TextField('内容（Markdown）')
-    tags = TaggableManager(blank=True, verbose_name='标签')
+    tags = models.ManyToManyField(Tag, blank=True, verbose_name='标签')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # QMind 云端镜像状态（knowledge.qmind_sync）：source_id 用于更新/删除时定位云端源，

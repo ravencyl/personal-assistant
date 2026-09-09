@@ -7,7 +7,6 @@ get_related_content() 返回除源模型外的另外两个模块的推荐结果�
 键名统一为模型名小写复数形式（'activities' / 'articles' / 'notes'）。
 """
 import logging
-from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import models
 from django.db.models import Count
@@ -55,7 +54,8 @@ def get_related_content(user, source_model, source_instance, limit=5):
     if cached is not None:
         return cached
 
-    source_tags = list(source_instance.tags.names())
+    from core.tags import tag_names
+    source_tags = tag_names(source_instance)
 
     # 确定需要查询的目标类别（排除源模型自身）
     target_keys = [k for k in _TARGETS if k != source_key]
@@ -89,28 +89,21 @@ def get_related_content(user, source_model, source_instance, limit=5):
 
 
 def _tag_intersection_scores(source_tags, target_model, target_qs, limit=5):
-    """计算目标模型中每个对象与源标签的交集数量，按交集大小排序"""
+    """计算目标模型中每个对象与源标签的交集数量，按交集大小排序
+
+    自建 core.Tag 后所有标签宿主模型的 M2M 正向名统一为 tags，
+    不再需要 taggit 时代按 content_type 限定多态表。
+    """
     if not source_tags:
         return []
 
-    ct = ContentType.objects.get_for_model(target_model)
-    from taggit.models import TaggedItem
-
-    tagged = TaggedItem.objects.filter(
-        content_type=ct,
-        tag__name__in=source_tags,
-    ).values('object_id').annotate(
-        shared_count=Count('tag', distinct=True)
-    ).filter(shared_count__gte=1).order_by('-shared_count')
-
-    top_ids = [t['object_id'] for t in tagged[:limit * 2]]
-    objects = {obj.id: obj for obj in target_qs.filter(id__in=top_ids)}
+    tagged = (target_qs.filter(tags__name__in=source_tags)
+              .annotate(shared_count=Count('tags', distinct=True))
+              .order_by('-shared_count'))
 
     results = []
-    for t in tagged[:limit]:
-        obj = objects.get(t['object_id'])
-        if obj:
-            results.append({'object': obj, 'score': t['shared_count']})
+    for obj in tagged[:limit]:
+        results.append({'object': obj, 'score': obj.shared_count})
     return results
 
 

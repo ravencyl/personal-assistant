@@ -28,7 +28,7 @@
 
     <form method="get" class="flex gap-2">
         {% if current_tag %}
-        <input type="hidden" name="tag" value="{{ current_tag.slug }}">
+        <input type="hidden" name="tag" value="{{ current_tag.name }}">
         {% endif %}
         <input type="search" name="q" value="{{ query }}" placeholder="搜索文章..."
                class="flex-1 min-w-0 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
@@ -42,7 +42,7 @@
             全部
         </a>
         {% for tag in all_tags %}
-        <a href="?tag={{ tag.slug }}{% if query %}&q={{ query }}{% endif %}"
+        <a href="?tag={{ tag.name }}{% if query %}&q={{ query }}{% endif %}"
            class="inline-flex items-center px-3 py-1 text-xs font-medium rounded-full border transition-colors {% if current_tag.slug == tag.slug %}bg-[var(--accent)] text-white border-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--text)]{% endif %}">
             {{ tag.name }}
         </a>

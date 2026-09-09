@@ -17,6 +17,7 @@ from django.utils import timezone
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
+from core.tags import add_tags, apply_tags, tag_names
 from .categories import active_category_choices, category_label_map
 from .models import Activity, Expense
 from .services import (InputError, add_expense, clean_amount, clean_category,
@@ -61,7 +62,7 @@ def _activity_card_data(activity):
         'date_range': activity.date_range,
         'expense_total': float(activity.total_cost or 0),
         'description': activity.description,
-        'tags': list(activity.tags.names()),
+        'tags': tag_names(activity),
         'participants': list(activity.participants.values_list('name', flat=True)),
         'children': [_child_summary(c) for c in activity.children.all()[:6]],
         'children_count': activity.children.count(),
@@ -342,7 +343,7 @@ def _update_preview(user, params):
     participant_skipped = []
     for key, label in (('tags', '标签'), ('participants', '参与者')):
         if key in data:
-            old_set = set(activity.tags.names()) if key == 'tags' else \
+            old_set = set(tag_names(activity)) if key == 'tags' else \
                 set(activity.participants.values_list('name', flat=True))
             if key == 'participants':
                 # 预览就要反映真实结果：未命中的名字不会出现，全部未命中时保持原参与者不变
@@ -377,7 +378,7 @@ def apply_update(user, params):
             setattr(activity, field, data[field])
     activity.save()
     if 'tags' in data:
-        activity.tags.set(*data['tags'])
+        apply_tags(activity, data['tags'])
     skipped_participants = []
     if 'participants' in data:
         participants, skipped_participants, _created = resolve_participants(user, data['participants'])
@@ -713,6 +714,7 @@ def tool_add_expense(user, params):
         category=clean_category(params.get('category')),
         paid_at=params.get('paid_at'),
         note=note,
+        tags=params.get('tags'),
     )
     log_activity(user, activity, 'edited',
                  f'添加费用 ¥{expense.amount} [{expense.get_category_display()}]'

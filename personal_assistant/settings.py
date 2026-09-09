@@ -42,8 +42,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third-party
-    'taggit',
     'django_htmx',
+    'taggit',
 
     # Project apps
     'core',

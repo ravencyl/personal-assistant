@@ -78,6 +78,15 @@
         </div>
     </div>
 
+    <!-- 标签饼图（scope=expense 的费用标签；无标签时不渲染图例） -->
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
+        <h2 class="text-sm font-semibold text-[var(--text)] mb-4">标签占比（近一年）</h2>
+        <div style="position:relative; height:220px;">
+            <canvas id="tagChart"></canvas>
+        </div>
+        <p id="tagChartEmpty" class="hidden text-sm text-[var(--text-muted)] text-center py-6">还没有带标签的费用记录</p>
+    </div>
+
     <!-- 周度对比柱状图 -->
     <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
         <h2 class="text-sm font-semibold text-[var(--text)] mb-4">本周 vs 上周</h2>
@@ -169,6 +178,38 @@
             if (!data.labels || !data.labels.length) return;
             var palette = ['#18181b', '#52525b', '#71717a', '#a1a1aa', '#d4d4d8', '#e4e4e7', '#f4f4f5'];
             new Chart(document.getElementById('categoryChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        data: data.values,
+                        backgroundColor: palette,
+                        borderWidth: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: textColor, font: { size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 8 }
+                        }
+                    }
+                }
+            });
+        });
+
+    // 标签饼图（一笔费用多标签时各标签独立计入）
+    fetch('{% url "activities:expense_chart_data" %}?range=tag')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.labels || !data.labels.length) {
+                document.getElementById('tagChartEmpty').classList.remove('hidden');
+                return;
+            }
+            var palette = ['#18181b', '#52525b', '#71717a', '#a1a1aa', '#d4d4d8', '#e4e4e7', '#f4f4f5'];
+            new Chart(document.getElementById('tagChart'), {
                 type: 'doughnut',
                 data: {
                     labels: data.labels,

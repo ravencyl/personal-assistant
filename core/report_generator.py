@@ -114,18 +114,13 @@ def collect_report_data(user, report_type, period_start, period_end):
                 'status': a.status,
             })
 
-    # 最常用标签 Top 5
-    from taggit.models import Tag, TaggedItem
-    from django.contrib.contenttypes.models import ContentType
-    ct = ContentType.objects.get_for_model(Activity)
-    activity_ids = activities.values_list('id', flat=True)
+    # 最常用标签 Top 5（自建 core.Tag 后直接走 Activity M2M 正向查询）
     top_tags = list(
-        TaggedItem.objects.filter(
-            content_type=ct,
-            object_id__in=activity_ids,
-        ).values('tag__name').annotate(
-            n=Count('id')
-        ).order_by('-n').values_list('tag__name', 'n')[:5]
+        activities.exclude(tags__isnull=True)
+        .values('tags__name')
+        .annotate(n=Count('id'))
+        .order_by('-n')
+        .values_list('tags__name', 'n')[:5]
     )
 
     # 上一周期费用（环比）：年报对比上一自然年，其余按等长前置区间
@@ -364,11 +359,13 @@ def save_report_to_knowledge(user, report_type, title, content):
     """将报告保存为知识库 Article + 标签"""
     from knowledge.models import Article
 
+    from core.tags import add_tags
+
     article = Article.objects.create(
         user=user,
         title=title,
         content=content,
     )
     tag_map = {'weekly': 'report-weekly', 'monthly': 'report-monthly', 'yearly': 'report-yearly'}
-    article.tags.add(tag_map.get(report_type, 'report-monthly'))
+    add_tags(article, [tag_map.get(report_type, 'report-monthly')])
     return article

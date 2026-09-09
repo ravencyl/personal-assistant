@@ -119,8 +119,9 @@ ActivityAdmin.inlines = [ExpenseInline]
 class ExpenseAdmin(admin.ModelAdmin):
     list_display = ['amount', 'category', 'activity', 'paid_at', 'note', 'created_at']
     list_filter = [ExpenseCategoryFilter]
-    search_fields = ['note', 'activity__name']
+    search_fields = ['note', 'activity__name', 'tags__name']
     readonly_fields = ['user', 'created_at', 'updated_at']
+    filter_horizontal = ['tags']
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name == 'category':

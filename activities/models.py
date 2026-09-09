@@ -1,8 +1,8 @@
 from django.db import models
 from django.db.models import Sum
 from django.conf import settings
-from taggit.managers import TaggableManager
 
+from core.models import Tag
 from .categories import category_label_map
 
 
@@ -56,7 +56,9 @@ class Activity(models.Model):
         related_name='activities',
         verbose_name='参与者'
     )
-    tags = TaggableManager(blank=True, verbose_name='标签')
+    # 反向名用默认（tag.activity_set / query name 'activity'），与 core.tags 的
+    # _SCOPE_QUERY_NAMES 映射对齐；不要设 related_name（会连带改 query name）
+    tags = models.ManyToManyField(Tag, blank=True, verbose_name='标签')
     parent = models.ForeignKey(
         'self',
         null=True,
@@ -192,6 +194,9 @@ class Expense(models.Model):
     # 见 ExpenseCategory docstring。可选值/显示名由 activities.categories
     # 从类别表动态提供（表单下拉/清洗校验/展示统计三处口径见该模块 docstring）。
     category = models.CharField('类别', max_length=20, default='other')
+    # 费用标签（2026-09 标签体系整合时新增）：与活动标签同属 core.Tag，
+    # scope='expense' 隔离；AI 记账/详情页表单可打标签，报表可按标签聚合
+    tags = models.ManyToManyField(Tag, blank=True, verbose_name='标签')
     paid_at = models.DateField('消费日期', null=True, blank=True)
     note = models.CharField('备注', max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

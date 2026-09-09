@@ -32,7 +32,7 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
         
         <div class="flex items-center gap-3 flex-wrap mb-6">
             {% for tag in article.tags.all %}
-            <a href="{% url 'knowledge:article_list' %}?tag={{ tag.slug }}"
+            <a href="{% url 'knowledge:article_list' %}?tag={{ tag.name }}"
                class="inline-flex items-center px-2.5 py-1 text-xs rounded-full bg-[var(--accent-light)] text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
                 {{ tag.name }}
             </a>

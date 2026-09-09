@@ -135,9 +135,10 @@
                     <span class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{{ e.get_category_display }}</span>
                     {% if e.paid_at %}<span class="text-xs text-[var(--text-muted)]">{{ e.paid_at }}</span>{% endif %}
                     {% if e.note %}<span class="text-xs text-[var(--text-secondary)] truncate">{{ e.note }}</span>{% endif %}
+                    {% if e.tags_str %}<span class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-muted)]">#{{ e.tags_str|cut:" " }}</span>{% endif %}
                 </div>
                 <div class="shrink-0 flex items-center gap-3 self-end md:self-auto">
-                    <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.category }}', '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}')" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
+                    <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.category }}', '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}', '{{ e.tags_str|escapejs }}')" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
                     <form method="post" action="{% url 'activities:expense_delete' e.id %}" class="inline"
                           onsubmit="return confirm('确认删除这笔费用？')">
                         {% csrf_token %}
@@ -179,9 +180,17 @@
                        class="tap-target w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 备注：移动端全宽独占一行，桌面端自适应剩余宽度 -->
-            <div class="flex-1">
+            <div class="flex-1 min-w-[10rem]">
                 <input type="text" name="note" maxlength="255" placeholder="备注"
                        class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
+            </div>
+            <!-- 费用标签（scope=expense，与活动标签隔离；逗号分隔，datalist 提供建议） -->
+            <div class="w-full md:w-44 md:shrink-0">
+                <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" list="expense-tag-options"
+                       class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
+                <datalist id="expense-tag-options">
+                    {% for t in expense_tag_suggestions %}<option value="{{ t }}"></option>{% endfor %}
+                </datalist>
             </div>
             <div>
                 <button type="submit" class="rounded-full bg-[var(--accent)] px-5 py-1.5 text-sm font-medium text-[var(--bg)] hover:opacity-90" id="expense-submit-btn">添加</button>
@@ -458,13 +467,14 @@ var expenseSubmitBtn = document.getElementById('expense-submit-btn');
 var expenseCancelBtn = document.getElementById('expense-cancel-btn');
 var editingExpenseId = null;
 
-function editExpense(id, amount, category, paid_at, note) {
+function editExpense(id, amount, category, paid_at, note, tags) {
     editingExpenseId = id;
     expenseForm.action = '/activities/expenses/' + id + '/edit/';
     expenseForm.querySelector('[name="amount"]').value = amount;
     expenseForm.querySelector('[name="category"]').value = category;
     expenseForm.querySelector('[name="paid_at"]').value = paid_at || '{{ today_date }}';
     expenseForm.querySelector('[name="note"]').value = note;
+    expenseForm.querySelector('[name="tags"]').value = tags || '';
     expenseSubmitBtn.textContent = '保存';
     expenseCancelBtn.classList.remove('hidden');
     expenseForm.scrollIntoView({ behavior: 'smooth', block: 'center' });

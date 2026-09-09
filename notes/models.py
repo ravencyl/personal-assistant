@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
-from taggit.managers import TaggableManager
+
+from core.models import Tag
 
 
 class Note(models.Model):
@@ -11,7 +12,7 @@ class Note(models.Model):
         related_name='notes'
     )
     content = models.TextField('内容')
-    tags = TaggableManager(blank=True, verbose_name='标签')
+    tags = models.ManyToManyField(Tag, blank=True, verbose_name='标签')
     pinned = models.BooleanField('置顶', default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

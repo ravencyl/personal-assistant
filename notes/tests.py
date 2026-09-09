@@ -8,6 +8,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from core.tags import apply_tags
 from django.test import TestCase, Client
 
 from notes.models import Note
@@ -25,7 +26,7 @@ class NoteListDesktopLayoutTest(TestCase):
         self.client = Client()
         self.client.login(username='raven', password='test')
         note = Note.objects.create(user=self.user, content='新西兰南岛自驾路线草稿')
-        note.tags.add('自驾')
+        apply_tags(note, ['自驾'])
         self.html = self.client.get('/notes/').content.decode()
 
     def test_desktop_two_columns(self):

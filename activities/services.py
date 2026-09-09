@@ -14,6 +14,8 @@ from decimal import Decimal, InvalidOperation
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from core.tags import apply_tags
+
 from .categories import category_rows, default_category_key
 from .models import Activity, Expense
 from .utils import log_activity, resolve_participants
@@ -95,7 +97,7 @@ def clean_paid_at(raw, *, invalid='today'):
 
 
 def add_expense(activity, user, raw_amount, *, category=None, paid_at=_UNSET,
-                note='', positive=False, clear_date=False):
+                note='', positive=False, clear_date=False, tags=None):
     """为活动记一笔支出（所有「记一笔」入口的唯一写库处）
 
     金额：空值返回 None（表示「这次没花钱」，不建 0 元记录）；非法金额抛 InputError；
@@ -118,6 +120,9 @@ def add_expense(activity, user, raw_amount, *, category=None, paid_at=_UNSET,
         paid_at=paid_at_value,
         note=str(note or '').strip()[:255],
     )
+    if tags:
+        # 费用标签（scope='expense'）：与活动标签同表隔离，AI 记账/详情页共用
+        apply_tags(expense, tags)
     return expense
 
 
@@ -170,7 +175,7 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
     expense = record_parsed_cost(activity, owner, data.get('cost'), note=cost_note)
 
     if data.get('tags'):
-        activity.tags.add(*data['tags'])
+        apply_tags(activity, data['tags'])
 
     skipped, created = [], []
     if data.get('participants'):

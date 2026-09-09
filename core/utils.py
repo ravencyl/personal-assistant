@@ -94,24 +94,9 @@ def json_login_required(view_func):
     return _wrapped
 
 
-def used_tags(model, qs):
-    """qs 内对象上出现过的标签（Tag queryset，去重 + 按名排序）
-
-    必须限定 content_type：taggit 的 object_id 在不同模型之间会撞号，
-    只按 object_id 过滤会把别的 app 的标签混进来。
-    可见范围由调用方传入的 qs 决定（本函数不改语义）。
-    """
-    from taggit.models import Tag
-
-    return Tag.objects.filter(
-        taggit_taggeditem_items__content_type=ContentType.objects.get_for_model(model),
-        taggit_taggeditem_items__object_id__in=qs.values('id'),
-    ).distinct().order_by('name')
-
-
-def used_tag_names(model, qs):
-    """used_tags 的标签名列表版本（表单 autocomplete / 筛选栏用）"""
-    return list(used_tags(model, qs).values_list('name', flat=True))
+# used_tags / used_tag_names 已迁往 core/tags.py（2026-09 标签体系自建，
+# scope 口径统一由 core.tags 提供；旧版基于 taggit content_type 的实现随
+# taggit 一起退役）。调用方请改用 core.tags.used_tags / used_tag_names / tag_suggestions。
 
 
 def week_monday(d):

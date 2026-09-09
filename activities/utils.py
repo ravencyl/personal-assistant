@@ -9,6 +9,7 @@ from datetime import date
 from django.db import models
 from django.db.models import Sum
 
+from core.tags import tag_names
 from core.utils import visible_qs, q_or
 from .models import Activity, ActivityLog, Expense, Participant
 
@@ -127,7 +128,7 @@ def snapshot_activity(activity):
         'end_date': activity.end_date,
         'status': activity.status,
         'parent': activity.parent,
-        'tags': set(activity.tags.names()),
+        'tags': set(tag_names(activity)),
         'participants': set(activity.participants.values_list('name', flat=True)),
     }
 
@@ -177,7 +178,7 @@ def edit_summary(old, activity):
         old_p = old['parent'].name if old['parent'] else '无'
         new_p = activity.parent.name if activity.parent else '无'
         changes.append(f'父活动 {old_p} → {new_p}')
-    tag_diff = diff_part('标签 ', old['tags'], set(activity.tags.names()))
+    tag_diff = diff_part('标签 ', old['tags'], set(tag_names(activity)))
     if tag_diff:
         changes.append(tag_diff)
     p_diff = diff_part('参与者 ', old['participants'],
