@@ -92,6 +92,95 @@ class KnowledgeCreateAgentToolTest(TestCase):
         self.assertIn('美国面签结论', result['reply'])
 
 
+def _update(user, params):
+    return get_tool('knowledge.update')['fn'](user, params)
+
+
+class KnowledgeUpdateAgentToolTest(TestCase):
+    """knowledge.update：让 AI 在对话里直接修订已有文章（append 为主，replace 需显式）
+
+    风险点不在「能不能改」而在「改到哪一篇 / 改成什么」：目标必须唯一，
+    整段替换不能是一小句（多半是模型没展开上下文）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.article = Article.objects.create(
+            user=self.user, title='桐庐龙井峡行程',
+            content='# 行程\n\n第一天：龙井峡漂流')
+
+    def test_append_adds_content_and_keeps_original(self):
+        original = self.article.content
+        result = _update(self.user, {'target': '桐庐', 'content': '第二天：芦茨村慢生活'})
+        self.article.refresh_from_db()
+        self.assertIn(original, self.article.content)
+        self.assertIn('第二天：芦茨村慢生活', self.article.content)
+        self.assertTrue(result['changed'])
+        self.assertIn(f'/knowledge/{self.article.slug}/', result['reply'])
+
+    def test_replace_needs_explicit_mode_and_full_content(self):
+        _update(self.user, {'target': '桐庐', 'content': '# 全新行程\n\n只去漂流，不去村庄',
+                            'content_mode': 'replace'})
+        self.article.refresh_from_db()
+        self.assertNotIn('芦茨村', self.article.content)
+        self.assertTrue(self.article.content.startswith('# 全新行程'))
+
+    def test_replace_with_stub_content_is_rejected(self):
+        before = self.article.content
+        with self.assertRaises(ToolError):
+            _update(self.user, {'target': '桐庐', 'content': '改好了',
+                                'content_mode': 'replace'})
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.content, before, '整段替换被拒后原文不能被动')
+
+    def test_unresolved_last_reply_ref_is_rejected(self):
+        before = self.article.content
+        with self.assertRaises(ToolError):
+            _update(self.user, {'target': '桐庐', 'content': '$LAST_REPLY'})
+        self.article.refresh_from_db()
+        self.assertNotIn('$LAST_REPLY', self.article.content,
+                         '裸引用标记绝不能被当成正文写进文章')
+
+    def test_target_must_be_unique(self):
+        Article.objects.create(user=self.user, title='桐庐芦茨村攻略', content='x' * 20)
+        with self.assertRaises(ToolError) as ctx:
+            _update(self.user, {'target': '桐庐', 'content': '补充一段' * 5})
+        self.assertTrue(hasattr(ctx.exception, 'candidates'),
+                        '目标不唯一必须携带候选列表供用户辨认')
+
+    def test_cannot_touch_other_users_articles(self):
+        other = User.objects.create_user('other', password='test')
+        before = self.article.content
+        with self.assertRaises(ToolError):
+            _update(other, {'target': '桐庐', 'content': '隔壁用户的恶意补充' * 3})
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.content, before)
+
+    def test_missing_target_or_change_raises_tool_error(self):
+        with self.assertRaises(ToolError):
+            _update(self.user, {'content': '没有目标也改不了'})
+        with self.assertRaises(ToolError):
+            _update(self.user, {'target': '桐庐'})  # 没说改什么
+
+    def test_no_change_returns_changed_false(self):
+        result = _update(self.user, {'target': '桐庐', 'title': '桐庐龙井峡行程'})
+        self.assertFalse(result['changed'])
+
+    def test_tags_are_merged_not_replaced(self):
+        self.article.tags.add('漂流')
+        _update(self.user, {'target': '桐庐', 'tags': ['漂流', '周末游']})
+        self.article.refresh_from_db()
+        self.assertEqual(set(self.article.tags.names()), {'漂流', '周末游'})
+
+    def test_retitle_keeps_slug_stable(self):
+        """改标题不能换 slug，否则对话里刚发出去的链接立刻失效"""
+        old_slug = self.article.slug
+        _update(self.user, {'target': '桐庐', 'title': '桐庐龙井峡完整行程'})
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.slug, old_slug)
+        self.assertEqual(self.article.title, '桐庐龙井峡完整行程')
+
+
 class ArticleListDesktopLayoutTest(TestCase):
     """知识库列表页桌面两列布局回归锁（右列 = 搜索 + 标签筛选）
 

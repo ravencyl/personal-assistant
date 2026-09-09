@@ -2,15 +2,15 @@
 
 注册到 core.agent_registry，由对话编排器按意图分发调用。
 约定：权限一律按 user 过滤；参数缺失时抛 ToolError 让用户澄清。
-写入（knowledge.create）不做两步确认，与 notes.create / activities.create 口径一致；
-目标不唯一的修改才需要预览卡。
+写入（knowledge.create / knowledge.update）不做两步确认，与 notes.create /
+activities.create 口径一致；目标不唯一的修改才需要预览卡（CandidateToolError）。
 """
 import re
 from urllib.parse import unquote
 
 from django.urls import reverse
 
-from core.agent_registry import ToolError, agent_tool
+from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import visible_qs
 
 from .models import Article
@@ -117,5 +117,80 @@ def tool_knowledge_create(user, params):
     tag_note = f'，标签：{"、".join(tags)}' if tags else ''
     return {
         'reply': f'已存入知识库：《{article.title}》（{url}）{tag_note}',
+        'changed': True,
+    }
+
+
+@agent_tool('knowledge.update', '更新用户知识库里的已有文章（用户说“更新/修改/补充/完善《XX》那篇文章”时用）。'
+                             '只处理用户明确点名的修改，不要因为对话里出现新信息就自动改写文章；'
+                             '正文是本轮对话里已经出现过的长内容时写引用标记 "$LAST_REPLY"，不要重新抄写',
+            'target（目标文章标题关键词，必填）+ title（新标题，可选）+ '
+            'content（要写入的 Markdown 正文，可选）+ '
+            'content_mode（"append" 追加到文末（默认）| "replace" 整段替换，可选）+ '
+            'tags（要追加的标签数组，可选）')
+def tool_knowledge_update(user, params):
+    target = str(params.get('target') or params.get('name') or '').strip()
+    if not target:
+        raise ToolError('请告诉我要更新哪篇文章（标题关键词）')
+
+    new_title = str(params.get('title') or '').strip()
+    content = str(params.get('content') or '').strip()
+    mode = str(params.get('content_mode') or params.get('mode') or 'append').strip().lower()
+    tags = _parse_tags(params.get('tags'))
+    if not new_title and not content and not tags:
+        raise ToolError('请告诉我要改什么（新标题 / 要补充的正文 / 标签）')
+    if content and _UNRESOLVED_REF.match(content):
+        # 与 create 同款防呆：编排器已展开引用仍收到裸标记，宁可报错也不把
+        # "$LAST_REPLY" 十个字符写进文章
+        raise ToolError('没能取到要写入的上文内容，请把正文完整发一次')
+    if mode not in ('append', 'replace'):
+        mode = 'append'
+    if mode == 'replace' and content and len(content) < 10:
+        # 整段替换成一小句话多半是模型没把上下文展开，宁可拒绝
+        raise ToolError('替换后的正文太短，请补完整内容；只是补充几句话请用追加模式')
+
+    qs = visible_qs(Article, user).filter(title__icontains=target).order_by('-updated_at')
+    count = qs.count()
+    if count == 0:
+        raise ToolError(f'知识库里没有标题包含「{target}」的文章——'
+                        '如果是新内容，请说「存进知识库」新建一篇')
+    if count > 1:
+        candidates = [{
+            'id': a.id,
+            'name': a.title,
+            'status': '',
+            'status_label': '',
+            'date_label': a.updated_at.strftime('%m-%d 更新'),
+            'detail_url': _article_url(a),
+        } for a in qs[:5]]
+        raise CandidateToolError(
+            f'匹配到 {count} 篇标题包含「{target}」的文章，请告诉我要更新哪一篇',
+            candidates)
+
+    article = qs.first()
+    changes = []
+    if new_title and new_title != article.title:
+        changes.append(f'标题「{article.title}」→「{new_title}」')
+        article.title = new_title[:255]
+    if content:
+        if mode == 'replace':
+            changes.append('正文整段替换')
+            article.content = content
+        else:
+            changes.append(f'文末追加了 {len(content)} 字')
+            article.content = article.content.rstrip() + '\n\n' + content
+    if tags:
+        existing = set(article.tags.values_list('name', flat=True))
+        fresh = [t for t in tags if t not in existing]
+        if fresh:
+            article.tags.add(*fresh)
+            changes.append('追加标签：' + '、'.join(fresh))
+    if not changes:
+        return {'reply': f'《{article.title}》已经是最新内容，没有需要修改的地方',
+                'changed': False}
+
+    article.save()  # post_save 信号会把变更同步到 QMind 云端镜像（若已配置）
+    return {
+        'reply': f'已更新《{article.title}》（{_article_url(article)}）：' + '；'.join(changes),
         'changed': True,
     }
