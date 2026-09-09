@@ -23,3 +23,26 @@ class PlainTagField(forms.CharField):
         for tag in value:
             names.append(getattr(tag, 'name', str(tag)))
         return ', '.join(names)
+
+
+class PlainTagFormMixin:
+    """用 PlainTagField 覆盖模型 tags M2M 字段的 ModelForm 必须混入。
+
+    ModelForm._save_m2m 只认模型 M2M 字段名（不看表单字段类型）：
+    form.save() / form.save_m2m() 会把 cleaned_data['tags']——名字字符串——
+    直接传给 instance.tags.set()，M2M 把字符串逐字符当主键查询而炸
+    （实测：ValueError: Field 'id' expected a number but got '新'）。
+    本 mixin 在 _save_m2m 前摘掉 tags 键让 Django 跳过，随后原样放回，
+    tags 落库仍由视图层 apply_tags 单一入口完成。
+
+    实测踩过（2026-09）：活动编辑页提交带标签 → 500。
+    """
+
+    def _save_m2m(self):
+        cleaned = self.cleaned_data
+        tags_value = cleaned.pop('tags', None)
+        try:
+            super()._save_m2m()
+        finally:
+            if tags_value is not None:
+                cleaned['tags'] = tags_value

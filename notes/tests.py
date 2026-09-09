@@ -42,3 +42,21 @@ class NoteListDesktopLayoutTest(TestCase):
         html = self.html
         self.assertLess(html.index('记点什么...'), html.index('class="page-cols'),
                         '速记框被搬进列容器了，320px 右列里会很难用')
+
+
+class NoteTagEditRegressionTest(TestCase):
+    """编辑备忘带标签的回归锁（与活动/知识库同族：_save_m2m 曾拿字符串炸）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.note = Note.objects.create(user=self.user, content='回归备忘')
+        apply_tags(self.note, ['旧标签'])
+
+    def test_edit_with_tags_persists(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(f'/notes/{self.note.id}/edit/', {
+            'content': '回归备忘改', 'pinned': '', 'tags': '新标签'})
+        self.assertIn(resp.status_code, (200, 302))
+        self.note.refresh_from_db()
+        self.assertEqual(set(self.note.tags.values_list('name', flat=True)),
+                         {'新标签'})

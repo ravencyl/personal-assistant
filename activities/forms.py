@@ -1,6 +1,6 @@
 from django import forms
 
-from core.forms import PlainTagField
+from core.forms import PlainTagField, PlainTagFormMixin
 from core.utils import visible_qs
 
 from .models import Activity
@@ -10,7 +10,7 @@ from .utils import resolve_participants
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
 
-class ActivityForm(forms.ModelForm):
+class ActivityForm(PlainTagFormMixin, forms.ModelForm):
     participants_input = forms.CharField(
         label='参与者',
         required=False,

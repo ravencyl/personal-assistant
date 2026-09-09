@@ -11,7 +11,7 @@ from django.conf import settings
 from django.test import TestCase, Client, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
-from core.tags import apply_tags
+from core.tags import apply_tags, tag_names
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -1873,3 +1873,64 @@ class ExpenseCategoryConfigTest(TestCase):
         result = get_tool('activities.expense_stats')['fn'](self.user, {})
         cats = result['card_data']['categories']
         self.assertTrue(any(c['label'] == '餐饮' and c['total'] == 200 for c in cats))
+
+
+class ActivityTagEditRegressionTest(TestCase):
+    """编辑/创建活动表单更新标签的回归锁（2026-09 taggit→core.Tag 迁移踩坑）
+
+    ModelForm._save_m2m 只认模型 M2M 字段名：ActivityForm 把 tags 换成
+    PlainTagField 后，form.save() / form.save_m2m() 会把名字字符串直接传给
+    instance.tags.set() 逐字符当主键 → ValueError 500。修复后由
+    PlainTagFormMixin 摘除，tags 落库统一走视图层 apply_tags。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.activity = Activity.objects.create(
+            user=self.user, name='标签回归活动', status='planned')
+        apply_tags(self.activity, ['旧标签'])
+
+    def _edit_payload(self, **overrides):
+        payload = {
+            'name': '标签回归活动', 'description': '',
+            'start_date': '2026-09-09', 'end_date': '', 'status': 'planned',
+            'parent': '', 'participants_input': '', 'new_children': '',
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_edit_with_tags_persists(self):
+        """编辑页提交带标签：302 + 标签整体替换落库（曾是 500）"""
+        resp = self.client.post(f'/activities/{self.activity.id}/edit/',
+                                self._edit_payload(tags='新标签甲, 新标签乙'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(set(tag_names(self.activity)), {'新标签甲', '新标签乙'})
+        # 旧标签被整体替换（set 语义），不残留
+        self.assertNotIn('旧标签', tag_names(self.activity))
+
+    def test_edit_with_empty_tags_clears(self):
+        """编辑页清空标签输入提交：标签全部移除而非报错"""
+        resp = self.client.post(f'/activities/{self.activity.id}/edit/',
+                                self._edit_payload(tags=''))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(tag_names(self.activity), [])
+
+    def test_edit_page_renders_current_tags(self):
+        """编辑页 GET：当前标签回显到表单（prepare_value 链路）"""
+        resp = self.client.get(f'/activities/{self.activity.id}/edit/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('旧标签', resp.content.decode())
+
+    def test_create_with_tags_via_form_save_m2m(self):
+        """新建活动带标签：form.save_m2m() 不再拿字符串炸 M2M（曾是同族雷）"""
+        resp = self.client.post('/activities/new/', {
+            'name': '带标签新活动', 'description': '',
+            'start_date': '2026-09-10', 'end_date': '', 'status': 'planned',
+            'parent': '', 'participants_input': '', 'new_children': '',
+            'tags': '团建, 出行',
+        })
+        self.assertEqual(resp.status_code, 302)
+        activity = Activity.objects.get(user=self.user, name='带标签新活动')
+        self.assertEqual(set(tag_names(activity)), {'团建', '出行'})

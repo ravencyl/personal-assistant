@@ -450,3 +450,23 @@ class KnowledgeSearchAgentToolQMindTest(TestCase):
              patch('knowledge.qmind.retrieve', return_value=[]):
             out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '不存在的主题'})
         self.assertIn('知识库里没有', out['reply'])
+
+
+class ArticleTagEditRegressionTest(TestCase):
+    """编辑文章带标签的回归锁（PlainTagFormMixin 前 form.save() 曾把
+    名字字符串传给 M2M.set 逐字符当主键 → 500；与活动编辑同族）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.article = Article.objects.create(
+            user=self.user, title='标签回归文章', content='x')
+        apply_tags(self.article, ['旧标签'])
+
+    def test_edit_with_tags_persists(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(f'/knowledge/{self.article.pk}/edit/', {
+            'title': '标签回归文章', 'content': 'y', 'tags': '新标签, 知识'})
+        self.assertEqual(resp.status_code, 302)
+        self.article.refresh_from_db()
+        self.assertEqual(set(self.article.tags.values_list('name', flat=True)),
+                         {'新标签', '知识'})

@@ -1,10 +1,10 @@
 from django import forms
 
-from core.forms import PlainTagField
+from core.forms import PlainTagField, PlainTagFormMixin
 from .models import Article
 
 
-class ArticleForm(forms.ModelForm):
+class ArticleForm(PlainTagFormMixin, forms.ModelForm):
     class Meta:
         model = Article
         fields = ['title', 'content', 'tags']

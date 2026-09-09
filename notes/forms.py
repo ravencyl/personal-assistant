@@ -1,10 +1,10 @@
 from django import forms
 
-from core.forms import PlainTagField
+from core.forms import PlainTagField, PlainTagFormMixin
 from .models import Note
 
 
-class NoteForm(forms.ModelForm):
+class NoteForm(PlainTagFormMixin, forms.ModelForm):
     class Meta:
         model = Note
         fields = ['content', 'tags', 'pinned']
