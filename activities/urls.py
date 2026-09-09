@@ -20,7 +20,6 @@ urlpatterns = [
          name='subactivity_manual_create'),
     path('<int:activity_id>/expenses/add/', views.expense_create, name='expense_create'),
     path('expenses/quick/', views.expense_quick_create, name='expense_quick_create'),
-    path('<int:activity_id>/category-suggest/', views.expense_category_suggest, name='expense_category_suggest'),
     path('<int:activity_id>/delete/', views.activity_delete, name='activity_delete'),
     path('expenses/<int:expense_id>/edit/', views.expense_edit, name='expense_edit'),
     path('expenses/<int:expense_id>/delete/', views.expense_delete, name='expense_delete'),

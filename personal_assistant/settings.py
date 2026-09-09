@@ -83,6 +83,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.qoder_context',
                 'core.context_processors.site_brand',
+                'core.context_processors.expense_tag_suggestions',
             ],
         },
     },

@@ -36,13 +36,13 @@ def collect_report_data(user, report_type, period_start, period_end):
     report_type: 'weekly' / 'monthly' / 'yearly'（其他值按区间长度自动适配）
     返回 dict 包含：
     - total_activities, completed, in_progress, planned, cancelled
-    - total_expense, expense_by_category
+    - total_expense, expense_by_tag
     - daily_expense (list of {date, amount}，年报为月度聚合 monthly_expense)
     - top_activities (费用最高的活动)
     - top_tags (最常用的标签)
     - prev_period_expense (上一周期费用，用于环比)
     年报额外里程碑字段：
-    - top_category (花费最高的费用类别)
+    - top_tag (花费最高的费用标签)
     - most_active_month (活动最多的月份，'YYYY-MM' 或 None)
     - monthly_expense (每月费用聚合，避免逐日 N+1)
     """
@@ -70,12 +70,11 @@ def collect_report_data(user, report_type, period_start, period_end):
     )
     total_expense = float(expenses.aggregate(s=Sum('amount'))['s'] or 0)
 
-    # 按类别统计
-    expense_by_cat = dict(
-        expenses.values('category').annotate(s=Sum('amount'))
-        .values_list('category', 's')
-    )
-    expense_by_cat = {k: float(v) for k, v in expense_by_cat.items()}
+    # 按标签统计（一笔费用多标签时各标签独立计入金额）
+    tag_rows = (expenses.values('tags__name').exclude(tags__name__isnull=True)
+                .annotate(s=Sum('amount'))
+                .values_list('tags__name', 's'))
+    expense_by_tag = {name: float(v) for name, v in tag_rows}
 
     # 费用趋势：周报/月报逐日；年报按月聚合（单次查询，避免逐日 N+1）
     daily_expense = []
@@ -147,7 +146,7 @@ def collect_report_data(user, report_type, period_start, period_end):
         'planned': status_dist.get('planned', 0),
         'cancelled': status_dist.get('cancelled', 0),
         'total_expense': total_expense,
-        'expense_by_category': expense_by_cat,
+        'expense_by_tag': expense_by_tag,
         'daily_expense': daily_expense,
         'top_activities': top_activities,
         'top_tags': top_tags,
@@ -156,12 +155,12 @@ def collect_report_data(user, report_type, period_start, period_end):
 
     if is_yearly:
         # ── 年度里程碑数据 ──
-        # 分类费用最高项（基于已有 expense_by_cat，无额外查询）
-        if expense_by_cat:
-            top_cat, top_cat_amount = max(expense_by_cat.items(), key=lambda kv: kv[1])
-            result['top_category'] = {'category': top_cat, 'amount': top_cat_amount}
+        # 标签费用最高项（基于已有 expense_by_tag，无额外查询）
+        if expense_by_tag:
+            top_tag, top_tag_amount = max(expense_by_tag.items(), key=lambda kv: kv[1])
+            result['top_tag'] = {'tag': top_tag, 'amount': top_tag_amount}
         else:
-            result['top_category'] = None
+            result['top_tag'] = None
 
         # 最活跃月份：按月统计活动数（单次聚合查询）
         month_counts = dict(
@@ -237,7 +236,6 @@ def _ai_generate_report(user, data, report_type, period_start, period_end):
 def _fallback_report(data, report_type, period_start, period_end):
     """AI 失败时的纯数据模板报告"""
     from activities.models import Expense
-    from activities.categories import category_label_map
 
     if report_type == 'yearly':
         return _fallback_yearly_report(data, period_start, period_end)
@@ -264,17 +262,15 @@ def _fallback_report(data, report_type, period_start, period_end):
         direction = '增加' if change > 0 else '减少'
         lines.append(f'环比上周期{direction} {abs(change):.1f}%（上周期 ¥{prev:.0f}）')
 
-    # 分类费用
-    if data['expense_by_category']:
+    # 标签费用明细
+    if data['expense_by_tag']:
         lines.append('')
-        lines.append('### 分类明细')
+        lines.append('### 标签明细')
         lines.append('')
-        lines.append('| 类别 | 金额 |')
+        lines.append('| 标签 | 金额 |')
         lines.append('|------|------|')
-        cat_labels = category_label_map()
-        for cat, amount in sorted(data['expense_by_category'].items(), key=lambda x: -x[1]):
-            label = cat_labels.get(cat, cat)
-            lines.append(f'| {label} | ¥{amount:.0f} |')
+        for tag, amount in sorted(data['expense_by_tag'].items(), key=lambda x: -x[1]):
+            lines.append(f'| {tag} | ¥{amount:.0f} |')
 
     # 亮点活动
     if data['top_activities']:
@@ -290,9 +286,6 @@ def _fallback_report(data, report_type, period_start, period_end):
 def _fallback_yearly_report(data, period_start, period_end):
     """年报的纯数据降级模板（含年度里程碑）"""
     from activities.models import Expense
-    from activities.categories import category_label_map
-
-    cat_labels = category_label_map()
 
     lines = [
         f'# 年报 · {period_start.year}',
@@ -307,10 +300,9 @@ def _fallback_yearly_report(data, period_start, period_end):
         f'- 总花费：**¥{data["total_expense"]:.0f}**',
     ]
 
-    top_cat = data.get('top_category')
-    if top_cat:
-        label = cat_labels.get(top_cat['category'], top_cat['category'])
-        lines.append(f'- 花费最高类别：**{label}**（¥{top_cat["amount"]:.0f}）')
+    top_tag = data.get('top_tag')
+    if top_tag:
+        lines.append(f'- 花费最高标签：**{top_tag["tag"]}**（¥{top_tag["amount"]:.0f}）')
 
     busiest = data.get('most_active_month')
     if busiest:
@@ -325,15 +317,14 @@ def _fallback_yearly_report(data, period_start, period_end):
         lines.append(f'费用同比上年{direction} {abs(change):.1f}%（上年 ¥{prev:.0f}）')
         lines.append('')
 
-    # 分类费用
-    if data['expense_by_category']:
-        lines.append('## 分类费用明细')
+    # 标签费用明细
+    if data['expense_by_tag']:
+        lines.append('## 标签费用明细')
         lines.append('')
-        lines.append('| 类别 | 金额 |')
+        lines.append('| 标签 | 金额 |')
         lines.append('|------|------|')
-        for cat, amount in sorted(data['expense_by_category'].items(), key=lambda x: -x[1]):
-            label = cat_labels.get(cat, cat)
-            lines.append(f'| {label} | ¥{amount:.0f} |')
+        for tag, amount in sorted(data['expense_by_tag'].items(), key=lambda x: -x[1]):
+            lines.append(f'| {tag} | ¥{amount:.0f} |')
         lines.append('')
 
     # 每月费用趋势（有支出的月份）

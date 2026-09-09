@@ -19,15 +19,13 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from .forms import ActivityForm
-from .categories import (active_category_choices, active_category_keys,
-                         category_cache_token, category_label_map)
 from .models import Activity, Participant, ActivityLog, Expense, Attachment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity,
                     exclude_daily_bucket, get_daily_bucket, resolve_participants,
                     expense_totals_map)
-from .services import (InputError, add_expense, clean_amount, clean_category,
+from .services import (InputError, add_expense, clean_amount,
                        clean_paid_at, create_activity_from_parsed,
                        start_due_activities)
 from core.tags import apply_tags, tag_names, tag_suggestions
@@ -393,16 +391,8 @@ def activity_detail(request, activity_id):
     # 费用明细（tags_str 供模板徽章展示与编辑回填一次取齐，避免模板里 join 不动 M2M）
     expenses = list(activity.expenses.all())
     for e in expenses:
-        e.tags_str = ', '.join(e.tags.values_list('name', flat=True))
-
-    # 类别下拉：启用类别 + 本活动历史费用里出现过的停用类别（编辑回填时
-    # 若 option 不存在，select 会静默落第一个 option，把历史类别改丢）
-    detail_categories = list(active_category_choices())
-    have = {k for k, _ in detail_categories}
-    for e in expenses:
-        if e.category not in have:
-            have.add(e.category)
-            detail_categories.append((e.category, e.get_category_display()))
+        e.tags_list = list(tag_names(e))
+        e.tags_str = ', '.join(e.tags_list)
 
     # 附件
     attachments = list(activity.attachments.all())
@@ -422,7 +412,6 @@ def activity_detail(request, activity_id):
         'status_choices': Activity.STATUS_CHOICES,
         'logs': activity.logs.select_related('user')[:50],
         'expenses': expenses,
-        'expense_categories': detail_categories,
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
         'subtask_done_count': subtask_done_count,
@@ -707,7 +696,6 @@ def expense_create(request, activity_id):
         expense = add_expense(
             activity, request.user,
             request.POST.get('amount'),
-            category=request.POST.get('category'),
             paid_at=request.POST.get('paid_at'),
             note=request.POST.get('note'),
             positive=True,
@@ -718,7 +706,7 @@ def expense_create(request, activity_id):
     except InputError as e:
         return JsonResponse({'error': str(e)}, status=400)
     log_activity(request.user, activity, 'edited',
-                 f'添加费用 ¥{expense.amount} [{expense.get_category_display()}]'
+                 f'添加费用 ¥{expense.amount}'
                  + (f' {expense.note}' if expense.note else ''))
 
     if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
@@ -726,7 +714,7 @@ def expense_create(request, activity_id):
         return JsonResponse({
             'id': expense.id,
             'amount': float(expense.amount),
-            'category': expense.get_category_display(),
+            'tags': ', '.join(tag_names(expense)),
             'note': expense.note,
             'paid_at': expense.paid_at,
             'expense_total': float(agg['total'] or 0),
@@ -754,7 +742,6 @@ def expense_quick_create(request):
         expense = add_expense(
             activity, request.user,
             request.POST.get('amount'),
-            category=request.POST.get('category'),
             paid_at=request.POST.get('paid_at'),
             note=request.POST.get('note'),
             positive=True,
@@ -765,14 +752,14 @@ def expense_quick_create(request):
     except InputError as e:
         return JsonResponse({'error': str(e)}, status=400)
     log_activity(request.user, activity, 'edited',
-                 f'快记费用 ¥{expense.amount} [{expense.get_category_display()}]'
+                 f'快记费用 ¥{expense.amount}'
                  + (f' {expense.note}' if expense.note else ''))
 
     agg = activity.expenses.aggregate(total=Sum('amount'), cnt=Count('id'))
     return JsonResponse({
         'success': True,
         'amount': float(expense.amount),
-        'category': expense.get_category_display(),
+        'tags': ', '.join(tag_names(expense)),
         'activity_name': activity.name,
         'expense_total': float(agg['total'] or 0),
         'expense_count': agg['cnt'] or 0,
@@ -791,21 +778,19 @@ def expense_edit(request, expense_id):
         return JsonResponse({'error': str(e)}, status=400)
 
     expense.amount = amount
-    expense.category = clean_category(request.POST.get('category'))
     # 日期被清空就真清空（invalid=None），不静默回落今天
     expense.paid_at = clean_paid_at(request.POST.get('paid_at'), invalid=None)
     expense.note = request.POST.get('note', '').strip()[:255]
     expense.save()
     apply_tags(expense, request.POST.get('tags'))
     log_activity(request.user, activity, 'edited',
-                 f'编辑费用 ¥{amount} [{expense.get_category_display()}]'
+                 f'编辑费用 ¥{amount}'
                  + (f' {expense.note}' if expense.note else ''))
 
     if request.headers.get('HX-Request') or request.headers.get('Accept') == 'application/json':
         return JsonResponse({
             'id': expense.id,
             'amount': float(expense.amount),
-            'category': expense.get_category_display(),
             'note': expense.note,
             'paid_at': expense.paid_at,
             'tags': tag_names(expense),
@@ -819,7 +804,7 @@ def expense_delete(request, expense_id):
     """删除费用条目"""
     expense = get_visible(Expense, request.user, id=expense_id)
     activity = expense.activity
-    note_desc = f'¥{expense.amount} [{expense.get_category_display()}]'
+    note_desc = f'¥{expense.amount}'
     if expense.note:
         note_desc += f' {expense.note}'
     expense.delete()
@@ -1128,7 +1113,7 @@ def expense_chart_data(request):
     from django.db.models.functions import TruncMonth
 
     today = timezone.localdate()
-    range_type = request.GET.get('range', 'month')  # month / week / category
+    range_type = request.GET.get('range', 'month')  # month / week / tag / month_tag
 
     qs = Expense.objects.filter(user=request.user)
 
@@ -1164,21 +1149,6 @@ def expense_chart_data(request):
             'last_week': last_data,
         })
 
-    elif range_type == 'category':
-        # 分类饼图（近 12 个月）
-        year_ago = today - timedelta(days=365)
-        data = list(
-            qs.filter(paid_at__gte=year_ago)
-            .values('category')
-            .annotate(total=Sum('amount'))
-            .order_by('-total')
-        )
-        category_labels = category_label_map()
-        return JsonResponse({
-            'labels': [category_labels.get(d['category'], d['category']) for d in data],
-            'values': [float(d['total']) for d in data],
-        })
-
     elif range_type == 'tag':
         # 标签饼图（近 12 个月；一笔费用可多标签，各标签独立计入金额）
         year_ago = today - timedelta(days=365)
@@ -1194,8 +1164,8 @@ def expense_chart_data(request):
             'values': [float(d['total']) for d in data],
         })
 
-    elif range_type == 'month_category':
-        # 单月分类明细（month 参数 YYYY-MM，缺省/非法回退当月）
+    elif range_type == 'month_tag':
+        # 单月标签明细（month 参数 YYYY-MM，缺省/非法回退当月）
         m = re.match(r'^(\d{4})-(\d{1,2})$', (request.GET.get('month') or '').strip())
         if m and 1 <= int(m.group(2)) <= 12:
             year, month = int(m.group(1)), int(m.group(2))
@@ -1203,15 +1173,14 @@ def expense_chart_data(request):
             year, month = today.year, today.month
         data = list(
             qs.filter(paid_at__year=year, paid_at__month=month)
-            .values('category')
+            .values('tags__name')
             .annotate(total=Sum('amount'))
             .order_by('-total')
+            .exclude(tags__name__isnull=True)
         )
-        category_labels = category_label_map()
         grand_total = sum(float(d['total']) for d in data)
         items = [{
-            'category': d['category'],
-            'label': category_labels.get(d['category'], d['category']),
+            'tag': d['tags__name'],
             'amount': float(d['total']),
             'pct': round(float(d['total']) * 100 / grand_total, 1) if grand_total else 0,
         } for d in data]
@@ -1283,40 +1252,6 @@ def attachment_delete(request, attachment_id):
         return JsonResponse({'ok': True})
 
     return redirect('activities:activity_detail', activity.id)
-
-
-@login_required
-def expense_category_suggest(request, activity_id):
-    """基于用户历史费用数据推荐类别排序（JSON）"""
-    # 仅作为可见性/存在性校验：推荐结果按当前用户费用统计，与该活动无关
-    get_visible(Activity, request.user, id=activity_id)
-
-    # 缓存 key 带类别配置指纹：类别一变（admin 增删改停）旧缓存自动失效
-    cache_key = f'expense_cat_dist_{request.user.id}_{category_cache_token()}'
-    cat_dist = cache.get(cache_key)
-    if cat_dist is None:
-        cat_dist = list(
-            Expense.objects.filter(user=request.user)
-            .values('category').annotate(n=Count('id'))
-            .order_by('-n')
-        )
-        # 短 TTL：新增费用后类别建议能快速更新（长 TTL 无任何失效点，会整天不变 化）
-        cache.set(cache_key, cat_dist, timeout=300)
-    
-    # 建议只推启用类别：历史高频但已停用的不再出现；启用的按历史频率排前，
-    # 无历史的补后（按类别表 sort 顺序）
-    choices = active_category_choices()
-    active_set = {k for k, _ in choices}
-    ordered = [c['category'] for c in cat_dist if c['category'] in active_set]
-    seen = set(ordered)
-    for key, _label in choices:
-        if key not in seen:
-            ordered.append(key)
-    
-    labels = category_label_map()
-    return JsonResponse({'categories': [
-        {'key': key, 'label': labels.get(key, key)} for key in ordered
-    ]})
 
 
 @login_required

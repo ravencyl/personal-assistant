@@ -16,14 +16,10 @@ from django.utils import timezone
 
 from core.tags import apply_tags
 
-from .categories import category_rows, default_category_key
 from .models import Activity, Expense
 from .utils import log_activity, resolve_participants
 
 logger = logging.getLogger(__name__)
-
-# 「已花的钱」统一落这个类别；解析结果里没有类别概念
-PARSED_EXPENSE_CATEGORY = 'other'
 
 # add_expense 的 paid_at 未传占位（不能用 None，本模块里 None = 主动清空日期）
 _UNSET = object()
@@ -59,28 +55,6 @@ def clean_amount(raw, *, label='金额', positive=False, required=False):
     return amount
 
 
-def clean_category(raw, *, default=PARSED_EXPENSE_CATEGORY):
-    """费用类别 → 合法取值（英文 key 或中文显示名），识别不了静默落 default
-
-    合法集来自 ExpenseCategory 表（activities.categories，数据库驱动）：
-    - key 全量口径接受（含停用）：编辑历史费用时回传停用 key 不得被静默改写；
-    - 中文 label 反查也是全量口径：用户明确说出的类别词即使已停用也尊重，
-      比静默改成「其他」更符合预期；
-    - default 不在启用集时回落排序第一个启用类别（如「其他」被停用后，
-      解析失败的脏写不能落一个表单里选不到的值）。
-    """
-    text = str(raw or '').strip()
-    if not text:
-        return default_category_key(default)
-    rows = category_rows()
-    if any(r['key'] == text for r in rows):
-        return text
-    by_label = {r['label']: r['key'] for r in rows}
-    if text in by_label:
-        return by_label[text]
-    return default_category_key(default)
-
-
 def clean_paid_at(raw, *, invalid='today'):
     """费用日期 → date
 
@@ -96,7 +70,7 @@ def clean_paid_at(raw, *, invalid='today'):
         return timezone.localdate() if invalid == 'today' else None
 
 
-def add_expense(activity, user, raw_amount, *, category=None, paid_at=_UNSET,
+def add_expense(activity, user, raw_amount, *, paid_at=_UNSET,
                 note='', positive=False, clear_date=False, tags=None):
     """为活动记一笔支出（所有「记一笔」入口的唯一写库处）
 
@@ -116,7 +90,6 @@ def add_expense(activity, user, raw_amount, *, category=None, paid_at=_UNSET,
         activity=activity,
         user=user,
         amount=amount,
-        category=clean_category(category),
         paid_at=paid_at_value,
         note=str(note or '').strip()[:255],
     )

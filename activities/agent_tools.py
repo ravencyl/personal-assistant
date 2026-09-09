@@ -18,9 +18,8 @@ from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
 from core.tags import add_tags, apply_tags, tag_names
-from .categories import active_category_choices, category_label_map
 from .models import Activity, Expense
-from .services import (InputError, add_expense, clean_amount, clean_category,
+from .services import (InputError, add_expense, clean_amount,
                        create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
                     fmt_field, get_daily_bucket, log_activity,
@@ -564,7 +563,7 @@ def _expense_date_range(params):
 
 
 @agent_tool('activities.expense_stats',
-            '按时间范围专项统计费用支出，给出按类别/按活动的费用汇总（「上个月花了多少」'
+            '按时间范围专项统计费用支出，给出按标签/按活动的费用汇总（「上个月花了多少」'
             '「9 月 1 日到 15 日的开销」「最近 30 天吃饭花了多少钱」这类问题用这个）',
             '时间范围三选一（缺省=全部时间）：'
             '① date_from + date_to（YYYY-MM-DD，相对说法一律换算为绝对日期）；'
@@ -588,17 +587,17 @@ def tool_expense_stats(user, params):
         return {'reply': f'{range_label}没有费用记录。',
                 'card': 'expense_stats',
                 'card_data': {'range_label': range_label, 'total': 0.0,
-                              'count': 0, 'categories': [], 'activities': [],
+                              'count': 0, 'tags': [], 'activities': [],
                               'report_url': reverse('activities:expense_report')}}
 
-    # 按类别汇总（降序，金额占比直接画横条）；label 全量口径（含停用类别）
-    cat_map = category_label_map()
-    cat_rows = (qs.values('category').annotate(total=Sum('amount'), n=Count('id'))
+    # 按标签汇总（降序，金额占比直接画横条）；一笔费用多标签时各标签独立计入
+    tag_rows = (qs.values('tags__name').exclude(tags__name__isnull=True)
+                .annotate(total=Sum('amount'), n=Count('id'))
                 .order_by('-total'))
-    categories = [{'label': cat_map.get(r['category'], r['category']),
-                   'total': float(r['total']), 'count': r['n'],
-                   'pct': round(r['total'] * 100 / total)}
-                  for r in cat_rows]
+    tags = [{'label': r['tags__name'],
+             'total': float(r['total']), 'count': r['n'],
+             'pct': round(r['total'] * 100 / total)}
+            for r in tag_rows]
 
     # 按活动汇总 Top 5（多笔费用聚到所属活动上，点进详情可核对明细）
     act_rows = (qs.values('activity__id', 'activity__name')
@@ -610,13 +609,13 @@ def tool_expense_stats(user, params):
                   for r in act_rows if r['activity__id']]
 
     return {
-        'reply': f'{range_label}共支出 ¥{total}（{count} 笔费用），按类别与活动汇总如下：',
+        'reply': f'{range_label}共支出 ¥{total}（{count} 笔费用），按标签与活动汇总如下：',
         'card': 'expense_stats',
         'card_data': {
             'range_label': range_label,
             'total': float(total),
             'count': count,
-            'categories': categories,
+            'tags': tags,
             'activities': activities,
             'report_url': reverse('activities:expense_report'),
         },
@@ -680,22 +679,12 @@ def _auto_expense_target(user, note):
     return get_daily_bucket(user), 'bucket'
 
 
-def _category_hint_fragment():
-    """动态类别清单片段：类别配置在 ExpenseCategory 表里，每帧实时求值
-
-    （原静态枚举「交通/住宿/餐饮/门票/购物/工作/其他」漏了数码/健康——
-    硬编码必然漂移的实证，现在从类别表生成，永不同步遗漏）
-    """
-    labels = ' / '.join(label for _key, label in active_category_choices())
-    return f'category（费用类别，可选，取值：{labels}；传中文显示名或英文 key 均可）'
-
-
-@agent_tool('activities.add_expense', '为活动添加一笔费用（目标可省略，自动归属）',
+@agent_tool('activities.add_expense', '为活动添加一笔费用（目标可省略，自动归属 ）',
             lambda: 'target（活动名称关键词，可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
             'note 关键词唯一命中的进行中活动，都没有则记入「日常开支」）+ '
             'amount（金额，必填）+ '
-            + _category_hint_fragment() + ' + '
-            'note（备注，可选，也参与归属匹配）+ paid_at（消费日期 YYYY-MM-DD，可选；'
+            'tags（标签，字符串数组，可选，如 ["餐饮"]）+ '
+            'note（备注，可选，也参与归属匹配）+ paid_at（消费日期 YYYY-MM-DD， 可选；'
             '相对日期需换算：“今天”用当前日期，“昨天”用当前日期减一天）')
 def tool_add_expense(user, params):
     target = str(params.get('target') or params.get('name') or '').strip()
@@ -711,24 +700,24 @@ def tool_add_expense(user, params):
     # 写库统一走 services.add_expense：未传/空/非法日期一律落今天（与其他「记一笔」入口同口径）
     expense = add_expense(
         activity, user, amount,
-        category=clean_category(params.get('category')),
         paid_at=params.get('paid_at'),
         note=note,
         tags=params.get('tags'),
     )
     log_activity(user, activity, 'edited',
-                 f'添加费用 ¥{expense.amount} [{expense.get_category_display()}]'
+                 f'添加费用 ¥{expense.amount}'
                  + (f' {note}' if note else '') + '（通过 AI 对话）')
 
     display = f'¥{expense.amount}'
+    tag_suffix = ''.join(f'（{t}）' for t in tag_names(expense))
     if reason == 'target':
-        reply = f'已为「{activity.name}」添加费用 {display}（{expense.get_category_display()}）'
+        reply = f'已为「{activity.name}」添加费用 {display}{tag_suffix}'
     elif reason == 'date':
-        reply = f'已自动归入当日进行中的活动「{activity.name}」，添加费用 {display}（{expense.get_category_display()}）'
+        reply = f'已自动归入当日进行中的活动「{activity.name}」，添加费用 {display}{tag_suffix}'
     elif reason == 'keyword':
-        reply = f'已根据备注匹配到活动「{activity.name}」，添加费用 {display}（{expense.get_category_display()}）'
+        reply = f'已根据备注匹配到活动「{activity.name}」，添加费用 {display}{tag_suffix}'
     else:
-        reply = f'未找到明确归属的活动，已记入「{activity.name}」：费用 {display}（{expense.get_category_display()}）'
+        reply = f'未找到明确归属的活动，已记入「{activity.name}」：费用 {display}{tag_suffix}'
 
     return {
         'reply': reply,
@@ -758,7 +747,7 @@ def tool_list_expenses(user, params):
     for e in expenses:
         items.append({
             'amount': float(e.amount),
-            'category': e.get_category_display(),
+            'tags': ', '.join(tag_names(e)),
             'note': e.note,
             'paid_at': e.paid_at.isoformat() if e.paid_at else '',
         })
@@ -778,13 +767,12 @@ def apply_split_expense(user, params):
     activity = _resolve_by_id(user, params.get('target_id'))
     amount = _require_positive_amount(params.get('amount'), '费用总金额')
     per_person = _require_positive_amount(params.get('per_person'), '人均金额')
-    category = clean_category(params.get('category'))
     note = str(params.get('note') or 'AA 分账')
 
     participants = list(activity.participants.all())
     for p in participants:
         # 分账拆出的多笔不填消费日期：拆分不等于今天又花了钱
-        add_expense(activity, user, per_person, category=category, clear_date=True,
+        add_expense(activity, user, per_person, clear_date=True,
                     note=f'{note}（{p.name}）')
     log_activity(user, activity, 'edited',
                  f'AA 分账 ¥{amount} → {len(participants)} 人，每人 ¥{per_person}（通过 AI 对话）')
@@ -799,8 +787,7 @@ def apply_split_expense(user, params):
 
 
 @agent_tool('activities.split_expense', '将活动的一笔费用 AA 分给所有参与者',
-            lambda: 'target（活动名称关键词）+ amount（总金额，必填）+ '
-            + _category_hint_fragment() + ' + '
+            'target（活动名称关键词）+ amount（总金额，必填）+ '
             'note（备注，可选）',
             apply_fn=apply_split_expense)
 def tool_split_expense(user, params):
@@ -812,7 +799,6 @@ def tool_split_expense(user, params):
         raise ToolError(f'「{activity.name}」还没有参与者，无法 AA 分账')
 
     per_person = float(round(amount / len(participants), 2))
-    category = clean_category(params.get('category'))
     note = str(params.get('note') or 'AA 分账').strip()[:255]
 
     return {
@@ -832,7 +818,7 @@ def tool_split_expense(user, params):
         'action': {
             'tool': 'activities.split_expense',
             'params': {**params, 'target_id': activity.id, 'per_person': per_person,
-                       'category': category, 'note': note},
+                       'note': note},
         },
     }
 

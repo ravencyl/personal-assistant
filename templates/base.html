@@ -1,4 +1,4 @@
-{% load static core_tags activities_tags %}
+{% load static core_tags %}
 <!DOCTYPE html>
 <html lang="zh-CN" class="h-full">
 <head>
@@ -132,16 +132,11 @@
                 <div class="flex gap-2">
                     <input type="number" name="amount" step="0.01" min="0" placeholder="金额" required
                            class="tap-target flex-none w-24 rounded-full border border-[var(--border-strong)] bg-transparent px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
-                    <select name="category" class="tap-target flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]">
-                        <!-- 类别清单来自 ExpenseCategory 表（admin 可配，零代码变更）；
-                             默认选中排序第一个启用类别 -->
-                        <!-- simple_tag 需先 as 赋值再循环：直接写在 for 的迭代位置
-                             会被当作未定义变量静默解析为空（不报错，只丢选项） -->
-                        {% active_expense_categories as category_choices %}
-                        {% for val, label in category_choices %}
-                        <option value="{{ val }}" {% if forloop.first %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
+                    <input type="text" name="tags" list="quick-expense-tag-options" placeholder="标签（可选，逗号分隔）"
+                           class="tap-target flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
+                    <datalist id="quick-expense-tag-options">
+                        {% for tag in expense_tag_suggestions %}<option value="{{ tag }}"></option>{% endfor %}
+                    </datalist>
                 </div>
                 <input type="text" name="note" placeholder="备注（可选）" maxlength="255"
                        class="tap-target w-full rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
@@ -330,10 +325,11 @@
             }).then(function (res) {
                 if (!res.ok) { setStatus(expenseStatus, res.data.error || '保存失败，请重试'); return; }
                 var d = res.data;
-                setStatus(expenseStatus, '已记 ¥' + d.amount + ' [' + d.category + '] 至「' + d.activity_name +
+                setStatus(expenseStatus, '已记 ¥' + d.amount + (d.tags ? ' [' + d.tags + ']' : '') + ' 至「' + d.activity_name +
                     '」（累计 ¥' + d.expense_total + ' · ' + d.expense_count + ' 笔）');
                 expenseForm.querySelector('[name="amount"]').value = '';
                 expenseForm.querySelector('[name="note"]').value = '';
+                expenseForm.querySelector('[name="tags"]').value = '';
             }).catch(function (err) {
                 setStatus(expenseStatus, netFail(err) ? stashOffline(expenseUrl, expBody, expHeaders) : '网络异常，请重试');
             }).finally(function () { setBtnLoading(expenseBtn, false); });

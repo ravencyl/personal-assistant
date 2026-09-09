@@ -8,9 +8,10 @@ from io import StringIO
 from pathlib import Path
 
 from django.conf import settings
-from django.test import TestCase, Client, override_settings
+from django.test import TestCase, TransactionTestCase, Client, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
+from core.models import Tag
 from core.tags import apply_tags, tag_names
 from django.core.cache import cache
 from django.core.management import call_command
@@ -20,46 +21,17 @@ from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import (Activity, ActivityLog, Attachment, Expense, ExpenseCategory,
-                               Participant,
-)
+from activities.models import Activity, ActivityLog, Attachment, Expense, Participant
 from notes.models import Note
 from activities.parsing import parse_quick_input
-from activities.categories import (active_category_choices, category_label_map,
-                                   invalidate_category_cache)
 from core.agent_registry import CandidateToolError, ToolError
 from core.layout_asserts import assert_desktop_two_columns
-from activities.services import (InputError, add_expense, clean_category,
+from activities.services import (InputError, add_expense,
                                  create_activity_from_parsed, record_parsed_cost,
                                  start_due_activities)
 from activities.utils import (get_daily_bucket, DAILY_BUCKET_NAME,
                               DAILY_BUCKET_MARKER, daily_bucket_q, is_daily_bucket,
                               exclude_daily_bucket, resolve_participants)
-
-
-class ExpenseCategorySuggestTest(TestCase):
-    def setUp(self):
-        cache.clear()
-        self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='测试活动')
-
-    def test_category_suggest_with_history(self):
-        for _ in range(5):
-            Expense.objects.create(activity=self.activity, user=self.user, amount=100, category='food')
-        for _ in range(3):
-            Expense.objects.create(activity=self.activity, user=self.user, amount=100, category='transport')
-        response = self.client.get(f'/activities/{self.activity.id}/category-suggest/')
-        data = response.json()
-        # 服务端直接返回 key+label（类别配置在 ExpenseCategory 表），前端不再映射
-        self.assertEqual(data['categories'][0]['key'], 'food')
-        self.assertEqual(data['categories'][0]['label'], '餐饮')
-
-    def test_category_suggest_empty(self):
-        response = self.client.get(f'/activities/{self.activity.id}/category-suggest/')
-        data = response.json()
-        self.assertEqual(len(data['categories']), len(active_category_choices()))
 
 
 class AddExpenseAutoTargetTest(TestCase):
@@ -74,7 +46,7 @@ class AddExpenseAutoTargetTest(TestCase):
 
     def test_no_target_fallback_to_daily_bucket(self):
         """无 target 且无可归属活动时，费用记入「日常开支」归属桶"""
-        result = self.tool['fn'](self.user, {'amount': 25, 'category': '餐饮', 'note': '午饭'})
+        result = self.tool['fn'](self.user, {'amount': 25, 'tags': ['餐饮'], 'note': '午饭'})
         bucket = get_daily_bucket(self.user)
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity_id, bucket.id)
@@ -90,7 +62,7 @@ class AddExpenseAutoTargetTest(TestCase):
             start_date=self.today - timedelta(days=30),
             end_date=self.today - timedelta(days=25),
         )
-        result = self.tool['fn'](self.user, {'amount': 30, 'category': '交通', 'note': '上海 打车 35'})
+        result = self.tool['fn'](self.user, {'amount': 30, 'tags': ['交通'], 'note': '上海 打车 35'})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity.name, '出差上海')
         self.assertIn('出差上海', result['reply'])
@@ -98,9 +70,11 @@ class AddExpenseAutoTargetTest(TestCase):
     def test_with_target_original_path(self):
         """有 target 时走原匹配路径，行为不变"""
         activity = Activity.objects.create(user=self.user, name='周末露营')
-        result = self.tool['fn'](self.user, {'target': '露营', 'amount': 120, 'category': '购物'})
+        result = self.tool['fn'](self.user, {'target': '露营', 'amount': 120, 'tags': ['购物']})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity_id, activity.id)
+        # 标签随费用落库，回复里带上标签后缀
+        self.assertEqual(tag_names(expense), ['购物'])
         self.assertEqual(result['reply'], f'已为「周末露营」添加费用 ¥120.00（购物）')
 
     def test_no_target_date_overlap_unique(self):
@@ -110,7 +84,7 @@ class AddExpenseAutoTargetTest(TestCase):
             start_date=self.today - timedelta(days=1),
             end_date=self.today + timedelta(days=1),
         )
-        result = self.tool['fn'](self.user, {'amount': 66, 'category': '餐饮'})
+        result = self.tool['fn'](self.user, {'amount': 66, 'tags': ['餐饮']})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity.name, '桐庐旅行')
         self.assertIn('桐庐旅行', result['reply'])
@@ -669,7 +643,8 @@ class CostVsBudgetEndpointsTest(TestCase):
         self.assertEqual(activity.expenses.count(), 1)
         expense = activity.expenses.first()
         self.assertEqual(expense.amount, Decimal('120.00'))
-        self.assertEqual(expense.category, 'other')
+        # 分类已下线：不传 tags 时费用不带任何归类
+        self.assertEqual(tag_names(expense), [])
 
     def _post_create(self, payload):
         """提交新建表单（status 是必填项，模板靠 select 默认值带上）
@@ -852,7 +827,7 @@ class WritePathServiceTest(TestCase):
     """M1 写路径收敛：创建与记费用只留 services 一份实现
 
     锁住收敛后的四条口径：空值/0 的金额语义、日期的单一回落、
-    类别清洗来自 ExpenseCategory 表（数据库驱动）、子活动归属继承父活动。
+    标签统一走 core.Tag（scope='expense'）、子活动归属继承父活动。
     """
 
     def setUp(self):
@@ -886,13 +861,12 @@ class WritePathServiceTest(TestCase):
                                     paid_at='2026-08-01').paid_at, date(2026, 8, 1))
         self.assertIsNone(add_expense(self.activity, self.user, 10, clear_date=True).paid_at)
 
-    def test_category_accepts_display_name_and_key(self):
-        """中文显示名由 ExpenseCategory 表反查，不另存别名表"""
-        self.assertEqual(clean_category('餐饮'), 'food')
-        self.assertEqual(clean_category('food'), 'food')
-        self.assertEqual(clean_category('住宿'), 'accommodation')
-        self.assertEqual(clean_category('不存在的类别'), 'other')
-        self.assertEqual(clean_category(''), 'other')
+    def test_tags_persist_through_add_expense(self):
+        """标签是费用唯一归类：add_expense 的 tags 参数（字符串或数组）直达 Expense.tags"""
+        expense = add_expense(self.activity, self.user, 66, tags='餐饮, 交通')
+        self.assertEqual(set(tag_names(expense)), {'餐饮', '交通'})
+        # 不传 tags 时保持为空
+        self.assertEqual(tag_names(add_expense(self.activity, self.user, 10)), [])
 
     def test_child_created_by_superuser_keeps_parent_owner(self):
         """AGENTS.md：子活动归属继承父活动，超管建的下级仍归原主人"""
@@ -942,11 +916,11 @@ class WritePathServiceTest(TestCase):
         self.assertEqual(Expense.objects.count(), 0)
 
         resp = self.client.post(reverse('activities:expense_quick_create'),
-                               {'amount': '28.5', 'category': '餐饮', 'note': '午饭'})
+                               {'amount': '28.5', 'tags': '餐饮', 'note': '午饭'})
         self.assertEqual(resp.status_code, 200, resp.content)
         expense = Expense.objects.get()
         self.assertEqual(expense.amount, Decimal('28.50'))
-        self.assertEqual(expense.category, 'food')
+        self.assertEqual(tag_names(expense), ['餐饮'])
         self.assertEqual(expense.activity.name, DAILY_BUCKET_NAME)
         self.assertEqual(expense.paid_at, timezone.localdate())
 
@@ -1164,8 +1138,9 @@ class ActivityDetailDesktopLayoutTest(TestCase):
             user=self.user, name='新西兰之旅', description='南岛自驾')
         Activity.objects.create(user=self.user, name='订机票', parent=self.parent, status='done')
         Activity.objects.create(user=self.user, name='租车', parent=self.parent, status='planned')
-        Expense.objects.create(activity=self.parent, user=self.user,
-                               amount=Decimal('500'), category='food')
+        expense = Expense.objects.create(activity=self.parent, user=self.user,
+                                         amount=Decimal('500'))
+        apply_tags(expense, ['餐饮'])
         # 右列三个条件渲染块（参与者/关联等）不带数据就整块不渲染，顺序锁会空跑
         apply_tags(self.parent, ['自驾'])
         self.parent.participants.add(
@@ -1279,8 +1254,9 @@ class DailyDesktopLayoutTest(TestCase):
         trip = Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress',
                                        start_date=today - timedelta(days=1),
                                        end_date=today + timedelta(days=2))
-        Expense.objects.create(activity=trip, user=self.user, amount=Decimal('600'),
-                               category='transport', paid_at=today)
+        expense = Expense.objects.create(activity=trip, user=self.user,
+                                         amount=Decimal('600'), paid_at=today)
+        apply_tags(expense, ['交通'])
         # 近期完成分组
         Activity.objects.create(user=self.user, name='旧项目结项', status='done',
                                 start_date=today - timedelta(days=2))
@@ -1469,7 +1445,7 @@ class ExpenseReportDesktopLayoutTest(TestCase):
     """费用报告页桌面两列布局回归锁
 
     本页是 rail-first（右列整块在 DOM 里排在主内容流之前）：这样移动端顺序
-    （关键数字 → 三个图表 → 本月分类明细）与改造前逐块一致。
+    （关键数字 → 三个图表 → 本月标签明细）与改造前逐块一致。
     顺带锁掉一件事：图表区不得再用 lg:grid-cols-2 —— 视口断点不跟随列宽，
     两列化后左列只有 864px，lg: 会把它硬拆成两个 416px 的图。
     """
@@ -1480,23 +1456,24 @@ class ExpenseReportDesktopLayoutTest(TestCase):
         self.client = Client()
         self.client.login(username='raven', password='test')
         activity = Activity.objects.create(user=self.user, name='新西兰之旅')
-        Expense.objects.create(activity=activity, user=self.user,
-                               amount=Decimal('600'), category='transport')
+        expense = Expense.objects.create(activity=activity, user=self.user,
+                                         amount=Decimal('600'))
+        apply_tags(expense, ['交通'])
         self.html = self.client.get('/activities/expense-report/').content.decode()
 
     def test_desktop_two_columns(self):
         assert_desktop_two_columns(
             self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
             left=[('月度趋势', '月度趋势图'), ('id="monthChart"', '趋势图画布'),
-                  ('分类占比（近一年）', '饼图'), ('本月分类明细', '明细卡'),
+                  ('标签占比（近一年）', '饼图'), ('本月标签明细', '明细卡'),
                   ('id="mcList"', '明细列表挂载点')],
             right=[('关键数字', '概览卡标题'), ('本月合计', '本月数字')],
-            mobile_order=['关键数字', '月度趋势', '本月分类明细'],
+            mobile_order=['关键数字', '月度趋势', '本月标签明细'],
             rail_first=True)
 
     def test_chart_canvas_height_untouched(self):
         """三个图表仍各自带 220px 容器：Chart.js 的 responsive 靠父级定高"""
-        for canvas in ('monthChart', 'categoryChart', 'weekChart'):
+        for canvas in ('monthChart', 'tagChart', 'weekChart'):
             at = self.html.index('id="%s"' % canvas)
             self.assertIn('height:220px', self.html[at - 90:at],
                           f'{canvas} 的定高容器丢了，图会无限长高')
@@ -1505,7 +1482,7 @@ class ExpenseReportDesktopLayoutTest(TestCase):
 
 
 class ExpenseStatsAgentToolTest(TestCase):
-    """费用专项统计工具：任意时间区间 + 按类别/活动维度汇总
+    """费用专项统计工具：任意时间区间 + 按标签/活动维度汇总
 
     时间口径：付费日期 paid_at 在区间内（含边界）；未填 paid_at 的派生费用
     （AA 分账拆出等）按记录创建日归档，避免被静默漏计。
@@ -1519,11 +1496,14 @@ class ExpenseStatsAgentToolTest(TestCase):
         self.other_activity = Activity.objects.create(user=self.user, name='北京出差')
         self.today = timezone.localdate()
 
-    def _expense(self, amount, category='food', paid_at=None, activity=None,
+    def _expense(self, amount, tags=None, paid_at=None, activity=None,
                  user=None, note=''):
-        return Expense.objects.create(
+        expense = Expense.objects.create(
             activity=activity or self.activity, user=user or self.user,
-            amount=Decimal(amount), category=category, paid_at=paid_at, note=note)
+            amount=Decimal(amount), paid_at=paid_at, note=note)
+        if tags:
+            apply_tags(expense, tags)
+        return expense
 
     def _total(self, **params):
         return self.tool['fn'](self.user, params)['card_data']['total']
@@ -1578,18 +1558,18 @@ class ExpenseStatsAgentToolTest(TestCase):
         self._expense('50', paid_at=self.today - timedelta(days=30))   # 恰好界外
         self.assertEqual(self._total(scope='last_30d'), 100)
 
-    def test_category_breakdown_sorted_and_labeled(self):
+    def test_tag_breakdown_sorted_and_labeled(self):
         d = self.today
-        self._expense('100', category='food', paid_at=d)
-        self._expense('60', category='transport', paid_at=d)
-        self._expense('30', category='food', paid_at=d)
+        self._expense('100', tags=['餐饮'], paid_at=d)
+        self._expense('60', tags=['交通'], paid_at=d)
+        self._expense('30', tags=['餐饮'], paid_at=d)
         card = self.tool['fn'](self.user, {'scope': 'month'})['card_data']
-        cats = card['categories']
-        self.assertEqual([c['label'] for c in cats], ['餐饮', '交通'])
-        self.assertEqual(cats[0]['total'], 130)
-        self.assertEqual(cats[0]['count'], 2)
+        tags = card['tags']
+        self.assertEqual([t['label'] for t in tags], ['餐饮', '交通'])
+        self.assertEqual(tags[0]['total'], 130)
+        self.assertEqual(tags[0]['count'], 2)
         # 占比横条：按占总费用的比例（130/190 ≈ 68）
-        self.assertEqual(cats[0]['pct'], 68)
+        self.assertEqual(tags[0]['pct'], 68)
         self.assertEqual(card['total'], 190)
 
     def test_activity_breakdown_top_with_links(self):
@@ -1720,159 +1700,114 @@ class UpdateParentAgentToolTest(TestCase):
         self.assertIn('全部可编辑字段', prompt)
 
 
-class ExpenseCategoryConfigTest(TestCase):
-    """数据库驱动类别体系的核心口径：迁移正确性 / 停用兼容 / 各入口一致
+class CategoryToTagsMigrationTest(TransactionTestCase):
+    """0017 数据搬迁回归锁：分类体系下线时，存量数据无损转入标签体系
 
-    类别配置在 ExpenseCategory 表（admin 可管理），所有入口从
-    activities.categories 读取。这里锁住任务书的四个硬性要求：
-    初始数据正确、停用类别的历史费用照常展示统计、各入口同步、
-    admin 变更即时生效。
+    真实执行迁移文件里的 migrate_category_to_tags：用 MigrationLoader
+    重放 0016 时点的 historical models（ExpenseCategory / 带 category 列
+    的 Expense），在测试库临时重建历史结构并灌入存量数据。建表/加列是
+    DDL，SQLite 不允许在 TestCase 的事务内做，因此本类用
+    TransactionTestCase（无外层事务，靠 tearDown 显式清理 + 结束后
+    flush 兜底）。锁住四件事：
+    类别 → scope='expense' 标签一一对应、同名标签复用不重建、
+    费用 → tags 关联无遗漏无重复、重复执行幂等。
     """
 
-    INITIAL = [
-        ('transport', '交通', 10), ('accommodation', '住宿', 20),
-        ('food', '餐饮', 30), ('ticket', '门票', 40),
-        ('shopping', '购物', 50), ('work', '工作', 60),
-        ('digital', '数码', 70), ('health', '健康', 80),
-        ('other', '其他', 90),
-    ]
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import importlib
+        from django.db.migrations.loader import MigrationLoader
+        # ignore_no_migrations=True：不查 django_migrations 表，纯磁盘迁移图
+        loader = MigrationLoader(None, ignore_no_migrations=True)
+        cls.historical_apps = loader.project_state(
+            [('activities', '0016_migrate_taggit_data')], at_end=True).apps
+        cls.migrate_fn = staticmethod(importlib.import_module(
+            'activities.migrations.0017_delete_expensecategory_and_more'
+        ).migrate_category_to_tags)
 
     def setUp(self):
-        cache.clear()
-        self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='成都之行')
-        self.expense = Expense.objects.create(
-            activity=self.activity, user=self.user,
-            amount=200, category='food', note='火锅',
-            paid_at=timezone.localdate())  # 图表端点按 paid_at 过滤近 12 个月
+        from django.db import connection
+        self.ExpenseCategory = self.historical_apps.get_model(
+            'activities', 'ExpenseCategory')
+        self.HistoricalExpense = self.historical_apps.get_model(
+            'activities', 'Expense')
+        with connection.schema_editor() as editor:
+            editor.create_model(self.ExpenseCategory)
+            editor.add_field(self.HistoricalExpense,
+                             self.HistoricalExpense._meta.get_field('category'))
 
-    def _set_active(self, key, is_active):
-        ExpenseCategory.objects.filter(key=key).update(is_active=is_active)
-        invalidate_category_cache()
+    def tearDown(self):
+        from django.db import connection
+        # add_field 会因 0016 时点 Meta 连带重建含 category 的旧复合索引
+        # （0009 的 user+category+-paid_at），SQLite 无法在 DROP COLUMN 时
+        # 自动摘除它，必须先手动删掉
+        with connection.cursor() as cursor:
+            cursor.execute('DROP INDEX IF EXISTS activities__user_id_a1454e_idx')
+        with connection.schema_editor() as editor:
+            editor.remove_field(self.HistoricalExpense,
+                                self.HistoricalExpense._meta.get_field('category'))
+            editor.delete_model(self.ExpenseCategory)
 
-    # ---------- 迁移正确性 ----------
+    def test_migration_converts_categories_to_tags(self):
+        """存量类别 → scope='expense' 标签、存量费用 → tags 关联，一一对应
 
-    def test_initial_categories_seeded_by_migration(self):
-        """data migration 把原硬编码 9 类灌入表：key/label/sort 全部正确且启用"""
-        rows = list(ExpenseCategory.objects.order_by('sort'))
-        self.assertEqual([(r.key, r.label, r.sort) for r in rows], self.INITIAL)
-        self.assertTrue(all(r.is_active for r in rows))
-
-    def test_existing_expense_keys_untouched(self):
-        """存量 Expense.category 保留字符串 key，无损迁移（不做 FK 的关键理由）"""
-        self.assertEqual(self.expense.category, 'food')
-        self.assertEqual(self.expense.get_category_display(), '餐饮')
-
-    # ---------- 停用兼容：展示与统计不丢 ----------
-
-    def test_disabled_category_still_displayed_and_counted(self):
-        """停用餐饮后：历史费用照常显示「餐饮」，报表统计照常包含——
-        不允许「表单选不到但统计里还在算」的反向不一致，也不允许丢数据。
-
-        报表页 HTML 本身不带类别数据，分类饼图/单月明细走
-        expense_chart_data JSON 端点，兼容性在那里验证。
+        测试库走完整迁移链后，0014 种子的 9 类已被 0017 转为 expense 标签
+        （RunPython 对空 Expense 表只建标签不挂费用）；这里重建 0016 时点
+        结构灌入存量费用，验证 0017 的四个口径：同名标签复用、已挂费用
+        去重、空类别/未知 key 跳过、重复执行幂等。
         """
-        self._set_active('food', False)
-        self.expense = Expense.objects.get(pk=self.expense.pk)
-        self.assertEqual(self.expense.get_category_display(), '餐饮')
+        user = User.objects.create_user('testuser', password='test')
+        activity = Activity.objects.create(user=user, name='迁移演练')
 
-        resp = self.client.get(
-            reverse('activities:expense_chart_data'), {'range': 'category'})
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn('餐饮', data['labels'])
+        base_names = set(Tag.objects.filter(scope='expense')
+                         .values_list('name', flat=True))
+        self.assertIn('餐饮', base_names)
+        self.assertIn('交通', base_names)
 
-        resp = self.client.get(
-            reverse('activities:expense_chart_data'), {'range': 'month_category'})
-        items = resp.json()['items']
-        self.assertTrue(any(
-            i['label'] == '餐饮' and i['amount'] == 200 for i in items))
+        # 存量类别（模拟 0016 时点的 ExpenseCategory 表）
+        self.ExpenseCategory.objects.create(key='food', label='餐饮', sort=30)
+        self.ExpenseCategory.objects.create(key='transport', label='交通', sort=10)
 
-    def test_disabled_category_not_in_any_choice_entry(self):
-        """停用餐饮后：可选项口径（读取层/快记浮窗/建议）全部消失"""
-        self._set_active('food', False)
-        self.assertNotIn(('food', '餐饮'), active_category_choices())
-        resp = self.client.get(reverse('activities:activity_list'))
-        content = resp.content.decode()
-        # base.html 快记浮窗的下拉由类别表渲染，停用项不再出现
-        self.assertNotIn('>餐饮</option>', content)
+        # historical FK 与真实模型是不同类，传主键绕过实例类型校验
+        HistoricalExpense = self.HistoricalExpense
+        e_food = HistoricalExpense.objects.create(
+            activity_id=activity.id, user_id=user.id,
+            amount=Decimal('200'), category='food')
+        e_dup = HistoricalExpense.objects.create(
+            activity_id=activity.id, user_id=user.id,
+            amount=Decimal('60'), category='transport')
+        # historical 模型不被 core.tags 的宿主注册表识别，模拟「已挂过」
+        # 直接写 through 表：迁移不得重复挂
+        tag = Tag.objects.get(scope='expense', name='交通')
+        HistoricalExpense.tags.through.objects.create(
+            expense_id=e_dup.pk, tag_id=tag.pk)
+        e_nocat = HistoricalExpense.objects.create(
+            activity_id=activity.id, user_id=user.id,
+            amount=Decimal('10'), category='')
+        e_orphan = HistoricalExpense.objects.create(
+            activity_id=activity.id, user_id=user.id,
+            amount=Decimal('5'), category='ghost')   # 脏数据：key 不在类别表，跳过不炸
 
-        Expense.objects.create(activity=self.activity, user=self.user,
-                               amount=10, category='food')
-        data = self.client.get(
-            f'/activities/{self.activity.id}/category-suggest/').json()
-        self.assertNotIn('food', [c['key'] for c in data['categories']])
+        self.migrate_fn(self.historical_apps, None)
 
-    def test_deleted_category_label_falls_back_to_key(self):
-        """类别被删（而非停用）：展示回落 key 本身，不报错不丢统计"""
-        ExpenseCategory.objects.filter(key='food').delete()
-        invalidate_category_cache()
-        self.expense = Expense.objects.get(pk=self.expense.pk)
-        self.assertEqual(self.expense.get_category_display(), 'food')
-
-    # ---------- clean_category 与默认值的停用回落 ----------
-
-    def test_clean_category_respects_explicit_disabled_label(self):
-        """用户明确说出停用类别的名字时尊重（编辑历史费用回传不静默改写）"""
-        self._set_active('food', False)
-        self.assertEqual(clean_category('餐饮'), 'food')
-        self.assertEqual(clean_category('food'), 'food')
-
-    def test_clean_category_default_falls_back_when_inactive(self):
-        """默认类别被停用后，解析失败的脏写回落到排序第一个启用类别"""
-        self._set_active('other', False)
-        self.assertEqual(clean_category(''), 'transport')
-        self.assertEqual(clean_category('一个无法识别的类别'), 'transport')
-
-    # ---------- 各入口一致性：admin 改完即全局生效 ----------
-
-    def test_new_category_appears_in_quick_form_and_agent_hint(self):
-        """admin 新增「宠物」：快记浮窗下拉 + Agent 协议 hint 同步出现（零代码）"""
-        ExpenseCategory.objects.create(key='pet', label='宠物', sort=95)
-        invalidate_category_cache()
-
-        resp = self.client.get(reverse('activities:activity_list'))
-        self.assertIn('>宠物</option>', resp.content.decode())
-
-        from core.agent_registry import build_protocol_prompt
-        self.assertIn('宠物', build_protocol_prompt())
-
-    def test_agent_hint_lists_every_active_label(self):
-        """add_expense 的动态 hint 覆盖全部启用类别（修复旧枚举漏数码/健康）"""
-        from core.agent_registry import build_protocol_prompt
-        prompt = build_protocol_prompt()
-        for _key, label in active_category_choices():
-            self.assertIn(label, prompt)
-
-    def test_cache_token_changes_with_config(self):
-        """配置指纹随类别变更变化 → suggest 视图旧缓存自动失效"""
-        from activities.categories import category_cache_token
-        before = category_cache_token()
-        ExpenseCategory.objects.create(key='pet', label='宠物', sort=95)
-        invalidate_category_cache()
-        self.assertNotEqual(category_cache_token(), before)
-
-    def test_admin_formfield_uses_active_choices(self):
-        """admin 的 Expense inline 表单下拉来自类别表启用口径，而非硬编码
-
-        （回归锁：模型去掉 choices 后，直接 kwargs['choices'] 会落到
-        CharField 而炸 TypeError，必须显式 TypedChoiceField）"""
-        from activities.admin import ExpenseInline
-        inline = ExpenseInline(Expense, admin.site)
-        field = inline.formfield_for_dbfield(
-            Expense._meta.get_field('category'), request=None)
-        self.assertEqual([tuple(c) for c in field.choices],
-                         list(active_category_choices()))
-
-    def test_stats_tool_uses_label_map_for_disabled(self):
-        """expense_stats 卡片数据对停用类别仍给出中文标签"""
-        self._set_active('food', False)
-        from core.agent_registry import get_tool
-        result = get_tool('activities.expense_stats')['fn'](self.user, {})
-        cats = result['card_data']['categories']
-        self.assertTrue(any(c['label'] == '餐饮' and c['total'] == 200 for c in cats))
+        # 类别 → 标签：同名复用不重建（迁移前后标签总数不变）
+        self.assertEqual(
+            Tag.objects.filter(scope='expense').count(), len(base_names))
+        self.assertEqual(
+            Tag.objects.filter(scope='expense', name='餐饮').count(), 1)
+        self.assertEqual(
+            Tag.objects.filter(scope='expense', name='交通').count(), 1)
+        # 费用 → tags：key 反查 label 一一挂上
+        self.assertEqual(set(tag_names(e_food)), {'餐饮'})
+        self.assertEqual(set(tag_names(e_dup)), {'交通'})   # 去重
+        self.assertEqual(tag_names(e_nocat), [])            # 空类别不挂
+        self.assertEqual(tag_names(e_orphan), [])           # 未知 key 不挂
+        # 幂等：重复执行不产生重复关联或重复标签
+        self.migrate_fn(self.historical_apps, None)
+        self.assertEqual(set(tag_names(e_food)), {'餐饮'})
+        self.assertEqual(
+            Tag.objects.filter(scope='expense').count(), len(base_names))
 
 
 class ActivityTagEditRegressionTest(TestCase):

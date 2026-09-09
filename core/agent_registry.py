@@ -248,7 +248,7 @@ def agent_tool(name, description, params_hint='', apply_fn=None):
                'action': 待确认动作 {'tool', 'params'}（两步确认流）}
     apply_fn：两步确认流中确认后的实际执行函数，签名同 fn。
     params_hint：静态字符串，或 () -> str 的 callable——内容随数据库配置变化的
-    工具（如费用类别清单在 ExpenseCategory 表里，admin 改完即生效）用它，
+    工具（如费用标签建议来自 core.Tag 表，admin 改完即生效）用它，
     每帧生成协议时实时求值，避免进程常驻后 hint 与数据脱节。
     """
     def deco(fn):

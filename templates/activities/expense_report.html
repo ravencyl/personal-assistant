@@ -12,7 +12,7 @@
 <div class="mb-8 flex items-center justify-between">
     <div>
         <h1 class="text-2xl sm:text-3xl font-bold text-[var(--text)] tracking-tight">费用报告</h1>
-        <p class="text-sm text-[var(--text-muted)] mt-1">消费趋势与分类统计</p>
+        <p class="text-sm text-[var(--text-muted)] mt-1">消费趋势与标签统计</p>
     </div>
     <a href="{% url 'activities:daily' %}"
        class="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
@@ -26,7 +26,7 @@
 {% comment %}
 桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
   右列 = 关键数字（本月/上月/环比/本周/时间花费），整列随滚动常驻；
-  左列 = 主内容流（三个图表纵向堆叠 · 本月分类明细）。
+  左列 = 主内容流（三个图表纵向堆叠 · 本月标签明细）。
 右列整块在 DOM 里排在左列之前，所以移动端阅读顺序与改造前逐块一致；桌面端靠 order 换回右侧。
 图表区不再用 lg: 两列：视口断点不跟随列宽，放进 864px 左列后会挤成两个 416px 图，改纵向堆叠。
 {% endcomment %}
@@ -59,7 +59,7 @@
 </div>
 </div><!-- /右列 -->
 
-<!-- 左列：图表与分类明细 -->
+<!-- 左列：图表与标签明细 -->
 <div class="page-main space-y-4 sm:space-y-6">
 
     <!-- 月度趋势折线图 -->
@@ -67,14 +67,6 @@
         <h2 class="text-sm font-semibold text-[var(--text)] mb-4">月度趋势</h2>
         <div style="position:relative; height:220px;">
             <canvas id="monthChart"></canvas>
-        </div>
-    </div>
-
-    <!-- 分类饼图 -->
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
-        <h2 class="text-sm font-semibold text-[var(--text)] mb-4">分类占比（近一年）</h2>
-        <div style="position:relative; height:220px;">
-            <canvas id="categoryChart"></canvas>
         </div>
     </div>
 
@@ -95,10 +87,10 @@
         </div>
     </div>
 
-<!-- 本月分类明细 -->
+<!-- 本月标签明细 -->
 <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
     <div class="flex items-center justify-between gap-3 mb-4">
-        <h2 class="text-sm font-semibold text-[var(--text)]">本月分类明细</h2>
+        <h2 class="text-sm font-semibold text-[var(--text)]">本月标签明细</h2>
         <div class="flex items-center gap-1">
             <button type="button" id="mcPrev"
                     class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors"
@@ -171,35 +163,6 @@
             });
         });
 
-    // 分类饼图
-    fetch('{% url "activities:expense_chart_data" %}?range=category')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (!data.labels || !data.labels.length) return;
-            var palette = ['#18181b', '#52525b', '#71717a', '#a1a1aa', '#d4d4d8', '#e4e4e7', '#f4f4f5'];
-            new Chart(document.getElementById('categoryChart'), {
-                type: 'doughnut',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        data: data.values,
-                        backgroundColor: palette,
-                        borderWidth: 0,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'right',
-                            labels: { color: textColor, font: { size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 8 }
-                        }
-                    }
-                }
-            });
-        });
-
     // 标签饼图（一笔费用多标签时各标签独立计入）
     fetch('{% url "activities:expense_chart_data" %}?range=tag')
         .then(function(r) { return r.json(); })
@@ -262,7 +225,7 @@
 </script>
 
 <script>
-// 本月分类明细（原生 fetch 消费 month_category JSON，与上方图表脚本互不影响）
+// 本月标签明细（原生 fetch 消费 month_tag JSON，与上方图表脚本互不影响）
 (function() {
     var endpoint = '{% url "activities:expense_chart_data" %}';
     // 灰阶条形序列：金额从高到低依次变浅（只用 zinc 灰阶）
@@ -286,11 +249,11 @@
 
     function load() {
         labelEl.textContent = year + ' 年 ' + month + ' 月';
-        fetch(endpoint + '?range=month_category&month=' + year + '-' + pad(month))
+        fetch(endpoint + '?range=month_tag&month=' + year + '-' + pad(month))
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var items = data.items || [];
-                totalEl.textContent = items.length ? ('合计 ' + fmtMoney(data.total || 0) + ' · ' + items.length + ' 个分类') : '';
+                totalEl.textContent = items.length ? ('合计 ' + fmtMoney(data.total || 0) + ' · ' + items.length + ' 个标签') : '';
                 if (!items.length) {
                     listEl.innerHTML = '<p class="text-sm text-[var(--text-muted)] py-6 text-center">本月暂无费用记录</p>';
                     return;
@@ -300,7 +263,7 @@
                     var color = barColors[Math.min(i, barColors.length - 1)];
                     return '<div>' +
                         '<div class="flex items-baseline justify-between gap-2 mb-1">' +
-                            '<span class="text-sm text-[var(--text)]">' + it.label + '</span>' +
+                            '<span class="text-sm text-[var(--text)]">#' + it.tag + '</span>' +
                             '<span class="text-sm tabular-nums text-[var(--text-secondary)] whitespace-nowrap">' + fmtMoney(it.amount) +
                                 ' <span class="text-xs text-[var(--text-muted)]">' + it.pct + '%</span></span>' +
                         '</div>' +

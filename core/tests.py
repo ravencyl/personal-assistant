@@ -227,11 +227,11 @@ class ReportGeneratorTest(TestCase):
             user=self.user, name='出差上海', status='done',
             start_date=timezone.localdate(),
         )
-        Expense.objects.create(
+        expense = Expense.objects.create(
             activity=self.activity1, user=self.user,
-            amount=500, category='transport',
-            paid_at=timezone.localdate(),
+            amount=500, paid_at=timezone.localdate(),
         )
+        apply_tags(expense, ['交通'])
 
     def test_collect_report_data_weekly(self):
         """周数据聚合正确"""
@@ -240,7 +240,7 @@ class ReportGeneratorTest(TestCase):
         data = collect_report_data(self.user, 'weekly', week_start, today)
         self.assertEqual(data['total_activities'], 1)
         self.assertEqual(data['total_expense'], 500.0)
-        self.assertIn('transport', data['expense_by_category'])
+        self.assertIn('交通', data['expense_by_tag'])
 
     def test_collect_report_data_monthly(self):
         """月数据聚合正确"""
@@ -1457,7 +1457,7 @@ class TagConfigTest(TestCase):
         """AI 记账/视图层共用 add_expense 服务：tags 参数落库为 expense scope"""
         from activities.services import add_expense
         expense = add_expense(self.activity, self.user, '66.5',
-                              category='transport', tags='通勤,地铁')
+                              tags='通勤,地铁')
         self.assertEqual(set(tag_names(expense)), {'通勤', '地铁'})
         self.assertEqual(
             set(used_tags('expense', self.user).values_list('name', flat=True)),
