@@ -22,6 +22,7 @@ from activities.models import (Activity, ActivityLog, Attachment, Expense, Parti
 )
 from notes.models import Note
 from activities.parsing import parse_quick_input
+from core.agent_registry import CandidateToolError, ToolError
 from core.layout_asserts import assert_desktop_two_columns
 from activities.services import (InputError, add_expense, clean_category,
                                  create_activity_from_parsed, record_parsed_cost,
@@ -1494,3 +1495,219 @@ class ExpenseReportDesktopLayoutTest(TestCase):
                           f'{canvas} 的定高容器丢了，图会无限长高')
 
 
+
+
+class ExpenseStatsAgentToolTest(TestCase):
+    """费用专项统计工具：任意时间区间 + 按类别/活动维度汇总
+
+    时间口径：付费日期 paid_at 在区间内（含边界）；未填 paid_at 的派生费用
+    （AA 分账拆出等）按记录创建日归档，避免被静默漏计。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.user = User.objects.create_user('testuser', password='test')
+        self.tool = get_tool('activities.expense_stats')
+        self.activity = Activity.objects.create(user=self.user, name='桐庐周末游')
+        self.other_activity = Activity.objects.create(user=self.user, name='北京出差')
+        self.today = timezone.localdate()
+
+    def _expense(self, amount, category='food', paid_at=None, activity=None,
+                 user=None, note=''):
+        return Expense.objects.create(
+            activity=activity or self.activity, user=user or self.user,
+            amount=Decimal(amount), category=category, paid_at=paid_at, note=note)
+
+    def _total(self, **params):
+        return self.tool['fn'](self.user, params)['card_data']['total']
+
+    def test_default_covers_all_time(self):
+        self._expense('100', paid_at=self.today - timedelta(days=400))
+        self._expense('50', paid_at=self.today)
+        self.assertEqual(self._total(), 150)
+
+    def test_custom_date_range_is_inclusive(self):
+        d1 = self.today - timedelta(days=10)
+        d2 = self.today - timedelta(days=5)
+        self._expense('100', paid_at=d1)          # 边界内（含）
+        self._expense('40', paid_at=d2)           # 边界内（含）
+        self._expense('60', paid_at=d1 - timedelta(days=1))   # 区间前
+        self._expense('30', paid_at=d2 + timedelta(days=1))   # 区间后
+        result = self.tool['fn'](self.user, {
+            'date_from': d1.isoformat(), 'date_to': d2.isoformat()})
+        self.assertEqual(result['card_data']['total'], 140)
+        self.assertEqual(result['card_data']['count'], 2)
+        self.assertIn(d1.isoformat(), result['reply'])
+
+    def test_swapped_dates_are_normalized(self):
+        d1 = self.today - timedelta(days=10)
+        d2 = self.today - timedelta(days=5)
+        self._expense('80', paid_at=d1)
+        self._expense('20', paid_at=d2)
+        swapped = self._total(date_from=d2.isoformat(), date_to=d1.isoformat())
+        ordered = self._total(date_from=d1.isoformat(), date_to=d2.isoformat())
+        self.assertEqual(swapped, ordered)
+
+    def test_last_month_scope_excludes_this_month(self):
+        """上个月口径：上限必须是上月最后一天——曾经 +31 天会溢出到本月 1 号"""
+        first_of_month = self.today.replace(day=1)
+        last_month_last = first_of_month - timedelta(days=1)
+        last_month_first = last_month_last.replace(day=1)
+        self._expense('100', paid_at=last_month_first + timedelta(days=2))
+        self._expense('50', paid_at=last_month_last)      # 上月最后一天（含）
+        self._expense('70', paid_at=first_of_month)       # 本月 1 号：不算
+        result = self.tool['fn'](self.user, {'scope': 'last_month'})
+        self.assertEqual(result['card_data']['total'], 150)
+        self.assertIn('上个月', result['reply'])
+
+    def test_week_scope_starts_on_monday(self):
+        monday = self.today - timedelta(days=self.today.weekday())
+        self._expense('100', paid_at=monday)
+        self._expense('20', paid_at=monday - timedelta(days=1))   # 上周日
+        self.assertEqual(self._total(scope='week'), 100)
+
+    def test_last_30d_scope(self):
+        self._expense('100', paid_at=self.today - timedelta(days=29))
+        self._expense('50', paid_at=self.today - timedelta(days=30))   # 恰好界外
+        self.assertEqual(self._total(scope='last_30d'), 100)
+
+    def test_category_breakdown_sorted_and_labeled(self):
+        d = self.today
+        self._expense('100', category='food', paid_at=d)
+        self._expense('60', category='transport', paid_at=d)
+        self._expense('30', category='food', paid_at=d)
+        card = self.tool['fn'](self.user, {'scope': 'month'})['card_data']
+        cats = card['categories']
+        self.assertEqual([c['label'] for c in cats], ['餐饮', '交通'])
+        self.assertEqual(cats[0]['total'], 130)
+        self.assertEqual(cats[0]['count'], 2)
+        # 占比横条：按占总费用的比例（130/190 ≈ 68）
+        self.assertEqual(cats[0]['pct'], 68)
+        self.assertEqual(card['total'], 190)
+
+    def test_activity_breakdown_top_with_links(self):
+        d = self.today
+        self._expense('100', paid_at=d, activity=self.activity)
+        self._expense('500', paid_at=d, activity=self.other_activity)
+        self._expense('40', paid_at=d, activity=self.activity)
+        card = self.tool['fn'](self.user, {'scope': 'month'})['card_data']
+        acts = card['activities']
+        self.assertEqual(acts[0]['name'], '北京出差')
+        self.assertEqual(acts[0]['total'], 500)
+        self.assertIn(str(self.other_activity.id), acts[0]['detail_url'])
+        self.assertEqual(len(acts), 2)
+
+    def test_other_users_expenses_excluded(self):
+        other = User.objects.create_user('someone', password='test')
+        self._expense('999', paid_at=self.today, user=other)
+        self.assertEqual(self._total(), 0)
+
+    def test_null_paid_at_falls_back_to_created_at(self):
+        """未填消费日期的费用按创建日归档（AA 分账拆出等派生记录不丢）"""
+        self._expense('25', paid_at=None)
+        self.assertEqual(self._total(scope='month'), 25)
+        self.assertEqual(self._total(date_from='2020-01-01',
+                                     date_to='2020-01-31'), 0)
+
+    def test_empty_period_reply(self):
+        result = self.tool['fn'](self.user, {'scope': 'month'})
+        self.assertIn('没有费用记录', result['reply'])
+        self.assertEqual(result['card_data']['total'], 0)
+
+    def test_protocol_prompt_advertises_time_expressions(self):
+        """协议里要写清时间范围的各种说法，模型才能把「上个月」换算成参数"""
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('expense_stats', prompt)
+        self.assertIn('date_from + date_to', prompt)
+        self.assertIn('last_month', prompt)
+
+
+class UpdateParentAgentToolTest(TestCase):
+    """activities.update 补齐父活动字段：预览 diff → 确认 → apply，环与歧义在预览挡住"""
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.user = User.objects.create_user('testuser', password='test')
+        self.tool = get_tool('activities.update')
+        self.parent_a = Activity.objects.create(user=self.user, name='新疆大环线')
+        self.parent_b = Activity.objects.create(user=self.user, name='青甘环线')
+        self.child = Activity.objects.create(user=self.user, name='喀纳斯徒步')
+
+    def test_preview_shows_parent_change_and_writes_nothing(self):
+        preview = self.tool['fn'](self.user, {'target': '喀纳斯', 'parent': '新疆大环线'})
+        self.assertEqual(preview['card'], 'confirm')
+        change = next(c for c in preview['card_data']['changes'] if c['field'] == 'parent')
+        self.assertEqual(change['old'], '空')
+        self.assertEqual(change['new'], '新疆大环线')
+        self.child.refresh_from_db()
+        self.assertIsNone(self.child.parent)
+
+    def test_apply_moves_under_parent(self):
+        self.tool['apply'](self.user, {'target_id': self.child.id, 'parent': '新疆大环线'})
+        self.child.refresh_from_db()
+        self.assertEqual(self.child.parent, self.parent_a)
+        log = ActivityLog.objects.filter(activity=self.child, action='edited') \
+            .order_by('-id').first()
+        self.assertIn('父活动', log.summary)
+        self.assertIn('新疆大环线', log.summary)
+
+    def test_apply_reassigns_between_parents(self):
+        self.child.parent = self.parent_b
+        self.child.save()
+        self.tool['apply'](self.user, {'target_id': self.child.id, 'parent': '新疆大环线'})
+        self.child.refresh_from_db()
+        self.assertEqual(self.child.parent, self.parent_a)
+
+    def test_clear_parent_with_empty_or_none(self):
+        self.child.parent = self.parent_a
+        self.child.save()
+        self.tool['apply'](self.user, {'target_id': self.child.id, 'parent': ''})
+        self.child.refresh_from_db()
+        self.assertIsNone(self.child.parent)
+        self.tool['apply'](self.user, {'target_id': self.child.id, 'parent': 'none'})
+        self.child.refresh_from_db()
+        self.assertIsNone(self.child.parent)
+
+    def test_self_as_parent_is_rejected(self):
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {'target': '喀纳斯', 'parent': '喀纳斯'})
+
+    def test_cycle_is_rejected(self):
+        """父活动不能挂到自己的（孙）子活动下面，否则父子关系成环"""
+        self.child.parent = self.parent_a
+        self.child.save()
+        with self.assertRaises(ToolError) as ctx:
+            self.tool['fn'](self.user, {'target': '新疆大环线', 'parent': '喀纳斯'})
+        self.assertIn('不能反向挂为父活动', str(ctx.exception))
+
+    def test_ambiguous_parent_raises_candidates(self):
+        Activity.objects.create(user=self.user, name='环线加购')
+        with self.assertRaises(CandidateToolError) as ctx:
+            self.tool['fn'](self.user, {'target': '喀纳斯', 'parent': '环线'})
+        self.assertTrue([c['name'] for c in ctx.exception.candidates])
+
+    def test_missing_parent_name_raises_tool_error(self):
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {'target': '喀纳斯', 'parent': '不存在的活动'})
+
+    def test_other_users_activity_cannot_be_parent(self):
+        other = User.objects.create_user('someone', password='test')
+        Activity.objects.create(user=other, name='别人的活动')
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {'target': '喀纳斯', 'parent': '别人的活动'})
+
+    def test_unrelated_fields_untouched(self):
+        self.child.start_date = date(2026, 9, 20)
+        self.child.save()
+        self.tool['apply'](self.user, {'target_id': self.child.id, 'parent': '新疆大环线'})
+        self.child.refresh_from_db()
+        self.assertEqual(self.child.start_date, date(2026, 9, 20))
+
+    def test_prompt_advertises_parent_capability(self):
+        """协议里要写清 parent 参数与「移出父活动」的说法，模型才会用"""
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('parent（父活动名称关键词', prompt)
+        self.assertIn('移出父活动', prompt)
+        self.assertIn('全部可编辑字段', prompt)

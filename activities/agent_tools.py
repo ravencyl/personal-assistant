@@ -6,17 +6,18 @@
 update/delete 为两步确认流：预览卡片 + 确认后执行 apply_*。
 """
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import Coalesce, TruncDate
 from django.urls import reverse
 from django.utils import timezone
 
 from core.agent_registry import CandidateToolError, ToolError, agent_tool
 from core.utils import get_visible, visible_qs
 
-from .models import Activity
+from .models import Activity, Expense
 from .services import (InputError, add_expense, clean_amount, clean_category,
                        create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
@@ -224,7 +225,7 @@ def tool_create(user, params):
 _UPDATE_FIELD_LABELS = [
     ('name', '名称'), ('description', '描述'),
     ('start_date', '开始日期'), ('end_date', '结束日期'),
-    ('status', '状态'),
+    ('status', '状态'), ('parent', '父活动'),
 ]
 
 
@@ -236,7 +237,7 @@ def _abbrev(text, limit=40):
     return flat if len(flat) <= limit else f'{flat[:limit]}…'
 
 
-def _update_data(activity, params):
+def _update_data(user, activity, params):
     """预览与确认执行**共用**的待写字段清洗（单一口径，避免两边算出不同结果）
 
     返回 (data, desc_mode)，desc_mode ∈ {'', 'append', 'replace'}。
@@ -262,6 +263,42 @@ def _update_data(activity, params):
         else:
             data['description'] = f'{old}\n\n{desc}'
             desc_mode = 'append'
+
+    # 父活动归属：协议传父活动名称关键词，normalize_input 不认识这个字段，单独解析。
+    # 传了参数但值为空/none 表示移出父活动；resolve 出错直接抛（预览阶段就挡住，不落脏数据）
+    if p.get('parent') is not None:
+        raw_parent = str(p.get('parent')).strip()
+        if raw_parent.lower() in ('', 'none', 'null', '无'):
+            data['parent'] = None
+        else:
+            parent_qs = visible_qs(Activity, user) \
+                .filter(name__icontains=raw_parent).exclude(id=activity.id)
+            n = parent_qs.count()
+            if n == 0:
+                raise ToolError(f'没有找到名称包含「{raw_parent}」的活动，无法作为父活动'
+                                '（也可以先把目标活动创建出来）')
+            if n > 1:
+                candidates = [{
+                    'id': a.id,
+                    'name': a.name,
+                    'status': a.status,
+                    'status_label': a.get_status_display(),
+                    'date_label': (a.start_date or a.end_date).strftime('%m-%d')
+                                  if (a.start_date or a.end_date) else '未设定',
+                    'detail_url': reverse('activities:activity_detail', args=[a.id]),
+                } for a in parent_qs[:5]]
+                raise CandidateToolError(
+                    f'匹配到 {n} 个活动，请说明要把「{activity.name}」挂到哪个父活动下',
+                    candidates)
+            parent = parent_qs.first()
+            # 环检测：新父活动的祖先链上不允许出现自己，否则父子关系成环
+            node = parent
+            while node:
+                if node.id == activity.id:
+                    raise ToolError(f'「{parent.name}」是「{activity.name}」的（子）活动，'
+                                    '不能反向挂为父活动')
+                node = node.parent
+            data['parent'] = parent
     return data, desc_mode
 
 
@@ -276,7 +313,7 @@ def _participant_skip_note(skipped):
 def _update_preview(user, params):
     """预览阶段：定位目标 + 清洗参数 + 生成变更 diff（不写库）"""
     activity = _resolve_single(user, params.get('target') or params.get('name'))
-    data, desc_mode = _update_data(activity, params)
+    data, desc_mode = _update_data(user, activity, params)
 
     changes = []
     for field, label in _UPDATE_FIELD_LABELS:
@@ -331,10 +368,10 @@ def apply_update(user, params):
     """确认后执行：应用变更字段 + 日志记录 diff（通过 AI 对话）"""
     activity = _resolve_by_id(user, params.get('target_id'))
     # 与预览走同一个清洗入参，保证确认卡上展示的就是最终落库的内容
-    data, _desc_mode = _update_data(activity, params)
+    data, _desc_mode = _update_data(user, activity, params)
 
     old = snapshot_activity(activity)
-    for field in ('name', 'description', 'start_date', 'end_date', 'status'):
+    for field in ('name', 'description', 'start_date', 'end_date', 'status', 'parent'):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()
@@ -360,8 +397,10 @@ def apply_update(user, params):
     }
 
 
-@agent_tool('activities.update', '修改指定活动的字段（名称/描述/日期/状态/标签/参与者）',
-            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数，另支持 '
+@agent_tool('activities.update',
+            '修改指定活动的全部可编辑字段（名称/描述/日期/状态/标签/参与者/父活动）',
+            'target（目标活动名称关键词）+ 要修改的字段（同 create 参数）；'
+            'parent（父活动名称关键词，传空串或 none 表示移出父活动）；'
             'description 描述：把一段结论/备注写进活动时传它，**默认追加到原描述末尾**，'
             '整段替换需再传 description_mode="replace"）；先出预览，用户确认后生效',
             apply_fn=apply_update)
@@ -470,6 +509,114 @@ def tool_stats(user, params):
             'tags_top': tags_top,
             'cost_total': float(cost_total),
             'list_url': reverse('activities:activity_list'),
+        },
+    }
+
+
+# ==================== 费用专项统计（任意时间区间） ====================
+
+def _expense_date_range(params):
+    """解析费用统计时间范围：显式 date_from/date_to 优先，其次 scope 预设，缺省全部
+
+    返回 (date_from, date_to, range_label)；起止颠倒时自动对调，
+    单边缺省时 label 只展示给出的一侧。
+    """
+    today = timezone.localdate()
+
+    def _parse(key):
+        raw = str(params.get(key) or '').strip()
+        if not raw:
+            return None
+        try:
+            return date.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+
+    d_from, d_to = _parse('date_from'), _parse('date_to')
+    if d_from and d_to and d_from > d_to:
+        d_from, d_to = d_to, d_from
+    if d_from or d_to:
+        if d_from and d_to:
+            return d_from, d_to, f'{d_from.isoformat()} ~ {d_to.isoformat()}'
+        edge = d_from or d_to
+        return d_from, d_to, f'{edge.isoformat()} ' + ('起' if d_from else '以前')
+
+    scope = str(params.get('scope') or '').strip().lower()
+    if scope in ('month', 'this_month', '本月'):
+        first = today.replace(day=1)
+        return first, today, f'本月（{first.isoformat()} 起）'
+    if scope in ('last_month', '上个月', '上月'):
+        first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        last = today.replace(day=1) - timedelta(days=1)
+        return first, last, f'上个月（{first.year} 年 {first.month} 月）'
+    if scope in ('week', 'this_week', '本周'):
+        monday = today - timedelta(days=today.weekday())
+        return monday, today, f'本周（{monday.isoformat()} 起）'
+    if scope in ('last_week', '上周'):
+        monday = today - timedelta(days=today.weekday() + 7)
+        return monday, monday + timedelta(days=6), '上周'
+    if scope in ('last_30d', 'last_30days', 'last_30_days', '最近30天', '最近 30 天'):
+        start = today - timedelta(days=29)
+        return start, today, f'最近 30 天（{start.isoformat()} 起）'
+    return None, None, '全部时间'
+
+
+@agent_tool('activities.expense_stats',
+            '按时间范围专项统计费用支出，给出按类别/按活动的费用汇总（「上个月花了多少」'
+            '「9 月 1 日到 15 日的开销」「最近 30 天吃饭花了多少钱」这类问题用这个）',
+            '时间范围三选一（缺省=全部时间）：'
+            '① date_from + date_to（YYYY-MM-DD，相对说法一律换算为绝对日期）；'
+            '② scope 预设：month（本月）/last_month（上个月）/week（本周）/last_week（上周）/'
+            'last_30d（最近 30 天）/all；'
+            '①优先级高于②；未写年份用当年')
+def tool_expense_stats(user, params):
+    d_from, d_to, range_label = _expense_date_range(params)
+    qs = visible_qs(Expense, user)
+    if d_from or d_to:
+        # 未填消费日期的费用（AA 分账拆出等派生记录）按记录创建日归档，避免被静默漏计
+        qs = qs.annotate(_paid=Coalesce('paid_at', TruncDate('created_at')))
+        if d_from:
+            qs = qs.filter(_paid__gte=d_from)
+        if d_to:
+            qs = qs.filter(_paid__lte=d_to)
+
+    agg = qs.aggregate(total=Sum('amount'), count=Count('id'))
+    total, count = agg['total'] or 0, agg['count'] or 0
+    if count == 0:
+        return {'reply': f'{range_label}没有费用记录。',
+                'card': 'expense_stats',
+                'card_data': {'range_label': range_label, 'total': 0.0,
+                              'count': 0, 'categories': [], 'activities': [],
+                              'report_url': reverse('activities:expense_report')}}
+
+    # 按类别汇总（降序，金额占比直接画横条）
+    cat_map = dict(Expense.CATEGORY_CHOICES)
+    cat_rows = (qs.values('category').annotate(total=Sum('amount'), n=Count('id'))
+                .order_by('-total'))
+    categories = [{'label': cat_map.get(r['category'], r['category']),
+                   'total': float(r['total']), 'count': r['n'],
+                   'pct': round(r['total'] * 100 / total)}
+                  for r in cat_rows]
+
+    # 按活动汇总 Top 5（多笔费用聚到所属活动上，点进详情可核对明细）
+    act_rows = (qs.values('activity__id', 'activity__name')
+                .annotate(total=Sum('amount'), n=Count('id'))
+                .order_by('-total')[:5])
+    activities = [{'name': r['activity__name'] or '（已删除的活动）',
+                   'total': float(r['total']), 'count': r['n'],
+                   'detail_url': reverse('activities:activity_detail', args=[r['activity__id']])}
+                  for r in act_rows if r['activity__id']]
+
+    return {
+        'reply': f'{range_label}共支出 ¥{total}（{count} 笔费用），按类别与活动汇总如下：',
+        'card': 'expense_stats',
+        'card_data': {
+            'range_label': range_label,
+            'total': float(total),
+            'count': count,
+            'categories': categories,
+            'activities': activities,
+            'report_url': reverse('activities:expense_report'),
         },
     }
 

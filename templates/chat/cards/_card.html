@@ -7,6 +7,8 @@
     {% include "chat/cards/confirm_card.html" with card=msg.payload.card_data action=msg.payload.action %}
 {% elif msg.payload and msg.payload.card == 'stats' and msg.payload.card_data %}
     {% include "chat/cards/stats_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'expense_stats' and msg.payload.card_data %}
+    {% include "chat/cards/expense_stats_card.html" with card=msg.payload.card_data %}
 {% elif msg.payload and msg.payload.card == 'candidates' and msg.payload.card_data %}
     {% include "chat/cards/candidates_card.html" with card=msg.payload.card_data %}
 {% elif msg.payload and msg.payload.card == 'report' and msg.payload.card_data %}

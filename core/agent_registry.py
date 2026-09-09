@@ -34,6 +34,8 @@ INTENT_TOOL_MAP = {
     'update': 'activities.update',
     'delete': 'activities.delete',
     'stats': 'activities.stats',
+    # 费用专项统计：任意时间区间 + 按类别/活动维度汇总（与 stats 的活动概况互补）
+    'expense_stats': 'activities.expense_stats',
     'add_expense': 'activities.add_expense',
     'list_expenses': 'activities.list_expenses',
     'split_expense': 'activities.split_expense',
