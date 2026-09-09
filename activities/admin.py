@@ -117,11 +117,17 @@ ActivityAdmin.inlines = [ExpenseInline]
 
 @admin.register(Expense)
 class ExpenseAdmin(admin.ModelAdmin):
-    list_display = ['amount', 'category', 'activity', 'paid_at', 'note', 'created_at']
+    list_display = ['amount', 'category', 'activity', 'paid_at', 'note', 'tag_list', 'created_at']
     list_filter = [ExpenseCategoryFilter]
     search_fields = ['note', 'activity__name', 'tags__name']
     readonly_fields = ['user', 'created_at', 'updated_at']
     filter_horizontal = ['tags']
+
+    @admin.display(description='标签')
+    def tag_list(self, obj):
+        # M2M 不能直接进 list_display，用方法列（每行一次小查询，
+        # admin 列表页已分页，量级可忽略）
+        return ', '.join(obj.tags.values_list('name', flat=True))
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name == 'category':
