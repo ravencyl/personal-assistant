@@ -47,7 +47,7 @@
                         编辑</a>
                     <form method="post" action="{% url 'activities:activity_delete' activity.id %}"
                           class="flex-1 md:flex-none"
-                          onsubmit="return confirm('确定删除此活动？子活动的父活动将被清空。')">
+                          data-confirm="确定删除此活动？子活动的父活动将被清空。" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
                         <button type="submit" class="w-full rounded-full bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors">删除</button>
                     </form>
@@ -139,7 +139,7 @@
                 <div class="shrink-0 flex items-center gap-3 self-end md:self-auto">
                     <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}', '{{ e.tags_str|escapejs }}')" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
                     <form method="post" action="{% url 'activities:expense_delete' e.id %}" class="inline"
-                          onsubmit="return confirm('确认删除这笔费用？')">
+                          data-confirm="确认删除这笔费用？" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
                         <button type="submit" class="text-xs text-zinc-500 hover:text-zinc-900">删除</button>
                     </form>
@@ -328,7 +328,7 @@
                 <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
                     <a href="{{ att.file.url }}" target="_blank" class="text-white text-xs hover:underline">查看原图</a>
                     <form method="post" action="{% url 'activities:attachment_delete' att.id %}" class="inline"
-                          onsubmit="return confirm('确定删除？')">
+                          data-confirm="确定删除？" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
                         <button type="submit" class="text-zinc-300 text-xs hover:text-white">删除</button>
                     </form>
@@ -352,7 +352,7 @@
                 <a href="{{ att.file.url }}" target="_blank" class="text-sm text-[var(--text)] hover:underline truncate">{{ att.filename }}</a>
                 <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{{ att.size_display }} · {{ att.uploaded_at|date:"m/d H:i" }}</span>
             </div>
-            <form method="post" action="{% url 'activities:attachment_delete' att.id %}" onsubmit="return confirm('确定删除？')">
+            <form method="post" action="{% url 'activities:attachment_delete' att.id %}" data-confirm="确定删除？" data-confirm-tone="danger" data-confirm-label="确认删除">
                 {% csrf_token %}
                 <button type="submit" class="text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
             </form>

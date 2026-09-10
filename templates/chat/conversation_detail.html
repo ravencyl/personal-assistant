@@ -21,7 +21,7 @@
             <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
         </form>
         <form method="post" action="{% url 'chat:conversation_delete' conversation.id %}"
-              onsubmit="return confirm('确定删除这个对话吗？所有消息都会丢失。');">
+              data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
             {% csrf_token %}
             <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
         </form>

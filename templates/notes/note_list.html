@@ -174,7 +174,7 @@
                         </button>
                     </form>
                     <form method="post" action="{% url 'notes:note_delete' note.id %}" class="inline"
-                          onsubmit="return confirm('确定删除这条备忘录吗？')">
+                          data-confirm="确定删除这条备忘录吗？" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
                         <button type="submit"
                                 class="p-1.5 rounded-full text-[var(--text-muted)] hover:text-zinc-900 hover:bg-zinc-100"

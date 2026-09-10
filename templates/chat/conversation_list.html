@@ -78,7 +78,7 @@
                     <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
                 </form>
                 <form method="post" action="{% url 'chat:conversation_delete' conv.id %}"
-                      onsubmit="return confirm('确定删除这个对话吗？所有消息都会丢失。');">
+                      data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
                     {% csrf_token %}
                     <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
                 </form>
@@ -122,7 +122,7 @@
                 <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
             </form>
             <form id="split-delete-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_delete' active_conversation.id %}{% endif %}"
-                  onsubmit="return confirm('确定删除这个对话吗？所有消息都会丢失。');">
+                  data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
                 {% csrf_token %}
                 <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
             </form>

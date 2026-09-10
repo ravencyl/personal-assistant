@@ -1468,3 +1468,42 @@ class TagConfigTest(TestCase):
         from core.tags import _scope_of
         with self.assertRaises(ValueError):
             _scope_of(self.user)
+
+
+class ConfirmCardGlobalTest(SimpleTestCase):
+    """全站统一确认卡：原生 confirm() 弹窗全部替换为 data-confirm + 全局组件"""
+
+    @staticmethod
+    def _templates():
+        base = Path(settings.BASE_DIR) / 'templates'
+        return sorted(base.rglob('*.html'))
+
+    def test_no_native_confirm_left(self):
+        """不允许任何模板回潮使用原生 onsubmit confirm 弹窗"""
+        offenders = []
+        for p in self._templates():
+            for i, line in enumerate(p.read_text(encoding='utf-8').splitlines(), 1):
+                if 'onsubmit="return confirm(' in line:
+                    offenders.append(f'{p.relative_to(settings.BASE_DIR)}:{i}')
+        self.assertEqual(offenders, [])
+
+    def test_danger_forms_use_confirm_card(self):
+        """删除类表单全部带 data-confirm + danger 调性 + 统一确认按钮文案"""
+        total = 0
+        for p in self._templates():
+            for line in p.read_text(encoding='utf-8').splitlines():
+                if 'data-confirm="' not in line:
+                    continue
+                self.assertIn('data-confirm-tone="danger"', line)
+                self.assertIn('data-confirm-label="确认删除"', line)
+                total += 1
+        self.assertEqual(total, 9)
+
+    def test_confirm_card_js_exists_and_wired(self):
+        """全局组件文件存在（含表单拦截与 paConfirmCard API），且 base.html 已引入"""
+        js = (Path(settings.BASE_DIR) / 'static' / 'js' / 'confirm-card.js'
+              ).read_text(encoding='utf-8')
+        self.assertIn("matches('form[data-confirm]')", js)
+        self.assertIn('window.paConfirmCard', js)
+        base = (Path(settings.BASE_DIR) / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn("staticv 'js/confirm-card.js'", base)
