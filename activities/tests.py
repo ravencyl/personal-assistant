@@ -1810,6 +1810,59 @@ class CategoryToTagsMigrationTest(TransactionTestCase):
             Tag.objects.filter(scope='expense').count(), len(base_names))
 
 
+class ExpenseTagChipsTest(TestCase):
+    """详情页费用表单「常用标签」chips：used_tags 口径 + 频次排序 + 上限 8
+
+    点击填充是纯前端（appendExpenseTag 追加不覆盖），这里锁视图注入与
+    渲染口径：只出现当前用户用过的 expense 标签，频次降序，最多 8 个。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='标签chips活动')
+
+    def _expense(self, tags, activity=None, user=None):
+        e = Expense.objects.create(activity=activity or self.activity,
+                                   user=user or self.user, amount=10)
+        apply_tags(e, tags)
+        return e
+
+    def test_chips_sorted_by_frequency_and_rendered(self):
+        """chips 渲染为 onclick 按钮，按使用频次降序（多者在前）"""
+        for _ in range(3):
+            self._expense(['餐饮'])
+        self._expense(['交通'])
+        html = self.client.get(f'/activities/{self.activity.id}/').content.decode()
+        self.assertIn('id="expense-tag-chips"', html)
+        self.assertLess(html.find("appendExpenseTag('餐饮')"),
+                        html.find("appendExpenseTag('交通')"))
+
+    def test_chips_only_current_user_tags(self):
+        """别人的费用标签不进我的 chips（used_tags 按用户可见范围过滤）"""
+        self._expense(['餐饮'])
+        other = User.objects.create_user('other', password='test')
+        other_activity = Activity.objects.create(user=other, name='别人的活动')
+        self._expense(['别人的标签'], activity=other_activity, user=other)
+        html = self.client.get(f'/activities/{self.activity.id}/').content.decode()
+        self.assertIn("appendExpenseTag('餐饮')", html)
+        # 只断 chips 按钮（页面 datalist 的全局建议含预建启用标签，属预期）
+        self.assertNotIn("appendExpenseTag('别人的标签')", html)
+
+    def test_chips_capped_at_8(self):
+        """超过 8 个只取频次前 8，避免挤压表单"""
+        for i in range(10):
+            self._expense([f'标签{i}'])
+        html = self.client.get(f'/activities/{self.activity.id}/').content.decode()
+        self.assertEqual(html.count('onclick="appendExpenseTag('), 8)
+
+    def test_chips_absent_without_history(self):
+        """从未用过费用标签时整块不渲染"""
+        html = self.client.get(f'/activities/{self.activity.id}/').content.decode()
+        self.assertNotIn('expense-tag-chips', html)
+
+
 class ActivityTagEditRegressionTest(TestCase):
     """编辑/创建活动表单更新标签的回归锁（2026-09 taggit→core.Tag 迁移踩坑）
 

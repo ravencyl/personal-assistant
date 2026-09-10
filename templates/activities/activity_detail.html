@@ -150,6 +150,16 @@
         {% else %}
         <p class="text-sm text-[var(--text-muted)]">暂无费用记录</p>
         {% endif %}
+        <!-- 常用费用标签：点击追加到下方表单的标签输入框（追加不覆盖，纯前端） -->
+        {% if expense_tag_chips %}
+        <div class="mt-3 flex flex-wrap items-center gap-1" id="expense-tag-chips">
+            <span class="text-xs text-[var(--text-muted)] mr-1">常用：</span>
+            {% for t in expense_tag_chips %}
+            <button type="button" onclick="appendExpenseTag('{{ t|escapejs }}')"
+                    class="tap-target inline-flex items-center rounded-full bg-[var(--bg-card)] border border-transparent px-3 text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">#{{ t }}</button>
+            {% endfor %}
+        </div>
+        {% endif %}
         <!-- 添加费用表单 -->
         <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end" id="expense-form">
             {% csrf_token %}
@@ -471,6 +481,17 @@ function cancelEdit() {
     expenseForm.querySelector('[name="paid_at"]').value = '{{ today_date }}';
     expenseSubmitBtn.textContent = '添加';
     expenseCancelBtn.classList.add('hidden');
+}
+
+// 常用标签 chip → 追加到费用标签输入框（追加不覆盖，去重，中英文逗号均可分隔）
+function appendExpenseTag(name) {
+    var input = expenseForm.querySelector('[name="tags"]');
+    var parts = input.value.trim()
+        ? input.value.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean)
+        : [];
+    if (parts.indexOf(name) !== -1) return;
+    parts.push(name);
+    input.value = parts.join(', ');
 }
 
 // ==================== 右列粘性快捷操作 → 定位到页内对应入口并聚焦 ====================

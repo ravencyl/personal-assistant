@@ -28,7 +28,7 @@ from .utils import (edit_summary, filter_activities, get_filter_params, log_acti
 from .services import (InputError, add_expense, clean_amount,
                        clean_paid_at, create_activity_from_parsed,
                        start_due_activities)
-from core.tags import apply_tags, tag_names, tag_suggestions
+from core.tags import apply_tags, tag_names, tag_suggestions, used_tags
 from core.utils import (visible_qs, get_visible, wants_json,
                         week_monday, pct_change, daily_totals,
                         WEEKDAY_LABELS, WEEKDAY_SHORT)
@@ -394,6 +394,12 @@ def activity_detail(request, activity_id):
         e.tags_list = list(tag_names(e))
         e.tags_str = ', '.join(e.tags_list)
 
+    # 常用费用标签 chips：当前用户用过的 expense 标签，按使用频次排序，
+    # 上限 8 个（口径与 used_tags 一致；点击即追加到表单标签输入框，纯前端）
+    expense_tag_chips = list(
+        used_tags('expense', request.user).annotate(n=Count('expense'))
+        .order_by('-n', 'name').values_list('name', flat=True)[:8])
+
     # 附件
     attachments = list(activity.attachments.all())
 
@@ -412,6 +418,8 @@ def activity_detail(request, activity_id):
         'status_choices': Activity.STATUS_CHOICES,
         'logs': activity.logs.select_related('user')[:50],
         'expenses': expenses,
+        # 常用费用标签 chips（scope=expense，频次序，上限 8）
+        'expense_tag_chips': expense_tag_chips,
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
         'subtask_done_count': subtask_done_count,
