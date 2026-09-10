@@ -1507,3 +1507,25 @@ class ConfirmCardGlobalTest(SimpleTestCase):
         self.assertIn('window.paConfirmCard', js)
         base = (Path(settings.BASE_DIR) / 'templates' / 'base.html').read_text(encoding='utf-8')
         self.assertIn("staticv 'js/confirm-card.js'", base)
+
+
+class ChatLayoutFlexHeightTest(SimpleTestCase):
+    """chat 分栏布局的 flex 高度链锁：缺 min-height:0 会被长内容撑爆固定高度容器，
+    移动端发送框被底部 Tab 栏遮住（390×844 实测过）"""
+
+    @staticmethod
+    def _rule_blocks(css, selector):
+        """提取 custom.css 中指定选择器的规则块文本（含多个同名块时逐个检查）"""
+        return re.findall(re.escape(selector) + r'\s*\{([^}]*)\}', css)
+
+    def test_flex_children_have_min_height_zero(self):
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
+               ).read_text(encoding='utf-8')
+        for selector in ('.chat-main', '.chat-sidebar'):
+            blocks = self._rule_blocks(css, selector)
+            self.assertTrue(blocks, f'{selector} 规则块不存在')
+            # 复合选择器块（如 [data-view] .chat-main）不含高度属性是正常的，
+            # 只要主定义块里锁住 min-height: 0 即可
+            self.assertTrue(
+                any('min-height: 0' in b for b in blocks),
+                f'{selector} 缺 min-height: 0，长内容会撑爆 .chat-layout')
