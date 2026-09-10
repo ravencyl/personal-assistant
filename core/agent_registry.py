@@ -444,9 +444,13 @@ class ChatOrchestrator:
             result = tool['fn'](user, params) or {}
         except CandidateToolError as e:
             logger.info(f'Agent 工具 {tool_name} 需要用户澄清: {e}')
+            # pending_action 快照：候选卡上点选某个目标时，服务端拿它+所选 id
+            # 直接重放工具（不经 AI 再解释一轮「第一个」），原地换成确认卡
             return (f'{reply}\n\n⚠️ {e}'.strip(),
                     {'card': 'candidates', 'activity_ids': [],
-                     'card_data': {'hint': str(e), 'items': e.candidates}}, False)
+                     'card_data': {'hint': str(e), 'items': e.candidates,
+                                   'pending_action': {'tool': tool_name,
+                                                      'params': params}}}, False)
         except ToolError as e:
             logger.warning(f'Agent 工具 {tool_name} 业务错误: {e}')
             return f'{reply}\n\n⚠️ {e}'.strip(), None, False

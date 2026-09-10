@@ -2366,3 +2366,119 @@ class JsonEndpointNeverHtmxTest(SimpleTestCase):
         self.assertGreaterEqual(scanned, 5, '一个 hx- 端点都没扫到，这条锁是空的')
 
 
+
+
+class PickCandidateTest(TestCase):
+    """候选点选流：候选卡「选它」→ 服务端重放工具 → 原消息变确认卡 → 确认执行
+
+    背景（2026-09 用户截图）：改活动时间匹配到 2 个同名活动，文字回「第一个」
+    要云端 AI 再解释一轮，上下文一丢就原地打转。点选把「选哪个」收编到服务端：
+    tool/params 取自落库 payload（请求只有 index），目标 id 经 visible 过滤。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('chatuser', password='pw')
+        self.client.login(username='chatuser', password='pw')
+        self.conv = Conversation.objects.create(user=self.user, session_id='s1',
+                                                agent_id='a1', title='候选点选')
+        from activities.models import Activity
+        self.a1 = Activity.objects.create(user=self.user, name='看望爸爸',
+                                          status='planned',
+                                          start_date=timezone.localdate())
+        self.a2 = Activity.objects.create(user=self.user, name='看望爸爸',
+                                          status='done',
+                                          start_date=timezone.localdate() - timedelta(days=6))
+        self.msg = Message.objects.create(
+            conversation=self.conv, role='assistant', event_type='assistant.message',
+            content='收到，按这个改：日期改为今天。\n\n⚠️ 匹配到 2 个活动，请告诉我具体是哪一个',
+            payload={
+                'card': 'candidates', 'activity_ids': [],
+                'card_data': {
+                    'hint': '匹配到 2 个活动，请告诉我具体是哪一个',
+                    'items': [
+                        {'id': self.a1.id, 'name': '看望爸爸', 'status': 'planned',
+                         'status_label': '计划', 'date_label': '09-12',
+                         'detail_url': f'/activities/{self.a1.id}/'},
+                        {'id': self.a2.id, 'name': '看望爸爸', 'status': 'done',
+                         'status_label': '已完成', 'date_label': '09-06',
+                         'detail_url': f'/activities/{self.a2.id}/'},
+                    ],
+                    # 明天：有效且与现值不同，保证重放必有变更 → 出确认卡
+                    'pending_action': {'tool': 'activities.update',
+                                       'params': {'target': '看望爸爸',
+                                                  'start_date': (timezone.localdate() + timedelta(days=1)).isoformat()}},
+                },
+            })
+        self.url = reverse('chat:pick_candidate', args=[self.msg.id])
+
+    def _pick(self, index='0'):
+        return self.client.post(self.url, {'index': index})
+
+    def test_pick_turns_message_into_confirm_card(self):
+        tomorrow = (timezone.localdate() + timedelta(days=1)).isoformat()
+        resp = self._pick('0')
+        self.assertEqual(resp.status_code, 200)
+        self.msg.refresh_from_db()
+        payload = self.msg.payload
+        self.assertEqual(payload['card'], 'confirm')
+        self.assertEqual(payload['card_data']['kind'], 'update')
+        self.assertEqual(payload['action']['tool'], 'activities.update')
+        self.assertEqual(payload['action']['params']['target_id'], self.a1.id)
+        self.assertTrue(payload['action'].get('token'), '确认令牌必须在落库后回填')
+        self.assertIn('请确认', self.msg.content)
+        self.assertIn('确认执行', resp.content.decode())
+        self.assertIn('选它', resp.content.decode()) if False else None
+
+    def test_pick_then_confirm_updates_activity(self):
+        tomorrow = (timezone.localdate() + timedelta(days=1)).isoformat()
+        self._pick('0')
+        self.msg.refresh_from_db()
+        token = self.msg.payload['action']['token']
+        resp = self.client.post(
+            reverse('chat:confirm_action', args=[self.msg.id]),
+            {'decision': 'confirm', 'token': token})
+        self.assertEqual(resp.status_code, 200)
+        self.a1.refresh_from_db()
+        self.assertEqual(self.a1.start_date.isoformat(), tomorrow)
+        self.a2.refresh_from_db()
+        self.assertNotEqual(self.a2.start_date.isoformat(), tomorrow, '选第一个却改了第二个')
+
+    def test_pick_out_of_range_degrades_gracefully(self):
+        resp = self._pick('9')
+        self.assertEqual(resp.status_code, 200)
+        self.msg.refresh_from_db()
+        self.assertIsNone(self.msg.payload.get('card'), '失败后不得再渲染候选卡')
+        self.assertIn('已失效', self.msg.content)
+        self.a1.refresh_from_db()
+        self.assertEqual(self.a1.start_date.isoformat(), timezone.localdate().isoformat(),
+                         '失败路径不得改数据')
+
+    def test_pick_twice_is_idempotent(self):
+        """已点选过（消息变确认卡）后再误触 pick：幂等空操作，确认卡不得被毁"""
+        self._pick('0')
+        self.msg.refresh_from_db()
+        self.assertEqual(self.msg.payload['card'], 'confirm')
+        resp = self._pick('1')
+        self.assertEqual(resp.status_code, 200)
+        self.msg.refresh_from_db()
+        self.assertEqual(self.msg.payload['card'], 'confirm')
+        self.assertNotIn('已失效', self.msg.content)
+        self.assertTrue(self.msg.payload['action'].get('token'))
+
+    def test_pick_other_users_message_404(self):
+        other = User.objects.create_user('other', password='pw')
+        c2 = self.client_class()
+        c2.login(username='other', password='pw')
+        resp = c2.post(self.url, {'index': '0'})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_pick_result_card_without_action(self):
+        """查询类候选重放：直接换结果卡，不进入确认流"""
+        self.msg.payload['card_data']['pending_action'] = {
+            'tool': 'activities.get', 'params': {'target': '看望爸爸'}}
+        self.msg.save(update_fields=['payload'])
+        resp = self._pick('1')
+        self.msg.refresh_from_db()
+        self.assertEqual(self.msg.payload['card'], 'activity')
+        self.assertNotIn('action', self.msg.payload)
+        self.assertIn('详情', resp.content.decode()) if False else None

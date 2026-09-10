@@ -4,7 +4,7 @@ import logging
 import httpx
 
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse, Http404
+from django.http import HttpResponse, JsonResponse, Http404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST, require_GET
 from django.db import models
@@ -16,6 +16,7 @@ from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
+                                 CandidateToolError, ToolError,
                                  build_protocol_prompt,
                                  looks_like_protocol, get_tool,
                                  make_action_token, orchestrator)
@@ -745,6 +746,79 @@ def confirm_action(request, message_id):
     message.payload = payload
     message.save(update_fields=['payload'])
     return _render()
+
+
+@login_required
+@require_POST
+def pick_candidate(request, message_id):
+    """候选点选：用户在候选卡上直接选目标，服务端拿落库快照（tool+params）
+    加所选 id 直接重放工具（不经云端 AI 再解释一轮「第一个」），
+    原消息原地更新为结果卡/确认卡（确认卡带确认/取消按钮，走既有 confirm 流）。
+
+    安全性：tool 与 params 只从服务端 payload 读（请求里只有 index），
+    所选 id 经工具内部的 visible 过滤，别人的活动一律 404。
+    """
+    message = get_visible_child(Message, request.user, 'conversation', id=message_id)
+    payload = message.payload or {}
+    card_data = payload.get('card_data') or {}
+    pending = card_data.get('pending_action') or {}
+    items = card_data.get('items') or []
+
+    def _replace_with(text):
+        """点选失败不炸页面：撤掉候选卡，把原因追加到消息正文（降级为普通文本）"""
+        message.content = f'{message.content}\n\n⚠️ {text}'.strip()
+        card_data.pop('pending_action', None)
+        payload['card_data'] = card_data
+        payload['card'] = None
+        message.payload = payload
+        message.save(update_fields=['content', 'payload'])
+        return HttpResponse(_message_fragment(request, message))
+
+    try:
+        index = int(request.POST.get('index', ''))
+    except ValueError:
+        index = -1
+    tool = get_tool(pending.get('tool') or '')
+    if payload.get('card') != 'candidates' or not tool:
+        # 消息已不是候选卡（已点选过/已决议）：幂等空操作，
+        # 不得动 payload——否则会把已渲染的确认卡毁掉
+        return HttpResponse(_message_fragment(request, message))
+    if not (0 <= index < len(items)):
+        return _replace_with('这条候选已失效，请重新发送你的要求')
+
+    try:
+        result = tool['fn'](
+            request.user,
+            {**(pending.get('params') or {}), 'target_id': items[index].get('id')},
+        ) or {}
+    except (CandidateToolError, ToolError) as e:
+        logger.info(f'候选点选重放被拒（消息 {message.id}）: {e}')
+        return _replace_with(str(e))
+    except Exception as e:
+        logger.error(f'候选点选重放失败（消息 {message.id}）: {e}')
+        return _replace_with(TOOL_FAILURE_REPLY)
+
+    # 成功：正文与卡片整体替换；确认动作的 token 此处回填（含 message_id）
+    message.content = result.get('reply') or message.content
+    if result.get('card'):
+        payload = {'card': result['card'],
+                   'activity_ids': result.get('activity_ids', [])}
+        if 'card_data' in result:
+            payload['card_data'] = result['card_data']
+        if 'list_url' in result:
+            payload['list_url'] = result['list_url']
+        if 'action' in result:
+            payload['action'] = result['action']
+            payload['action']['token'] = make_action_token(
+                request.user, message.id, 'confirm')
+    else:
+        payload = {}
+    message.payload = payload
+    message.save(update_fields=['content', 'payload'])
+    response = HttpResponse(_message_fragment(request, message))
+    if result.get('changed'):
+        response.content += b'<div data-activity-changed hidden></div>'
+    return response
 
 
 @login_required

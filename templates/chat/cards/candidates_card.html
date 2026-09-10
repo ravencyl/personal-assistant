@@ -1,16 +1,25 @@
-{% comment %}澄清候选卡片：目标不唯一时列出候选活动供用户辨认{% endcomment %}
+{% comment %}澄清候选卡片：目标不唯一时列出候选活动供用户辨认。
+每行右侧「选它」按钮：HTMX POST pick_candidate，服务端用该 id 重放工具
+（不经 AI 再解释一轮），返回整条消息片段做 outerHTML 替换（确认卡/结果卡）。{% endcomment %}
 <div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
-    <div class="space-y-1.5">
+    <div class="space-y-1">
         {% for item in card.items %}
         <div class="flex items-center gap-2 text-sm min-w-0">
             <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ item.status }}"></span>
             <a href="{{ item.detail_url }}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
             <span class="text-xs text-zinc-400 shrink-0">{{ item.status_label }}</span>
             <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{{ item.date_label }}</span>
+            <form hx-post="{% url 'chat:pick_candidate' msg.id %}"
+                  hx-target="closest .chat-message" hx-swap="outerHTML" class="shrink-0">
+                {% csrf_token %}
+                <input type="hidden" name="index" value="{{ forloop.counter0 }}">
+                <button type="submit"
+                        class="tap-target rounded-full bg-zinc-900 hover:bg-black text-white px-3 py-1 text-xs font-medium transition-colors">选它</button>
+            </form>
         </div>
         {% endfor %}
     </div>
     <p class="mt-2 pt-2 border-t border-zinc-100 text-xs text-zinc-400">
-        请说得更具体些（比如完整名称或日期），也可以点上方名称打开详情直接修改。
+        点「选它」直接进入下一步（改什么/删什么以这条消息为准），也可以点名称打开详情手动操作。
     </p>
 </div>

@@ -19,6 +19,8 @@ urlpatterns = [
     path('<int:conversation_id>/pin/', views.pin_conversation, name='pin_conversation'),
     path('pin/search/', views.pin_candidates, name='pin_candidates'),
     path('messages/<int:message_id>/confirm/', views.confirm_action, name='confirm_action'),
+    # 候选点选：在候选卡上直接选目标，服务端重放工具（回 HTML 片段，HTMX 消费）
+    path('messages/<int:message_id>/pick/', views.pick_candidate, name='pick_candidate'),
     path('<int:conversation_id>/archive/', views.archive_conversation, name='archive_conversation'),
     path('<int:conversation_id>/rename/', views.conversation_rename, name='conversation_rename'),
     path('<int:conversation_id>/delete/', views.conversation_delete, name='conversation_delete'),

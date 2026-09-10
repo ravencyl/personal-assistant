@@ -70,8 +70,11 @@ def _activity_card_data(activity):
     }
 
 
-def _resolve_single(user, target):
-    """按名称关键词定位唯一活动；0 条报错，多条抛候选列表供用户辨认"""
+def _resolve_single(user, target, target_id=None):
+    """定位唯一活动：传 target_id 时按 id 直达（候选点选重放），
+    否则按名称关键词定位；0 条报错，多条抛候选列表供用户辨认"""
+    if target_id:
+        return _resolve_by_id(user, target_id)
     target = str(target or '').strip()
     if not target:
         raise ToolError('请告诉我目标活动的名称')
@@ -146,7 +149,8 @@ def tool_query(user, params):
 
 @agent_tool('activities.get', '查看某个活动的详情', 'target（目标活动名称关键词）')
 def tool_get(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'))
     return {
         'reply': f'这是活动「{activity.name}」的详情：',
         'card': 'activity',
@@ -169,7 +173,8 @@ def tool_set_status(user, params):
         except Activity.DoesNotExist:
             raise ToolError('没有找到目标任务，可能已被删除')
     else:
-        activity = _resolve_single(user, params.get('target') or params.get('name'))
+        activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                       target_id=params.get('target_id'))
     if activity.status == status:
         return {
             'reply': f'「{activity.name}」已经处于「{STATUS_LABELS[status]}」状态了',
@@ -313,7 +318,8 @@ def _participant_skip_note(skipped):
 
 def _update_preview(user, params):
     """预览阶段：定位目标 + 清洗参数 + 生成变更 diff（不写库）"""
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'))
     data, desc_mode = _update_data(user, activity, params)
 
     changes = []
@@ -440,7 +446,8 @@ def apply_delete(user, params):
             'target（目标活动名称关键词）；先出红色警示预览，用户确认后才删除',
             apply_fn=apply_delete)
 def tool_delete(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'))
     children_count = activity.children.count()
     return {
         'reply': f'即将删除活动「{activity.name}」，请确认：',
@@ -690,7 +697,7 @@ def tool_add_expense(user, params):
     target = str(params.get('target') or params.get('name') or '').strip()
     if target:
         # 有 target：行为与原来完全一致（0 条报错，多条抛候选）
-        activity = _resolve_single(user, target)
+        activity = _resolve_single(user, target, target_id=params.get('target_id'))
         reason = 'target'
     else:
         activity, reason = _auto_expense_target(user, params.get('note'))
@@ -731,7 +738,8 @@ def tool_add_expense(user, params):
 @agent_tool('activities.list_expenses', '查看某活动的费用明细',
             'target（活动名称关键词）')
 def tool_list_expenses(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'))
     expenses = list(activity.expenses.all())
     total = sum(float(e.amount) for e in expenses)
 
@@ -791,7 +799,8 @@ def apply_split_expense(user, params):
             'note（备注，可选）',
             apply_fn=apply_split_expense)
 def tool_split_expense(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'))
     amount = _require_positive_amount(params.get('amount'), '费用总金额')
 
     participants = list(activity.participants.all())
@@ -859,7 +868,8 @@ def apply_move_date(user, params):
             'target（活动名称关键词）+ days（正数=推迟天数，负数=提前天数）',
             apply_fn=apply_move_date)
 def tool_move_date(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'))
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'))
     days = params.get('days')
     if days is None:
         raise ToolError('请告诉我推迟或提前几天（正数推迟，负数提前）')
