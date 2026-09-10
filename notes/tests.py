@@ -44,6 +44,41 @@ class NoteListDesktopLayoutTest(TestCase):
                         '速记框被搬进列容器了，320px 右列里会很难用')
 
 
+class NoteListRedesignTest(TestCase):
+    """备忘列表重设计回归锁：长文折叠钩子 + 置顶视觉 + 分端结构（2026-09）
+
+    折叠本身是纯前端行为（JS 检测内容超高后才加 .is-collapsed），
+    这里锁模板钩子与 CSS 组件不被误删。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+
+    def test_fold_hooks_and_length(self):
+        """每条备忘渲染折叠钩子，切换按钮带字数（供「展开全文（N 字）」文案）"""
+        Note.objects.create(user=self.user, content='短备忘')
+        Note.objects.create(user=self.user, content='长' * 500)
+        html = self.client.get('/notes/').content.decode()
+        # 折叠钩子是无值布尔属性，改数「按钮 + 字数」组合串（JS 选择器不含它）
+        self.assertEqual(html.count('data-note-toggle data-length='), 2)
+        self.assertIn('data-length="500"', html)
+
+    def test_pinned_note_marked(self):
+        Note.objects.create(user=self.user, content='置顶备忘', pinned=True)
+        html = self.client.get('/notes/').content.decode()
+        self.assertIn('note-item--pinned', html)
+
+    def test_note_item_css_exists(self):
+        """custom.css 提供 .note-list / .note-item / 折叠与桌面行式列表样式"""
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css') \
+            .read_text(encoding='utf-8')
+        for cls in ['.note-list', '.note-item', '.note-fold.is-collapsed',
+                    '.note-item--pinned']:
+            self.assertIn(cls, css)
+
+
 class NoteTagEditRegressionTest(TestCase):
     """编辑备忘带标签的回归锁（与活动/知识库同族：_save_m2m 曾拿字符串炸）"""
 

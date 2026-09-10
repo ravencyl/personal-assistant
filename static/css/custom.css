@@ -668,3 +668,56 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
         overflow-wrap: anywhere;
     }
 }
+
+/* ===== 备忘列表：移动块状卡片 / 桌面（md+）分隔线行式列表 ===== */
+.note-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.note-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 0.875rem 1rem;
+}
+
+/* 置顶卡片：边框加深一档，扫一眼能分出置顶组 */
+.note-item--pinned {
+    border-color: var(--border-strong);
+}
+
+/* 长备忘折叠：JS 检测到内容超高才加 .is-collapsed（无 JS 时全文展示，渐进增强） */
+.note-fold.is-collapsed .note-fold-body {
+    max-height: 9rem;   /* 约 6 行正文 */
+    overflow: hidden;
+}
+
+@media (min-width: 768px) {
+    /* 桌面端去卡片化：上下分隔线的行式列表 + 行悬停高亮，信息密度高于卡片堆 */
+    .note-list {
+        gap: 0;
+    }
+
+    .note-item {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 1.25rem 0.5rem;
+        transition: background-color 0.15s ease;
+    }
+
+    .note-list > .note-item:first-child {
+        border-top: 1px solid var(--border);
+    }
+
+    .note-item:hover {
+        background: var(--accent-light);
+    }
+
+    .note-item--pinned {
+        border-color: var(--border);
+    }
+}

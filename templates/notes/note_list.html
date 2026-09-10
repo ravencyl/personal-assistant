@@ -120,24 +120,30 @@
     </div>
     {% endif %}
 
-    <!-- 笔记列表 -->
-    <div class="space-y-3">
+    <!-- 笔记列表：移动端块状卡片 / 桌面端（md+）分隔线行式列表（样式见 custom.css .note-list） -->
+    <div class="note-list">
         {% for note in notes %}
-        <div class="app-card group">
+        <article class="note-item group {% if note.pinned %}note-item--pinned{% endif %}">
             <div class="flex items-start gap-3">
-                <!-- 置顶标记 -->
-                {% if note.pinned %}
-                <span class="shrink-0 mt-0.5 inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500" title="已置顶">置顶</span>
-                {% endif %}
-                <!-- 内容 -->
                 <div class="flex-1 min-w-0">
-                    <p class="text-[var(--text)] text-sm whitespace-pre-wrap break-words">{{ note.content }}</p>
+                    <!-- 置顶徽章：块级摆在内容上方，灰阶加深扫一眼能分出置顶组 -->
+                    {% if note.pinned %}
+                    <span class="inline-flex items-center rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-white mb-1.5" title="已置顶">置顶</span>
+                    {% endif %}
+                    <!-- 内容：超过约 6 行折叠（JS 检测后才收起，无 JS 全文展示） -->
+                    <div class="note-fold" data-note-fold>
+                        <p class="note-fold-body text-sm text-[var(--text)] whitespace-pre-wrap break-words leading-relaxed">{{ note.content }}</p>
+                        <button type="button" data-note-toggle data-length="{{ note.content|length }}"
+                                class="hidden tap-target mt-1 -ml-2 px-2 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+                            展开全文
+                        </button>
+                    </div>
                     <!-- 标签 -->
                     {% if note.tags.all %}
                     <div class="flex flex-wrap gap-1.5 mt-2">
                         {% for tag in note.tags.all %}
                         <a href="{% url 'notes:note_list' %}?tag={{ tag.name }}"
-                           class="rounded-full bg-[var(--accent-light)] text-[var(--text-secondary)] px-2.5 py-0.5 text-xs hover:bg-[var(--border)] transition-colors">
+                           class="tap-target inline-flex items-center rounded-full bg-[var(--accent-light)] text-[var(--text-secondary)] px-3 py-0.5 text-xs hover:bg-[var(--border)] transition-colors">
                             {{ tag.name }}
                         </a>
                         {% endfor %}
@@ -180,7 +186,7 @@
                     </form>
                 </div>
             </div>
-        </div>
+        </article>
         {% empty %}
         <!-- 空状态 -->
         <div class="text-center py-12">
@@ -327,6 +333,26 @@
             setRecordingUI(false);
             showError('无法启动语音识别，请重试');
         }
+    });
+})();
+
+// 长备忘折叠：内容超过约 6 行才收起并显示切换按钮（无 JS 时全文展示）
+(function () {
+    var FOLD_HEIGHT = 144; // px，约 6 行正文
+    document.querySelectorAll('[data-note-fold]').forEach(function (fold) {
+        var body = fold.querySelector('.note-fold-body');
+        var toggle = fold.querySelector('[data-note-toggle]');
+        if (!body || !toggle) return;
+        if (body.scrollHeight <= FOLD_HEIGHT) return;
+        fold.classList.add('is-collapsed');
+        toggle.classList.remove('hidden');
+        toggle.textContent = '展开全文（' + toggle.dataset.length + ' 字）';
+        toggle.addEventListener('click', function () {
+            var collapsed = fold.classList.toggle('is-collapsed');
+            toggle.textContent = collapsed
+                ? '展开全文（' + toggle.dataset.length + ' 字）'
+                : '收起';
+        });
     });
 })();
 </script>
