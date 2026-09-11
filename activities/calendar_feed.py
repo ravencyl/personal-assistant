@@ -91,6 +91,9 @@ def _event_lines(activity, base_url):
     if activity.parent_id:
         desc_parts.append(f'子任务，父活动: {activity.parent.name}')
 
+    # 注意：表达式内不能含反斜杠（线上 Python 3.11 的 f-string 不支持）
+    description = _escape_text('\n'.join(desc_parts))
+
     lines = [
         'BEGIN:VEVENT',
         f'UID:activity-{activity.pk}@ravenclaw.top',
@@ -99,7 +102,7 @@ def _event_lines(activity, base_url):
         # RFC 5545：DTEND 为排他日期
         f'DTEND;VALUE=DATE:{_date_param(end + timedelta(days=1))}',
         f'SUMMARY:{_escape_text(activity.name)}',
-        f'DESCRIPTION:{_escape_text("\n".join(desc_parts))}',
+        f'DESCRIPTION:{description}',
         f'URL:{detail_url}',
         f'CATEGORIES:{_escape_text(status_label)}',
         f'STATUS:{status}',
