@@ -2,10 +2,11 @@
    全站极简设计系统（白底黑字 · 灰阶层级 · 内容为王）
    ============================================================
 
-   【色彩规则】
-   - 背景纯白 #ffffff；正文黑 #18181b
-   - 灰阶四级：主 #18181b / 次 #52525b / 辅 #a1a1aa / 弱化 #d4d4d8
-   - 禁用彩色、渐变、彩色图标、阴影
+   【色彩规则】（2026-09-11 更新：用户拍板「灰度、阴影、动效都可以上」）
+   - 页面画布浅灰 #fafafa，卡片/面板纯白浮起——用灰度层次而不是框线做分区
+   - 正文黑 #18181b；灰阶四级：主 #18181b / 次 #52525b / 辅 #a1a1aa / 弱化 #d4d4d8
+   - 仍然零彩色、零渐变；阴影仅限灰黑 rgba(0,0,0,*)，见 --shadow-* 令牌
+   - 动效克制：150-250ms，只做位移/阴影/透明度，尊重 prefers-reduced-motion
 
    【字体层级】
    - 页面标题：text-2xl font-bold
@@ -48,13 +49,19 @@
     --accent: #18181b;
     --accent-hover: #000000;
     --accent-light: #f4f4f5;
-    --bg: #ffffff;
+    --bg: #fafafa;
     --bg-card: #ffffff;
     --text: #18181b;
     --text-secondary: #52525b;
     --text-muted: #a1a1aa;
     --border: rgba(0, 0, 0, 0.08);
     --border-strong: rgba(0, 0, 0, 0.15);
+
+    /* 阴影令牌：仅灰黑，全套唯一定义处（2026-09-11 用户解禁） */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 /* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
@@ -88,40 +95,52 @@
 .badge-status--done { background: #fafafa; color: var(--text-muted); }
 .badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
-/* Pill 形按钮/输入框/徽章 */
+/* 控件圆角：Things 3 式大而少的圆角（10px）。
+   模板里带 rounded-full 的按钮也被这里压平 —— 胶囊满屏是「模板感」的主因之一；
+   徽章/chip（.badge、span.rounded-full 非按钮）保持 pill 不受影响。 */
 button, .btn, input[type="submit"],
 input[type="text"], input[type="email"], input[type="password"],
 input[type="number"], input[type="search"], textarea, select {
-    border-radius: 9999px;
+    border-radius: 0.625rem !important;
 }
 
 /* date 输入框保持适中圆角 */
 input[type="date"] {
-    border-radius: 0.5rem;
+    border-radius: 0.5rem !important;
 }
 
-/* 卡片：透明无界——普通展示内容不再有容器感 */
+/* 卡片：白底浮在浅灰画布上——层次靠灰度差 + 阴影，不再靠描边 */
 .app-card, .card {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    border-radius: 0;
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-sm);
 }
 
-/* 面板：唯一带边界的类，供输入区/浮窗/确认区使用 */
+/* 面板：浮层容器，阴影比卡片高一档 */
 .panel {
+    background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 0.75rem;
+    box-shadow: var(--shadow-md);
 }
 
-/* 主按钮（黑底白字，与新风格兼容） */
+/* 主按钮（黑底白字）：微阴影 + hover 上浮，点按下收——按钮要有「物理感」 */
 .btn-accent {
     background-color: var(--accent) !important;
     color: white !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .btn-accent:hover {
     background-color: var(--accent-hover) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
+.btn-accent:active {
+    transform: translateY(0) scale(0.97);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 /* 导航链接 */
@@ -139,7 +158,7 @@ input[type="date"] {
     font-weight: 600;
 }
 
-/* 徽章 pill 形 */
+/* 徽章 pill 形（仅徽章/chip 保持全圆角，控件已收敛到 10px） */
 .badge, span.rounded-full {
     border-radius: 9999px;
 }
@@ -154,6 +173,49 @@ input[type="number"], input[type="search"], textarea) {
 /* 链接悬停动效 */
 a {
     transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+/* ===== 微动效（2026-09-11 用户解禁）：克制、灰阶、可关闭 ===== */
+
+/* 所有按钮：过渡 + 按下轻收（物理感的最小实现） */
+button {
+    transition: transform 0.12s ease, box-shadow 0.18s ease,
+                background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+button:active {
+    transform: scale(0.97);
+}
+
+/* 黑底主按钮（模板内联 bg-[var(--accent)] 写法）与 .btn-accent 同待遇：hover 上浮 */
+button.bg-\[var\(--accent\)\],
+a.bg-\[var\(--accent\)\],
+button.btn-accent {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+button.bg-\[var\(--accent\)\]:hover,
+a.bg-\[var\(--accent\)\]:hover,
+button.btn-accent:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+button.bg-\[var\(--accent\)\]:active,
+a.bg-\[var\(--accent\)\]:active {
+    transform: translateY(0) scale(0.97);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* 卡片与列表行入场：轻微上移淡入；用户偏好减弱动效时不播 */
+@media (prefers-reduced-motion: no-preference) {
+    .app-card, .card, .daily-card {
+        animation: fadeIn 0.25s ease-out both;
+    }
+}
+
+/* 悬停时卡片阴影加深一档（仅桌面有 hover 的设备上有意义） */
+@media (hover: hover) {
+    .app-card:hover, .card:hover {
+        box-shadow: var(--shadow-md);
+    }
 }
 
 /* 淡入动画 */

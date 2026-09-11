@@ -227,32 +227,32 @@
 {% if activities %}
 <div class="hidden md:block app-card overflow-hidden">
     <div class="overflow-x-auto">
-    <table class="min-w-[760px] w-full divide-y divide-[var(--border-strong)] text-sm">
-        <thead class="bg-[var(--accent-light)]">
+    <table class="min-w-[760px] w-full text-sm">
+        <thead class="border-b border-[var(--border)]">
             <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">
+                <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-[var(--text)] {% if sort == 'name' or sort == '-name' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         活动名称{% if sort == 'name' %} ▲{% elif sort == '-name' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">标签</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">
+                <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">标签</th>
+                <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'status' %}-status{% else %}status{% endif %}" class="hover:text-[var(--text)] {% if sort == 'status' or sort == '-status' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         状态{% if sort == 'status' %} ▲{% elif sort == '-status' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase">
+                <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'start_date' %}-start_date{% else %}start_date{% endif %}" class="hover:text-[var(--text)] {% if sort == 'start_date' or sort == '-start_date' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         日期范围{% if sort == 'start_date' %} ▲{% elif sort == '-start_date' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase">
+                <th class="px-4 py-3 text-right text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-[var(--text)] {% if sort == 'cost' or sort == '-cost' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-[var(--text-secondary)] uppercase">笔数</th>
-                <th class="px-4 py-3 text-center text-xs font-medium text-[var(--text-secondary)] uppercase">
+                <th class="px-4 py-3 text-center text-xs text-[var(--text-muted)] font-medium">笔数</th>
+                <th class="px-4 py-3 text-center text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-[var(--text)] {% if sort == 'sub_count' or sort == '-sub_count' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         子活动{% if sort == 'sub_count' %} ▲{% elif sort == '-sub_count' %} ▼{% endif %}
                     </a>

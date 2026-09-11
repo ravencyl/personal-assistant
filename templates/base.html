@@ -28,7 +28,7 @@
     <link rel="icon" type="image/png" sizes="48x48" href="{% static 'icons/favicon-48.png' %}">
     {# iOS 加到主屏只认这个文件名，且必须方角铺满（系统会再罩一层 mask） #}
     <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
-    <meta name="theme-color" content="#ffffff">
+    <meta name="theme-color" content="#fafafa">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="{{ SITE_NAME }}">
@@ -37,7 +37,7 @@
 <body class="h-full antialiased">
     <div class="min-h-full">
         <!-- Navigation -->
-        <nav class="bg-[var(--bg-card)] sticky top-0 z-40">
+        <nav class="bg-[var(--bg-card)] sticky top-0 z-40 border-b border-[var(--border)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
             <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <div class="flex h-14 justify-between">
                     <div class="flex">
@@ -173,9 +173,9 @@
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
         </div>
-        <!-- 悬浮按钮（灰阶描边样式，与既有浮窗一致；右上角灰阶角标为离线待同步数） -->
+        <!-- 悬浮按钮（白底浮起 + 阴影；右上角灰阶角标为离线待同步数） -->
         <button type="button" id="quick-toggle-btn"
-                class="relative w-12 h-12 rounded-full bg-[var(--bg-card)] border border-[var(--border-strong)] text-[var(--text)] flex items-center justify-center hover:bg-[var(--accent-light)] transition-colors" title="快记">
+                class="relative w-12 h-12 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text)] flex items-center justify-center shadow-[var(--shadow-md)] hover:shadow-[var(--shadow-lg)] hover:-translate-y-0.5 active:scale-95 transition-all" title="快记">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
             </svg>
@@ -193,7 +193,7 @@
     {% if user.is_authenticated %}
     <!-- 移动端底部 Tab 栏（App 式导航，仅 <768px）：与顶栏一致只留一级模块；
          循环/模板的入口在活动页头部图标组，记忆使用频率低且不在手机上读，暂不占位 -->
-    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)]/90 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)]/95 backdrop-blur border-t border-[var(--border)] shadow-[0_-4px_16px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)]">
         <div class="grid grid-cols-5">
             <a href="/" class="flex flex-col items-center gap-0.5 py-2 {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-semibold{% else %}text-[var(--text-muted)]{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">

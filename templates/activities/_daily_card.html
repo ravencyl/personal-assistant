@@ -1,4 +1,4 @@
-<div class="daily-card group relative bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-3 md:p-4 hover:border-[var(--border-strong)] transition-colors"
+<div class="daily-card group relative py-3.5 md:py-4 transition-colors"
      data-activity-id="{{ activity.id }}"
      data-status="{{ activity.status }}"
      data-status-url="{% url 'activities:activity_set_status' activity.id %}"
@@ -31,7 +31,7 @@
             <!-- 内容 -->
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1">
-                    <h3 class="text-sm font-medium text-[var(--text)] truncate group-hover:text-[var(--text-secondary)]">
+                    <h3 class="text-[15px] font-medium text-[var(--text)] truncate group-hover:text-[var(--text-secondary)]">
                         {{ activity.name }}
                     </h3>
                     <!-- 角标只有 today / ending 两种取值（分组语义由各 section 标题承担）-->
@@ -65,7 +65,7 @@
             </div>
 
             <!-- 箭头 -->
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] shrink-0 mt-1 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] shrink-0 mt-1 transition-all group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
             </svg>
         </a>
