@@ -10,9 +10,11 @@ from urllib.parse import unquote
 
 from django.urls import reverse
 
-from core.agent_registry import CandidateToolError, ToolError, agent_tool
+from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
+                                 parse_pick_index)
 from core.tags import add_tags, apply_tags
-from core.utils import visible_qs
+from core.utils import get_visible, visible_qs
+from chat.models import Message
 
 from .models import Article
 from .utils import search_articles
@@ -151,6 +153,17 @@ def tool_knowledge_update(user, params):
         raise ToolError('替换后的正文太短，请补完整内容；只是补充几句话请用追加模式')
 
     qs = visible_qs(Article, user).filter(title__icontains=target).order_by('-updated_at')
+    index = parse_pick_index(params.get('pick'))
+    if index is not None:
+        items = Message.latest_pick_items(user, tool_prefix='knowledge.')
+        if items:
+            if not 1 <= index <= len(items):
+                raise ToolError(
+                    f'上一轮候选只有 {len(items)} 篇，你要的「第 {index} 篇」对不上；'
+                    '请在候选卡上点「选它」，或再说一次是哪一篇')
+            article = get_visible(Article, user, id=items[index - 1]['id'])
+            return _apply_article_update(user, article, new_title, content, mode, tags)
+        # 没有可用的候选上下文：忽略 pick 按标题继续，宁慢勿错
     count = qs.count()
     if count == 0:
         raise ToolError(f'知识库里没有标题包含「{target}」的文章——'
@@ -165,10 +178,16 @@ def tool_knowledge_update(user, params):
             'detail_url': _article_url(a),
         } for a in qs[:5]]
         raise CandidateToolError(
-            f'匹配到 {count} 篇标题包含「{target}」的文章，请告诉我要更新哪一篇',
+            f'匹配到 {count} 篇标题包含「{target}」的文章：点下方候选卡的「选它」，'
+            f'或直接回复「第一篇」「第二篇」（{count} 篇里选一个）',
             candidates)
 
     article = qs.first()
+    return _apply_article_update(user, article, new_title, content, mode, tags)
+
+
+def _apply_article_update(user, article, new_title, content, mode, tags):
+    """把已经定位好的文章套用变更（pick 直达与标题匹配两条路共用）"""
     changes = []
     if new_title and new_title != article.title:
         changes.append(f'标题「{article.title}」→「{new_title}」')

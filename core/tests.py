@@ -1529,3 +1529,22 @@ class ChatLayoutFlexHeightTest(SimpleTestCase):
             self.assertTrue(
                 any('min-height: 0' in b for b in blocks),
                 f'{selector} 缺 min-height: 0，长内容会撑爆 .chat-layout')
+
+
+class PickIndexParseTest(SimpleTestCase):
+    """候选澄清「第 N 个」序号解析（服务端直达兜底的核心解析）"""
+
+    def test_common_phrases(self):
+        from core.agent_registry import parse_pick_index
+        cases = {'第一个': 1, '第2个': 2, '2': 2, '第三个': 3, '第二个，计划中的': 2,
+                 '第 两 个': 2, '１': 1}
+        for text, expect in cases.items():
+            self.assertEqual(parse_pick_index(text), expect, text)
+
+    def test_unparseable_or_negative(self):
+        from core.agent_registry import parse_pick_index, _pick_from_text
+        self.assertIsNone(parse_pick_index('改时间'))
+        self.assertIsNone(parse_pick_index('第十一个'))
+        self.assertIsNone(_pick_from_text('不要第一个'))
+        self.assertIsNone(_pick_from_text('别第二个'))
+        self.assertIsNone(_pick_from_text(None))

@@ -1,5 +1,7 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
 
 # 一轮对话在 Qoder 侧从发问到回完的上限（秒）。超过就把 turn 定为 error。
 # 这个值不再受 gunicorn --timeout 约束（请求里不 sleep 了），只需大于用户
@@ -199,3 +201,36 @@ class Message(models.Model):
 
     def __str__(self):
         return f'[{self.role}] {self.content[:50]}'
+
+    @classmethod
+    def latest_pick(cls, user, window_seconds=600):
+        """最近一条可点选候选消息的上下文：{'items': [...], 'tool': 'activities.update'} 或 None
+
+        用户面对候选卡更习惯打字回答「第一个」而不是点按钮，服务端拿到序号后
+        回溯最近一条候选卡消息的 items 就能把序号映射回目标 id。
+        限定时间窗口：候选上下文只在当前操作片段内有效，早上的候选不该响应
+        现在的「第一个」。tool 字段供调用方校验候选与当前工具同族，
+        防止「改活动 → 候选活动 → 又说改文章 → 第一个」错拿活动 id。
+        """
+        since = timezone.now() - timedelta(seconds=window_seconds)
+        msgs = cls.objects.filter(
+            role='assistant', conversation__user=user,
+            payload__card='candidates', created_at__gte=since,
+        ).order_by('-created_at')[:10]
+        for msg in msgs:
+            card_data = (msg.payload or {}).get('card_data') or {}
+            items = card_data.get('items') or []
+            if items:
+                return {'items': items,
+                        'tool': (card_data.get('pending_action') or {}).get('tool') or ''}
+        return None
+
+    @classmethod
+    def latest_pick_items(cls, user, tool_prefix=None, window_seconds=600):
+        """工具侧便捷接口：按 tool 前缀过滤后只取 items，找不到返回空列表"""
+        ctx = cls.latest_pick(user, window_seconds=window_seconds)
+        if not ctx:
+            return []
+        if tool_prefix and not (ctx.get('tool') or '').startswith(tool_prefix):
+            return []
+        return ctx['items']

@@ -656,7 +656,13 @@ def _finalize_turn(conversation, assistant_text, note=None):
         'LAST_USER': conversation.turn_message.content if conversation.turn_message else '',
     }
     try:
-        content, payload, changed = orchestrator.process(conversation.user, text, refs=refs)
+        # user_text/pick_context：候选澄清的「回复第 N 个」服务端直达兜底所需，
+        # 由 views 侧取好传入（core 不反向依赖 chat.models）
+        pick_context = Message.latest_pick(conversation.user)
+        content, payload, changed = orchestrator.process(
+            conversation.user, text, refs=refs,
+            user_text=conversation.turn_message.content if conversation.turn_message else None,
+            pick_context=pick_context)
     except Exception as e:
         logger.error(f'编排本轮回复失败（对话 {conversation.id}），降级为纯文本: {e}')
         content, payload, changed = text, None, False

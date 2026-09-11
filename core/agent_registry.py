@@ -228,6 +228,30 @@ def resolve_params_refs(params, refs):
     return out, error
 
 
+# 「第 N 个」序号解析：用户面对候选卡习惯打字回答「第一个」而不是点按钮。
+_CN_PICK_NUM = {'一': 1, '两': 2, '二': 2, '三': 3, '四': 4, '五': 5,
+               '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
+
+
+def parse_pick_index(value):
+    """把用户/模型给的序号解析成 1-based int，解析不出返回 None
+
+    支持：1、"2"、"第一个"、"第2个"、"第二个"。候选最多 5 个，
+    十位数及以上的中文序号不支援（返回 None 走原匹配逻辑）。
+    """
+    if value is None:
+        return None
+    m = re.search(r'第?\s*([0-9０-９一二两三四五六七八九十]+)\s*个?', str(value))
+    if not m:
+        return None
+    token = m.group(1)
+    if token.isdigit():
+        return int(token)
+    if token in _CN_PICK_NUM:
+        return _CN_PICK_NUM[token]
+    return None
+
+
 class ToolError(Exception):
     """工具希望向用户暴露的可读错误（编排器转为友好回复）"""
 
@@ -322,6 +346,10 @@ def build_protocol_prompt(today=None):
         '不要重新抄写正文：把该字段的值写成引用标记 "$LAST_REPLY"（引用你上一条给用户看的回复）'
         '或 "$LAST_USER"（引用用户上一条消息），系统会自行替换成原文。'
         '重抄长正文会撞上单条回复的长度上限，整条指令会被截断而静默失败。\n'
+        '11. 候选澄清：上一轮系统提示了候选列表、用户回答了「第几个」（第一个/第2个/2 等）时，'
+        '在 params 里加 "pick": N（1 起算的序号，指上一轮候选列表里的第 N 项），'
+        'target 仍照填原名；系统会按序号直达目标，不要重新查询或让用户再描述一遍。'
+        '没有候选澄清场景时禁止带 pick 字段。\n'
     )
 
 
@@ -366,6 +394,22 @@ def extract_follow_ups(text):
     return text[:m.start()].rstrip(), items
 
 
+def _pick_from_text(text):
+    """从自然语言里提取「第 N 个」序号，带否定语境防呆（「不要第一个」不触发）
+
+    解析不出返回 None。用户/模型都可能说序号：用户「第一个，计划中的」，
+    模型复述「收到，按这个改：第一个…」。
+    """
+    if not text:
+        return None
+    m = re.search(r'第?\s*([0-9０-９一二两三四五六七八九十]+)\s*个?', str(text))
+    if not m:
+        return None
+    if re.search(r'(不|别|除了|莫|勿)', str(text)[max(0, m.start() - 3):m.start()]):
+        return None
+    return parse_pick_index(m.group(1))
+
+
 class ChatOrchestrator:
     """解析 AI 意图回复 → 分发工具 → 返回 (content, payload, changed)
 
@@ -374,8 +418,10 @@ class ChatOrchestrator:
     写五遍就是五个会漏改的地方。
     """
 
-    def process(self, user, ai_text, refs=None):
-        content, payload, changed = self._dispatch(user, ai_text, refs)
+    def process(self, user, ai_text, refs=None, user_text=None, pick_context=None):
+        content, payload, changed = self._dispatch(user, ai_text, refs,
+                                                   user_text=user_text,
+                                                   pick_context=pick_context)
         content, items = extract_follow_ups(content)
         if not items:
             # 工具路径下工具的 reply 会顶掉模型自己写的 reply（「下一步」行在里面），
@@ -389,7 +435,16 @@ class ChatOrchestrator:
             payload['follow_ups'] = items
         return content, payload, changed
 
-    def _dispatch(self, user, ai_text, refs=None):
+    @staticmethod
+    def _candidate_payload(reply, error, tool_name, params):
+        """候选澄清卡的消息 payload；pending_action 快照供「选它」按钮服务端重放"""
+        return (f'{reply}\n\n⚠️ {error}'.strip(),
+                {'card': 'candidates', 'activity_ids': [],
+                 'card_data': {'hint': str(error), 'items': error.candidates,
+                               'pending_action': {'tool': tool_name,
+                                                  'params': params}}}, False)
+
+    def _dispatch(self, user, ai_text, refs=None, user_text=None, pick_context=None):
         intent_data = extract_intent(ai_text)
         if not intent_data:
             # 「不是合法 JSON」有两种完全相反的情况，必须分开：
@@ -444,13 +499,35 @@ class ChatOrchestrator:
             result = tool['fn'](user, params) or {}
         except CandidateToolError as e:
             logger.info(f'Agent 工具 {tool_name} 需要用户澄清: {e}')
-            # pending_action 快照：候选卡上点选某个目标时，服务端拿它+所选 id
-            # 直接重放工具（不经 AI 再解释一轮「第一个」），原地换成确认卡
-            return (f'{reply}\n\n⚠️ {e}'.strip(),
-                    {'card': 'candidates', 'activity_ids': [],
-                     'card_data': {'hint': str(e), 'items': e.candidates,
-                                   'pending_action': {'tool': tool_name,
-                                                      'params': params}}}, False)
+            # 兜底：用户面对候选卡习惯打字回「第一个」而不是点按钮。存量 session
+            # 的首帧协议没有规则 11，模型不会带 pick 字段，纯文字回复会每轮重新
+            # 撞候选错误形成死循环（线上实测：同一句预览连出 5 次）。这里服务端
+            # 直接从用户原文（其次模型回复）解析序号，对上一轮候选列表重放工具。
+            # pick_context 由调用方（chat.views）从最近一条候选卡消息取来传入，
+            # core 不反向依赖业务 app。
+            index = _pick_from_text(user_text) or _pick_from_text(ai_text)
+            pick_tool = (pick_context or {}).get('tool') or ''
+            pick_items = (pick_context or {}).get('items') or []
+            same_family = pick_tool.split('.')[0] == tool_name.split('.')[0]
+            if index is not None and same_family and 1 <= index <= len(pick_items):
+                try:
+                    result = tool['fn'](user,
+                                        {**params,
+                                         'target_id': pick_items[index - 1]['id']}) or {}
+                    logger.info(f'候选序号直达: 第 {index} 个 → '
+                                f'{pick_items[index - 1].get("name", "")}')
+                except CandidateToolError as e2:
+                    logger.info(f'候选序号重放仍需澄清: {e2}')
+                    return self._candidate_payload(reply, e2, tool_name, params)
+                except ToolError as e2:
+                    logger.warning(f'候选序号重放业务错误: {e2}')
+                    return f'{reply}\n\n⚠️ {e2}'.strip(), None, False
+                except Exception as e2:
+                    logger.error(f'候选序号重放执行失败: {e2}')
+                    return reply or TOOL_FAILURE_REPLY, None, False
+            else:
+                # 序号解析不出 / 无候选上下文 / 序号越界：照常渲染候选卡引导用户
+                return self._candidate_payload(reply, e, tool_name, params)
         except ToolError as e:
             logger.warning(f'Agent 工具 {tool_name} 业务错误: {e}')
             return f'{reply}\n\n⚠️ {e}'.strip(), None, False

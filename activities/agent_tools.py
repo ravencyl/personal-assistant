@@ -14,10 +14,12 @@ from django.db.models.functions import Coalesce, TruncDate
 from django.urls import reverse
 from django.utils import timezone
 
-from core.agent_registry import CandidateToolError, ToolError, agent_tool
+from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
+                                 parse_pick_index)
 from core.utils import get_visible, visible_qs
 
 from core.tags import add_tags, apply_tags, tag_names
+from chat.models import Message
 from .models import Activity, Expense
 from .services import (InputError, add_expense, clean_amount,
                        create_activity_from_parsed)
@@ -70,11 +72,22 @@ def _activity_card_data(activity):
     }
 
 
-def _resolve_single(user, target, target_id=None):
-    """定位唯一活动：传 target_id 时按 id 直达（候选点选重放），
+def _resolve_single(user, target, target_id=None, pick=None):
+    """定位唯一活动：传 target_id 时按 id 直达（候选点选重放）；
+    传 pick 时按上一轮候选列表的序号直达（用户打字回「第一个」）；
     否则按名称关键词定位；0 条报错，多条抛候选列表供用户辨认"""
     if target_id:
         return _resolve_by_id(user, target_id)
+    index = parse_pick_index(pick)
+    if index is not None:
+        items = Message.latest_pick_items(user, tool_prefix='activities.')
+        if items:
+            if not 1 <= index <= len(items):
+                raise ToolError(
+                    f'上一轮候选只有 {len(items)} 个，你要的「第 {index} 个」对不上；'
+                    '请在候选卡上点「选它」，或再说一次是哪一个')
+            return _resolve_by_id(user, items[index - 1]['id'])
+        # 没有可用的候选上下文（超时/换了话题）：忽略 pick 按名称继续，宁慢勿错
     target = str(target or '').strip()
     if not target:
         raise ToolError('请告诉我目标活动的名称')
@@ -92,7 +105,8 @@ def _resolve_single(user, target, target_id=None):
             'detail_url': reverse('activities:activity_detail', args=[a.id]),
         } for a in qs[:5]]
         raise CandidateToolError(
-            f'匹配到 {count} 个活动，请告诉我具体是哪一个（也可以直接打开详情修改）',
+            f'匹配到 {count} 个活动：点下方候选卡的「选它」，'
+            f'或直接回复「第一个」「第二个」（{count} 个里选一个）',
             candidates)
     return qs.first()
 
@@ -150,7 +164,7 @@ def tool_query(user, params):
 @agent_tool('activities.get', '查看某个活动的详情', 'target（目标活动名称关键词）')
 def tool_get(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                   target_id=params.get('target_id'))
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
     return {
         'reply': f'这是活动「{activity.name}」的详情：',
         'card': 'activity',
@@ -174,7 +188,7 @@ def tool_set_status(user, params):
             raise ToolError('没有找到目标任务，可能已被删除')
     else:
         activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                       target_id=params.get('target_id'))
+                                       target_id=params.get('target_id'), pick=params.get('pick'))
     if activity.status == status:
         return {
             'reply': f'「{activity.name}」已经处于「{STATUS_LABELS[status]}」状态了',
@@ -294,7 +308,8 @@ def _update_data(user, activity, params):
                     'detail_url': reverse('activities:activity_detail', args=[a.id]),
                 } for a in parent_qs[:5]]
                 raise CandidateToolError(
-                    f'匹配到 {n} 个活动，请说明要把「{activity.name}」挂到哪个父活动下',
+                    f'匹配到 {n} 个活动：点下方候选卡的「选它」，'
+                    f'或直接回复「第一个」「第二个」，要把「{activity.name}」挂到哪个下面',
                     candidates)
             parent = parent_qs.first()
             # 环检测：新父活动的祖先链上不允许出现自己，否则父子关系成环
@@ -319,7 +334,7 @@ def _participant_skip_note(skipped):
 def _update_preview(user, params):
     """预览阶段：定位目标 + 清洗参数 + 生成变更 diff（不写库）"""
     activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                   target_id=params.get('target_id'))
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
     data, desc_mode = _update_data(user, activity, params)
 
     changes = []
@@ -447,7 +462,7 @@ def apply_delete(user, params):
             apply_fn=apply_delete)
 def tool_delete(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                   target_id=params.get('target_id'))
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
     children_count = activity.children.count()
     return {
         'reply': f'即将删除活动「{activity.name}」，请确认：',
@@ -697,7 +712,9 @@ def tool_add_expense(user, params):
     target = str(params.get('target') or params.get('name') or '').strip()
     if target:
         # 有 target：行为与原来完全一致（0 条报错，多条抛候选）
-        activity = _resolve_single(user, target, target_id=params.get('target_id'))
+        activity = _resolve_single(user, target,
+                                   target_id=params.get('target_id'),
+                                   pick=params.get('pick'))
         reason = 'target'
     else:
         activity, reason = _auto_expense_target(user, params.get('note'))
@@ -739,7 +756,7 @@ def tool_add_expense(user, params):
             'target（活动名称关键词）')
 def tool_list_expenses(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                   target_id=params.get('target_id'))
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
     expenses = list(activity.expenses.all())
     total = sum(float(e.amount) for e in expenses)
 
@@ -800,7 +817,7 @@ def apply_split_expense(user, params):
             apply_fn=apply_split_expense)
 def tool_split_expense(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                   target_id=params.get('target_id'))
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
     amount = _require_positive_amount(params.get('amount'), '费用总金额')
 
     participants = list(activity.participants.all())
@@ -869,7 +886,7 @@ def apply_move_date(user, params):
             apply_fn=apply_move_date)
 def tool_move_date(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
-                                   target_id=params.get('target_id'))
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
     days = params.get('days')
     if days is None:
         raise ToolError('请告诉我推迟或提前几天（正数推迟，负数提前）')
