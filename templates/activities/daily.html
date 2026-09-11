@@ -66,20 +66,48 @@
 </section>
 {% endif %}
 
-<!-- 统计卡片（桌面端进右列后压回三格横排：竖排会把整列顶到需要列内滚动） -->
-<div class="grid grid-cols-3 gap-3 sm:gap-4 md:gap-2 mb-8 md:mb-6">
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 md:p-3">
-        <p class="text-xs text-[var(--text-muted)] mb-1">今日活动</p>
-        <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{{ ongoing_count }}</p>
+<!-- 速览卡：三数合一（原三张独立卡 12px 窄缝挤一行且空值占整卡位，
+     390×844 走查后合为一张横排三列卡，高度约减 40%） -->
+<div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] px-2 py-4 md:p-3 mb-4 md:mb-6">
+    <div class="grid grid-cols-3">
+        <div class="text-center">
+            <p class="text-xs text-[var(--text-muted)] mb-1">今日活动</p>
+            <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{{ ongoing_count }}</p>
+        </div>
+        <div class="text-center border-x border-[var(--border)]">
+            <p class="text-xs text-[var(--text-muted)] mb-1">进行中</p>
+            <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{{ in_progress_count }}</p>
+        </div>
+        <div class="text-center">
+            <p class="text-xs text-[var(--text-muted)] mb-1">今日费用</p>
+            <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{% if today_expense %}¥{{ today_expense|floatformat:"0" }}{% else %}—{% endif %}</p>
+        </div>
     </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 md:p-3">
-        <p class="text-xs text-[var(--text-muted)] mb-1">进行中</p>
-        <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{{ in_progress_count }}</p>
-    </div>
-    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 sm:p-5 md:p-3">
-        <p class="text-xs text-[var(--text-muted)] mb-1">今日费用</p>
-        <p class="text-2xl sm:text-3xl md:text-xl font-bold text-[var(--text)] tabular-nums">{% if today_expense %}¥{{ today_expense|floatformat:"0" }}{% else %}—{% endif %}</p>
-    </div>
+</div>
+
+<!-- 快捷入口（移动端）：紧跟速览数字形成「今日速览」组，与桌面端 main 里那份
+     是同一组操作的两份渲染（新建弹窗按钮靠事件委托绑定，多实例天然兼容，
+     注释里不写属性名——DailyCreateModalTest 用字面出现次数锁入口数）。桌面端入口仍在左列 main 顶部 -->
+<div class="flex flex-wrap gap-2.5 md:hidden mb-6">
+    <button type="button" data-open-create-modal
+       class="tap-target inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] text-[var(--bg)] px-4 py-2 text-sm font-medium hover:opacity-90 transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        新建活动
+    </button>
+    <a href="{% url 'activities:activity_list' %}"
+       class="tap-target inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
+        全部活动
+    </a>
+    <a href="{% url 'activities:activity_calendar' %}"
+       class="tap-target inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
+        日历
+    </a>
+    <a href="{% url 'activities:next_actions' %}"
+       class="tap-target inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
+        下一步行动
+    </a>
 </div>
 
 <!-- 本周消费概览 -->
@@ -104,8 +132,8 @@
 <!-- 左列：主内容流 -->
 <div class="page-main">
 
-<!-- 快捷操作 -->
-<div class="flex items-center flex-wrap gap-3 mb-8">
+<!-- 快捷操作（桌面端；移动端那份在右列速览卡下方，两份共用同一事件绑定） -->
+<div class="hidden md:flex items-center flex-wrap gap-3 mb-8">
     <button type="button" data-open-create-modal
        class="tap-target inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] text-[var(--bg)] px-4 py-2 text-sm font-medium hover:opacity-90 transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -267,17 +295,16 @@ function toggleSection(sectionId) {
 // 页面加载时恢复折叠状态
 (function() {
     var sections = ['daily-plan', 'in_progress', 'upcoming', 'recently_done'];
-    // 这三个是次要长列表：桌面端两列后左列变窄、整页仍要滚很久，首屏默认只留今日相关区；
-    // 只改未手动折叠过时的默认值，移动端（matchMedia 不命中）保持与旧版一致的默认展开
-    var desktopCollapsed = ['in_progress', 'upcoming', 'recently_done'];
-    var isDesktop = window.matchMedia('(min-width: 768px)').matches;
+    // 这三个是次要长列表：390×844 走查实测首屏被非今日内容挤满（其他进行中 8 张
+    // 全在折叠线下），两端默认都只留今日相关区；只改未手动折叠过时的默认值
+    var defaultCollapsed = ['in_progress', 'upcoming', 'recently_done'];
     sections.forEach(function(sectionId) {
         var content = document.getElementById('content-' + sectionId);
         var arrow = document.getElementById('arrow-' + sectionId);
         if (!content || !arrow) return;
 
         var state = localStorage.getItem('daily_section_' + sectionId);
-        if (!state && isDesktop && desktopCollapsed.indexOf(sectionId) > -1) state = 'collapsed';
+        if (!state && defaultCollapsed.indexOf(sectionId) > -1) state = 'collapsed';
         if (state === 'collapsed') {
             content.classList.add('hidden');
             arrow.style.transform = 'rotate(-90deg)';

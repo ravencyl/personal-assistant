@@ -1,6 +1,7 @@
 """core 模板过滤器"""
 import hashlib
 import os
+import re
 
 from django import template
 from django.contrib.staticfiles import finders
@@ -60,6 +61,31 @@ def ai_markdown(value):
     """
     from core.markdown_render import render_markdown
     return render_markdown(value)
+
+
+# 列表预览用的 Markdown 语法剥离规则（顺序敏感：先块级后行内）
+_MD_STRIP_RES = [
+    (re.compile(r'```[\s\S]*?```'), ' '),                              # 围栏代码块整体抹掉
+    (re.compile(r'!\[([^\]]*)\]\([^)]*\)'), r'\1'),                    # 图片 → alt 文本
+    (re.compile(r'\[([^\]]*)\]\([^)]*\)'), r'\1'),                     # 链接 → 链接文本
+    (re.compile(r'^\s{0,3}#{1,6}\s+', re.M), ''),                      # ATX 标题号
+    (re.compile(r'^\s{0,3}>\s?', re.M), ''),                           # 引用符
+    (re.compile(r'^\s{0,3}([-*+]|\d+[.)])\s+', re.M), ''),             # 列表标记
+    (re.compile(r'^\s*([-*_]\s*){3,}$', re.M), ' '),                   # 水平线
+    (re.compile(r'(\*\*|__|~~|`|\*)'), ''),                            # 行内强调/代码/删除线标记
+]
+
+
+@register.filter
+def markdown_preview(value):
+    """列表预览：剥离 Markdown 语法符号，返回纯文本供 truncatechars 截断。
+
+    文章列表直接 truncatechars 会把 #、*、[]() 等原文符号露出（390×844 走查发现），
+    只做轻量剥离供预览，不追求完整解析；下划线单字符不剥（避免误伤 snake_case）。"""
+    text = str(value or '')
+    for pattern, repl in _MD_STRIP_RES:
+        text = pattern.sub(repl, text)
+    return re.sub(r'\s+', ' ', text).strip()
 
 
 @register.simple_tag

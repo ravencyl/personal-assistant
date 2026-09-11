@@ -11,7 +11,7 @@
 {% block content %}
 <div class="max-w-4xl md:max-w-6xl mx-auto space-y-4 sm:space-y-6" data-page-activity="{{ activity.name }}">
     <div>
-        <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
+        <a href="{% url 'activities:activity_list' %}" class="tap-target -my-2 inline-flex items-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
     </div>
 
     <!-- 头部卡片：标题 + 进度条 + 快捷状态 -->
@@ -63,7 +63,7 @@
                         {% csrf_token %}
                         <input type="hidden" name="status" value="{{ value }}">
                         <button type="submit" {% if activity.status == value %}disabled{% endif %}
-                            class="rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
+                            class="tap-target rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
                             {% if activity.status == value %}
                                 bg-zinc-900 text-white cursor-default
                             {% else %}
@@ -137,11 +137,11 @@
                     {% for t in e.tags_list %}<span class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-muted)]">#{{ t }}</span>{% endfor %}
                 </div>
                 <div class="shrink-0 flex items-center gap-3 self-end md:self-auto">
-                    <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}', '{{ e.tags_str|escapejs }}')" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
+                    <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}', '{{ e.tags_str|escapejs }}')" class="row-action text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
                     <form method="post" action="{% url 'activities:expense_delete' e.id %}" class="inline"
                           data-confirm="确认删除这笔费用？" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
-                        <button type="submit" class="text-xs text-zinc-500 hover:text-zinc-900">删除</button>
+                        <button type="submit" class="row-action text-xs text-zinc-500 hover:text-zinc-900">删除</button>
                     </form>
                 </div>
             </div>
@@ -152,44 +152,45 @@
         {% endif %}
         <!-- 常用费用标签：点击追加到下方表单的标签输入框（追加不覆盖，纯前端） -->
         {% if expense_tag_chips %}
-        <div class="mt-3 flex flex-wrap items-center gap-1" id="expense-tag-chips">
+        {# 常用标签一行横滑（移动端），桌面保持换行 #}
+        <div class="mt-3 flex flex-nowrap overflow-x-auto items-center gap-1 md:flex-wrap" id="expense-tag-chips">
             <span class="text-xs text-[var(--text-muted)] mr-1">常用：</span>
             {% for t in expense_tag_chips %}
             <button type="button" onclick="appendExpenseTag('{{ t|escapejs }}')"
-                    class="tap-target inline-flex items-center rounded-full bg-[var(--bg-card)] border border-transparent px-3 text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">#{{ t }}</button>
+                    class="tap-target shrink-0 whitespace-nowrap inline-flex items-center rounded-full bg-[var(--bg-card)] border border-transparent px-3 text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">#{{ t }}</button>
             {% endfor %}
         </div>
         {% endif %}
         <!-- 添加费用表单 -->
-        <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end" id="expense-form">
+        <form method="post" action="{% url 'activities:expense_create' activity.id %}" class="mt-3 grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-end" id="expense-form">
             {% csrf_token %}
             <input type="hidden" name="_method" value="POST" id="expense-method">
             <!-- 移动端：每行一个字段（全宽）；桌面端（sm+）：金额+日期同行，备注/标签同行 -->
-            <div class="w-full md:w-28 md:shrink-0">
+            <div class="md:w-28 md:shrink-0">
                 <input type="number" name="amount" step="0.01" min="0" required placeholder="金额"
-                       class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 日期：移动端全宽独占一行，桌面端固定宽度 -->
-            <div class="w-full md:w-40 md:shrink-0">
+            <div class="md:w-40 md:shrink-0">
                 <input type="date" name="paid_at" value="{{ today_date }}"
-                       class="tap-target w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 备注：移动端全宽独占一行，桌面端自适应剩余宽度 -->
-            <div class="flex-1 min-w-[10rem]">
+            <div class="col-span-2 flex-1 md:min-w-[10rem]">
                 <input type="text" name="note" maxlength="255" placeholder="备注"
-                       class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 费用标签（scope=expense，与活动标签隔离；逗号分隔，datalist 提供建议） -->
-            <div class="w-full md:w-44 md:shrink-0">
+            <div class="md:w-44 md:shrink-0">
                 <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" list="expense-tag-options"
-                       class="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
                 <datalist id="expense-tag-options">
                     {% for t in expense_tag_suggestions %}<option value="{{ t }}"></option>{% endfor %}
                 </datalist>
             </div>
-            <div>
-                <button type="submit" class="rounded-full bg-[var(--accent)] px-5 py-1.5 text-sm font-medium text-[var(--bg)] hover:opacity-90" id="expense-submit-btn">添加</button>
-                <button type="button" onclick="cancelEdit()" class="hidden rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]" id="expense-cancel-btn">取消</button>
+            <div class="col-span-2 flex gap-2">
+                <button type="submit" class="tap-target flex-1 md:flex-none rounded-full bg-[var(--accent)] px-5 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90" id="expense-submit-btn">添加</button>
+                <button type="button" onclick="cancelEdit()" class="hidden tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]" id="expense-cancel-btn">取消</button>
             </div>
         </form>
     </div>
@@ -310,15 +311,17 @@
             </div>
         </section>
 
-        <!-- 附件区域 -->
-    <section class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3 flex items-center gap-2">
+        <!-- 附件区域：data-mobile-collapse 由页尾脚本在移动端收起（模板保留 open 供桌面/无 JS 展开） -->
+    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center gap-2 cursor-pointer select-none list-none">
             <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
             </svg>
             附件
             <span class="text-xs text-[var(--text-muted)]">({{ attachments|length }})</span>
-        </h2>
+            <span class="ml-auto text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
+        <div class="mt-1">
 
         <!-- 图片附件网格 -->
         {% for att in attachments %}
@@ -326,11 +329,11 @@
             <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(50%-0.25rem)] mb-3 align-top">
                 <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
                 <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
-                    <a href="{{ att.file.url }}" target="_blank" class="text-white text-xs hover:underline">查看原图</a>
+                    <a href="{{ att.file.url }}" target="_blank" class="row-action text-white text-xs hover:underline">查看原图</a>
                     <form method="post" action="{% url 'activities:attachment_delete' att.id %}" class="inline"
                           data-confirm="确定删除？" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
-                        <button type="submit" class="text-zinc-300 text-xs hover:text-white">删除</button>
+                        <button type="submit" class="row-action text-zinc-300 text-xs hover:text-white">删除</button>
                     </form>
                 </div>
                 <div class="p-1.5 bg-[var(--bg-card)]">
@@ -354,7 +357,7 @@
             </div>
             <form method="post" action="{% url 'activities:attachment_delete' att.id %}" data-confirm="确定删除？" data-confirm-tone="danger" data-confirm-label="确认删除">
                 {% csrf_token %}
-                <button type="submit" class="text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
+                <button type="submit" class="row-action text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
             </form>
         </div>
         {% endif %}
@@ -370,17 +373,20 @@
             {% csrf_token %}
             <input type="file" name="file" required
                    class="text-sm text-[var(--text-secondary)] file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-[var(--accent-light)] file:text-[var(--text)] hover:file:bg-[var(--border)]">
-            <button type="submit" class="text-xs px-3 py-1.5 rounded-full bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90">
+            <button type="submit" class="tap-target text-xs px-3 py-1.5 rounded-full bg-[var(--accent)] text-[var(--bg-card)] hover:opacity-90">
                 上传
             </button>
             <span class="text-xs text-[var(--text-muted)]">单文件不超过 {{ max_upload_mb }}MB</span>
         </form>
-    </section>
+        </div>
+    </details>
 
     <!-- 参与者 -->
     {% if participants %}
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">参与者（{{ participants|length }}）</h2>
+    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+            参与者（{{ participants|length }}）<span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
         <div class="flex flex-wrap gap-2">
             {% for p in participants %}
             <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-sm text-[var(--text-secondary)]"
@@ -390,13 +396,15 @@
             </span>
             {% endfor %}
         </div>
-    </div>
+    </details>
     {% endif %}
 
     <!-- 相关知识与笔记 -->
     {% if related_articles or related_notes %}
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关知识与笔记</h2>
+    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+            相关知识与笔记<span class="text-xs normal-case tracking-normal text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
         {# 本块只出现在桌面端 320px 右列（移动端整宽），所以内部不再分两栏 #}
         <div class="space-y-4">
             {% if related_articles %}
@@ -427,7 +435,7 @@
             </div>
             {% endif %}
         </div>
-    </div>
+    </details>
     {% endif %}
 
     </div><!-- /右列 -->
@@ -455,6 +463,12 @@
 </div>
 
 <script>
+// 右列辅助区块（附件/参与者/相关知识）：移动端默认折叠。
+// 模板保留 open 属性——无 JS 或桌面端天然展开；≤767px 时由这里收起，减少单屏长度。
+if (window.matchMedia('(max-width: 767px)').matches) {
+    document.querySelectorAll('details[data-mobile-collapse]').forEach(function (d) { d.removeAttribute('open'); });
+}
+
 // ==================== 费用编辑 ====================
 var expenseForm = document.getElementById('expense-form');
 var expenseMethod = document.getElementById('expense-method');

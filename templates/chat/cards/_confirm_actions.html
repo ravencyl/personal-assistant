@@ -12,7 +12,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="confirm">
                 <input type="hidden" name="token" value="{{ action.token }}">
-                <button type="submit" class="rounded-full px-3.5 py-1 text-xs font-medium text-white transition-colors
+                <button type="submit" class="tap-target rounded-full px-4 py-2 text-xs font-medium text-white transition-colors
                     {% if card.kind == 'delete' %}bg-zinc-900 hover:bg-black{% else %}bg-zinc-900 hover:bg-black{% endif %}">
                     {% if card.kind == 'delete' %}确认删除{% else %}确认执行{% endif %}
                 </button>
@@ -20,7 +20,7 @@
             <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#card-actions-{{ msg.id }}" hx-swap="outerHTML">
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="cancel">
-                <button type="submit" class="rounded-full bg-zinc-100 text-zinc-600 hover:bg-zinc-200 px-3.5 py-1 text-xs font-medium transition-colors">取消</button>
+                <button type="submit" class="tap-target rounded-full bg-zinc-100 text-zinc-600 hover:bg-zinc-200 px-4 py-2 text-xs font-medium transition-colors">取消</button>
             </form>
         </div>
     {% endif %}

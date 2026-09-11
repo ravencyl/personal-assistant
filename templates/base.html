@@ -43,7 +43,7 @@
                     <div class="flex">
                         <div class="flex flex-shrink-0 items-center">
                             {# 图形标本身已含站名二字，不再旁排文字；alt/aria-label 供读屏与图片加载失败时兜底 #}
-                            <a href="/" class="flex items-center" aria-label="{{ SITE_NAME }}">
+                            <a href="/" class="tap-target flex items-center -my-1" aria-label="{{ SITE_NAME }}">
                                 <img src="{% static 'img/logo-mark.png' %}" alt="{{ SITE_NAME }}"
                                      class="h-7 w-auto" width="264" height="166">
                             </a>
@@ -93,7 +93,7 @@
                                 搜索
                             </button>
                             <span class="hidden md:inline text-sm text-[var(--text-secondary)]">{{ user.username }}</span>
-                            <a href="{% url 'logout' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">退出</a>
+                            <a href="{% url 'logout' %}" class="tap-target px-2 -mx-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">退出</a>
                         {% else %}
                             <a href="{% url 'login' %}" class="text-sm font-medium text-[var(--text)] hover:text-[var(--text-secondary)]">登录</a>
                         {% endif %}
@@ -114,9 +114,10 @@
         {% endif %}
 
     {% if user.is_authenticated %}
-    <!-- 一键快记浮窗（聊天浮窗下线后为全站唯一悬浮入口；移动端 bottom-36 避让底部 Tab 栏，
-         桌面 md:bottom-16 避让分栏页底部的发送按钮，改小会叠上去实测踩过） -->
-    <div id="quick-fab-root" class="fixed bottom-36 right-4 z-50 md:bottom-16 flex flex-col items-end">
+    <!-- 一键快记浮窗（聊天浮窗下线后为全站唯一悬浮入口；移动端 bottom-24 距底 96px，
+         避让底部 Tab 栏（55px）后留 41px 间隙——原 bottom-36 与 Tab 间空出 90px 死区，
+         390×844 走查后下调。桌面 md:bottom-16 避让分栏页底部的发送按钮，改小会叠上去实测踩过） -->
+    <div id="quick-fab-root" class="fixed bottom-24 right-4 z-50 md:bottom-16 flex flex-col items-end">
         <!-- 展开面板（panel 开合模式；所有表单走原生 fetch，严禁挂 hx-*） -->
         <div id="quick-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
             <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">

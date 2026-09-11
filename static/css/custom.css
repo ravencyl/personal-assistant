@@ -728,3 +728,34 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
         border-color: var(--border);
     }
 }
+
+/* ===== 移动端触控与可读性铁律（2026-09 390×844 走查后建立） =====
+   走查实测：全站 <44px 可点元素约 146 处、按钮高度 7 档同屏、10px meta 文字成片。
+   本块统一三件事，全部限定 ≤767px，桌面端零改动：
+   ① 行内小操作触区拉满 44×44（.row-action，挂给编辑/删除/归档这类裸文字小按钮）；
+   ② 10px 的 meta/时间戳/标签文字抬到 12px（!important 原因同 16px 输入字号规则：
+      Tailwind 运行时 style 标签在本文件之后，同特异度靠源码顺序必输）；
+   ③ 主动作元素逐模板补 .tap-target（此处不全局兜底，避免误伤正文文字链）。 */
+@media (max-width: 767px) {
+    .row-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    .text-\[10px\] {
+        font-size: 12px !important;
+    }
+}
+
+/* data-mobile-collapse 折叠区块（details/summary 原生开合）的箭头随开合旋转：
+   默认 ▶（收起），open 时转 90° 变 ▼（展开）。不限断点——桌面端同样受益 */
+details[data-mobile-collapse] summary span[aria-hidden] {
+    transition: transform 0.15s ease;
+}
+
+details[data-mobile-collapse][open] summary span[aria-hidden] {
+    transform: rotate(90deg);
+}

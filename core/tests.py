@@ -1497,7 +1497,8 @@ class ConfirmCardGlobalTest(SimpleTestCase):
                 self.assertIn('data-confirm-tone="danger"', line)
                 self.assertIn('data-confirm-label="确认删除"', line)
                 total += 1
-        self.assertEqual(total, 9)
+        # 9 个模板内表单 + conversation_list.html 新建对话 ⋯ 菜单 JS 里拼装的删除表单（移动端整卡触区改造新增）
+        self.assertEqual(total, 10)
 
     def test_confirm_card_js_exists_and_wired(self):
         """全局组件文件存在（含表单拦截与 paConfirmCard API），且 base.html 已引入"""

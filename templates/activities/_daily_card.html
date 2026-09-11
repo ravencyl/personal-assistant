@@ -1,4 +1,4 @@
-<div class="daily-card group relative bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors"
+<div class="daily-card group relative bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-3 md:p-4 hover:border-[var(--border-strong)] transition-colors"
      data-activity-id="{{ activity.id }}"
      data-status="{{ activity.status }}"
      data-status-url="{% url 'activities:activity_set_status' activity.id %}"
@@ -51,9 +51,9 @@
                     <span data-role="expense-count" class="tabular-nums {% if not activity.expense_count %}hidden{% endif %}">{{ activity.expense_count }} 笔</span>
                 </div>
 
-                <!-- 标签 + 参与者 -->
+                <!-- 标签 + 参与者（移动端限一行省略，走查实测多行把单卡顶到 150px） -->
                 {% if activity.tags.all or activity.participants.all %}
-                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                <div class="flex items-center gap-2 mt-1.5 flex-nowrap overflow-hidden md:flex-wrap">
                     {% for tag in activity.tags.all|slice:":3" %}
                     <span class="text-[10px] text-[var(--text-muted)]">#{{ tag.name }}</span>
                     {% endfor %}
@@ -85,7 +85,7 @@
     </div>
 
     <!-- 移动端快捷操作 -->
-    <div class="flex md:hidden mt-3 pt-3 border-t border-[var(--border)] gap-2">
+    <div class="flex md:hidden mt-2.5 pt-2.5 border-t border-[var(--border)] gap-2">
         {% if activity.status != 'done' %}
         <button type="button" data-action="set-status" data-status-target="done"
                 class="tap-target inline-flex items-center justify-center rounded-full bg-zinc-900 text-white text-xs font-medium px-3 hover:bg-black transition-colors">✓ 完成</button>
@@ -98,7 +98,7 @@
     </div>
 
     <!-- 内联记费用表单 -->
-    <form data-expense-form class="hidden mt-3 pt-3 border-t border-[var(--border)]">
+    <form data-expense-form class="hidden mt-2.5 pt-2.5 border-t border-[var(--border)]">
         <div class="flex items-center gap-2">
             <input type="number" name="amount" step="0.01" min="0" placeholder="金额" required
                    class="tap-target flex-none w-24 rounded-full border border-[var(--border-strong)] bg-transparent px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">

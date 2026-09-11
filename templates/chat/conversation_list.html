@@ -17,7 +17,7 @@
             <form method="post" action="{% url 'chat:create_conversation' %}" class="shrink-0">
                 {% csrf_token %}
                 <button type="submit" id="split-new-btn"
-                    class="inline-flex items-center rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--bg)] hover:opacity-90"
+                    class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-medium text-[var(--bg)] hover:opacity-90"
                     {% if not QODER_API_AVAILABLE %}disabled title="请先配置 QODER_ACCESS_TOKEN"{% endif %}>
                     + 新建
                 </button>
@@ -25,9 +25,9 @@
         </div>
         <form method="get" class="flex gap-2">
             <input type="text" name="q" value="{{ query|default:'' }}" placeholder="搜索对话..."
-                class="flex-1 min-w-0 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]">
+                class="tap-target flex-1 min-w-0 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]">
             {% if query %}
-            <a href="{% url 'chat:conversation_list' %}" class="shrink-0 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除</a>
+            <a href="{% url 'chat:conversation_list' %}" class="tap-target shrink-0 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除</a>
             {% endif %}
         </form>
         {% if query %}
@@ -61,27 +61,32 @@
                         {% endif %}
                     </p>
                 </div>
-                <div class="text-right shrink-0 flex flex-col items-end gap-1">
-                    <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium
-                        {% if conv.status == 'processing' %}bg-[var(--accent)] text-[var(--bg)]
-                        {% elif conv.status == 'archived' %}bg-[var(--accent-light)] text-[var(--text-secondary)]
-                        {% else %}bg-zinc-100 text-zinc-600{% endif %}">
-                        {{ conv.get_status_display }}
-                    </span>
-                    <span class="text-[10px] text-[var(--text-muted)]">{{ conv.updated_at|timesince }}前</span>
+                <div class="flex items-start gap-0.5 shrink-0">
+                    <div class="text-right flex flex-col items-end gap-1 pt-0.5">
+                        <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium
+                            {% if conv.status == 'processing' %}bg-[var(--accent)] text-[var(--bg)]
+                            {% elif conv.status == 'archived' %}bg-[var(--accent-light)] text-[var(--text-secondary)]
+                            {% else %}bg-zinc-100 text-zinc-600{% endif %}">
+                            {{ conv.get_status_display }}
+                        </span>
+                        <span class="text-[10px] text-[var(--text-muted)]">{{ conv.updated_at|timesince }}前</span>
+                    </div>
+                    {# 行内操作：⋯ 弹出菜单（details/summary 原生开合）；stopPropagation 防触发外层行选中 #}
+                    <details class="conv-menu relative" onclick="event.stopPropagation()">
+                        <summary class="tap-target w-8 h-8 rounded-full items-center justify-center text-base leading-none text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>
+                        <div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-24">
+                            <form method="post" action="{% url 'chat:archive_conversation' conv.id %}">
+                                {% csrf_token %}
+                                <button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button>
+                            </form>
+                            <form method="post" action="{% url 'chat:conversation_delete' conv.id %}"
+                                  data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
+                                {% csrf_token %}
+                                <button type="submit" class="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button>
+                            </form>
+                        </div>
+                    </details>
                 </div>
-            </div>
-            {# 操作按钮：hover 显示（桌面）/ 常驻（移动），stopPropagation 防触发外层点击 #}
-            <div class="mt-1.5 flex items-center gap-3 text-xs hover-actions" onclick="event.stopPropagation()">
-                <form method="post" action="{% url 'chat:archive_conversation' conv.id %}">
-                    {% csrf_token %}
-                    <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
-                </form>
-                <form method="post" action="{% url 'chat:conversation_delete' conv.id %}"
-                      data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
-                    {% csrf_token %}
-                    <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
-                </form>
             </div>
         </a>
         {% endfor %}
@@ -104,28 +109,36 @@
     <div class="flex-none flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
         {# 移动端返回按钮 #}
         <button type="button" id="split-back-btn"
-                class="md:hidden text-[var(--text-secondary)] hover:text-[var(--text)] text-sm" title="返回列表">
+                class="tap-target md:hidden w-11 h-11 -my-1.5 -ml-2 rounded-full items-center justify-center text-lg text-[var(--text-secondary)] hover:text-[var(--text)]" title="返回列表">
             &larr;
         </button>
         <h2 class="text-base font-bold text-[var(--text)] truncate flex-1" id="split-chat-title">
             {{ active_conversation.title|default:'' }}
         </h2>
-        <div id="split-actions" class="flex items-center gap-2 text-xs shrink-0{% if not active_conversation %} hidden{% endif %}">
-            <form id="split-rename-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_rename' active_conversation.id %}{% endif %}" class="flex items-center gap-1">
-                {% csrf_token %}
-                <input type="text" name="title" value="{{ active_conversation.title|default:'' }}" maxlength="255"
-                    class="w-28 rounded-full border border-[var(--border-strong)] px-2 py-1 text-xs bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
-                <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">改名</button>
-            </form>
-            <form id="split-archive-form" method="post" action="{% if active_conversation %}{% url 'chat:archive_conversation' active_conversation.id %}{% endif %}">
-                {% csrf_token %}
-                <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">归档</button>
-            </form>
-            <form id="split-delete-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_delete' active_conversation.id %}{% endif %}"
-                  data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
-                {% csrf_token %}
-                <button type="submit" class="text-red-600 hover:text-red-800">删除</button>
-            </form>
+        {# 聊天头瘦身：改名/归档/删除收进 ⋯ 菜单；三个 form 保留原 id，selectConversation 更新 action 的既有逻辑不受影响 #}
+        <div id="split-actions" class="shrink-0{% if not active_conversation %} hidden{% endif %}">
+            <details class="conv-menu relative">
+                <summary class="tap-target w-10 h-10 rounded-full items-center justify-center text-base text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>
+                <div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-40">
+                    <form id="split-rename-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_rename' active_conversation.id %}{% endif %}">
+                        {% csrf_token %}
+                        <div class="px-3 pt-2 pb-1">
+                            <input type="text" name="title" value="{{ active_conversation.title|default:'' }}" maxlength="255" placeholder="对话名称"
+                                class="w-full rounded-full border border-[var(--border-strong)] px-2.5 py-1.5 text-xs bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
+                        </div>
+                        <button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">保存名称</button>
+                    </form>
+                    <form id="split-archive-form" method="post" action="{% if active_conversation %}{% url 'chat:archive_conversation' active_conversation.id %}{% endif %}">
+                        {% csrf_token %}
+                        <button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button>
+                    </form>
+                    <form id="split-delete-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_delete' active_conversation.id %}{% endif %}"
+                          data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
+                        {% csrf_token %}
+                        <button type="submit" class="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button>
+                    </form>
+                </div>
+            </details>
         </div>
     </div>
 
@@ -162,7 +175,7 @@
                 placeholder="输入消息...（Enter 换行，点「发送」提交）"
                 class="chat-input flex-1 rounded-lg border border-[var(--border-strong)] px-4 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]"></textarea>
             <button type="submit"
-                class="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
+                class="tap-target rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
                 发送
             </button>
         </div>
@@ -357,6 +370,13 @@
         }
     });
 
+    // ⋯ 菜单外点关闭（行内菜单与聊天头菜单共用 conv-menu 类）
+    document.addEventListener('click', function (e) {
+        document.querySelectorAll('details.conv-menu[open]').forEach(function (d) {
+            if (!d.contains(e.target)) d.removeAttribute('open');
+        });
+    });
+
     // ── 初始化：读当前 URL ──
     var activeId = layoutEl.getAttribute('data-active-id');
     if (activeId) {
@@ -391,7 +411,16 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data.conversation_id) { alert('创建对话失败'); return; }
-                    // 在列表顶部插入新项
+                    // 在列表顶部插入新项（⋯ 菜单与模板行结构保持一致，新建后即可归档/删除）
+                    var mid = data.conversation_id;
+                    var menuHtml = '<details class="conv-menu relative" onclick="event.stopPropagation()">' +
+                        '<summary class="tap-target w-8 h-8 rounded-full items-center justify-center text-base leading-none text-[var(--text-muted)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>' +
+                        '<div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-24">' +
+                        '<form method="post" action="/chat/' + mid + '/archive/"><input type="hidden" name="csrfmiddlewaretoken" value="' + csrf + '">' +
+                        '<button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button></form>' +
+                        '<form method="post" action="/chat/' + mid + '/delete/" data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除"><input type="hidden" name="csrfmiddlewaretoken" value="' + csrf + '">' +
+                        '<button type="submit" class="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button></form>' +
+                        '</div></details>';
                     var item = document.createElement('a');
                     item.href = 'javascript:void(0)';
                     item.className = 'chat-conv-item group';
@@ -401,7 +430,9 @@
                         '<div class="min-w-0 flex-1"><h3 class="chat-conv-title text-sm font-medium text-[var(--text)]" title="' +
                         (data.title || '新对话') + '">' + (data.title || '新对话') +
                         '</h3><p class="mt-0.5 text-xs text-[var(--text-secondary)] truncate">暂无消息</p></div>' +
-                        '<div class="text-right shrink-0"><span class="text-[10px] text-[var(--text-muted)]">刚刚</span></div></div>';
+                        '<div class="flex items-start gap-0.5 shrink-0">' +
+                        '<div class="text-right flex flex-col items-end gap-1 pt-0.5"><span class="text-[10px] text-[var(--text-muted)]">刚刚</span></div>' +
+                        menuHtml + '</div></div>';
                     if (convListEl && convListEl.firstChild) {
                         convListEl.insertBefore(item, convListEl.firstChild);
                     }

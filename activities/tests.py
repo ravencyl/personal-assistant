@@ -1338,12 +1338,14 @@ class DailyDesktopLayoutTest(TestCase):
             self.assertIn(anchor, main, f'{desc}应在左列主内容流')
 
     def test_mobile_reading_order_matches_dom(self):
-        """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）"""
-        anchors = ['data-section="daily-plan"', '今日活动', '本周消费', '新建活动',
+        """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）。
+        2026-09 移动端改造后：移动端快捷入口从 main 提到右列速览卡下方，
+        与三数合一速览卡组成「今日速览」组，故「新建活动」先于「本周消费」"""
+        anchors = ['data-section="daily-plan"', '今日活动', '新建活动', '本周消费',
                    '今日进行中']
         positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
         self.assertEqual(positions, sorted(positions),
-                         '移动端单列顺序变了：右列三块之后才是快捷入口，再 是活动分组')
+                         '移动端单列顺序变了：速览卡 + 快捷入口（今日速览组）之后才是本周消费与活动分组')
 
     def test_no_manual_htmx_process_and_json_tags_clean(self):
         """模板不手动 htmx.process（避免双重绑定），JSON 端点标签不带 hx-*"""
@@ -1353,13 +1355,14 @@ class DailyDesktopLayoutTest(TestCase):
             self.assertNotIn('hx-', tag, 'JSON 端点只能由 fetch 消费，元素上不能挂 hx-*')
 
     def test_secondary_lists_default_collapsed_on_desktop_only(self):
-        """三个次要长列表只在桌面端默认折叠，移动端首屏仍默认展开"""
+        """三个次要长列表两端默认折叠（2026-09 改：原来仅桌面折叠，移动端首屏
+        被非今日内容挤满，390×844 走查后改为两端同默认）；手动展开后仍由 localStorage 记忆"""
         src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertIn("matchMedia('(min-width: 768px)')", src,
-                      '默认折叠必须用 768px 断点门控，否则移动端首屏会退化')
-        self.assertRegex(src, r"var desktopCollapsed = \[[^\]]*'upcoming'[^\]]*\]",
-                         '「即将开始」应保留在桌面端默认折叠清单里')
-        self.assertRegex(src, r'if \(!state && isDesktop && desktopCollapsed',
+        self.assertNotIn("matchMedia('(min-width: 768px)')", src,
+                         '默认折叠不再分端门控（两端同默认），不应再出现 768px 断点判断')
+        self.assertRegex(src, r"var defaultCollapsed = \[[^\]]*'upcoming'[^\]]*\]",
+                         '「即将开始」应保留在默认折叠清单里')
+        self.assertRegex(src, r'if \(!state && defaultCollapsed',
                          '默认折叠只能作用于未手动折叠过的区块')
         self.assertIn("localStorage.getItem('daily_section_' + sectionId)", src,
                       '折叠状态仍走既有 localStorage 机制，不另造一套')
@@ -1416,8 +1419,9 @@ class DailyCreateModalTest(TestCase):
     def test_create_entries_open_modal_not_page(self):
         """快捷入口与空态按钮都走弹窗，不再跳独立创建页"""
         src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertEqual(src.count('data-open-create-modal'), 2,
-                         '快捷操作区 + 空态应各有一个弹窗入口')
+        # 3 处：桌面端快捷操作区 + 移动端快捷入口（双渲染）+ 空态按钮
+        self.assertEqual(src.count('data-open-create-modal'), 3,
+                         '桌面操作区 + 移动快捷入口 + 空态应各有一个弹窗入口')
         self.assertNotIn("url 'activities:activity_create'", src,
                          'Daily 页不应再直链独立创建页')
 
