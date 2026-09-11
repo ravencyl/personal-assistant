@@ -1488,17 +1488,21 @@ class ConfirmCardGlobalTest(SimpleTestCase):
         self.assertEqual(offenders, [])
 
     def test_danger_forms_use_confirm_card(self):
-        """删除类表单全部带 data-confirm + danger 调性 + 统一确认按钮文案"""
+        """所有 data-confirm 表单必须带调性与按钮文案三件套；删除类固定 danger+确认删除"""
         total = 0
         for p in self._templates():
             for line in p.read_text(encoding='utf-8').splitlines():
                 if 'data-confirm="' not in line:
                     continue
-                self.assertIn('data-confirm-tone="danger"', line)
-                self.assertIn('data-confirm-label="确认删除"', line)
+                self.assertIn('data-confirm-tone=', line)
+                self.assertIn('data-confirm-label="', line)
+                if '删除' in line:
+                    self.assertIn('data-confirm-tone="danger"', line)
+                    self.assertIn('data-confirm-label="确认删除"', line)
                 total += 1
-        # 9 个模板内表单 + conversation_list.html 新建对话 ⋯ 菜单 JS 里拼装的删除表单（移动端整卡触区改造新增）
-        self.assertEqual(total, 10)
+        # 9 个模板内删除表单 + conversation_list.html JS 拼装删除表单
+        # + 日历订阅设置页 2 个（重新生成/吊销，2026-09-11）
+        self.assertEqual(total, 12)
 
     def test_confirm_card_js_exists_and_wired(self):
         """全局组件文件存在（含表单拦截与 paConfirmCard API），且 base.html 已引入"""

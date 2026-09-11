@@ -111,6 +111,15 @@
     </div>
 </div>
 
+<!-- 日历订阅入口：把活动同步到 Apple 日历（2026-09-11） -->
+<div class="app-card p-4">
+    <h2 class="text-sm font-medium text-[var(--text)] mb-3">日历同步</h2>
+    <p class="text-xs text-[var(--text-secondary)] mb-3 leading-relaxed">把进行中与计划中的活动同步到 iPhone / Mac 自带日历，到期前收系统提醒。</p>
+    <a href="{% url 'activities:calendar_feed_settings' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] text-center hover:bg-zinc-50 transition-colors inline-block">
+        管理订阅
+    </a>
+</div>
+
 <!-- 活动状态分布 -->
 {% if stats.status_counts %}
 <div class="app-card p-4">

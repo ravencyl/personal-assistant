@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import Sum
 from django.conf import settings
+from django.utils import timezone
+import secrets
 
 from core.models import Tag
 
@@ -212,3 +214,51 @@ class Attachment(models.Model):
             return f'{self.size / 1024:.1f} KB'
         else:
             return f'{self.size / (1024 * 1024):.1f} MB'
+
+
+class CalendarFeed(models.Model):
+    """日历订阅令牌：ICS/webcal 订阅源的鉴权凭据（2026-09-11）。
+
+    订阅端点无法携带会话（Apple 日历服务器代为拉取），故用
+    「长随机、不可猜测、与用户绑定」的 token 鉴权；可在设置页
+    重新生成（旧 token 立即失效）或吊销。
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='calendar_feed',
+        verbose_name='归属用户'
+    )
+    token = models.CharField('订阅令牌', max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    revoked_at = models.DateTimeField('吊销时间', null=True, blank=True)
+
+    class Meta:
+        verbose_name = '日历订阅令牌'
+        verbose_name_plural = '日历订阅令牌'
+
+    def __str__(self):
+        return f'{self.user.username} 的日历订阅'
+
+    @classmethod
+    def issue(cls, user):
+        """取现有令牌；不存在则签发（幂等）。"""
+        feed, _ = cls.objects.get_or_create(user=user)
+        if not feed.token:
+            feed.token = secrets.token_urlsafe(32)
+            feed.save(update_fields=['token'])
+        return feed
+
+    def regenerate(self):
+        """换发新 token，旧 URL 立即失效；同时解除吊销。"""
+        self.token = secrets.token_urlsafe(32)
+        self.revoked_at = None
+        self.save(update_fields=['token', 'revoked_at'])
+
+    def revoke(self):
+        self.revoked_at = timezone.now()
+        self.save(update_fields=['revoked_at'])
+
+    @property
+    def active(self):
+        return self.revoked_at is None

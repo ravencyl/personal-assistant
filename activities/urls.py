@@ -24,6 +24,7 @@ urlpatterns = [
     path('expenses/<int:expense_id>/edit/', views.expense_edit, name='expense_edit'),
     path('expenses/<int:expense_id>/delete/', views.expense_delete, name='expense_delete'),
     path('calendar/', views.activity_calendar, name='activity_calendar'),
+    path('calendar/feed-settings/', views.calendar_feed_settings, name='calendar_feed_settings'),
     path('calendar-data/', views.calendar_data, name='calendar_data'),
     path('expense-chart-data/', views.expense_chart_data, name='expense_chart_data'),
     path('expense-report/', views.expense_report, name='expense_report'),

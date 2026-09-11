@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -1338,4 +1338,58 @@ def next_actions(request):
         'pending_parents': pending_parents,
         'upcoming': upcoming,
         'today_display': f'{today.month}月{today.day}日',
+    })
+
+
+# ── 日历订阅（ICS/webcal feed，2026-09-11）─────────────────────────────
+
+def calendar_feed(request, token):
+    """ICS 订阅端点：token 即鉴权（Apple 日历服务器代拉取，无法带会话）。
+
+    token 不存在 / 已吊销一律 404（不区分「不存在」与「已吊销」，
+    不向探测者泄露令牌状态）。本视图刻意不加 login_required。
+    """
+    from .models import CalendarFeed
+    from .calendar_feed import build_ics
+
+    feed = (CalendarFeed.objects
+            .filter(token=token, revoked_at__isnull=True)
+            .select_related('user')
+            .first())
+    if feed is None:
+        raise Http404('日历订阅不存在')
+
+    ics = build_ics(feed.user, request.build_absolute_uri('/'))
+    response = HttpResponse(ics, content_type='text/calendar; charset=utf-8')
+    response['Content-Disposition'] = 'inline; filename="activities.ics"'
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@login_required
+def calendar_feed_settings(request):
+    """日历订阅管理页：查看订阅 URL、重新生成 / 吊销令牌。"""
+    from .models import CalendarFeed
+
+    feed = CalendarFeed.issue(request.user)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'regenerate':
+            feed.regenerate()
+            messages.success(request, '已生成新的订阅链接，旧链接立即失效。')
+            return redirect('activities:calendar_feed_settings')
+        if action == 'revoke':
+            feed.revoke()
+            messages.success(request, '订阅已吊销，原链接无法再拉取数据。')
+            return redirect('activities:calendar_feed_settings')
+
+    # calendar_feed_ics 注册在根 URLconf（无 namespace），供 Apple 日历直接订阅
+    feed_url = request.build_absolute_uri(
+        reverse('calendar_feed_ics', args=[feed.token]))
+    webcal_url = feed_url.replace('https://', 'webcal://').replace('http://', 'webcal://')
+    return render(request, 'activities/calendar_feed_settings.html', {
+        'feed': feed,
+        'feed_url': feed_url,
+        'webcal_url': webcal_url,
     })

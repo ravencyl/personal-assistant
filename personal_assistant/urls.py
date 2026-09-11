@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 
 from core.views import (dashboard, search_api, weekly_report, monthly_report, yearly_report,
                         report_send_to_chat, service_worker)
-from activities.views import daily_view
+from activities.views import daily_view, calendar_feed
 
 urlpatterns = [
     # 首页 = 每日简报
@@ -23,6 +23,10 @@ urlpatterns = [
 
     # Authentication
     path('accounts/', include('django.contrib.auth.urls')),
+
+    # 日历订阅（ICS/webcal）：token 即鉴权，Apple 日历服务器代拉取无法带会话；
+    # 顶级路径便于在 iPhone 上直接粘贴订阅 URL（管理页在 /activities/calendar/feed-settings/）
+    path('calendar/feed/<str:token>.ics', calendar_feed, name='calendar_feed_ics'),
 
     # App modules
     path('chat/', include('chat.urls')),

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}日历同步 · {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">日历同步</h1>
+    <p class="text-sm text-[var(--text-secondary)] mt-1">把活动导出到 iPhone / Mac 自带日历（单向，日历里的改动不影响站点）</p>
+  </div>
+
+  {% if feed.active %}
+  <div class="app-card p-4 space-y-4">
+    <h2 class="text-base font-semibold">订阅日历</h2>
+    <p class="text-sm text-[var(--text-secondary)] leading-relaxed">
+      在 iPhone / Mac 的「日历」App 中：<span class="text-[var(--text)]">文件 → 新建日历订阅</span>（Mac）
+      或添加账户 → 其他 → 添加已订阅的日历（iPhone），粘贴下方链接即可。
+      之后由系统定期自动刷新，站点内修改活动会随之同步。
+    </p>
+
+    <div>
+      <label class="block text-xs text-[var(--text-muted)] mb-1.5">订阅链接（webcal，点按可直接唤起日历 App）</label>
+      <div class="flex gap-2">
+        <input type="text" readonly value="{{ webcal_url }}"
+               class="flex-1 min-w-0 border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-secondary)]"
+               onclick="this.select()">
+        <button type="button" data-copy-feed="{{ webcal_url }}"
+                class="shrink-0 bg-[var(--accent)] text-white text-sm font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors">复制</button>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs text-[var(--text-muted)] mb-1.5">HTTPS 直链（部分场景需要）</label>
+      <input type="text" readonly value="{{ feed_url }}"
+             class="w-full border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-secondary)]"
+             onclick="this.select()">
+    </div>
+
+    <p class="text-xs text-[var(--text-muted)] leading-relaxed">
+      提醒：导出的活动为全天事件，默认带「提前 1 天」提醒；若订阅日历未弹提醒，
+      在日历 App 里给这个订阅设置「默认提醒」即可。链接即密码——泄露后请立即在下方重新生成。
+    </p>
+  </div>
+
+  <div class="app-card p-4 space-y-3">
+    <h2 class="text-base font-semibold">管理</h2>
+    <div class="flex flex-col md:flex-row gap-2">
+      <form method="post" action="{% url 'activities:calendar_feed_settings' %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="regenerate">
+        <button type="submit"
+                data-confirm="重新生成后，旧订阅链接立即失效，需要在日历 App 里重新订阅。确定吗？" data-confirm-tone="default" data-confirm-label="重新生成"
+                class="tap-target w-full md:w-auto border border-[var(--border-strong)] text-sm font-medium px-4 py-2 hover:bg-[var(--accent-light)] transition-colors">
+          重新生成链接
+        </button>
+      </form>
+      <form method="post" action="{% url 'activities:calendar_feed_settings' %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="revoke">
+        <button type="submit"
+                data-confirm="吊销后日历将不再收到任何更新，直到你重新生成链接。确定吊销吗？" data-confirm-tone="danger" data-confirm-label="确认吊销"
+                class="tap-target w-full md:w-auto text-sm font-medium px-4 py-2 text-red-600 hover:bg-red-50 transition-colors">
+          吊销订阅
+        </button>
+      </form>
+    </div>
+    <p class="text-xs text-[var(--text-muted)]">签发于 {{ feed.created_at|date:"Y-m-d H:i" }}</p>
+  </div>
+  {% else %}
+  <div class="app-card p-4 space-y-3">
+    <h2 class="text-base font-semibold">订阅已吊销</h2>
+    <p class="text-sm text-[var(--text-secondary)]">日历 App 将无法再拉取任何数据。重新生成链接后可再次订阅。</p>
+    <form method="post" action="{% url 'activities:calendar_feed_settings' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="regenerate">
+      <button type="submit"
+              class="tap-target bg-[var(--accent)] text-white text-sm font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors">
+        重新生成链接
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  // 复制订阅链接（原生 fetch 约定不涉及，纯本地剪贴板）
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-copy-feed]');
+    if (!btn) return;
+    var text = btn.getAttribute('data-copy-feed');
+    var done = function () {
+      var old = btn.textContent;
+      btn.textContent = '已复制';
+      setTimeout(function () { btn.textContent = old; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done);
+    } else {
+      var input = document.querySelector('input[value="' + text + '"]');
+      if (input) { input.select(); document.execCommand('copy'); done(); }
+    }
+  });
+</script>
+{% endblock %}

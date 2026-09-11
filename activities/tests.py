@@ -21,7 +21,7 @@ from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import Activity, ActivityLog, Attachment, Expense, Participant
+from activities.models import Activity, ActivityLog, Attachment, Expense, Participant, CalendarFeed
 from notes.models import Note
 from activities.parsing import parse_quick_input
 from core.agent_registry import CandidateToolError, ToolError
@@ -1926,3 +1926,127 @@ class ActivityTagEditRegressionTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         activity = Activity.objects.get(user=self.user, name='带标签新活动')
         self.assertEqual(set(tag_names(activity)), {'团建', '出行'})
+
+
+class CalendarFeedTest(TestCase):
+    """ICS 日历订阅：token 鉴权、字段映射、令牌生命周期（2026-09-11）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('caluser', password='x')
+        self.other = User.objects.create_user('calother', password='x')
+        self.feed = CalendarFeed.issue(self.user)
+        self.today = timezone.localdate()
+
+    def _mk(self, **kw):
+        defaults = dict(user=self.user, name='测试活动', status='planned',
+                        start_date=self.today, end_date=self.today + timedelta(days=2))
+        defaults.update(kw)
+        return Activity.objects.create(**defaults)
+
+    def _feed_url(self, token=None):
+        return reverse('calendar_feed_ics', args=[token or self.feed.token])
+
+    def test_feed_requires_no_login_and_valid_token(self):
+        """未登录持有效 token 可拉取（Apple 日历服务器无会话）"""
+        self._mk()
+        resp = self.client.get(self._feed_url())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'text/calendar; charset=utf-8')
+
+    def test_bad_or_revoked_token_404(self):
+        """错误 token 与吊销 token 一律 404，不泄露存在性"""
+        self.assertEqual(self.client.get(self._feed_url('wrong-token')).status_code, 404)
+        self.feed.revoke()
+        self.assertEqual(self.client.get(self._feed_url()).status_code, 404)
+
+    def test_feed_isolated_per_user(self):
+        """feed 只含归属用户的活动"""
+        self._mk(name='我的活动')
+        Activity.objects.create(user=self.other, name='别人的活动', status='planned',
+                                start_date=self.today, end_date=self.today)
+        body = self.client.get(self._feed_url()).content.decode()
+        self.assertIn('我的活动', body)
+        self.assertNotIn('别人的活动', body)
+
+    def test_export_scope_and_mapping(self):
+        """planned/in_progress 且有日期的导出；done/cancelled/无日期不导出；DTEND 排他"""
+        self._mk(name='进行中活动', status='in_progress')
+        self._mk(name='已完成活动', status='done')
+        self._mk(name='已取消活动', status='cancelled')
+        self._mk(name='无日期活动', start_date=None, end_date=None)
+        self._mk(name='已过期活动', start_date=self.today - timedelta(days=30),
+                 end_date=self.today - timedelta(days=20))
+
+        body = self.client.get(self._feed_url()).content.decode()
+        self.assertIn('BEGIN:VCALENDAR', body)
+        self.assertIn('进行中活动', body)
+        self.assertNotIn('已完成活动', body)
+        self.assertNotIn('已取消活动', body)
+        self.assertNotIn('无日期活动', body)
+        self.assertNotIn('已过期活动', body)
+        # DTSTART 为 DATE 值；DTEND = end_date + 1 天（RFC 5545 排他）
+        d = self.today.strftime('%Y%m%d')
+        self.assertIn(f'DTSTART;VALUE=DATE:{d}', body)
+        self.assertIn(f'DTEND;VALUE=DATE:{(self.today + timedelta(days=3)).strftime("%Y%m%d")}', body)
+        # 状态映射与提醒
+        self.assertIn('STATUS:CONFIRMED', body)
+        self.assertIn('BEGIN:VALARM', body)
+        self.assertIn('TRIGGER:-P1D', body)
+        # UID 稳定 + 详情链接
+        self.assertIn('UID:activity-', body)
+        self.assertIn('/activities/', body)
+
+    def test_subtask_exported(self):
+        """符合条件的子任务也进日历，描述里带父活动名"""
+        parent = self._mk(name='父活动')
+        child = Activity.objects.create(user=self.user, name='子任务', parent=parent,
+                                        status='planned', start_date=self.today,
+                                        end_date=self.today)
+        body = self.client.get(self._feed_url()).content.decode()
+        self.assertIn('子任务', body)
+        self.assertIn('父活动: 父活动', body)
+
+    def test_escaping_and_line_folding(self):
+        """TEXT 特殊字符转义 + 75 字节行折叠（不拆多字节）"""
+        self._mk(name='含逗号,分号;反斜杠\\换行\n的名字', description='很长' * 200)
+        body = self.client.get(self._feed_url()).content.decode()
+        self.assertIn('含逗号\\,分号\\;反斜杠\\\\换行\\n的名字', body)
+        for line in body.split('\r\n'):
+            self.assertLessEqual(len(line.encode('utf-8')), 75)
+        # 折叠行解开后的还原完整性
+        unfolded = body.replace('\r\n ', '')
+        self.assertIn('很长' * 100, unfolded)
+
+    def test_settings_page_and_lifecycle(self):
+        """设置页登录可见；重新生成旧 token 失效；吊销后恢复可用"""
+        # 匿名访问设置页 → 跳登录
+        resp = self.client.get('/activities/calendar/feed-settings/')
+        self.assertEqual(resp.status_code, 302)
+
+        self.client.force_login(self.user)
+        resp = self.client.get('/activities/calendar/feed-settings/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.feed.token, resp.content.decode())
+
+        # 重新生成：旧 token 404，新 token 200
+        old_token = self.feed.token
+        self.client.post('/activities/calendar/feed-settings/', {'action': 'regenerate'})
+        self.feed.refresh_from_db()
+        self.assertNotEqual(self.feed.token, old_token)
+        self.assertEqual(self.client.get(self._feed_url(old_token)).status_code, 404)
+        self.assertEqual(self.client.get(self._feed_url()).status_code, 200)
+
+        # 吊销 → 404；重新生成 → 解除吊销恢复 200
+        self.client.post('/activities/calendar/feed-settings/', {'action': 'revoke'})
+        self.feed.refresh_from_db()
+        self.assertIsNotNone(self.feed.revoked_at)
+        self.assertEqual(self.client.get(self._feed_url()).status_code, 404)
+        self.client.post('/activities/calendar/feed-settings/', {'action': 'regenerate'})
+        self.feed.refresh_from_db()
+        self.assertIsNone(self.feed.revoked_at)
+        self.assertEqual(self.client.get(self._feed_url()).status_code, 200)
+
+    def test_issue_idempotent(self):
+        """issue 幂等：同一用户重复签发返回同一条令牌"""
+        again = CalendarFeed.issue(self.user)
+        self.assertEqual(again.pk, self.feed.pk)
