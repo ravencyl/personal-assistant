@@ -42,7 +42,7 @@
            hx-include="#memory-search"
            hx-push-url="true"
            onclick="this.querySelector('input') || 0"
-           class="rounded-full px-3 py-1 text-sm {% if not category %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+           class="rounded-full px-3 py-1 text-sm {% if not category %}bg-[var(--accent)] text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
             全部
             <input type="hidden" name="category" value="">
         </a>
@@ -52,7 +52,7 @@
            hx-target="#memory-list"
            hx-include="#memory-search"
            hx-push-url="true"
-           class="rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-zinc-900 text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+           class="rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-[var(--accent)] text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
             {{ cat_label }}
         </a>
         {% endfor %}

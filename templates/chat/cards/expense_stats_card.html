@@ -13,7 +13,7 @@
         <div class="flex items-center gap-2">
             <span class="w-12 shrink-0 text-[11px] text-zinc-500">{{ c.label }}</span>
             <div class="h-2 flex-1 rounded-full bg-zinc-100 overflow-hidden">
-                <div class="h-full rounded-full bg-zinc-900 {% if not c.pct %}opacity-10{% endif %}"
+                <div class="h-full rounded-full bg-[var(--accent)] {% if not c.pct %}opacity-10{% endif %}"
                      style="width: {% if c.pct %}{{ c.pct }}{% else %}4{% endif %}%"></div>
             </div>
             <span class="w-24 shrink-0 text-right text-[11px] tabular-nums text-zinc-600">

@@ -14,7 +14,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="index" value="{{ forloop.counter0 }}">
                 <button type="submit"
-                        class="tap-target rounded-full bg-zinc-900 hover:bg-black text-white px-3 py-1 text-xs font-medium transition-colors">选它</button>
+                        class="tap-target rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-3 py-1 text-xs font-medium transition-colors">选它</button>
             </form>
         </div>
         {% endfor %}

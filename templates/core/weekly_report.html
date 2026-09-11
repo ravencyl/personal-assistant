@@ -70,7 +70,7 @@
         <form method="post">
             {% csrf_token %}
             <input type="hidden" name="content" value="{{ markdown }}">
-            <button type="submit" class="w-full px-4 py-2 rounded-full bg-zinc-900 text-white text-sm hover:bg-black transition-colors">
+            <button type="submit" class="w-full px-4 py-2 rounded-full bg-[var(--accent)] text-white text-sm hover:bg-[var(--accent-hover)] transition-colors">
                 保存到知识库
             </button>
         </form>

@@ -10,7 +10,7 @@
 //     而且 cache.put() 遇到非 GET 会直接抛异常。
 //  3. 只缓存顶层导航。判据只能用 mode === 'navigate'，不能再用「Accept 含 text/html」：
 //     HTMX 的片段请求就是 Accept: text/html,*/*，一旦被缓存，打卡/搜索/聊天会拿到过期片段。
-const CACHE_VERSION = 'personal-assistant-v15';
+const CACHE_VERSION = 'personal-assistant-v16';
 
 // 预缓存的核心静态资源（已自托管，不再依赖 CDN）
 const PRECACHE_URLS = [

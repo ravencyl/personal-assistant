@@ -99,7 +99,7 @@
 <div class="app-card p-4">
     <h2 class="text-sm font-medium text-[var(--text)] mb-3">生成报告</h2>
     <div class="flex flex-wrap gap-2 md:flex-col">
-        <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full bg-zinc-900 text-white text-sm text-center hover:bg-black transition-colors">
+        <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full bg-[var(--accent)] text-white text-sm text-center hover:bg-[var(--accent-hover)] transition-colors">
             生成周报
         </a>
         <a href="{% url 'monthly_report' %}" class="px-4 py-2 rounded-full border border-zinc-200 text-sm text-[var(--text)] text-center hover:bg-zinc-50 transition-colors">
@@ -122,16 +122,16 @@
         {% if total > 0 %}
             {% with planned=stats.status_counts.planned|default:0 in_progress=stats.status_counts.in_progress|default:0 done=stats.status_counts.done|default:0 cancelled=stats.status_counts.cancelled|default:0 %}
             {% if planned > 0 %}
-            <div class="bg-zinc-500" style="width:{% widthratio planned total 100 %}%"></div>
+            <div class="status-bg--planned" style="width:{% widthratio planned total 100 %}%"></div>
             {% endif %}
             {% if in_progress > 0 %}
-            <div class="bg-zinc-900" style="width:{% widthratio in_progress total 100 %}%"></div>
+            <div class="status-bg--in_progress" style="width:{% widthratio in_progress total 100 %}%"></div>
             {% endif %}
             {% if done > 0 %}
-            <div class="bg-zinc-300" style="width:{% widthratio done total 100 %}%"></div>
+            <div class="status-bg--done" style="width:{% widthratio done total 100 %}%"></div>
             {% endif %}
             {% if cancelled > 0 %}
-            <div class="bg-zinc-200" style="width:{% widthratio cancelled total 100 %}%"></div>
+            <div class="status-bg--cancelled" style="width:{% widthratio cancelled total 100 %}%"></div>
             {% endif %}
             {% endwith %}
         {% endif %}
@@ -142,19 +142,19 @@
     <div class="grid grid-cols-2 gap-2">
         {% with planned=stats.status_counts.planned|default:0 in_progress=stats.status_counts.in_progress|default:0 done=stats.status_counts.done|default:0 cancelled=stats.status_counts.cancelled|default:0 %}
         <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-full bg-zinc-500"></span>
+            <span class="h-2 w-2 rounded-full status-bg--planned"></span>
             <span class="text-xs text-[var(--text-secondary)]">计划 {{ planned }}</span>
         </div>
         <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-full bg-zinc-900"></span>
+            <span class="h-2 w-2 rounded-full status-bg--in_progress"></span>
             <span class="text-xs text-[var(--text-secondary)]">进行中 {{ in_progress }}</span>
         </div>
         <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-full bg-zinc-300"></span>
+            <span class="h-2 w-2 rounded-full status-bg--done"></span>
             <span class="text-xs text-[var(--text-secondary)]">已完成 {{ done }}</span>
         </div>
         <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-full bg-zinc-200"></span>
+            <span class="h-2 w-2 rounded-full status-bg--cancelled"></span>
             <span class="text-xs text-[var(--text-secondary)]">已取消 {{ cancelled }}</span>
         </div>
         {% endwith %}

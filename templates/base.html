@@ -126,7 +126,7 @@
             </div>
             <!-- Tab 切换（纯 JS） -->
             <div class="flex gap-2 px-4 pt-3">
-                <button type="button" data-quick-tab="expense" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 bg-zinc-900 text-white transition-colors">费用</button>
+                <button type="button" data-quick-tab="expense" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 bg-[var(--accent)] text-white transition-colors">费用</button>
                 <button type="button" data-quick-tab="note" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">备忘</button>
                 <button type="button" data-quick-tab="activity" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">活动</button>
             </div>
@@ -147,7 +147,7 @@
                     <input type="date" name="paid_at" title="不填默认今天"
                            class="tap-target flex-1 min-w-0 border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]">
                     <button type="submit"
-                            class="tap-target shrink-0 rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">记入</button>
+                            class="tap-target shrink-0 rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">记入</button>
                 </div>
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
@@ -157,7 +157,7 @@
                           class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]"></textarea>
                 <div class="flex justify-end">
                     <button type="submit"
-                            class="tap-target rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">保存</button>
+                            class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">保存</button>
                 </div>
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
@@ -168,7 +168,7 @@
                        class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                 <div class="flex justify-end">
                     <button type="submit"
-                            class="tap-target rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">创建</button>
+                            class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">创建</button>
                 </div>
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
@@ -274,7 +274,7 @@
         function switchTab(name) {
             tabBtns.forEach(function (b) {
                 var active = b.getAttribute('data-quick-tab') === name;
-                b.classList.toggle('bg-zinc-900', active);
+                b.classList.toggle('bg-[var(--accent)]', active);
                 b.classList.toggle('text-white', active);
                 b.classList.toggle('border', !active);
                 b.classList.toggle('border-[var(--border-strong)]', !active);

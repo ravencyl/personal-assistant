@@ -74,7 +74,7 @@
         <div class="hidden md:flex items-center gap-1.5 shrink-0 mt-0.5">
             {% if activity.status != 'done' %}
             <button type="button" data-action="set-status" data-status-target="done"
-                    class="rounded-full bg-zinc-900 text-white text-xs px-2.5 py-1 hover:bg-black transition-colors">✓ 完成</button>
+                    class="rounded-full bg-[var(--accent)] text-white text-xs px-2.5 py-1 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
             {% else %}
             <button type="button" data-action="set-status" data-status-target="in_progress"
                     class="rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs px-2.5 py-1 hover:bg-[var(--accent-light)] transition-colors">↺ 恢复进行中</button>
@@ -88,7 +88,7 @@
     <div class="flex md:hidden mt-2.5 pt-2.5 border-t border-[var(--border)] gap-2">
         {% if activity.status != 'done' %}
         <button type="button" data-action="set-status" data-status-target="done"
-                class="tap-target inline-flex items-center justify-center rounded-full bg-zinc-900 text-white text-xs font-medium px-3 hover:bg-black transition-colors">✓ 完成</button>
+                class="tap-target inline-flex items-center justify-center rounded-full bg-[var(--accent)] text-white text-xs font-medium px-3 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
         {% else %}
         <button type="button" data-action="set-status" data-status-target="in_progress"
                 class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs font-medium px-3 transition-colors">↺ 恢复进行中</button>
@@ -105,7 +105,7 @@
             <input type="text" name="note" placeholder="备注（可选）" maxlength="255"
                    class="flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
             <button type="submit"
-                    class="tap-target shrink-0 rounded-full bg-zinc-900 text-white text-xs font-medium px-4 hover:bg-black transition-colors">记入</button>
+                    class="tap-target shrink-0 rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">记入</button>
         </div>
         <p data-expense-error class="hidden text-xs text-[var(--text-muted)] mt-2"></p>
     </form>

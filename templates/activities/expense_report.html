@@ -122,8 +122,8 @@
 (function() {
     var textColor = '#18181b';
     var gridColor = 'rgba(0,0,0,0.06)';
-    var accentColor = '#18181b';
-    var accentBg = 'rgba(24,24,27,0.1)';
+    var accentColor = '#4f46e5';
+    var accentBg = 'rgba(79,70,229,0.1)';
     var mutedBar = '#d4d4d8';
 
     var defaultScaleOpts = {
@@ -171,7 +171,7 @@
                 document.getElementById('tagChartEmpty').classList.remove('hidden');
                 return;
             }
-            var palette = ['#18181b', '#52525b', '#71717a', '#a1a1aa', '#d4d4d8', '#e4e4e7', '#f4f4f5'];
+            var palette = ['#4f46e5', '#0ea5e9', '#16a34a', '#f59e0b', '#a1a1aa', '#71717a', '#e4e4e7'];
             new Chart(document.getElementById('tagChart'), {
                 type: 'doughnut',
                 data: {
@@ -228,8 +228,8 @@
 // 本月标签明细（原生 fetch 消费 month_tag JSON，与上方图表脚本互不影响）
 (function() {
     var endpoint = '{% url "activities:expense_chart_data" %}';
-    // 灰阶条形序列：金额从高到低依次变浅（只用 zinc 灰阶）
-    var barColors = ['bg-zinc-900', 'bg-zinc-700', 'bg-zinc-500', 'bg-zinc-300', 'bg-zinc-100'];
+    // 条形序列：品牌靛蓝从深到浅（金额从高到低依次变浅）
+    var barColors = ['bg-indigo-600', 'bg-indigo-500', 'bg-indigo-400', 'bg-indigo-300', 'bg-indigo-200'];
     var now = new Date();
     var year = now.getFullYear();
     var month = now.getMonth() + 1;

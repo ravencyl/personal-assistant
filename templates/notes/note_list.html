@@ -34,7 +34,7 @@
             <div class="flex items-center justify-between gap-3">
                 <input type="text" name="tags" placeholder="标签（可选，逗号分隔）"
                        class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
-                <button type="submit" class="tap-target rounded-full bg-zinc-900 hover:bg-black text-white px-5 py-2 text-sm font-medium transition-colors">
+                <button type="submit" class="tap-target rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-5 py-2 text-sm font-medium transition-colors">
                     保存
                 </button>
             </div>
@@ -57,12 +57,12 @@
     {% if all_tags %}
     <div class="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1" id="note-tag-filter">
         <a href="{% url 'notes:note_list' %}{% if q %}?q={{ q }}{% endif %}"
-           class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if not tag_filter %}bg-zinc-900 text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
+           class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if not tag_filter %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             全部
         </a>
         {% for tag in all_tags %}
         <a href="{% url 'notes:note_list' %}?tag={{ tag }}{% if q %}&q={{ q }}{% endif %}"
-           class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if tag_filter == tag %}bg-zinc-900 text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
+           class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if tag_filter == tag %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             {{ tag }}
         </a>
         {% endfor %}
@@ -109,7 +109,7 @@
                 </label>
             </div>
             <div class="flex gap-2">
-                <button type="submit" class="tap-target rounded-full bg-zinc-900 hover:bg-black text-white px-5 py-2 text-sm font-medium transition-colors">
+                <button type="submit" class="tap-target rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-5 py-2 text-sm font-medium transition-colors">
                     保存修改
                 </button>
                 <a href="{% url 'notes:note_list' %}" class="tap-target rounded-full px-5 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
@@ -128,7 +128,7 @@
                 <div class="flex-1 min-w-0">
                     <!-- 置顶徽章：块级摆在内容上方，灰阶加深扫一眼能分出置顶组 -->
                     {% if note.pinned %}
-                    <span class="inline-flex items-center rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-white mb-1.5" title="已置顶">置顶</span>
+                    <span class="inline-flex items-center rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-medium text-white mb-1.5" title="已置顶">置顶</span>
                     {% endif %}
                     <!-- 内容：超过约 6 行折叠（JS 检测后才收起，无 JS 全文展示） -->
                     <div class="note-fold" data-note-fold>

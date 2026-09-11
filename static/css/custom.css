@@ -2,11 +2,12 @@
    全站极简设计系统（白底黑字 · 灰阶层级 · 内容为王）
    ============================================================
 
-   【色彩规则】（2026-09-11 更新：用户拍板「灰度、阴影、动效都可以上」）
-   - 页面画布浅灰 #fafafa，卡片/面板纯白浮起——用灰度层次而不是框线做分区
-   - 正文黑 #18181b；灰阶四级：主 #18181b / 次 #52525b / 辅 #a1a1aa / 弱化 #d4d4d8
-   - 仍然零彩色、零渐变；阴影仅限灰黑 rgba(0,0,0,*)，见 --shadow-* 令牌
-   - 动效克制：150-250ms，只做位移/阴影/透明度，尊重 prefers-reduced-motion
+   【色彩规则】（2026-09-11 二次更新：用户拍板「加点其他颜色」→ 靛蓝强调色 + 状态语义色）
+   - 品牌强调色靛蓝 #4f46e5：主按钮、正文链接、导航激活态、表单聚焦环、勾选框
+   - 页面画布浅灰 #fafafa，卡片/面板纯白浮起——灰度层次做分区，彩色只做语义与强调
+   - 状态语义色：计划=天蓝 / 进行中=靛蓝 / 完成=绿 / 取消=灰，见 --status-* 令牌
+   - 阴影仅限灰黑 rgba(0,0,0,*)；动效克制：150-250ms，尊重 prefers-reduced-motion
+   - 仍然禁止：渐变、大面积色块填充
 
    【字体层级】
    - 页面标题：text-2xl font-bold
@@ -46,9 +47,11 @@
    ============================================================ */
 
 :root {
-    --accent: #18181b;
-    --accent-hover: #000000;
-    --accent-light: #f4f4f5;
+    /* 靛蓝强调色（Tailwind indigo-600，2026-09-11 用户选定「靛蓝/科技蓝」） */
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --accent-light: #f4f4f5;    /* 保持中性灰：hover 底色不染色 */
+    --accent-soft: #eef2ff;     /* 靛蓝极浅底：选中态/强调底色专用 */
     --bg: #fafafa;
     --bg-card: #ffffff;
     --text: #18181b;
@@ -67,10 +70,11 @@
 /* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
    日历与图表靠 `var(--status-<status>)` 引用，不再各存一份 hex）*/
 :root {
-    --status-planned: #a1a1aa;
-    --status-in_progress: #18181b;
-    --status-done: #d4d4d8;
-    --status-cancelled: #e4e4e7;
+    /* 状态语义色（2026-09-11 用户解禁彩色）：计划=天蓝 / 进行中=靛蓝 / 完成=绿 / 取消=灰 */
+    --status-planned: #0284c7;      /* sky-600：白字对比 4.6:1 */
+    --status-in_progress: #4f46e5;  /* 靛蓝 = 品牌色，进行中即「正在发生」 */
+    --status-done: #16a34a;         /* green-600 */
+    --status-cancelled: #a1a1aa;    /* 退出语义不加色相，维持灰 */
 }
 
 /* 背景用状态色：小圆点、顶部色条、日历色块 */
@@ -86,13 +90,13 @@
 .status-fg--cancelled { color: var(--status-cancelled); }
 
 /* 状态色块之上的文字色，与 .status-bg--* 成对使用（日历色块等）*/
-.status-fg-on--planned, .status-fg-on--in_progress { color: #ffffff; }
-.status-fg-on--done, .status-fg-on--cancelled { color: #71717a; }
+.status-fg-on--planned, .status-fg-on--in_progress, .status-fg-on--done { color: #ffffff; }
+.status-fg-on--cancelled { color: #71717a; }
 
 /* 状态徽章（搭配 _status_badge.html 的通用形状类使用）*/
-.badge-status--planned { background: #f4f4f5; color: #52525b; }
+.badge-status--planned { background: #e0f2fe; color: #0369a1; }
 .badge-status--in_progress { background: var(--status-in_progress); color: #ffffff; }
-.badge-status--done { background: #fafafa; color: var(--text-muted); }
+.badge-status--done { background: #dcfce7; color: #15803d; }
 .badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
 /* 控件圆角：Things 3 式大而少的圆角（10px）。
@@ -154,8 +158,18 @@ input[type="date"] {
 }
 
 .nav-link-active {
-    color: var(--text);
+    color: var(--accent);
     font-weight: 600;
+}
+
+/* 品牌色的轻量落点：聚焦环 + 勾选框（模板未写 focus: 类，此处是全局唯一 focus 处理） */
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid rgba(79, 70, 229, 0.35);
+    outline-offset: 0;
+}
+
+input[type="checkbox"], input[type="radio"] {
+    accent-color: var(--accent);
 }
 
 /* 徽章 pill 形（仅徽章/chip 保持全圆角，控件已收敛到 10px） */

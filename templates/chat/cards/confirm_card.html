@@ -1,6 +1,6 @@
 {% comment %}两步确认卡片：update 展示字段变更 diff，delete 展示红色警示与影响说明{% endcomment %}
 <div class="mt-2 rounded-xl border {% if card.kind == 'delete' %}border-zinc-200{% else %}border-zinc-200{% endif %} bg-white overflow-hidden text-left">
-    <div class="h-1 {% if card.kind == 'delete' %}bg-zinc-400{% else %}bg-zinc-900{% endif %}"></div>
+    <div class="h-1 {% if card.kind == 'delete' %}bg-red-400{% else %}bg-[var(--accent)]{% endif %}"></div>
     <div class="p-3">
         {% if card.kind == 'delete' %}
         <p class="text-sm font-semibold text-zinc-800 flex items-center gap-1.5">

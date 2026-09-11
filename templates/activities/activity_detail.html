@@ -65,7 +65,7 @@
                         <button type="submit" {% if activity.status == value %}disabled{% endif %}
                             class="tap-target rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
                             {% if activity.status == value %}
-                                bg-zinc-900 text-white cursor-default
+                                bg-[var(--accent)] text-white cursor-default
                             {% else %}
                                 {% if value == 'done' or value == 'cancelled' %}bg-zinc-50 text-zinc-500 hover:bg-zinc-100
                                 {% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}
@@ -95,7 +95,7 @@
             {% if children|length %}
             {# 完成度进度条：仅看个数读不出推到哪了；新建子任务后靠刷新页面跟上（JS 只更新计数） #}
             <div class="mt-2 h-1 bg-zinc-100 rounded-full overflow-hidden" title="子任务完成度 {{ subtask_done_count }}/{{ children|length }}">
-                <div class="h-full rounded-full bg-zinc-900 transition-all" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
+                <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
             </div>
             {% endif %}
         </div>
@@ -278,7 +278,7 @@
                     </div>
                     <div class="md:col-span-4 flex items-center gap-2">
                         <button type="submit" id="sub-manual-submit"
-                                class="tap-target rounded-full bg-zinc-900 text-white text-xs font-medium px-4 py-2 hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed">创建子任务</button>
+                                class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">创建子任务</button>
                         <button type="button" id="sub-manual-cancel"
                                 class="tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">取消</button>
                     </div>
