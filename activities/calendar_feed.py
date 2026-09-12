@@ -93,6 +93,8 @@ def _event_lines(activity, base_url):
 
     # 注意：表达式内不能含反斜杠（线上 Python 3.11 的 f-string 不支持）
     description = _escape_text('\n'.join(desc_parts))
+    # iCloud 日历不展示 CATEGORIES，状态直接拼在名称后（2026-09-12 用户要求）
+    summary = f'{_escape_text(activity.name)} - [{status_label}]'
 
     lines = [
         'BEGIN:VEVENT',
@@ -101,7 +103,7 @@ def _event_lines(activity, base_url):
         f'DTSTART;VALUE=DATE:{_date_param(start)}',
         # RFC 5545：DTEND 为排他日期
         f'DTEND;VALUE=DATE:{_date_param(end + timedelta(days=1))}',
-        f'SUMMARY:{_escape_text(activity.name)}',
+        f'SUMMARY:{summary}',
         f'DESCRIPTION:{description}',
         f'URL:{detail_url}',
         f'CATEGORIES:{_escape_text(status_label)}',
