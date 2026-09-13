@@ -666,10 +666,11 @@ class PrimaryNavTest(TestCase):
 
     @staticmethod
     def _labels(block):
-        """取每个导航项的可见文案（桌面直接写在 <a> 里，移动端在 <span> 里）"""
+        """取每个导航项的可见文案（桌面直接写在 <a> 里，移动端胶囊栏在 <span> 里）"""
         out = []
         for body in re.findall(r'<a\b[^>]*>(.*?)</a>', block, re.S):
-            span = re.search(r'<span class="text-\[10px\][^"]*">([^<]+)</span>', body)
+            # 胶囊栏（2026-09-13）当前项的 span 才可见，其余带 hidden —— 这里只锁清单不变
+            span = re.search(r'<span class="text-xs font-medium[^"]*">([^<]+)</span>', body)
             if span:
                 out.append(span.group(1).strip())
             else:
@@ -685,12 +686,13 @@ class PrimaryNavTest(TestCase):
     def test_mobile_tab_lists_exactly_the_first_level_modules(self):
         self.assertEqual(self._labels(self._mobile_block()), self.MOBILE)
 
-    def test_mobile_grid_columns_match_the_item_count(self):
-        """grid-cols-N 必须等于条目数（本次瘦身留下的坑）"""
+    def test_mobile_tab_items_match_the_module_count(self):
+        """胶囊栏（2026-09-13 改自 grid 栏）条目数必须等于清单数 ——
+        flex 布局下多余/缺失的 <a> 会把胶囊撑歪或留空"""
         block = self._mobile_block()
-        cols = int(re.search(r'grid grid-cols-(\d+)', block).group(1))
-        self.assertEqual(cols, len(self._labels(block)),
-                         '底栏列数与条目数不一致：会有空格或换行')
+        items = re.findall(r'<a\b', block)
+        self.assertEqual(len(items), len(self._labels(block)),
+                         '底栏 <a> 数与条目清单不一致：会有空位或孤立图标')
 
 
 class ServiceWorkerTest(TestCase):

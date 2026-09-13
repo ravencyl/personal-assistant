@@ -47,12 +47,13 @@
    ============================================================ */
 
 :root {
-    /* 科技蓝强调色（Tailwind blue-600，2026-09-11 用户反馈「不喜欢偏紫的靛蓝」改定） */
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --accent-light: #f4f4f5;    /* 保持中性灰：hover 底色不染色 */
-    --accent-soft: #eff6ff;     /* 蓝色极浅底：选中态/强调底色专用 */
-    --bg: #fafafa;
+    /* periwinkle 蓝紫强调色（2026-09-13 用户选定向医疗预约风截图，推翻 09-11 纯蓝）
+       同时解禁大面积色块卡与宽松大卡节奏，圆角/胶囊全面放大 */
+    --accent: #6478e8;
+    --accent-hover: #5467d6;
+    --accent-light: #eef0fe;    /* periwinkle 极浅底：hover/选中染色 */
+    --accent-soft: #eef0fe;     /* 选中态/强调底色专用 */
+    --bg: #e2e6fa;              /* 淡紫蓝画布（截图同源，比截图略浅保证内容可读） */
     --bg-card: #ffffff;
     --text: #18181b;
     --text-secondary: #52525b;
@@ -72,7 +73,7 @@
 :root {
     /* 状态语义色（2026-09-11 用户解禁彩色）：计划=天蓝 / 进行中=品牌蓝 / 完成=绿 / 取消=灰 */
     --status-planned: #0284c7;      /* sky-600：白字对比 4.6:1 */
-    --status-in_progress: #2563eb;  /* 科技蓝 = 品牌色，进行中即「正在发生」 */
+    --status-in_progress: #6478e8;  /* periwinkle = 品牌色，进行中即「正在发生」 */
     --status-done: #16a34a;         /* green-600 */
     --status-cancelled: #a1a1aa;    /* 退出语义不加色相，维持灰 */
 }
@@ -104,20 +105,20 @@
    徽章/chip（.badge、span.rounded-full 非按钮）保持 pill 不受影响。 */
 button, .btn, input[type="submit"],
 input[type="text"], input[type="email"], input[type="password"],
-input[type="number"], input[type="search"], textarea, select {
-    border-radius: 0.625rem !important;
+input[type="number"], input[type="search"], select, input[type="date"] {
+    border-radius: 999px !important;   /* 全面胶囊化（截图风格 2026-09-13） */
 }
 
-/* date 输入框保持适中圆角 */
-input[type="date"] {
-    border-radius: 0.5rem !important;
+/* 多行输入保持柔和大圆角，不胶囊（胶囊化会把多行框顶成怪形） */
+textarea {
+    border-radius: 1rem !important;
 }
 
-/* 卡片：白底浮在浅灰画布上——层次靠灰度差 + 阴影，不再靠描边 */
+/* 卡片：白底浮在淡紫蓝画布上——超大圆角 + 极淡描边 + 柔和阴影（截图风） */
 .app-card, .card {
     background: var(--bg-card);
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    border-radius: 0.75rem;
+    border: 1px solid rgba(100, 120, 232, 0.10);
+    border-radius: 1.5rem;
     box-shadow: var(--shadow-sm);
 }
 
@@ -125,7 +126,7 @@ input[type="date"] {
 .panel {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 0.75rem;
+    border-radius: 1.5rem;
     box-shadow: var(--shadow-md);
 }
 
@@ -164,7 +165,7 @@ input[type="date"] {
 
 /* 品牌色的轻量落点：聚焦环 + 勾选框（模板未写 focus: 类，此处是全局唯一 focus 处理） */
 input:focus-visible, textarea:focus-visible, select:focus-visible {
-    outline: 2px solid rgba(37, 99, 235, 0.35);
+    outline: 2px solid rgba(100, 120, 232, 0.40);
     outline-offset: 0;
 }
 
