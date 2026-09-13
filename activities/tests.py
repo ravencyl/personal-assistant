@@ -1309,11 +1309,16 @@ class DailyDesktopLayoutTest(TestCase):
         self.assertIn(self.MAIN_END, cols, '左列未闭合，两列结构已破损')
 
     def test_column_containers_have_no_visibility_class(self):
-        """列容器不加显隐类是「移动端视觉顺序 = DOM 顺序」的前提"""
-        self.assertIn('<div class="page-rail">', self.html,
-                      '右列容器加了类，移动端可能少一整列')
-        self.assertIn('<div class="page-main">', self.html,
-                      '左列容器加了类，移动端可能少一整列')
+        """列容器不加显隐类是「移动端视觉顺序 = DOM 顺序」的前提。
+        锁意图而非锁实现：允许 id 等非显隐属性（Daily 双页滚动用 id 锚点），
+        但 class 里出现 hidden/block/flex 等显隐类即视为破坏单列顺序。"""
+        for tag, desc in [('<div class="page-rail', '右列容器'),
+                          ('<div class="page-main', '左列容器')]:
+            start = self._at(self.html, tag, desc)
+            open_tag = self.html[start:self.html.index('>', start) + 1]
+            self.assertNotRegex(
+                open_tag, r'class="[^"]*\b(hidden|block|flex|inline|grid)\b[^"]*"',
+                f'{desc}加了显隐类，移动端可能少一整列')
 
     def test_right_column_is_dom_first_and_visually_right_on_desktop(self):
         """右列整块在 DOM 里排在左列之前：移动端顺序才能与改造前逐块一致"""

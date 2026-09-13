@@ -367,6 +367,32 @@ a.bg-\[var\(--accent\)\]:active {
     }
 }
 
+/* Daily 移动端双页滚动：第一页 = summary（问候/搜索/速览卡/本周消费），
+   往下滑进第二页活动流。proximity 而非 mandatory —— 活动分组可折叠
+   （localStorage 记忆），页面高度会变，mandatory 会把人卡在页缝里。
+   桌面端（md+）两列同屏，不分页，规则全部只落在本查询内。
+   选择器用页面级 id 而非 .page-rail/.page-main：列容器声明全站唯一，
+   被断点锁约束在 (min-width: 768px)，页面级规则不得混入。 */
+@media (max-width: 767px) {
+    html {
+        scroll-snap-type: y proximity;
+        scroll-behavior: smooth;
+    }
+
+    /* 第一页兜底高度：内容不足一屏时把提示胶囊推近视口下缘 */
+    #daily-page1 {
+        min-height: calc(100svh - 11rem);
+    }
+
+    #daily-flow {
+        scroll-snap-align: start;
+        scroll-margin-top: 4rem;
+        /* 折叠态下第二页内容不足一屏，滚动上限不够会翻不到位（实测 2026-09-13）：
+           给第二页本身撑满一屏的兜底高度，留白即呼吸感 */
+        min-height: calc(100svh - 5rem);
+    }
+}
+
 /* 对话多行输入框：Enter 只换行、不提交（只允许点「发送」按钮）。
    高度由 base.html 的 paFitTextarea 跟随内容增长，到顶后在框内滚动；
    resize:none 关掉手动拖拽，避免拖出破坏页面布局的大框 */
