@@ -14,7 +14,7 @@
 {% block content %}
 {% comment %}顶栏问候区：截图同构——头像 + 问候/用户名 + 右侧白色圆钮，下接截图式大标题{% endcomment %}
 <div class="flex items-center gap-3 mb-6 md:mb-8">
-    <div class="w-11 h-11 rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-sm font-bold shadow-sm">{{ user.username|first|upper }}</div>
+    <img src="{% staticv 'img/avatar.jpg' %}" alt="{{ user.username }} 的头像" class="w-11 h-11 rounded-full object-cover ring-2 ring-white shadow-sm">
     <div class="flex-1 min-w-0">
         <p class="text-xs text-[var(--text-muted)] leading-tight">{{ greeting }}！</p>
         <p class="text-[15px] font-bold text-[var(--text)] leading-tight truncate">{{ user.username }}</p>
@@ -99,11 +99,8 @@
   原「今日速览」组（移动快捷入口）并入卡底双胶囊，新建弹窗入口总数不变{% endcomment %}
 <div class="rounded-[1.5rem] bg-[var(--accent)] text-white px-5 py-5 mb-8 md:mb-10 shadow-[var(--shadow-md)]">
     <div class="flex items-center gap-3 mb-4">
-        <div class="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-        </div>
+        <!-- 医生头像位同构：用户照片 + 白描边圈（黑白照与 periwinkle 底天然和谐） -->
+        <img src="{% staticv 'img/avatar.jpg' %}" alt="" class="w-11 h-11 rounded-full object-cover ring-2 ring-white/40 shrink-0">
         <div class="flex-1 min-w-0">
             <p class="text-base font-bold leading-tight">今日安排</p>
             <p class="text-xs text-white/70 leading-tight">{{ today_display }}</p>
