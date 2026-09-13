@@ -367,30 +367,42 @@ a.bg-\[var\(--accent\)\]:active {
     }
 }
 
-/* Daily 移动端双页滚动：第一页 = summary（问候/搜索/速览卡/本周消费），
-   往下滑进第二页活动流。proximity 而非 mandatory —— 活动分组可折叠
-   （localStorage 记忆），页面高度会变，mandatory 会把人卡在页缝里。
+/* Daily 移动端 OnePage 翻页：第一页 = summary（问候/搜索/速览卡/本周消费），
+   一次手势整页翻转到第二页活动流（手势接管 + 缓动过渡 + 页点指示器，JS 见 daily.html）。
    桌面端（md+）两列同屏，不分页，规则全部只落在本查询内。
+   不用 CSS scroll-snap：吸附只能做到「靠近时停在页顶」，没有翻转感，
+   且会在 JS 手势接管时打架 —— 翻页全部由 JS 接管，这里只管页面高度与特效。
    选择器用页面级 id 而非 .page-rail/.page-main：列容器声明全站唯一，
    被断点锁约束在 (min-width: 768px)，页面级规则不得混入。 */
 @media (max-width: 767px) {
-    html {
-        scroll-snap-type: y proximity;
-        scroll-behavior: smooth;
-    }
-
-    /* 第一页兜底高度：内容不足一屏时把提示胶囊推近视口下缘 */
+    /* 第一页兜底一屏：内容不足一屏时把提示胶囊推近视口下缘 */
     #daily-page1 {
         min-height: calc(100svh - 11rem);
     }
 
+    /* 第二页兜底一屏：折叠态内容不足一屏时滚动上限不够会翻不到位（实测 2026-09-13），
+       留白即呼吸感 */
     #daily-flow {
-        scroll-snap-align: start;
-        scroll-margin-top: 4rem;
-        /* 折叠态下第二页内容不足一屏，滚动上限不够会翻不到位（实测 2026-09-13）：
-           给第二页本身撑满一屏的兜底高度，留白即呼吸感 */
         min-height: calc(100svh - 5rem);
     }
+}
+
+/* 翻页入场特效：第二页活动卡片依次上浮淡入（delay 由 JS 按 index 设置，
+   组类 .pa-page-enter 每次翻入时由 JS 挂上、播完移除）。
+   特异性高于卡片自身的 fadeIn 入场，临时覆盖不冲突。 */
+@keyframes paPageIn {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.pa-page-enter .daily-card {
+    animation: paPageIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* 对话多行输入框：Enter 只换行、不提交（只允许点「发送」按钮）。

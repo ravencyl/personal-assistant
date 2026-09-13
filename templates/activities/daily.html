@@ -296,6 +296,12 @@
 </div><!-- /左列 -->
 </div><!-- /.page-cols -->
 
+<!-- 移动端 OnePage 页点指示器：当前页 accent 高亮，点击整页翻转（JS 见页尾翻页器）；桌面端不出现 -->
+<nav id="daily-pager-dots" class="md:hidden fixed right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-2.5" aria-label="页面切换">
+    <button type="button" data-page="1" aria-label="今日概览" class="w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]/40 transition-all duration-300"></button>
+    <button type="button" data-page="2" aria-label="活动安排" class="w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]/40 transition-all duration-300"></button>
+</nav>
+
 <!-- 新建活动弹窗：与列表页共用同一份 partial，入口在上方快捷操作区与空态各一处 -->
 {% include "activities/_activity_create_modal.html" %}
 
@@ -344,26 +350,148 @@ function toggleSection(sectionId) {
     });
 })();
 
-// 移动端双页提示：滚入活动流（第二页）后淡出并移除，不干扰后续浏览；桌面端元素本就 display:none。
-// 点击用 JS 瞬时翻页而非 hash 平滑滚动：proximity 吸附会在平滑滚动中途接管，
-// 锚点滚动停在半路（实测 2026-09-13）；瞬时滚动一步到位，翻页感也更像原生 App
+// 移动端 OnePage 翻页器：一次手势整页翻转（fullPage 手感），而非 CSS 吸附式「靠近停在页顶」
+// ——吸附没有翻转感，还会和手势接管打架，故翻页全部由 JS 接管。
+// 仅 <768px 激活，桌面两列同屏不分页；prefers-reduced-motion 时瞬时跳转不播动画。
+// 第二页内部仍可自由滚动：只在页边界（第一页任意处上滑 / 第二页顶部下滑）接管。
 (function () {
-    var hint = document.getElementById('daily-scroll-hint');
+    var mq = window.matchMedia('(max-width: 767px)');
     var flow = document.getElementById('daily-flow');
-    if (!hint || !flow) return;
-    hint.addEventListener('click', function (e) {
-        e.preventDefault();
-        flow.scrollIntoView({ block: 'start' });
+    if (!flow) return;
+    var hint = document.getElementById('daily-scroll-hint');
+    var dots = document.querySelectorAll('#daily-pager-dots button');
+
+    var page2Start = 0;   // 第二页页顶对应的 scrollY（flow 顶 - 导航高 4rem）
+    var animating = false;
+
+    // 折叠展开会改变页高，翻页前总是重新量
+    function measure() {
+        page2Start = Math.max(0, flow.getBoundingClientRect().top + window.scrollY - 64);
+    }
+    window.addEventListener('resize', measure);
+
+    function reducedMotion() {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    function setDot(target) {
+        var onP2 = Math.abs(target - page2Start) < 2;
+        dots.forEach(function (d) {
+            var active = (d.dataset.page === '2') === onP2;
+            d.classList.toggle('bg-[var(--accent)]', active);
+            d.classList.toggle('scale-125', active);
+            d.classList.toggle('bg-[var(--text-muted)]/40', !active);
+        });
+    }
+
+    var hintGone = false;
+    function dismissHint() {
+        if (hintGone || !hint) return;
+        hintGone = true;
+        hint.style.opacity = '0';
+        setTimeout(function () { hint.classList.add('hidden'); }, 320);
+    }
+
+    // 翻入第二页的入场特效：活动卡片依次上浮淡入，播完移除组类
+    function playEnterAnim() {
+        if (reducedMotion()) return;
+        var cards = flow.querySelectorAll('.daily-card');
+        flow.classList.add('pa-page-enter');
+        cards.forEach(function (c, i) { c.style.animationDelay = (i * 70) + 'ms'; });
+        setTimeout(function () {
+            flow.classList.remove('pa-page-enter');
+            cards.forEach(function (c) { c.style.animationDelay = ''; });
+        }, 450 + cards.length * 70);
+    }
+
+    function goTo(target, onArrive) {
+        measure();
+        var from = window.scrollY;
+        if (Math.abs(target - from) < 2) return;
+        setDot(target);
+        if (reducedMotion()) {
+            window.scrollTo(0, target);
+            if (onArrive) onArrive();
+            return;
+        }
+        animating = true;
+        var start = null, dur = 520;
+        function step(ts) {
+            if (start === null) start = ts;
+            var p = Math.min(1, (ts - start) / dur);
+            var e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; // easeInOutCubic
+            window.scrollTo(0, from + (target - from) * e);
+            if (p < 1) requestAnimationFrame(step);
+            else { animating = false; if (onArrive) onArrive(); }
+        }
+        requestAnimationFrame(step);
+    }
+
+    function flipToP2() { goTo(page2Start, function () { dismissHint(); playEnterAnim(); }); }
+    function flipToP1() { goTo(0); }
+
+    // ── 触摸：页边界接管为整页翻转，其余放行原生滚动（第二页内部自由滚）──
+    var tY = 0, tS = 0, decided = false, hijacked = false;
+    document.addEventListener('touchstart', function (e) {
+        if (!mq.matches || animating) return;
+        tY = e.touches[0].clientY;
+        tS = window.scrollY;
+        decided = false;
+        hijacked = false;
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function (e) {
+        if (hijacked) { e.preventDefault(); return; } // 已接管：整段手势都归 JS
+        if (!mq.matches || animating) return;
+        var dy = tY - e.touches[0].clientY;
+        if (!decided) {
+            if (Math.abs(dy) < 12) return;
+            decided = true;
+            measure();
+            var onP1 = tS < page2Start - 80;
+            var onP2Top = !onP1 && tS <= page2Start + 40 && flow.getBoundingClientRect().top >= -40;
+            if (dy > 0 && onP1) { hijacked = true; flipToP2(); }
+            else if (dy < 0 && onP2Top) { hijacked = true; flipToP1(); }
+        }
+        if (hijacked) e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('touchend', function () { hijacked = false; }, { passive: true });
+    document.addEventListener('touchcancel', function () { hijacked = false; }, { passive: true });
+
+    // ── 滚轮（外接鼠标）：同样只在页边界接管 ──
+    window.addEventListener('wheel', function (e) {
+        if (!mq.matches) return;
+        if (animating) { e.preventDefault(); return; }
+        measure();
+        var onP1 = window.scrollY < page2Start - 80;
+        var onP2Top = window.scrollY <= page2Start + 40 && flow.getBoundingClientRect().top >= -40;
+        if (e.deltaY > 0 && onP1) { e.preventDefault(); flipToP2(); }
+        else if (e.deltaY < 0 && onP2Top) { e.preventDefault(); flipToP1(); }
+    }, { passive: false });
+
+    // ── 页点 + 提示胶囊入口 ──
+    dots.forEach(function (d) {
+        d.addEventListener('click', function () {
+            if (d.dataset.page === '2') flipToP2(); else flipToP1();
+        });
     });
-    var dismissed = false;
+    if (hint) {
+        hint.addEventListener('click', function (e) {
+            e.preventDefault();
+            flipToP2();
+        });
+    }
+
+    // 兕底：未经翻页器到达第二页（如桌面调整窗口宽度后滚下去）时也淡出提示
     window.addEventListener('scroll', function () {
-        if (dismissed) return;
-        if (flow.getBoundingClientRect().top < window.innerHeight * 0.5) {
-            dismissed = true;
-            hint.style.opacity = '0';
-            setTimeout(function () { hint.classList.add('hidden'); }, 320);
+        if (!hintGone && hint && mq.matches &&
+            flow.getBoundingClientRect().top < window.innerHeight * 0.5) {
+            dismissHint();
         }
     }, { passive: true });
+
+    setDot(0); // 初始：第一页点亮
 })();
 </script>
 
