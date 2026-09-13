@@ -2050,3 +2050,111 @@ class CalendarFeedTest(TestCase):
         """issue 幂等：同一用户重复签发返回同一条令牌"""
         again = CalendarFeed.issue(self.user)
         self.assertEqual(again.pk, self.feed.pk)
+
+
+class ActivityListPaginationTest(TestCase):
+    """活动列表分页：按顶级活动分页、子活动跟随父活动同页、非法页码回退（2026-09-13）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def _create_tops(self, n, status='planned'):
+        """创建 n 个顶级活动，start_date 随序号递减且全部在未来（避免被
+        start_due_activities 自动转为 in_progress），保证默认排序（start_date 倒序）稳定"""
+        base = timezone.localdate()
+        return [
+            Activity.objects.create(
+                user=self.user, name=f'活动{i:02d}', status=status,
+                start_date=base + timedelta(days=n - i))
+            for i in range(1, n + 1)
+        ]
+
+    def _top_level_count(self, response):
+        """响应上下文中当前页顶级活动数（depth==0），子活动不计入"""
+        return sum(1 for a in response.context['activities'] if not a.depth)
+
+    def test_first_and_second_page_slice_top_level(self):
+        """首页 20 个顶级活动，第 2 页余下 5 个；页码信息正确"""
+        self._create_tops(25)
+        r1 = self.client.get('/activities/')
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r1.context['page_obj'].number, 1)
+        self.assertEqual(self._top_level_count(r1), 20)
+        c1 = r1.content.decode()
+        self.assertIn('活动01', c1)
+        self.assertIn('活动20', c1)
+        self.assertNotIn('活动21', c1)
+
+        r2 = self.client.get('/activities/?page=2')
+        self.assertEqual(r2.context['page_obj'].number, 2)
+        self.assertEqual(self._top_level_count(r2), 5)
+        c2 = r2.content.decode()
+        self.assertIn('活动21', c2)
+        self.assertIn('活动25', c2)
+        self.assertNotIn('活动20', c2)
+        self.assertIn('共 25 条 · 第 2/2 页', c2)
+
+    def test_children_follow_parent_and_not_counted(self):
+        """子活动跟随父活动出现在同一页，不跨页断裂、不计入每页条数"""
+        tops = self._create_tops(25)
+        child = Activity.objects.create(user=self.user, name='边界子任务',
+                                        parent=tops[-1])
+        r1 = self.client.get('/activities/')
+        self.assertEqual(self._top_level_count(r1), 20)
+        self.assertNotIn('边界子任务', r1.content.decode())  # 子活动留在父活动所在页
+
+        r2 = self.client.get('/activities/?page=2')
+        self.assertEqual(self._top_level_count(r2), 5)  # 子活动不计入
+        c2 = r2.content.decode()
+        self.assertIn('活动25', c2)
+        self.assertIn('边界子任务', c2)  # 与父活动同页
+
+    def test_invalid_or_out_of_range_page_falls_back_to_first(self):
+        """page=abc / 越界 / 负数 / 小数均静默回退第 1 页"""
+        self._create_tops(3)
+        for bad in ('abc', '999', '-1', '1.5', ' '):
+            r = self.client.get(f'/activities/?page={bad}')
+            self.assertEqual(r.status_code, 200, f'page={bad!r} 不应报错')
+            self.assertEqual(r.context['page_obj'].number, 1, f'page={bad!r} 应回退第 1 页')
+            self.assertIn('活动01', r.content.decode())
+
+    def test_pagination_links_preserve_filters_and_sort(self):
+        """翻页链接携带全部筛选/排序参数；筛选结果跨页时条件不丢失"""
+        self._create_tops(25)  # 全部 planned
+        done = Activity.objects.create(user=self.user, name='已完成活动', status='done')
+        r = self.client.get('/activities/?status=planned')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context['page_obj'].number, 1)
+        content = r.content.decode()
+        self.assertNotIn('已完成活动', content)      # 筛选仍生效
+        self.assertIn('?status=planned&page=2', content)  # 翻页链接带筛选
+
+        r2 = self.client.get('/activities/?status=planned&page=2')
+        self.assertEqual(r2.context['page_obj'].number, 2)
+        self.assertNotIn('已完成活动', r2.content.decode())
+
+        # 排序参数也保留在翻页链接里
+        r3 = self.client.get('/activities/?sort=-cost')
+        self.assertIn('sort=-cost', r3.context['page_base_qs'])
+        self.assertIn('sort=-cost&page=2', r3.content.decode())
+
+    def test_empty_list_and_single_page_render_without_pagination(self):
+        """空列表不报错；不足一页时不渲染分页控件"""
+        r0 = self.client.get('/activities/')
+        self.assertEqual(r0.status_code, 200)
+        self.assertIn('还没有活动记录', r0.content.decode())
+        self.assertNotIn('page=2', r0.content.decode())
+
+        self._create_tops(3)
+        r1 = self.client.get('/activities/')
+        self.assertEqual(r1.context['page_obj'].paginator.num_pages, 1)
+        self.assertNotIn('page=2', r1.content.decode())
+
+    def test_page_window_collapses_on_many_pages(self):
+        """总页数多时页码收敛为 当前页 ±2 + 首末页（省略号占位）"""
+        self._create_tops(45)  # 3 页
+        r = self.client.get('/activities/')
+        self.assertEqual(r.context['page_numbers'], [1, 2, 3])
+        self.assertNotIn('select-none">…</span>', r.content.decode())

@@ -10,6 +10,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.core.paginator import Paginator
 from django.db import models
 from django.db.models import Count, Sum
 from django.template.loader import render_to_string
@@ -36,6 +37,25 @@ from core.ai import ai_round_trip, extract_json_dict
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
 
 logger = logging.getLogger(__name__)
+
+# 活动列表每页顶级活动数（子活动跟随父活动，不计入）
+ACTIVITY_LIST_PAGE_SIZE = 20
+
+
+def _page_window(current, total, span=2):
+    """页码收敛窗口：当前页 ±span + 首末页；页数少时全部展示，断口以 None 占位（渲染省略号）"""
+    if total <= span * 2 + 3:
+        return list(range(1, total + 1))
+    left = max(2, current - span)
+    right = min(total - 1, current + span)
+    items = [1]
+    if left > 2:
+        items.append(None)
+    items.extend(range(left, right + 1))
+    if right < total - 1:
+        items.append(None)
+    items.append(total)
+    return items
 
 
 def _user_tag_names(user):
@@ -262,6 +282,30 @@ def activity_list(request):
     else:
         expand_all = False
 
+    # ── 分页：按「顶级活动」分页，子活动跟随父活动同页、不计入每页条数（2026-09-13）──
+    top_groups = []
+    for a in rows:
+        if not a.depth:
+            top_groups.append([a])
+        else:
+            top_groups[-1].append(a)
+    paginator = Paginator(top_groups, ACTIVITY_LIST_PAGE_SIZE)
+    try:
+        page_num = int(request.GET.get('page', ''))
+    except (TypeError, ValueError):
+        page_num = 1
+    if page_num < 1 or page_num > paginator.num_pages:
+        page_num = 1  # 非法/越界页码静默回退第 1 页
+    page_obj = paginator.page(page_num)
+    page_rows = [a for group in page_obj.object_list for a in group]
+
+    # 翻页链接基准：保留全部查询参数（含 sort），仅去掉 page
+    page_params = request.GET.copy()
+    page_params.pop('page', None)
+    page_base_qs = page_params.urlencode()
+
+    page_numbers = _page_window(page_num, paginator.num_pages)
+
     # 快捷筛选高亮判断
     today = timezone.localdate()
     quick = ''
@@ -330,7 +374,11 @@ def activity_list(request):
     )
 
     return render(request, 'activities/activity_list.html', {
-        'activities': rows,
+        'activities': page_rows,
+        'page_obj': page_obj,
+        'page_numbers': page_numbers,
+        'total_activities': len(rows),
+        'page_base_qs': page_base_qs,
         # 弹窗用的空白表单与 chips 联想数据（字段 partial 与独立创建页共用同一模板）
         'form': ActivityForm(user=request.user),
         'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
