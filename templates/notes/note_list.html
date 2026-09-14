@@ -10,17 +10,19 @@
         <p class="text-sm text-[var(--text-muted)] mt-1">快速记录想法和待办事项</p>
     </div>
 
-    <!-- 快速创建区域 -->
-    <div class="app-card">
-        <form method="post" action="{% url 'notes:note_create' %}" class="space-y-3">
+    <!-- 快速创建区域（app-card 口径：p-3 sm:p-4，与 activities 详情页卡片一致） -->
+    <div class="app-card p-3 sm:p-4">
+        <form method="post" action="{% url 'notes:note_create' %}" class="space-y-2">
             {% csrf_token %}
-            <div class="flex items-start gap-2">
+            <!-- 输入框口径对齐快记浮层：白卡上 bg-transparent + 纯边框聚焦（原 bg-[var(--bg)]
+                 在白卡里会渲染成淡紫色块，与全站不一致）；语音钮贴 textarea 底对齐（聊天页同款） -->
+            <div class="flex items-end gap-2">
                 <textarea name="content" rows="2" id="noteContentInput"
                           placeholder="记点什么..."
-                          class="flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-3 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
+                          class="flex-1 rounded-xl border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-3.5 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
                 <!-- 语音速记按钮：不支持 Web Speech API 时由脚本保持 hidden -->
                 <button type="button" id="voiceBtn" hidden
-                        class="tap-target shrink-0 mt-0.5 inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors"
+                        class="tap-target shrink-0 inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors"
                         style="width:2.75rem;height:2.75rem;"
                         title="语音速记" aria-label="语音速记">
                     <svg id="voiceBtnIcon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
@@ -33,7 +35,7 @@
             <p id="voiceError" class="hidden text-xs text-[var(--text-muted)]"></p>
             <div class="flex items-center justify-between gap-3">
                 <input type="text" name="tags" placeholder="标签（可选，逗号分隔）"
-                       class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 <button type="submit" class="tap-target rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-5 py-2 text-sm font-medium transition-colors">
                     保存
                 </button>
@@ -89,7 +91,7 @@
 
     <!-- 编辑模式（内联编辑） -->
     {% if edit_note %}
-    <div class="app-card border-2 border-[var(--accent)]">
+    <div class="app-card p-3 sm:p-4 border-2 border-[var(--accent)]">
         <form method="post" action="{% url 'notes:note_edit' edit_note.id %}" class="space-y-3">
             {% csrf_token %}
             <div>
@@ -100,7 +102,7 @@
                 <div class="flex-1">
                     <label class="block text-xs text-[var(--text-muted)] mb-1">标签（逗号分隔）</label>
                     <input type="text" name="tags" value="{{ edit_note.tags|join:', ' }}"
-                           class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                           class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 </div>
                 <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" name="pinned" {% if edit_note.pinned %}checked{% endif %}
