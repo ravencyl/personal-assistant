@@ -487,6 +487,18 @@ class ChatOrchestrator:
         if ref_error:
             logger.warning(f'协议引用未能展开: {ref_error}')
             return f'{reply}\n\n⚠️ {ref_error}'.strip(), None, False
+        
+        # ── AI 主动提取记忆（JSON 中的 memory 字段） ──
+        # 必须在所有提前 return 之前：闲聊/无工具/chitchat 分支都直接 return，
+        # 放在函数末尾会永远走不到（线上实测：AI 口头承诺「会记住」但 memory
+        # 字段在 chitchat 出口被丢弃，Memory 表连续多天零新增）。
+        memory_list = intent_data.get('memory')
+        if memory_list and isinstance(memory_list, list):
+            try:
+                from memory.services import save_ai_extracted_memories
+                save_ai_extracted_memories(user, memory_list)
+            except Exception as e:
+                logger.warning(f'AI 记忆存储失败: {e}')
 
         tool_name = INTENT_TOOL_MAP.get(intent)
         # chitchat / ask（未注册工具的意图）：直接把 reply 透给用户，
@@ -554,15 +566,6 @@ class ChatOrchestrator:
         if result.get('created'):
             payload = payload or {'card': '', 'activity_ids': []}
             payload['created_activity_ids'] = result.get('activity_ids', [])
-
-        # ── AI 主动提取记忆（JSON 中的 memory 字段） ──
-        memory_list = intent_data.get('memory')
-        if memory_list and isinstance(memory_list, list):
-            try:
-                from memory.services import save_ai_extracted_memories
-                save_ai_extracted_memories(user, memory_list)
-            except Exception as e:
-                logger.warning(f'AI 记忆存储失败: {e}')
 
         return result.get('reply') or reply, payload, bool(result.get('changed'))
 

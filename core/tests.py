@@ -1371,6 +1371,40 @@ class FollowUpLineTest(SimpleTestCase):
         self.assertEqual(payload['follow_ups'], ['看看本周安排'])
 
 
+class ChitchatMemoryExtractionTest(TestCase):
+    """AI 主动记忆提取必须覆盖闲聊路径（线上实测回归锁，2026-09-14）
+
+    原实现把 memory 字段解析写在 _dispatch 函数末尾，而闲聊/无工具分支在
+    中途就 return 了——AI 按协议在 JSON 里附带的 memory 字段被整段丢弃，
+    Memory 表连续多天零新增（AI 口头承诺「会记住」但实际没存）。
+    锁：chitchat（无工具）回复带 memory 字段也必须落库。
+    """
+
+    def test_chitchat_reply_still_saves_memory_field(self):
+        from django.contrib.auth import get_user_model
+        from memory.models import Memory
+        from core.agent_registry import orchestrator
+        user = get_user_model().objects.create(username='u')
+        text = ('{"intent": "chitchat", "reply": "好的，我会记住这个安排", '
+                '"memory": [{"content": "每周三晚上健身", '
+                '"category": "habit", "importance": 6}]}')
+        content, _, _ = orchestrator.process(user, text)
+        self.assertEqual(content, '好的，我会记住这个安排')
+        mem = Memory.objects.filter(user=user, content='每周三晚上健身').first()
+        self.assertIsNotNone(mem, 'chitchat 回复的 memory 字段被丢弃了')
+        self.assertEqual(mem.category, 'habit')
+
+    def test_non_list_memory_field_is_ignored_safely(self):
+        from django.contrib.auth import get_user_model
+        from memory.models import Memory
+        from core.agent_registry import orchestrator
+        user = get_user_model().objects.create(username='u')
+        text = '{"intent": "chitchat", "reply": "嗯", "memory": "我是一段文本"}'
+        content, _, _ = orchestrator.process(user, text)
+        self.assertEqual(content, '嗯')
+        self.assertFalse(Memory.objects.filter(user=user).exists())
+
+
 class TagConfigTest(TestCase):
     """自建 core.Tag 标签体系：scope 隔离 / 停用兼容 / 清洗口径 / 各入口一致"""
 
