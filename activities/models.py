@@ -108,6 +108,7 @@ class ActivityLog(models.Model):
         ('deleted', '删除了活动'),
         ('sub_created', '创建了子任务'),
         ('status_changed', '修改了状态'),
+        ('commented', '评论了活动'),
     ]
 
     user = models.ForeignKey(
@@ -136,6 +137,38 @@ class ActivityLog(models.Model):
 
     def __str__(self):
         return f'{self.created_at:%Y-%m-%d %H:%M} {self.user.username} {self.get_action_display()} {self.activity_name}'
+
+
+class ActivityComment(models.Model):
+    """活动评论（追加式讨论时间线，正序展示）
+
+    可见性跟随活动：能看见活动的人（所有者/超级用户）就能看见其评论，
+    不单独设 user 过滤——视图层经 get_visible(Activity) 门禁后才能触达。
+    AI 决策链路：activities.get / activities.comments 工具读取，
+    activities.add_comment 工具写入（写操作同样走 log_activity）。
+    """
+    activity = models.ForeignKey(
+        Activity,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        verbose_name='活动'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='activity_comments',
+        verbose_name='评论人'
+    )
+    content = models.TextField('评论内容')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = '活动评论'
+        verbose_name_plural = '活动评论'
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} {self.user.username} @ {self.activity.name}: {self.content[:20]}'
 
 
 class Expense(models.Model):

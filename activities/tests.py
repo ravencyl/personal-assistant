@@ -2163,3 +2163,140 @@ class ActivityListPaginationTest(TestCase):
         r = self.client.get('/activities/')
         self.assertEqual(r.context['page_numbers'], [1, 2, 3])
         self.assertNotIn('select-none">…</span>', r.content.decode())
+
+
+# ==================== 活动评论 ====================
+
+class ActivityCommentTest(TestCase):
+    """活动评论：详情页添加/删除 + 可见性跟随活动 + AI 工具读写"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.other = User.objects.create_user('other', password='test')
+        self.superuser = User.objects.create_superuser('admin', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='新西兰之旅')
+        self.client.login(username='raven', password='test')
+
+    def _add(self, activity_id=None, content='追加一条评论'):
+        return self.client.post(
+            reverse('activities:activity_comment_add',
+                    args=[activity_id or self.activity.id]),
+            {'content': content})
+
+    def test_add_comment_renders_in_detail_and_logs(self):
+        r = self._add(content='记得带冲锋衣')
+        self.assertRedirects(r, reverse('activities:activity_detail', args=[self.activity.id]))
+        comment = self.activity.comments.get()
+        self.assertEqual(comment.user, self.user)
+        self.assertEqual(comment.content, '记得带冲锋衣')
+        # 写操作必须留痕：commented 日志
+        self.assertTrue(ActivityLog.objects.filter(
+            activity=self.activity, action='commented').exists())
+        # 详情页渲染评论
+        html = self.client.get(reverse('activities:activity_detail',
+                                       args=[self.activity.id])).content.decode()
+        self.assertIn('记得带冲锋衣', html)
+        self.assertIn('评论（1）', html)
+
+    def test_add_empty_content_rejected(self):
+        self._add(content='   ')
+        self.assertFalse(self.activity.comments.exists())
+
+    def test_comment_ordering_chronological(self):
+        from activities.models import ActivityComment
+        c1 = ActivityComment.objects.create(activity=self.activity, user=self.user, content='第一条')
+        c2 = ActivityComment.objects.create(activity=self.activity, user=self.user, content='第二条')
+        self.assertEqual(list(self.activity.comments.all()), [c1, c2])
+
+    def test_author_can_delete_own_comment(self):
+        from activities.models import ActivityComment
+        c = ActivityComment.objects.create(activity=self.activity, user=self.user, content='x')
+        r = self.client.post(reverse('activities:activity_comment_delete', args=[c.id]))
+        self.assertRedirects(r, reverse('activities:activity_detail', args=[self.activity.id]))
+        self.assertFalse(ActivityComment.objects.filter(id=c.id).exists())
+
+    def test_non_author_cannot_delete(self):
+        from activities.models import ActivityComment
+        c = ActivityComment.objects.create(activity=self.activity, user=self.user, content='x')
+        self.client.logout()
+        self.client.login(username='other', password='test')
+        self.client.post(reverse('activities:activity_comment_delete', args=[c.id]))
+        self.assertTrue(ActivityComment.objects.filter(id=c.id).exists())
+
+    def test_superuser_can_delete_others_comment(self):
+        from activities.models import ActivityComment
+        c = ActivityComment.objects.create(activity=self.activity, user=self.user, content='x')
+        self.client.logout()
+        self.client.login(username='admin', password='test')
+        self.client.post(reverse('activities:activity_comment_delete', args=[c.id]))
+        self.assertFalse(ActivityComment.objects.filter(id=c.id).exists())
+
+    def test_other_user_cannot_comment_on_invisible_activity(self):
+        """数据可见性：用户 B 无法评论用户 A 的活动（get_visible → 404）"""
+        self.client.logout()
+        self.client.login(username='other', password='test')
+        r = self._add()
+        self.assertEqual(r.status_code, 404)
+        self.assertFalse(self.activity.comments.exists())
+
+    def test_add_requires_post(self):
+        r = self.client.get(reverse('activities:activity_comment_add', args=[self.activity.id]))
+        self.assertEqual(r.status_code, 405)
+
+
+class ActivityCommentAgentToolTest(TestCase):
+    """AI 读写评论：activities.add_comment 写入 + activities.get/comments 读取"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='周末游')
+        from core.agent_registry import get_tool
+        self.get_tool = get_tool
+
+    def test_add_comment_tool_creates_and_logs(self):
+        tool = self.get_tool('activities.add_comment')
+        result = tool['fn'](self.user, {'target': '周末游', 'content': '改期到下周六'})
+        self.assertTrue(result['changed'])
+        comment = self.activity.comments.get()
+        self.assertEqual(comment.content, '改期到下周六')
+        self.assertTrue(ActivityLog.objects.filter(
+            activity=self.activity, action='commented', summary__contains='改期').exists())
+        self.assertIn('周末游', result['reply'])
+
+    def test_add_comment_tool_requires_content(self):
+        tool = self.get_tool('activities.add_comment')
+        with self.assertRaises(ToolError):
+            tool['fn'](self.user, {'target': '周末游', 'content': '  '})
+
+    def test_comments_tool_reads_all(self):
+        from activities.models import ActivityComment
+        ActivityComment.objects.create(activity=self.activity, user=self.user, content='带帐篷')
+        ActivityComment.objects.create(activity=self.activity, user=self.user, content='查天气')
+        tool = self.get_tool('activities.comments')
+        result = tool['fn'](self.user, {'target': '周末游'})
+        self.assertIn('2 条评论', result['reply'])
+        self.assertIn('带帐篷', result['reply'])
+        self.assertIn('查天气', result['reply'])
+        self.assertEqual(result['activity_ids'], [self.activity.id])
+
+    def test_comments_tool_empty(self):
+        tool = self.get_tool('activities.comments')
+        result = tool['fn'](self.user, {'target': '周末游'})
+        self.assertIn('还没有评论', result['reply'])
+
+    def test_get_tool_card_includes_comments(self):
+        """AI 决策读评论的主通道：activities.get 的 card_data 快照带评论"""
+        from activities.models import ActivityComment
+        ActivityComment.objects.create(activity=self.activity, user=self.user, content='优先订机票')
+        result = self.get_tool('activities.get')['fn'](self.user, {'target': '周末游'})
+        card = result['card_data']
+        self.assertEqual(card['comments_count'], 1)
+        self.assertEqual(card['comments'][0]['content'], '优先订机票')
+        self.assertEqual(card['comments'][0]['author'], 'testuser')
+
+    def test_other_user_tool_cannot_touch_invisible_activity(self):
+        other = User.objects.create_user('other', password='test')
+        tool = self.get_tool('activities.add_comment')
+        with self.assertRaises(Exception):
+            tool['fn'](other, {'target': '周末游', 'content': '越权'})
+        self.assertFalse(self.activity.comments.exists())

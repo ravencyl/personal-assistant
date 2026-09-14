@@ -20,7 +20,7 @@ from core.utils import get_visible, visible_qs
 
 from core.tags import add_tags, apply_tags, tag_names
 from chat.models import Message
-from .models import Activity, Expense
+from .models import Activity, Expense, ActivityComment
 from .services import (InputError, add_expense, clean_amount,
                        create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
@@ -50,6 +50,15 @@ def _child_summary(child):
     }
 
 
+def _comment_summary(c):
+    """评论摘要：card_data 快照用，全部可 JSON 序列化"""
+    return {
+        'author': c.user.username,
+        'content': c.content,
+        'created_at': c.created_at.strftime('%Y-%m-%d %H:%M'),
+    }
+
+
 def _activity_card_data(activity):
     """单活动卡片快照：字段全部可 JSON 序列化，历史消息回放不依赖实时查询"""
     return {
@@ -67,6 +76,11 @@ def _activity_card_data(activity):
         'participants': list(activity.participants.values_list('name', flat=True)),
         'children': [_child_summary(c) for c in activity.children.all()[:6]],
         'children_count': activity.children.count(),
+        # 评论（最近 10 条，时间正序）：AI 决策可从此读用户的追加讨论/备注
+        'comments_count': activity.comments.count(),
+        'comments': [_comment_summary(c)
+                     for c in activity.comments.select_related('user')[:10]],
+        'add_comment_url': reverse('activities:activity_comment_add', args=[activity.id]),
         'detail_url': reverse('activities:activity_detail', args=[activity.id]),
         'edit_url': reverse('activities:activity_edit', args=[activity.id]),
     }
@@ -161,7 +175,7 @@ def tool_query(user, params):
     }
 
 
-@agent_tool('activities.get', '查看某个活动的详情', 'target（目标活动名称关键词）')
+@agent_tool('activities.get', '查看某个活动的详情（含最近评论）', 'target（目标活动名称关 键词）')
 def tool_get(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
                                    target_id=params.get('target_id'), pick=params.get('pick'))
@@ -170,6 +184,41 @@ def tool_get(user, params):
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
+    }
+
+
+@agent_tool('activities.comments', '查看某个活动的全部评论（时间正序）',
+            'target（目标活动名称关键词）')
+def tool_comments(user, params):
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                               target_id=params.get('target_id'), pick=params.get('pick'))
+    comments = list(activity.comments.select_related('user'))
+    if not comments:
+        return {'reply': f'「{activity.name}」还没有评论。', 'activity_ids': [activity.id]}
+    lines = [f"{c.created_at:%m-%d %H:%M} {c.user.username}：{c.content[:100]}"
+             for c in comments]
+    return {
+        'reply': f'「{activity.name}」共 {len(comments)} 条评论：\n' + '\n'.join(lines),
+        'activity_ids': [activity.id],
+    }
+
+
+@agent_tool('activities.add_comment', '给指定活动追加一条评论（讨论/备注/进展记录，后续决策可读）',
+            'target（目标活动名称关键词）、content（评论内容，必填）')
+def tool_add_comment(user, params):
+    content = str(params.get('content') or '').strip()
+    if not content:
+        raise ToolError('请告诉我评论内容')
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                               target_id=params.get('target_id'), pick=params.get('pick'))
+    ActivityComment.objects.create(activity=activity, user=user, content=content)
+    log_activity(user, activity, 'commented', content[:100])
+    return {
+        'reply': f'已在「{activity.name}」添加评论：{content[:80]}',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': _activity_card_data(activity),
+        'changed': True,
     }
 
 

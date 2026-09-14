@@ -292,6 +292,41 @@
         </div>
     </div>
 
+    {% comment %}评论：追加式讨论时间线（正序），可见性跟随活动。
+       AI 决策链路会经 activities.get / activities.comments 工具读取这里的评论，
+       activities.add_comment 工具写入的评论同样出现在此列表。{% endcomment %}
+    <div class="app-card p-4 sm:p-6">
+        <h2 class="text-sm font-medium text-[var(--text)] mb-3">评论（{{ comments|length }}）</h2>
+        <form method="post" action="{% url 'activities:activity_comment_add' activity.id %}" class="flex items-end gap-2 mb-4">
+            {% csrf_token %}
+            <textarea name="content" rows="1" data-auto-grow maxlength="2000" required placeholder="追加评论…"
+                class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+            <button type="submit"
+                class="rounded-xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
+                评论
+            </button>
+        </form>
+        {% for c in comments %}
+        <div class="py-2.5 {% if not forloop.first %}border-t border-[var(--border)]{% endif %}">
+            <div class="flex items-baseline gap-2">
+                <span class="text-xs font-medium text-[var(--text)]">{{ c.user.username }}</span>
+                <span class="text-xs text-[var(--text-muted)]">{{ c.created_at|date:"m-d H:i" }}</span>
+                {% if c.user_id == request.user.id or request.user.is_superuser %}
+                <form method="post" action="{% url 'activities:activity_comment_delete' c.id %}" class="ml-auto">
+                    {% csrf_token %}
+                    <button type="submit"
+                        class="text-xs text-[var(--text-muted)] hover:text-red-600 transition-colors"
+                        data-confirm="删除这条评论？" data-confirm-tone="danger" data-confirm-label="确认删除">删除</button>
+                </form>
+                {% endif %}
+            </div>
+            <p class="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-wrap break-words">{{ c.content }}</p>
+        </div>
+        {% empty %}
+        <p class="text-sm text-[var(--text-muted)]">暂无评论，在上方写下第一条</p>
+        {% endfor %}
+    </div>
+
     </div><!-- /左列 -->
 
     <!-- 右列：附件 · 参与者 · 关联（桌面端 320px 栏且整列常驻，移动端顺排在主内容流之后） -->

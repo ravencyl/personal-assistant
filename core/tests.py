@@ -1504,7 +1504,8 @@ class ConfirmCardGlobalTest(SimpleTestCase):
                 total += 1
         # 9 个模板内删除表单 + conversation_list.html JS 拼装删除表单
         # + 日历订阅设置页 2 个（重新生成/吊销，2026-09-11）
-        self.assertEqual(total, 12)
+        # + 活动详情页评论删除 1 个（2026-09-14 评论功能）
+        self.assertEqual(total, 13)
 
     def test_confirm_card_js_exists_and_wired(self):
         """全局组件文件存在（含表单拦截与 paConfirmCard API），且 base.html 已引入"""

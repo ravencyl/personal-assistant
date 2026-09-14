@@ -18,6 +18,8 @@ urlpatterns = [
     path('<int:activity_id>/quick-sub/', views.activity_quick_sub, name='activity_quick_sub'),
     path('<int:activity_id>/subactivities/manual-create/', views.subactivity_manual_create,
          name='subactivity_manual_create'),
+    path('<int:activity_id>/comments/add/', views.activity_comment_add, name='activity_comment_add'),
+    path('comments/<int:comment_id>/delete/', views.activity_comment_delete, name='activity_comment_delete'),
     path('<int:activity_id>/expenses/add/', views.expense_create, name='expense_create'),
     path('expenses/quick/', views.expense_quick_create, name='expense_quick_create'),
     path('<int:activity_id>/delete/', views.activity_delete, name='activity_delete'),

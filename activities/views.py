@@ -20,7 +20,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from .forms import ActivityForm
-from .models import Activity, Participant, ActivityLog, Expense, Attachment
+from .models import Activity, Participant, ActivityLog, Expense, Attachment, ActivityComment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity,
@@ -466,6 +466,9 @@ def activity_detail(request, activity_id):
     from core.cross_link import get_related_content
     related = get_related_content(request.user, Activity, activity, limit=5)
 
+    # 评论时间线（追加式，正序；可见性跟随活动，无需再过滤）
+    comments = activity.comments.select_related('user')
+
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
         'max_upload_mb': MAX_UPLOAD_SIZE_MB,
@@ -476,6 +479,7 @@ def activity_detail(request, activity_id):
         'expenses': expenses,
         # 常用费用标签 chips（scope=expense，频次序，上限 8）
         'expense_tag_chips': expense_tag_chips,
+        'comments': comments,
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
         'subtask_done_count': subtask_done_count,
@@ -616,6 +620,35 @@ def add_subactivity(request, activity_id):
     referer = request.META.get('HTTP_REFERER')
     if referer:
         return redirect(referer)
+    return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+@require_POST
+def activity_comment_add(request, activity_id):
+    """追加评论（详情页内联表单；AI 经 activities.get/comments 工具读取）"""
+    activity = get_visible(Activity, request.user, id=activity_id)
+    content = (request.POST.get('content') or '').strip()
+    if not content:
+        messages.error(request, '评论内容不能为空')
+    else:
+        ActivityComment.objects.create(activity=activity, user=request.user, content=content)
+        log_activity(request.user, activity, 'commented', content[:100])
+        messages.success(request, '评论已添加')
+    return redirect('activities:activity_detail', activity.id)
+
+
+@login_required
+@require_POST
+def activity_comment_delete(request, comment_id):
+    """删除评论：仅评论人或超级用户（活动可见性已由 get_visible 门禁）"""
+    comment = get_object_or_404(ActivityComment, id=comment_id)
+    activity = get_visible(Activity, request.user, id=comment.activity_id)
+    if comment.user_id != request.user.id and not request.user.is_superuser:
+        messages.error(request, '只能删除自己的评论')
+        return redirect('activities:activity_detail', activity.id)
+    comment.delete()
+    messages.success(request, '评论已删除')
     return redirect('activities:activity_detail', activity.id)
 
 

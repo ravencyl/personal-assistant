@@ -41,6 +41,9 @@ INTENT_TOOL_MAP = {
     'split_expense': 'activities.split_expense',
     'move_date': 'activities.move_date',
     'batch_status': 'activities.batch_status',
+    # 活动评论：追加讨论/备注，后续决策可读（get 卡片快照也带最近评论）
+    'add_comment': 'activities.add_comment',
+    'list_comments': 'activities.comments',
     'notes_create': 'notes.create',
     'notes_search': 'notes.search',
     'knowledge_search': 'knowledge.search',
