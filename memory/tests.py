@@ -232,6 +232,92 @@ class AgentToolMemorySearchTest(TestCase):
             tool['fn'](self.user, {'query': ''})
 
 
+class AgentToolMemoryUpdateTest(TestCase):
+    """memory.update：用户点名更正/忘掉记忆（2026-09-14 补齐「能改」闭环）
+
+    此前记忆只能新增不能改：用户说「不对，改成 X」时 AI 只能新建一条，
+    旧记忆残留导致新旧矛盾信息一起注入上下文。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='testpass')
+        self.m1 = Memory.objects.create(user=self.user, content='每周三晚上健身',
+                                        category='habit', importance=6)
+        self.m2 = Memory.objects.create(user=self.user, content='在杭州工作',
+                                        category='fact', importance=5)
+
+    def _tool(self):
+        from core.agent_registry import get_tool
+        tool = get_tool('memory.update')
+        self.assertIsNotNone(tool)
+        return tool['fn']
+
+    def test_update_content_by_keyword(self):
+        result = self._tool()(self.user, {'target': '健身', 'content': '每周二晚上健身'})
+        self.m1.refresh_from_db()
+        self.assertEqual(self.m1.content, '每周二晚上健身')
+        self.assertIn('每周二晚上健身', result['reply'])
+
+    def test_update_category_and_importance(self):
+        self._tool()(self.user, {'target': '杭州', 'category': 'fact',
+                                 'importance': 8})
+        self.m2.refresh_from_db()
+        self.assertEqual(self.m2.importance, 8)
+
+    def test_void_forgets_memory(self):
+        result = self._tool()(self.user, {'target': '健身', 'void': True})
+        self.assertIn('已忘掉', result['reply'])
+        self.assertFalse(Memory.objects.filter(id=self.m1.id).exists())
+
+    def test_no_change_requested_raises(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError):
+            self._tool()(self.user, {'target': '健身'})
+
+    def test_no_match_raises_with_hint(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError) as ctx:
+            self._tool()(self.user, {'target': '不存在的关键词', 'content': '新内容哦'})
+        self.assertIn('直接告诉我', str(ctx.exception))
+
+    def test_multiple_matches_raise_candidate_card(self):
+        Memory.objects.create(user=self.user, content='健身后要拉伸',
+                              category='habit', importance=4)
+        from core.agent_registry import CandidateToolError
+        with self.assertRaises(CandidateToolError) as ctx:
+            self._tool()(self.user, {'target': '健身', 'void': True})
+        ids = [c['id'] for c in ctx.exception.candidates]
+        self.assertIn(self.m1.id, ids)
+        # 候选卡条目带编辑页链接（点名称可去后台手动改）
+        self.assertTrue(all(c.get('detail_url') for c in ctx.exception.candidates))
+
+    def test_pick_replay_by_target_id(self):
+        self._tool()(self.user, {'target_id': self.m1.id, 'content': '每周五晚上健身'})
+        self.m1.refresh_from_db()
+        self.assertEqual(self.m1.content, '每周五晚上健身')
+
+    def test_pick_replay_missing_target_raises(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError):
+            self._tool()(self.user, {'target_id': 99999, 'void': True})
+
+    def test_invalid_category_raises(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError):
+            self._tool()(self.user, {'target': '健身', 'category': 'nonsense'})
+
+    def test_invalid_importance_raises(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError):
+            self._tool()(self.user, {'target': '健身', 'importance': 'abc'})
+
+    def test_protocol_prompt_mentions_memory_update(self):
+        from core.agent_registry import build_protocol_prompt
+        prompt = build_protocol_prompt()
+        self.assertIn('memory_update', prompt,
+                      '协议首帧必须告知模型 memory_update 工具，否则永远走不到')
+
+
 @override_settings(ROOT_URLCONF='personal_assistant.urls')
 class MemoryViewsTest(TestCase):
     def setUp(self):

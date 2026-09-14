@@ -53,6 +53,9 @@ INTENT_TOOL_MAP = {
     'knowledge_update': 'knowledge.update',
     'generate_report': 'reports.generate',
     'memory_search': 'memory.search',
+    # 修订/忘掉已有记忆（用户点名「更正/不对，改成…/把那条忘了」时用；
+    # 目标不唯一出候选卡，模式对齐 knowledge_update）
+    'memory_update': 'memory.update',
 }
 
 # ── 协议回复被长度上限截断的兜底 ──────────────────────────────────────────────
@@ -332,6 +335,9 @@ def build_protocol_prompt(today=None):
         '在 JSON 中附加 "memory" 字段（可省略）：\n'
         '   "memory": [{"content": "记忆内容", "category": "preference|fact|goal|relationship|habit|other", "importance": 1-10}]\n'
         '   只记录有长期价值的信息，不要记录临时性请求或操作指令。\n'
+        '   用户明确要求更正或忘掉某条已有记忆时（「不对，改成…」「把那条忘了」），'
+        '不要塞 memory 字段，改用 intent="memory_update"：target 关键词定位旧记忆，'
+        '新内容写 content，「忘掉」用 void: true。\n'
         '6. 意图归属：“世界/时效/攻略/建议”这类问题**不要用 knowledge_search 交差**，'
         '它只能在用户自己存的文章里检索；本地没命中也不得回一句「没有找到」就结束，'
         '改走联网回答（必要时先自己查，再顺手告诉用户知识库里没有）。\n'
