@@ -83,6 +83,10 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
     // 本脚本随 content 同步执行时它已进 DOM，不会拿 null。
     var quickFab = document.getElementById('quick-fab-root');
     if (quickFab) quickFab.style.display = 'none';
+    // dock 在 Tab 栏中央的快记钮同样隐藏（与分栏页聊天视图口径一致）
+    Array.prototype.forEach.call(document.querySelectorAll('[data-quick-toggle]'), function (b) {
+        b.style.display = 'none';
+    });
     if (!window.PaChatTurn) return;
     var base = '/chat/' + {{ conversation.id }} + '/';
     var messagesEl = document.getElementById('messages');

@@ -339,8 +339,9 @@ class ConversationListDesktopLayoutTest(TestCase):
         两层防线，缺一不可：
         ① .chat-layout 移动端高度必须扣除 顶栏+main 顶距(80px)、Tab 栏实高+空隙(72px)
           与 iOS 安全区 —— 改小会让发送框被 Tab 栏压住；
-        ② 移动端进入聊天视图时快记 FAB 隐藏（叠在输入框上沿），返回列表时恢复 ——
-          因此 base.html 的 quick-fab-root wrapper id 不能丢。
+        ② 移动端进入聊天视图时快记入口隐藏（dock 在 Tab 栏中央 + 面板宿主），
+          返回列表时恢复 —— quick-fab-root wrapper id 与 [data-quick-toggle]
+          都不能丢。
           （聊天浮窗 FAB 与配套的 page-chat 隐藏链路已随浮窗整体下线）
         """
         base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -349,6 +350,8 @@ class ConversationListDesktopLayoutTest(TestCase):
             'calc(100dvh - 9.5rem - env(safe-area-inset-bottom, 0px))', css,
             '移动端 .chat-layout 高度算术被改，发送框会被底部 Tab 栏遮住')
         self.assertIn('id="quick-fab-root"', base)
+        self.assertIn('data-quick-toggle', base,
+                      '快记入口（Tab 栏 dock 钮 + 桌面 FAB）共用标记不能丢')
         self.assertIn("document.getElementById('quick-fab-root')", self.src)
         self.assertIn("view === 'chat' ? 'none' : ''", self.src,
                       '返回列表视图时必须恢复快记 FAB 显隐')
@@ -367,6 +370,8 @@ class ConversationListDesktopLayoutTest(TestCase):
                / 'conversation_detail.html').read_text(encoding='utf-8')
         self.assertIn("document.getElementById('quick-fab-root')", src)
         self.assertIn("quickFab.style.display = 'none'", src)
+        self.assertIn("querySelectorAll('[data-quick-toggle]')", src,
+                      '详情页还必须隐藏 Tab 栏中央的快记 dock 钮')
 
     def test_quick_fab_dom_precedes_content_block(self):
         """quick-fab-root 必须在 base.html 的 content block 之前（线上实测回归锁）

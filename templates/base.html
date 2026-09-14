@@ -143,10 +143,10 @@
         {% endif %}
 
     {% if user.is_authenticated %}
-    <!-- 一键快记浮窗（聊天浮窗下线后为全站唯一悬浮入口；移动端 bottom-24 距底 96px，
-         避让底部 Tab 栏（55px）后留 41px 间隙——原 bottom-36 与 Tab 间空出 90px 死区，
-         390×844 走查后下调。桌面 md:bottom-16 避让分栏页底部的发送按钮，改小会叠上去实测踩过） -->
-    <div id="quick-fab-root" class="fixed bottom-24 right-4 z-50 md:bottom-16 flex flex-col items-end">
+    <!-- 一键快记：移动端入口已 dock 进底部 Tab 栏中央（data-quick-toggle），
+         本容器只承载展开面板：移动端在 Tab 栏上方居中展开（bottom 随 safe-area 抬升），
+         桌面无 Tab 栏，md: 回退为右下锚点（bottom-16 避让分栏页发送按钮，实测踩过） -->
+    <div id="quick-fab-root" class="fixed z-50 bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-4 md:bottom-16 flex flex-col items-end">
         <!-- 展开面板（panel 开合模式；所有表单走原生 fetch，严禁挂 hx-*） -->
         <div id="quick-panel" class="panel hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 bg-[var(--bg-card)]">
             <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -202,13 +202,14 @@
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
         </div>
-        <!-- 悬浮按钮（白底浮起 + 阴影；右上角灰阶角标为离线待同步数） -->
-        <button type="button" id="quick-toggle-btn"
-                class="relative w-12 h-12 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text)] flex items-center justify-center shadow-[var(--shadow-md)] hover:shadow-[var(--shadow-lg)] hover:-translate-y-0.5 active:scale-95 transition-all" title="快记">
+        <!-- 桌面版悬浮按钮（Tab 栏 md:hidden，桌面仍需右下常驻入口；白底浮起 + 阴影；
+             右上角灰阶角标为离线待同步数，多实例用 data-outbox-badge 供 offline-queue 遍历更新） -->
+        <button type="button" data-quick-toggle title="快记"
+                class="hidden md:flex relative w-12 h-12 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text)] items-center justify-center shadow-[var(--shadow-md)] hover:shadow-[var(--shadow-lg)] hover:-translate-y-0.5 active:scale-95 transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
             </svg>
-            <span id="quick-outbox-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-zinc-700 text-white text-[10px] font-bold flex items-center justify-center">0</span>
+            <span data-outbox-badge class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-zinc-700 text-white text-[10px] font-bold flex items-center justify-center">0</span>
         </button>
     </div>
     {% endif %}
@@ -237,6 +238,15 @@
                 </svg>
                 <span class="text-xs font-medium {% if request.resolver_match.app_name != 'activities' %}hidden{% endif %}">活动</span>
             </a>
+            <!-- 快记 dock：Tab 栏正中央凸起圆钮（transform 上浮不参与布局，不撑高胶囊条）；
+                 与桌面版按钮共用 data-quick-toggle，开合同一个 #quick-panel -->
+            <button type="button" data-quick-toggle aria-label="快记" title="快记"
+                    class="md:hidden tap-target relative w-10 h-10 -translate-y-5 rounded-full bg-[var(--accent)] text-white flex items-center justify-center shadow-[var(--shadow-lg)] active:scale-95 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                <span data-outbox-badge class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-white text-[var(--accent)] border border-[var(--border)] text-[10px] font-bold flex items-center justify-center">0</span>
+            </button>
             <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'chat' %}bg-[var(--accent)] text-white px-3.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
@@ -293,8 +303,10 @@
         function openPanel() { panel.classList.remove('hidden'); }
         function closePanel() { panel.classList.add('hidden'); }
 
-        document.getElementById('quick-toggle-btn').addEventListener('click', function () {
-            panel.classList.contains('hidden') ? openPanel() : closePanel();
+        Array.prototype.forEach.call(document.querySelectorAll('[data-quick-toggle]'), function (btn) {
+            btn.addEventListener('click', function () {
+                panel.classList.contains('hidden') ? openPanel() : closePanel();
+            });
         });
         document.getElementById('quick-close-btn').addEventListener('click', closePanel);
 

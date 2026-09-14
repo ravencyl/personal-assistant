@@ -230,6 +230,10 @@
         // 初始化路径之外的所有 setView 都发生在用户交互时（DOM 已就绪），不受影响。
         var quickFab = document.getElementById('quick-fab-root');
         if (quickFab) quickFab.style.display = view === 'chat' ? 'none' : '';
+        // 快记入口 dock 化后移动端在 Tab 栏中央，聊天视图同样隐藏（输入框就在 Tab 栏上方）
+        Array.prototype.forEach.call(document.querySelectorAll('[data-quick-toggle]'), function (b) {
+            b.style.display = view === 'chat' ? 'none' : '';
+        });
     }
 
     function isMobile() {

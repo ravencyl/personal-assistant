@@ -6,7 +6,7 @@
    - flush()：遍历队列逐条原生 fetch 重放（带入队时的 csrf 头），成功移除
    - 幂等防护：同 url + 同 body + 同分钟内已入队则跳过重复
    - 触发时机：window 'online' 事件、DOMContentLoaded、每次入队后立即尝试一次
-   - 角标：队列非空时在快记 FAB（#quick-outbox-badge）显示灰阶数字，空则隐藏
+   - 角标：队列非空时在快记入口（[data-outbox-badge]，多实例）显示灰阶数字，空则隐藏
    - follow（可选）：首跳重放成功后取其响应 JSON 再 POST 至 follow.url
      （活动 Tab「解析 → 创建」两跳链路用）
    - 重放结果处理：2xx 移除；4xx（业务错误，无法自愈）移除；
@@ -119,12 +119,15 @@
 
     function updateBadge() {
         if (typeof document === 'undefined') return;
-        var badge = document.getElementById('quick-outbox-badge');
-        if (!badge) return;
+        // 快记入口多实例（移动端 Tab 栏 dock 钮 + 桌面右下 FAB），用 data-outbox-badge 遍历更新
+        var badges = document.querySelectorAll('[data-outbox-badge]');
+        if (!badges.length) return;
         var count = load().length;
-        badge.textContent = String(count);
-        if (count > 0) badge.classList.remove('hidden');
-        else badge.classList.add('hidden');
+        Array.prototype.forEach.call(badges, function (badge) {
+            badge.textContent = String(count);
+            if (count > 0) badge.classList.remove('hidden');
+            else badge.classList.add('hidden');
+        });
     }
 
     root.PaOutbox = {
