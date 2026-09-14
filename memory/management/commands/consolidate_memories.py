@@ -16,15 +16,20 @@ from memory.models import Memory
 
 logger = logging.getLogger(__name__)
 
-# 同组至少多少条才触发聚合（太少不值得调 AI）
-MIN_GROUP_SIZE = 5
+# 同组至少多少条才触发聚合。原 5 条（太少不值得调 AI），2026-09-14 降到 3：
+# 单用户系统周日一次 cron，多调两次成本可忽略，而矛盾/碎片清理不该非得攒到 5 条
+MIN_GROUP_SIZE = 3
 
-# AI 合成 prompt 模板
+# AI 合成 prompt 模板。
+# 矛盾裁决：条目带记录时间，状态更新类（搬家/换工作）以时间新的为准，
+# 否则合成结果会把「在杭州工作」和「已搬到上海」混成一段矛盾画像
 CONSOLIDATE_PROMPT = (
-    '以下是用户关于「{category}」的 {count} 条零散记忆片段：\n'
+    '以下是用户关于「{category}」的 {count} 条零散记忆片段（每条末尾括号是记录时间）：\n'
     '{items}\n\n'
-    '请将它们合成为一条结构化的用户画像描述（不超过 200 字），'
-    '保留关键细节、去除重复、合并相似条目。'
+    '请将它们合成为一条结构化的用户画像描述（不超过 200 字）。要求：\n'
+    '1. 保留关键细节、去除重复、合并相似条目。\n'
+    '2. 条目之间若有互相矛盾的状态描述（如地点、工作、计划变更），'
+    '以时间较新的为准，只保留最新状态，不要新旧并存。'
     '只输出合成后的文本，不要解释过程。'
 )
 
@@ -99,8 +104,11 @@ class Command(BaseCommand):
                 )
                 continue
 
-            # 构造 prompt
-            items_text = '\n'.join(f'- {m.content}' for m in memories)
+            # 构造 prompt：每条带记录时间，供 AI 做矛盾裁决（时间新的为准）
+            items_text = '\n'.join(
+                f'- {m.content}（{m.updated_at.strftime("%Y-%m-%d")} 记录）'
+                for m in memories
+            )
             prompt = CONSOLIDATE_PROMPT.format(
                 category=cat_label, count=len(memories), items=items_text,
             )

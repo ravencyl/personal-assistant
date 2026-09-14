@@ -316,6 +316,10 @@ class AgentToolMemoryUpdateTest(TestCase):
         prompt = build_protocol_prompt()
         self.assertIn('memory_update', prompt,
                       '协议首帧必须告知模型 memory_update 工具，否则永远走不到')
+        # 冲突自查引导（2026-09-14）：写新记忆前怀疑冲突先查再改，不新增矛盾条目
+        self.assertIn('memory_search', prompt,
+                      '协议必须引导写前先查，否则冲突记忆只会不断新增')
+        self.assertIn('不要新增一条留矛盾信息', prompt)
 
 
 @override_settings(ROOT_URLCONF='personal_assistant.urls')
@@ -559,8 +563,8 @@ class ConsolidateCommandTest(TestCase):
         self.assertEqual(Memory.objects.filter(consolidated=True).count(), 0)
 
     def test_no_groups_below_min_size(self):
-        """不足 5 条的组不触发"""
-        for i in range(3):
+        """不足 3 条的组不触发（MIN_GROUP_SIZE 2026-09-14 由 5 降到 3）"""
+        for i in range(2):
             Memory.objects.create(
                 user=self.user, content=f'事实{i}', category='fact', importance=5,
             )
@@ -569,6 +573,19 @@ class ConsolidateCommandTest(TestCase):
         out = StringIO()
         call_command('consolidate_memories', '--dry-run', stdout=out)
         self.assertIn('没有需要聚合', out.getvalue())
+
+    def test_group_at_min_size_triggers(self):
+        """恰好 3 条（新阈值）即触发聚合分组"""
+        for i in range(3):
+            Memory.objects.create(
+                user=self.user, content=f'目标{i}', category='goal', importance=5,
+            )
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('consolidate_memories', '--dry-run', stdout=out)
+        self.assertIn('DRY-RUN', out.getvalue())
+        self.assertIn('goal', out.getvalue())
 
 
 # 把被挤出的方法手动绑回 ArchiveSummaryMemoryTest
