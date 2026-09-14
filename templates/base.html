@@ -7,12 +7,26 @@
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{% staticv 'js/tailwind.js' %}"></script>
-    <script src="{% staticv 'js/htmx.min.js' %}"></script>
-    <script src="{% staticv 'js/offline-queue.js' %}"></script>
-    {# 聊天异步收发流（分栏页与详情页共用一份）#}
+    {% comment %}
+    以下脚本 defer：都不在解析期被内联脚本调用（事件驱动 / DOMContentLoaded 触发），
+    延后到 DOM 解析完再执行，导航切换时 head 不再被 80KB JS 阻塞。
+    例外：chat-turn.js 必须同步——分栏页/详情页的内联脚本在解析期就调用
+    window.PaChatTurn，defer 会让页面静默失效（IIFE 里 !window.PaChatTurn return）。
+    {% endcomment %}
+    <script defer src="{% staticv 'js/htmx.min.js' %}"></script>
+    <script defer src="{% staticv 'js/offline-queue.js' %}"></script>
+    {# 聊天异步收发流（分栏页与详情页共用一份）；同步加载，见上方例外说明 #}
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
     {# 全站统一确认卡（data-confirm 表单 + paConfirmCard API），替代原生 confirm() 弹窗 #}
-    <script src="{% staticv 'js/confirm-card.js' %}"></script>
+    <script defer src="{% staticv 'js/confirm-card.js' %}"></script>
+    {% comment %}
+    导航预渲染（Speculation Rules）：Chrome 系在 hover/按下时后台完整渲染目标页，
+    点击近秒开；Safari/Firefox 忽略本标签，无副作用。
+    登出与 admin 排除——登出 GET 会清会话，不该被投机执行。
+    {% endcomment %}
+    <script type="speculationrules">
+    {"prerender":[{"source":"document","where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/accounts/*"}},{"not":{"href_matches":"/admin/*"}}]},"eagerness":"moderate"}]}
+    </script>
     <link rel="stylesheet" href="{% staticv 'css/custom.css' %}">
     <style>
         body {
@@ -20,6 +34,19 @@
             background-color: var(--bg);
             color: var(--text);
         }
+        /* 底部 Tab 栏/顶栏导航按压即时反馈：点击瞬间就有变淡响应，
+           等页面响应的空白期不再是「点了没反应」 */
+        nav a:active { opacity: .55; }
+        /* 导航切换进度条：点击导航链接立即出现（accent 细条从左展开），
+           到新页面 pageshow（含 bfcache 恢复）时淡出。纯 CSS 过渡驱动，无定时器 */
+        #nav-progress {
+            position: fixed; top: 0; left: 0; right: 0; height: 2px;
+            z-index: 70; background: var(--accent);
+            transform: scaleX(0); transform-origin: 0 50%; opacity: 0;
+            transition: transform .45s ease-out, opacity .2s;
+            pointer-events: none;
+        }
+        #nav-progress.on { opacity: 1; transform: scaleX(.7); }
     </style>
     <link rel="manifest" href="{% static 'manifest.json' %}">
     {# 品牌图标统一「深色底板 + 反白图形」，资源由 brand/make_logo_assets.py 从设计源图裁切生成 #}
@@ -35,6 +62,8 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="h-full antialiased">
+    <!-- 导航切换进度条（JS 见页尾 navProgress 块） -->
+    <div id="nav-progress" aria-hidden="true"></div>
     <div class="min-h-full">
         <!-- Navigation -->
         <nav class="bg-[var(--bg-card)] sticky top-0 z-40 border-b border-[var(--border)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
@@ -451,6 +480,31 @@
             notifyActivityChanged();
         }
     });
+    </script>
+
+    <!-- 导航切换进度条：任何同源链接点击立即亮条，新页面 pageshow 时收起。
+         放页尾即可——点击事件不会早于脚本执行；bfcache 恢复的页面 DOM 是旧的，
+         所以 pageshow 里必须主动收起。导航中断（同页锚点/被拦截）由 8s 兜底隐藏。 -->
+    <script>
+    (function () {
+        var bar = document.getElementById('nav-progress');
+        var hideTimer = null;
+        function hide() {
+            bar.classList.remove('on');
+            if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        }
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest && e.target.closest('a[href]');
+            if (!a) return;
+            var href = a.getAttribute('href');
+            if (!href || href.charAt(0) === '#' || a.target === '_blank' || a.hasAttribute('download')) return;
+            if (/^https?:/i.test(href) && href.indexOf(location.origin + '/') !== 0) return;
+            bar.classList.add('on');
+            if (hideTimer) clearTimeout(hideTimer);
+            hideTimer = setTimeout(hide, 8000);
+        }, true);
+        window.addEventListener('pageshow', hide);
+    })();
     </script>
 
     <script>
