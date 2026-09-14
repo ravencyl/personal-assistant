@@ -39,6 +39,19 @@
         </a>
     </div>
 
+    <!-- Select Date 星期条（截图第二屏同构）：本周 7 天圆块，今天 accent 实心、
+         当前查看日浅底高亮；点击进入该天日视图 -->
+    <div class="flex items-stretch justify-between gap-1.5 mb-4">
+        {% for d in week_strip %}
+        <a href="?mode=day&date={{ d.date_str }}"
+           class="flex-1 min-w-[44px] flex flex-col items-center gap-0.5 py-2 rounded-2xl transition-colors
+                  {% if d.is_today %}bg-[var(--accent)] text-white shadow-sm{% elif d.is_selected %}bg-[var(--accent-light)] text-[var(--text)]{% else %}bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">
+            <span class="text-[11px] leading-none {% if d.is_today %}text-white/80{% else %}text-[var(--text-muted)]{% endif %}">周{{ d.weekday }}</span>
+            <span class="text-sm font-semibold tabular-nums leading-tight">{{ d.day }}</span>
+        </a>
+        {% endfor %}
+    </div>
+
     <!-- ==================== 月视图 ==================== -->
     {% if mode == 'month' %}
     <div class="app-card overflow-hidden">

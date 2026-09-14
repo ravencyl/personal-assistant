@@ -306,11 +306,17 @@ def activity_list(request):
 
     page_numbers = _page_window(page_num, paginator.num_pages)
 
-    # 快捷筛选高亮判断
+    # 快捷日期片高亮判断（今天/本周为新增片，7d/30d 沿用原有口径）
     today = timezone.localdate()
     quick = ''
+    week_from = week_monday(today)
+    week_to = week_from + timedelta(days=6)
     if date_from and date_to:
-        if (date_from, date_to) == (str(today - timedelta(days=6)), str(today)):
+        if (date_from, date_to) == (str(today), str(today)):
+            quick = 'today'
+        elif (date_from, date_to) == (str(week_from), str(week_to)):
+            quick = 'week'
+        elif (date_from, date_to) == (str(today - timedelta(days=6)), str(today)):
             quick = '7d'
         elif (date_from, date_to) == (str(today - timedelta(days=29)), str(today)):
             quick = '30d'
@@ -403,6 +409,8 @@ def activity_list(request):
         'quick': quick,
         'quick_7d_from': str(today - timedelta(days=6)),
         'quick_30d_from': str(today - timedelta(days=29)),
+        'week_from': str(week_from),
+        'week_to': str(week_to),
         'today_str': str(today),
         'sort': sort,
         'filter_qs': filter_qs,
@@ -961,6 +969,20 @@ def activity_calendar(request):
         title = f'{d.month}月{d.day}日 周{weekdays_cn[d.weekday()]}'
         ctx = {'hours': hours, 'day_date': d.isoformat(), 'today_iso': today.isoformat()}
 
+    # Select Date 星期条（截图第二屏同构）：ref_date 所在周 7 天，
+    # 今天 accent 实心、当前查看日描边，点击进入该天日视图
+    strip_monday = week_monday(ref_date)
+    week_strip = []
+    for i in range(7):
+        d = strip_monday + timedelta(days=i)
+        week_strip.append({
+            'day': d.day,
+            'weekday': WEEKDAY_SHORT[i],
+            'is_today': d == today,
+            'is_selected': d == ref_date,
+            'date_str': d.isoformat(),
+        })
+
     prev_params = {'mode': mode, 'date': prev_date.isoformat()}
     next_params = {'mode': mode, 'date': next_date.isoformat()}
     today_params = {'mode': mode, 'date': today.isoformat()}
@@ -970,6 +992,7 @@ def activity_calendar(request):
         'mode': mode,
         'title': title,
         'weekdays': WEEKDAY_SHORT,
+        'week_strip': week_strip,
         # 图例与色块同源：选项与顺序取 STATUS_CHOICES，颜色取 custom.css 的 --status-*
         'status_choices': Activity.STATUS_CHOICES,
         'prev_params': prev_params,

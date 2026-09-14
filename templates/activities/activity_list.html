@@ -132,10 +132,17 @@
            class="px-3 py-1 text-sm rounded-md bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除日期</a>
         {% endif %}
         <span class="mx-1 text-[var(--text-muted)]">|</span>
-        <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-full {% if quick == '7d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">近 7 天</a>
-        <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-full {% if quick == '30d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">近一个月</a>
+        <!-- Select Time 时间片网格同构（截图第二屏）：快捷日期片，激活片 accent 实心 -->
+        <div class="flex flex-wrap items-center gap-1.5 w-full">
+            <a href="?date_from={{ today_str }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
+               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == 'today' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">今天</a>
+            <a href="?date_from={{ week_from }}&date_to={{ week_to }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
+               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == 'week' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">本周</a>
+            <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
+               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == '7d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近 7 天</a>
+            <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
+               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == '30d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近一个月</a>
+        </div>
         </form>
 
         <!-- Status filter -->
