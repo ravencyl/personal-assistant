@@ -143,7 +143,7 @@
         {% endif %}
 
     {% if user.is_authenticated %}
-    <!-- 一键快记：移动端入口已 dock 进底部 Tab 栏中央（data-quick-toggle），
+    <!-- 一键快记：移动端入口在 Daily 页顶栏（data-quick-toggle），
          本容器只承载展开面板：移动端在 Tab 栏上方居中展开（bottom 随 safe-area 抬升），
          桌面无 Tab 栏，md: 回退为右下锚点（bottom-16 避让分栏页发送按钮，实测踩过） -->
     <div id="quick-fab-root" class="fixed z-50 bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-4 md:bottom-16 flex flex-col items-end">
@@ -202,7 +202,7 @@
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
         </div>
-        <!-- 桌面版悬浮按钮（Tab 栏 md:hidden，桌面仍需右下常驻入口；白底浮起 + 阴影；
+        <!-- 桌面版悬浮按钮（移动端入口在 Daily 页顶栏，桌面仍需右下常驻入口；白底浮起 + 阴影；
              右上角灰阶角标为离线待同步数，多实例用 data-outbox-badge 供 offline-queue 遍历更新） -->
         <button type="button" data-quick-toggle title="快记"
                 class="hidden md:flex relative w-12 h-12 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text)] items-center justify-center shadow-[var(--shadow-md)] hover:shadow-[var(--shadow-lg)] hover:-translate-y-0.5 active:scale-95 transition-all">
@@ -238,15 +238,6 @@
                 </svg>
                 <span class="text-xs font-medium {% if request.resolver_match.app_name != 'activities' %}hidden{% endif %}">活动</span>
             </a>
-            <!-- 快记 dock：Tab 栏正中央凸起圆钮（transform 上浮不参与布局，不撑高胶囊条）；
-                 与桌面版按钮共用 data-quick-toggle，开合同一个 #quick-panel -->
-            <button type="button" data-quick-toggle aria-label="快记" title="快记"
-                    class="md:hidden tap-target relative w-10 h-10 -translate-y-5 rounded-full bg-[var(--accent)] text-white flex items-center justify-center shadow-[var(--shadow-lg)] active:scale-95 transition-all">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-                </svg>
-                <span data-outbox-badge class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-white text-[var(--accent)] border border-[var(--border)] text-[10px] font-bold flex items-center justify-center">0</span>
-            </button>
             <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'chat' %}bg-[var(--accent)] text-white px-3.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
