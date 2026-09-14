@@ -415,6 +415,17 @@ a.bg-\[var\(--accent\)\]:active {
     line-height: 1.5;
 }
 
+/* 移动端聊天输入框保底两行：全站规范字号 16px 下长 placeholder（Enter 换行提示）
+   会折成两行，而 paFitTextarea 按内容 scrollHeight 拟合高度，iOS Safari 不把
+   placeholder 算进 scrollHeight，高度停在一行、第二行被裁掉（2026-09-14 实测截图）。
+   min-height 钳住显示高度——JS 写的 inline height 低于它时以 min-height 为准；
+   桌面 14px 单行放得下，不受影响。 */
+@media (max-width: 767px) {
+    .chat-input {
+        min-height: 4.75rem;
+    }
+}
+
 /* iOS Safari：聚焦 font-size < 16px 的输入控件会自动放大页面（viewport 缩放）。
    【全站规范】移动端统一把所有可输入控件字号提到 16px 规避；桌面 Safari 无此
    行为，维持设计系统的 text-sm 紧凑。新增输入控件无需单独处理。
