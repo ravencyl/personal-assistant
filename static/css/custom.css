@@ -677,6 +677,15 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 
 .follow-ups-label { font-size: 0.7rem; color: var(--text-muted); }
 
+/* 追问 chip 是 AI 生成的长句：.chat-chip 的 nowrap 会让整句撑出圆角按钮外
+   （线上实测「把这套…存进知识库，标题《…》」溢出）。单类同特异度靠源码顺序取胜，
+   必须写在 .chat-chip 之后；quick_chips 的短标签不受影响，仍享受 nowrap。 */
+.follow-up {
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
 /* ===== Chat 分栏布局（桌面端左右分栏 / 移动端 IM 式单栏） ===== */
 
 /* 移动端默认：单栏，列表视图可见，聊天视图隐藏 */
