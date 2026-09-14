@@ -71,6 +71,13 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 <script>
 // 与分栏页共用同一个 PaChatTurn 实现（两处各写一套必然漂移）
 (function () {
+    // 隐藏快记 FAB：它固定在右下角，正好压在「发送」按钮上（2026-09-14 线上实测）。
+    // 聊天输入本身就是快记入口，FAB 在本页功能重复；分栏页聊天视图已有同类隐藏
+    // （setView 里 view === 'chat' ? 'none' : ''），本页是独立模板、无 setView，
+    // 需在自身内联脚本里隐藏。FAB 在 base.html 的 content block 之前（有回归锁），
+    // 本脚本随 content 同步执行时它已进 DOM，不会拿 null。
+    var quickFab = document.getElementById('quick-fab-root');
+    if (quickFab) quickFab.style.display = 'none';
     if (!window.PaChatTurn) return;
     var base = '/chat/' + {{ conversation.id }} + '/';
     var messagesEl = document.getElementById('messages');
@@ -108,7 +115,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 })();
 </script>
 
-<!-- 底部预留空间：确保滚动到底时发送按钮位于右下角快记 FAB 固定区域之上（移动端 FAB 占视口底部 144~192px，表单底边距底 112+80=192px，刚好贴住不重叠；桌面端 FAB 占 16~64px，表单底边距底 32+80=112px） -->
+<!-- 底部预留空间：滚动到底时最后一条消息不被底部输入区盖住（快记 FAB 已在本页隐藏，不再参与避让） -->
 <div class="h-20" aria-hidden="true"></div>
 
 {% endblock %}

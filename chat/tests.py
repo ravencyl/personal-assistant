@@ -355,6 +355,19 @@ class ConversationListDesktopLayoutTest(TestCase):
         self.assertNotIn('chat-fab-root', base,
                          '聊天浮窗 FAB 已下线，base.html 不应再有残留引用')
 
+    def test_detail_page_hides_quick_fab(self):
+        """聊天详情页必须隐藏快记 FAB（线上实测回归锁，2026-09-14）
+
+        快记 FAB 固定在右下角，移动端详情页正好压在「发送」按钮上。
+        分栏页在聊天视图已有隐藏逻辑（setView 里 view === 'chat' ? 'none' : ''），
+        但详情页是独立模板、无 setView，必须在自身内联脚本里隐藏，
+        否则直接 URL 进入 /chat/<id>/detail/ 时 FAB 漏隐藏。
+        """
+        src = (Path(__file__).resolve().parent.parent / 'templates' / 'chat'
+               / 'conversation_detail.html').read_text(encoding='utf-8')
+        self.assertIn("document.getElementById('quick-fab-root')", src)
+        self.assertIn("quickFab.style.display = 'none'", src)
+
     def test_quick_fab_dom_precedes_content_block(self):
         """quick-fab-root 必须在 base.html 的 content block 之前（线上实测回归锁）
 
