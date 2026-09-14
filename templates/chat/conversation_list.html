@@ -172,10 +172,10 @@
         {% csrf_token %}
         <div class="flex items-end gap-2">
             <textarea name="content" id="split-input" rows="1" data-auto-grow autofocus
-                placeholder="输入消息...（Enter 换行，点「发送」提交）"
-                class="chat-input flex-1 rounded-lg border border-[var(--border-strong)] px-4 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-card)] text-[var(--text)]"></textarea>
+                placeholder="输入消息…（Enter 换行）"
+                class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-2.5 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
             <button type="submit"
-                class="tap-target rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
+                class="tap-target rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
                 发送
             </button>
         </div>
