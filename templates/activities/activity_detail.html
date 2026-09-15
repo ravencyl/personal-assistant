@@ -25,6 +25,11 @@
                         {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
                         <!-- 编辑/删除：小 icon 圆钮，贴标题行右侧（长标题 flex-wrap 自动换行避让） -->
                         <div class="ml-auto flex items-center gap-1.5 shrink-0">
+                            <!-- 问 AI：深链到聊天页预填针对本活动的提问（只填不发，?ask= 由 chat 页处理） -->
+                            <a href="{{ chat_ask_url }}" title="问 AI" aria-label="问 AI"
+                               class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--accent)] transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                            </a>
                             <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑" aria-label="编辑"
                                class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/></svg>

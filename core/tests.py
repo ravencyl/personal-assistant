@@ -1590,3 +1590,87 @@ class PickIndexParseTest(SimpleTestCase):
         self.assertIsNone(_pick_from_text('不要第一个'))
         self.assertIsNone(_pick_from_text('别第二个'))
         self.assertIsNone(_pick_from_text(None))
+
+
+class QuickChipsTest(TestCase):
+    """动态开场 chips（core.chips）：按当日上下文生成对话起头
+
+    线上实测 2026-09-15：固定 chips 天天一样，近 14 天仅 25 条用户消息。
+    动态化把「想话题」门槛拿掉——锁住各数据源的生成口径与兜底行为。
+    """
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.user = get_user_model().objects.create_user('chips_user', password='p')
+
+    def _chips(self):
+        from core.chips import get_quick_chips
+        return get_quick_chips(self.user)
+
+    def test_empty_context_falls_back_to_static(self):
+        """空库新用户：退化为固定兜底条，不至于没东西可点"""
+        chips = self._chips()
+        self.assertEqual(len(chips), 4)
+        self.assertIn('今天有什么安排？', chips)
+        self.assertIn('你还记得我哪些事？', chips)
+
+    def test_single_today_activity_names_it(self):
+        from datetime import timedelta
+        from activities.models import Activity
+        from django.utils import timezone
+        Activity.objects.create(user=self.user, name='牙医复诊',
+                                start_date=timezone.localdate(), status='planned')
+        chips = self._chips()
+        self.assertTrue(any('牙医复诊' in c for c in chips),
+                        f'唯一今日活动应点名：{chips}')
+
+    def test_multiple_today_activities_show_count(self):
+        from activities.models import Activity
+        from django.utils import timezone
+        today = timezone.localdate()
+        for name in ('晨跑', '周会', '取快递'):
+            Activity.objects.create(user=self.user, name=name,
+                                    start_date=today, status='planned')
+        chips = self._chips()
+        self.assertTrue(any('3 个活动' in c for c in chips), chips)
+
+    def test_undone_activities_counted(self):
+        from activities.models import Activity
+        from django.utils import timezone
+        today = timezone.localdate()
+        Activity.objects.create(user=self.user, name='进行中', status='in_progress')
+        Activity.objects.create(user=self.user, name='过期计划', status='planned',
+                                start_date=today - timedelta(days=2))
+        chips = self._chips()
+        self.assertTrue(any('2 个活动没完成' in c for c in chips), chips)
+
+    def test_recent_conversation_topic_chip(self):
+        from chat.models import Conversation
+        Conversation.objects.create(user=self.user, session_id='sess_topic',
+                                    title='嫉妒的自救方法')
+        chips = self._chips()
+        self.assertTrue(any('继续聊聊「嫉妒的自救方法」' in c for c in chips), chips)
+
+    def test_archived_or_old_topic_not_picked(self):
+        from chat.models import Conversation
+        from django.utils import timezone
+        from datetime import timedelta
+        Conversation.objects.create(user=self.user, session_id='sess_arch',
+                                    title='很久以前的话题', status='archived')
+        old = Conversation.objects.create(user=self.user, session_id='sess_old',
+                                          title='过期话题')
+        old.created_at = timezone.now() - timedelta(days=10)
+        old.save(update_fields=['created_at'])
+        chips = self._chips()
+        self.assertFalse(any('继续聊聊' in c for c in chips), chips)
+
+    def test_superuser_isolation(self):
+        """chips 只看自己的数据（超管也不把别人的日程灌进自己的 chips）"""
+        from django.contrib.auth import get_user_model
+        from activities.models import Activity
+        from django.utils import timezone
+        other = get_user_model().objects.create_user('other_user', password='p')
+        Activity.objects.create(user=other, name='别人的活动',
+                                start_date=timezone.localdate(), status='planned')
+        chips = self._chips()
+        self.assertFalse(any('别人的活动' in c for c in chips), chips)

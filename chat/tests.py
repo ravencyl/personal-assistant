@@ -25,6 +25,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from chat import views as chat_views
+from activities.models import Activity
 from core.layout_asserts import assert_desktop_two_columns, code_only
 from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
                          TURN_TTL_SECONDS)
@@ -2500,3 +2501,65 @@ class PickCandidateTest(TestCase):
         self.assertEqual(self.msg.payload['card'], 'activity')
         self.assertNotIn('action', self.msg.payload)
         self.assertIn('详情', resp.content.decode()) if False else None
+
+
+class DynamicQuickChipsTest(TestCase):
+    """动态开场 chips 渲染与「问 AI」深链（2026-09-15 提升对话使用率）"""
+
+    TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'conversation_list.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('chips_view', password='test')
+        self.client.login(username='chips_view', password='test')
+        Conversation.objects.create(user=self.user, session_id='sess_chip',
+                                    title='嫉妒的自救方法')
+        self.src = self.TEMPLATE.read_text(encoding='utf-8')
+
+    def test_list_view_renders_dynamic_chips(self):
+        """/chat/ 的 chips 来自 core.chips 动态生成（含上次话题），不再固定四条"""
+        html = self.client.get('/chat/').content.decode()
+        self.assertIn('继续聊聊「嫉妒的自救方法」', html)
+
+    def test_chips_fill_not_send(self):
+        """动态 chips 仍是 data-chip（点一下只填输入框，由 PaChatTurn 处理）"""
+        html = self.client.get('/chat/').content.decode()
+        self.assertIn('data-chip="继续聊聊「嫉妒的自救方法」"', html)
+
+    def test_ask_deep_link_script_wiring(self):
+        """?ask= 深链处理必须存在：预填输入框、无激活对话时自动新建"""
+        self.assertIn("location.search.match(/[?&]ask=([^&]+)/)", self.src)
+        self.assertIn('paFitTextarea(input)', self.src)
+        # 无激活对话时触发新建流程（与「+ 新建」共用 submit 处理器）
+        self.assertIn("newBtn.form.dispatchEvent(new Event('submit'", self.src)
+
+    def test_ask_param_stripped_from_url(self):
+        """深链跳入后 replaceState 掉 ?ask=，刷新/分享不会重复触发预填"""
+        self.assertIn("history.replaceState(null, '', '/chat/');", self.src)
+
+
+class ActivityDetailAskAiTest(TestCase):
+    """活动详情页「问 AI」入口：场景化提问深链"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('ask_user', password='test')
+        self.client.login(username='ask_user', password='test')
+        self.activity = Activity.objects.create(
+            user=self.user, name='桐庐周末游', status='planned',
+            start_date=timezone.localdate() + timedelta(days=7))
+
+    def test_detail_page_has_ask_ai_link(self):
+        resp = self.client.get(f'/activities/{self.activity.id}/')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertIn('问 AI', html)
+        # 深链带场景化提问文本（urlencode 后含活动名）
+        self.assertIn('ask=', html)
+        self.assertIn('%E6%A1%90%E5%BA%90%E5%91%A8%E6%9C%AB%E6%B8%B8', html)  # 桐庐周末游
+
+    def test_ask_url_targets_chat_list(self):
+        from core.chips import get_quick_chips  # noqa: F401  确认依赖可导入
+        resp = self.client.get(f'/activities/{self.activity.id}/')
+        html = resp.content.decode()
+        self.assertIn('href="/chat/?ask=', html)
+        # ask= 后面必须紧跟编码后的提问文本（而非重复的 key），防止双 ?ask=ask= 回归
+        self.assertIn('href="/chat/?ask=%E5%B8%AE%E6%88%91', html)  # 帮我…

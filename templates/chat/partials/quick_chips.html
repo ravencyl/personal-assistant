@@ -7,11 +7,16 @@
 点击处理在 static/js/chat-turn.js 里（PaChatTurn 的 chipsEl 分支），别在模板里
 再写一段 onclick —— 两处实现必然漂移。
 
-变量：chips_id（必填，两个浮层各自唯一，JS 靠它定位）、chips_class（可选，外层间距）
+变量：chips_id（必填，两个浮层各自唯一，JS 靠它定位）、chips_class（可选，外层间距）、
+chips（可选，视图用 core.chips.get_quick_chips 按当日上下文动态生成；不传则回退固定四条）
 {% endcomment %}
 <div id="{{ chips_id }}" data-chips class="flex flex-wrap items-center gap-1.5 {{ chips_class|default:'py-2' }}">
+    {% if chips %}
+    {% for chip in chips %}<button type="button" class="chat-chip tap-target" data-chip="{{ chip }}">{{ chip }}</button>{% endfor %}
+    {% else %}
     <button type="button" class="chat-chip tap-target" data-chip="今天有什么安排？">今天有什么安排</button>
     <button type="button" class="chat-chip tap-target" data-chip="本周花费帮我汇总一下">本周花费汇总</button>
     <button type="button" class="chat-chip tap-target" data-chip="把刚才的结论存成一篇知识文章">存成文章</button>
     <button type="button" class="chat-chip tap-target" data-chip="接下来我该做什么？">接下来该做什么</button>
+    {% endif %}
 </div>

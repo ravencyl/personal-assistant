@@ -447,6 +447,24 @@
         });
     }
 
+    // ── 「问 AI」深链（?ask=…）：从活动详情页等场景页跳入 ──
+    // 约定「填不发」（与 chips 一致）：只预填输入框供用户改两个字再发；
+    // 无激活对话时自动新建一个（创建流程会 selectConversation 并自动聚焦）。
+    (function () {
+        var m = location.search.match(/[?&]ask=([^&]+)/);
+        if (!m) return;
+        var askText = decodeURIComponent(m[1].replace(/\+/g, ' '));
+        history.replaceState(null, '', '/chat/');
+        if (!input || !askText) return;
+        input.value = askText;
+        if (window.paFitTextarea) window.paFitTextarea(input);
+        if (!currentId && newBtn && newBtn.form) {
+            newBtn.form.dispatchEvent(new Event('submit', { cancelable: true }));
+        } else {
+            input.focus();
+        }
+    })();
+
     // 暴露给外部（如归档/删除后需要清状态）
     window.paSplitChat = {
         select: selectConversation,
