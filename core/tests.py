@@ -1871,29 +1871,6 @@ class WebPushTest(TestCase):
         self.assertEqual((sent, cleaned), (0, 0))
         self.assertTrue(PushSubscription.objects.exists())
 
-    def test_daily_push_command_only_targets_subscribers(self):
-        from datetime import datetime
-        from io import StringIO
-        from unittest.mock import patch
-        from django.contrib.auth import get_user_model
-        from django.core.management import call_command
-        from core.models import PushSubscription
-        other = get_user_model().objects.create_user('push_nosub', password='p')
-        PushSubscription.objects.create(
-            user=self.user, endpoint=self.ENDPOINT,
-            p256dh='k' * 40, auth='a' * 20)
-
-        out = StringIO()
-        with patch('core.management.commands.send_daily_push.build_daily_payload',
-                   return_value={'title': 't', 'body': 'b', 'url': '/'}) as mock_payload, \
-                patch('core.management.commands.send_daily_push.send_push_to_user',
-                      return_value=(1, 0)) as mock_send:
-            call_command('send_daily_push', stdout=out)
-        self.assertEqual(mock_send.call_count, 1)
-        self.assertEqual(mock_send.call_args.args[0], self.user)
-        self.assertEqual(mock_payload.call_count, 1)
-        self.assertIn('sent=1', out.getvalue())
-
     def test_base_template_push_entry(self):
         """VAPID 已配置 → 顶栏铃铛 + meta 公钥；未配置 → 入口完全不渲染"""
         from django.test import override_settings
@@ -1909,3 +1886,148 @@ class WebPushTest(TestCase):
             html = self.client.get(url).content.decode()
         self.assertNotIn('push-toggle-btn', html)
         self.assertNotIn('js/push.js', html)
+
+
+class PushScheduleTest(TestCase):
+    """可配置推送计划：内容类型 × 时间点，admin 即改即生效
+
+    每天不限一次 —— 想几次建几条计划（如 8 点早报 + 20 点提醒），
+    命令幂等保证每条计划每天最多发一次。
+    """
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.user = get_user_model().objects.create_user('sched_user', password='p')
+
+    def _act(self, name, status='planned', start_date=None):
+        from activities.models import Activity
+        from django.utils import timezone
+        Activity.objects.create(
+            user=self.user, name=name, status=status,
+            start_date=start_date or timezone.localdate())
+
+    def _sched(self, push_type='daily_brief', time=None, **kw):
+        from django.utils import timezone
+        from core.models import PushSchedule
+        return PushSchedule.objects.create(
+            user=self.user, push_type=push_type,
+            time=time or timezone.localtime().time(), **kw)
+
+    def _run(self):
+        from io import StringIO
+        from unittest.mock import patch
+        from django.core.management import call_command
+        out = StringIO()
+        with patch('core.management.commands.send_scheduled_push.build_payload',
+                   return_value={'title': 't', 'body': 'b', 'url': '/'}) as mp, \
+                patch('core.management.commands.send_scheduled_push.send_push_to_user',
+                      return_value=(1, 0)) as ms:
+            call_command('send_scheduled_push', stdout=out)
+        return mp, ms, out.getvalue()
+
+    # ---------- 内容类型 ----------
+
+    def test_payload_dispatcher_and_unknown_fallback(self):
+        from core.push import build_payload
+        self.assertTrue(build_payload(self.user, 'task_reminder')['title']
+                        .endswith('任务提醒'))
+        self.assertTrue(build_payload(self.user, 'daily_brief')['title']
+                        .endswith('今日早报'))
+        # 未知类型退回今日早报，不炸
+        self.assertTrue(build_payload(self.user, 'whatever')['title']
+                        .endswith('今日早报'))
+
+    def test_task_reminder_lists_undone(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from core.push import build_payload
+        self._act('改简历', status='in_progress')
+        self._act('过期计划', start_date=timezone.localdate() - timedelta(days=1))
+        payload = build_payload(self.user, 'task_reminder')
+        self.assertIn('2 个任务待处理', payload['body'])
+        self.assertIn('「改简历」', payload['body'])
+        self.assertTrue(payload['title'].endswith('任务提醒'))
+
+    def test_task_reminder_empty_is_reassuring(self):
+        from core.push import build_payload
+        self.assertIn('井井有条', build_payload(self.user, 'task_reminder')['body'])
+
+    def test_ai_summary_uses_ai_reply(self):
+        from unittest.mock import patch
+        from core.push import build_payload
+        self._act('牙医复诊')
+        with patch('core.ai.ai_round_trip',
+                   return_value='今天重点看牙，别的事都可以往后放。') as mock_ai:
+            payload = build_payload(self.user, 'ai_summary')
+        self.assertEqual(mock_ai.call_count, 1)
+        self.assertIn('看牙', payload['body'])
+        self.assertTrue(payload['title'].endswith('AI 总结'))
+
+    def test_ai_summary_falls_back_on_ai_exception(self):
+        """AI 挂掉/无 Agent 配置 → 规则模板兜底，绝不丢推送"""
+        from unittest.mock import patch
+        from core.push import build_payload
+        self._act('牙医复诊')
+        with patch('core.ai.ai_round_trip', side_effect=RuntimeError('down')):
+            payload = build_payload(self.user, 'ai_summary')
+        self.assertIn('牙医复诊', payload['body'])
+
+        with patch('core.ai.ai_round_trip', return_value=None):
+            payload = build_payload(self.user, 'ai_summary')
+        self.assertIn('牙医复诊', payload['body'])
+
+    # ---------- 计划触发与幂等 ----------
+
+    def test_command_fires_due_schedule_once(self):
+        sched = self._sched()
+        _, mock_send, out = self._run()
+        self.assertEqual(mock_send.call_count, 1)
+        self.assertEqual(mock_send.call_args.args[0], self.user)
+        self.assertIn('due=1', out)
+        sched.refresh_from_db()
+        from django.utils import timezone
+        self.assertEqual(sched.last_sent_date, timezone.localdate())
+
+        # 同一天再扫不再发（幂等）
+        _, mock_send2, _ = self._run()
+        self.assertEqual(mock_send2.call_count, 0)
+
+    def test_command_skips_future_and_disabled(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        now = timezone.localtime()
+        # 23 点后跑测试时 +2h 会跨午夜（当天不再存在「未来时间」），条件创建
+        future_dt = now + timedelta(hours=2)
+        if future_dt.date() == now.date():
+            self._sched(time=future_dt.time())
+        self._sched(enabled=False)
+        _, mock_send, out = self._run()
+        self.assertEqual(mock_send.call_count, 0)
+        self.assertIn('due=0', out)
+
+    def test_multiple_schedules_all_fire_same_day(self):
+        """每天多次 = 多条计划，一次扫描各自发各自标，互不影响"""
+        from datetime import timedelta
+        from django.utils import timezone
+        self._sched(push_type='daily_brief')
+        self._sched(push_type='task_reminder')
+        self._sched(push_type='ai_summary')
+        _, mock_send, out = self._run()
+        self.assertEqual(mock_send.call_count, 3)
+        self.assertIn('due=3', out)
+
+        # 全部标记后当天不再重发；次日（模拟 last_sent_date 过期）恢复触发
+        _, mock_send2, _ = self._run()
+        self.assertEqual(mock_send2.call_count, 0)
+        from core.models import PushSchedule
+        PushSchedule.objects.update(last_sent_date=timezone.localdate()
+                                    - timedelta(days=1))
+        _, mock_send3, _ = self._run()
+        self.assertEqual(mock_send3.call_count, 3)
+
+    def test_admin_registered(self):
+        from django.contrib import admin
+        from core.admin import PushScheduleAdmin
+        from core.models import PushSchedule
+        self.assertIsInstance(admin.site._registry.get(PushSchedule),
+                              PushScheduleAdmin)

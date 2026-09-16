@@ -3,7 +3,7 @@ from django.conf import settings
 
 from taggit.models import Tag as TaggitTag
 
-from .models import Tag
+from .models import PushSchedule, Tag
 
 
 # taggit 已被自建 core.Tag 取代（其数据表已由 activities.0016 删除），但
@@ -24,6 +24,16 @@ class TagAdmin(admin.ModelAdmin):
     list_editable = ['is_active', 'sort']
     search_fields = ['name']
     ordering = ['scope', 'sort', 'name']
+
+
+@admin.register(PushSchedule)
+class PushScheduleAdmin(admin.ModelAdmin):
+    """推送计划：内容类型 × 触发时间，即改即生效（下次扫描按新表取）"""
+    list_display = ['user', 'push_type', 'time', 'enabled', 'last_sent_date']
+    list_filter = ['enabled', 'push_type']
+    list_editable = ['time', 'enabled']
+    search_fields = ['user__username']
+    ordering = ['time']
 
 
 # 自定义 Admin 站点标题（品牌名统一取 settings.SITE_NAME）

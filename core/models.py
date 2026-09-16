@@ -66,3 +66,43 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f'{self.user.username} · {self.endpoint[:40]}…'
+
+
+class PushSchedule(models.Model):
+    """推送计划：内容类型 × 触发时间，admin 可配，无需改代码/cron 就能换玩法
+
+    - 一条记录 = 一个「内容 × 时间点」；要多次推送就建多条（如 8 点早报 +
+      20 点提醒），每天各发一次，互不影响；
+    - 触发由 send_scheduled_push 命令（cron 每 5 分钟）扫描，用 last_sent_date
+      保证「同一天同一计划只发一次」：cron 间隔任意改都不会重复，
+      服务重启错过时间点也会补发一次；
+    - 新内容类型 = core.push.build_payload 加一个分支 + 这里的 choices 加一项。"""
+
+    TYPE_CHOICES = [
+        ('daily_brief', '今日早报'),
+        ('task_reminder', '任务提醒'),
+        ('ai_summary', 'AI 任务总结'),
+    ]
+
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE,
+                             related_name='push_schedules')
+    push_type = models.CharField('内容类型', max_length=20, choices=TYPE_CHOICES)
+    time = models.TimeField('触发时间')
+    enabled = models.BooleanField('启用', default=True)
+    last_sent_date = models.DateField('最近发送日期', null=True, blank=True,
+                                      help_text='幂等标记：同一天同一计划只发一次')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '推送计划'
+        verbose_name_plural = verbose_name
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'push_type', 'time'],
+                                    name='uniq_push_schedule_user_type_time'),
+        ]
+        ordering = ['time']
+
+    def __str__(self):
+        # str(self.time)[:5] 而非 {self.time:%H:%M}：实例内存里 time 可能仍是
+        # 未经字段转换的 str（get_or_create 后直接 print 就会踩），time.strftime 会炸
+        return f'{self.user.username} · {self.get_push_type_display()} · {str(self.time)[:5]}'
