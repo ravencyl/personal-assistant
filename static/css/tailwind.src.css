@@ -1,0 +1,10 @@
+/* Tailwind 构建入口：npx tailwindcss -i static/css/tailwind.src.css -o static/css/tailwind.css --minify
+   （或 npm run build:css）。产物入库提交，部署 rsync 直达，无需服务器端构建。
+
+   @source 显式声明扫描范围（相对本文件）：
+   - templates/  全部 Django 模板里的类名（含 Django 条件分支两侧的完整类）
+   - js/         自写 JS 里运行时拼的类名（activity-form.js 等动态创建节点用的）
+   第三方库（htmx/chart.umd/pinyin-pro）不扫，避免候选类膨胀。 */
+@import "tailwindcss";
+@source "../../templates/";
+@source "../js/";

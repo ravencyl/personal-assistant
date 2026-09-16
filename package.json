@@ -1,0 +1,11 @@
+{
+  "name": "personal-assistant-frontend",
+  "private": true,
+  "description": "仅用于构建 static/css/tailwind.css（替代 Play CDN 运行时编译，首屏省 ~400KB JS）",
+  "scripts": {
+    "build:css": "tailwindcss -i static/css/tailwind.src.css -o static/css/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3"
+  }
+}

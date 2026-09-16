@@ -10,3 +10,6 @@ dist/
 build/
 .DS_Store
 .qoder/
+
+# Node/Tailwind 构建工具链
+node_modules/

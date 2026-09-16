@@ -8,7 +8,8 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     {# Web Push VAPID 公钥：push.js 读取，未配置时 push_ready=False 不渲染铃铛入口 #}
     <meta name="vapid-key" content="{{ vapid_public_key }}">
-    <script src="{% staticv 'js/tailwind.js' %}"></script>
+    {# Tailwind 构建产物（npm run build:css 由 css/tailwind.src.css 构建而来）：替代 Play CDN 运行时编译，首屏省 ~400KB JS；改模板/JS 新增类名后必须重新构建，否则新类无样式 #}
+    <link rel="stylesheet" href="{% staticv 'css/tailwind.css' %}">
     {% comment %}
     以下脚本 defer：都不在解析期被内联脚本调用（事件驱动 / DOMContentLoaded 触发），
     延后到 DOM 解析完再执行，导航切换时 head 不再被 80KB JS 阻塞。
