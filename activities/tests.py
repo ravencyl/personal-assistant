@@ -137,6 +137,18 @@ class ActivitySearchTest(TestCase):
         self.assertEqual(self._filter_names(keyword='  ')
                          , {'Team Building 年度活动'})
 
+    def test_status_multi_value(self):
+        """status 支持逗号分隔多值（Web Push 深链用）；非法值被剔除"""
+        Activity.objects.create(user=self.user, name='进行中', status='in_progress')
+        Activity.objects.create(user=self.user, name='计划中', status='planned')
+        Activity.objects.create(user=self.user, name='已完成', status='done')
+        self.assertEqual(self._filter_names(status='in_progress,planned'),
+                         {'进行中', '计划中'})
+        # 单值行为不变
+        self.assertEqual(self._filter_names(status='done'), {'已完成'})
+        # 全非法值 = 不过滤
+        self.assertEqual(len(self._filter_names(status='bogus,foo')), 3)
+
     def test_list_page_search_view_and_tree_ancestors(self):
         """列表页搜索：命中子活动保留祖先链展示，未命中活动隐藏，显示命中提示"""
         parent = Activity.objects.create(user=self.user, name='新西兰之旅')

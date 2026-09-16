@@ -1947,6 +1947,8 @@ class PushScheduleTest(TestCase):
         self.assertIn('2 个任务待处理', payload['body'])
         self.assertIn('「改简历」', payload['body'])
         self.assertTrue(payload['title'].endswith('任务提醒'))
+        # 深链直达未完成筛选视图（sw.js notificationclick 按 payload.url 开页）
+        self.assertEqual(payload['url'], '/activities/?status=in_progress,planned')
 
     def test_task_reminder_empty_is_reassuring(self):
         from core.push import build_payload

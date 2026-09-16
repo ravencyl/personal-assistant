@@ -87,7 +87,8 @@ def build_task_reminder_payload(user):
     return {
         'title': f'{settings.SITE_NAME} · 任务提醒',
         'body': body + '。点开处理',
-        'url': '/',
+        # 深链直达「未完成」筛选视图（in_progress + planned 多值，见 filter_activities）
+        'url': '/activities/?status=in_progress,planned',
     }
 
 

@@ -263,8 +263,13 @@ def filter_activities(user, params):
     """
     qs = visible_qs(Activity, user).prefetch_related('tags')
     status = params.get('status')
+    # 支持逗号分隔多值（如 in_progress,planned）：Web Push 深链用，列表 UI 仍是单选
     if status in dict(Activity.STATUS_CHOICES):
         qs = qs.filter(status=status)
+    elif status:
+        valid = [s for s in status.split(',') if s in dict(Activity.STATUS_CHOICES)]
+        if valid:
+            qs = qs.filter(status__in=valid)
     tag = str(params.get('tag') or '').strip()
     if tag:
         qs = qs.filter(tags__name=tag)
