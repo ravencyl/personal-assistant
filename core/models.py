@@ -40,3 +40,29 @@ class Tag(models.Model):
 
     def __str__(self):
         return f'{self.name}（{self.get_scope_display()}）'
+
+
+class PushSubscription(models.Model):
+    """Web Push 订阅（VAPID）：浏览器厂商推送服务的投递地址 + 端到端加密密钥
+
+    - endpoint 由浏览器厂商生成、全局唯一（同设备重复订阅是同一个地址），
+      unique + update_or_create 让重复「开启推送」幂等；
+    - p256dh/auth 是服务器向厂商服务加密消息所需的密钥对，缺失即推不了；
+    - 发送侧遇到 404/410（用户清了站点数据或订阅过期）自动删记录。"""
+
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE,
+                             related_name='push_subscriptions')
+    endpoint = models.URLField('投递地址', max_length=500, unique=True)
+    p256dh = models.CharField('加密公钥', max_length=100)
+    auth = models.CharField('认证密钥', max_length=100)
+    user_agent = models.CharField('设备标识', max_length=200, blank=True, default='')
+    created_at = models.DateTimeField('订阅时间', auto_now_add=True)
+    last_sent_at = models.DateTimeField('最近推送', null=True, blank=True)
+
+    class Meta:
+        verbose_name = '推送订阅'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user.username} · {self.endpoint[:40]}…'

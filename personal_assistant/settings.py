@@ -83,6 +83,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.qoder_context',
                 'core.context_processors.site_brand',
+                'core.context_processors.push_context',
                 'core.context_processors.expense_tag_suggestions',
             ],
         },
@@ -174,6 +175,12 @@ QODER_DEFAULT_ENVIRONMENT_ID = env('QODER_DEFAULT_ENVIRONMENT_ID', default='')
 # 测试进程强制关闭：避免 500+ 用例里混入真实网络外呼（个别用例用 override_settings 打开并 mock）
 QMIND_SASH_URL = env('QMIND_SASH_URL', default='https://openapi.qoder.com.cn')
 QMIND_NOTEBOOK_ID = '' if 'test' in sys.argv else env('QMIND_NOTEBOOK_ID', default='')
+
+# Web Push（VAPID）：base64url 裸密钥对（core/push.py），sub 需 mailto:/https: 格式；
+# 未配置时推送视为不可用（前端入口隐藏、订阅端点拒绝）
+VAPID_PUBLIC_KEY = env('VAPID_PUBLIC_KEY', default='')
+VAPID_PRIVATE_KEY = env('VAPID_PRIVATE_KEY', default='')
+VAPID_SUBJECT = env('VAPID_SUBJECT', default='mailto:bot@ravenclaw.top')
 
 
 # Login

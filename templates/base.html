@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
     <meta name="csrf-token" content="{{ csrf_token }}">
+    {# Web Push VAPID 公钥：push.js 读取，未配置时 push_ready=False 不渲染铃铛入口 #}
+    <meta name="vapid-key" content="{{ vapid_public_key }}">
     <script src="{% staticv 'js/tailwind.js' %}"></script>
     {% comment %}
     以下脚本 defer：都不在解析期被内联脚本调用（事件驱动 / DOMContentLoaded 触发），
@@ -19,6 +21,8 @@
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
     {# 全站统一确认卡（data-confirm 表单 + paConfirmCard API），替代原生 confirm() 弹窗 #}
     <script defer src="{% staticv 'js/confirm-card.js' %}"></script>
+    {# Web Push 订阅开关（顶栏铃铛），事件驱动 defer 加载；未配置 VAPID 时不加载 #}
+    {% if push_ready %}<script defer src="{% staticv 'js/push.js' %}"></script>{% endif %}
     {% comment %}
     导航预渲染（Speculation Rules）：Chrome 系在 hover/按下时后台完整渲染目标页，
     点击近秒开；Safari/Firefox 忽略本标签，无副作用。
@@ -122,6 +126,13 @@
                                 搜索
                             </button>
                             <span class="hidden md:inline text-sm text-[var(--text-secondary)]">{{ user.username }}</span>
+                            {% if push_ready %}
+                            <button type="button" id="push-toggle-btn" class="tap-target p-2 -mx-1 text-[var(--text-secondary)] hover:text-[var(--text)]" title="开启每日推送">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                                </svg>
+                            </button>
+                            {% endif %}
                             <a href="{% url 'logout' %}" class="tap-target px-2 -mx-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">退出</a>
                         {% else %}
                             <a href="{% url 'login' %}" class="text-sm font-medium text-[var(--text)] hover:text-[var(--text-secondary)]">登录</a>

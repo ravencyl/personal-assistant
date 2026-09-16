@@ -10,7 +10,7 @@
 //     而且 cache.put() 遇到非 GET 会直接抛异常。
 //  3. 只缓存顶层导航。判据只能用 mode === 'navigate'，不能再用「Accept 含 text/html」：
 //     HTMX 的片段请求就是 Accept: text/html,*/*，一旦被缓存，打卡/搜索/聊天会拿到过期片段。
-const CACHE_VERSION = 'personal-assistant-v25';
+const CACHE_VERSION = 'personal-assistant-v26';
 
 // 预缓存的核心静态资源（已自托管，不再依赖 CDN）
 const PRECACHE_URLS = [
@@ -140,4 +140,39 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 其他请求（API、HTMX 片段）：直连网络，一律不缓存
+});
+
+// ── Web Push（VAPID）：服务端经厂商投递过来的是已加密消息，此处只负责解密展示 ──
+// payload 是 core/push.py 发的 JSON：{title, body, url}
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (_) {
+    // 兼容非 JSON 消息：直接把文本当 body，不让通知完全丢失
+    data = { body: event.data && event.data.text() };
+  }
+  event.waitUntil(self.registration.showNotification(data.title || '三磊', {
+    body: data.body || '',
+    icon: '/static/icons/icon.svg',
+    badge: '/static/icons/icon.svg',
+    tag: 'pa-daily-push',
+    data: { url: data.url || '/' },
+  }));
+});
+
+// 点击通知：聚焦已打开的站点，没开就新开首页；通知本身必须关掉
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          const url = new URL(client.url);
+          if (url.pathname === target && 'focus' in client) return client.focus();
+        }
+        return self.clients.openWindow(target);
+      })
+  );
 });

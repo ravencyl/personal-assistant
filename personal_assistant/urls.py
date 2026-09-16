@@ -4,7 +4,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from core.views import (dashboard, search_api, weekly_report, monthly_report, yearly_report,
-                        report_send_to_chat, service_worker)
+                        report_send_to_chat, service_worker,
+                        push_subscribe, push_unsubscribe, push_test)
 from activities.views import daily_view, calendar_feed
 
 urlpatterns = [
@@ -40,6 +41,11 @@ urlpatterns = [
 
     # Global search API
     path('api/search/', search_api, name='global_search'),
+
+    # Web Push（VAPID）：订阅增删 + 测试推送（static/js/push.js 消费）
+    path('api/push/subscribe/', push_subscribe, name='push_subscribe'),
+    path('api/push/unsubscribe/', push_unsubscribe, name='push_unsubscribe'),
+    path('api/push/test/', push_test, name='push_test'),
 
     # Reports
     path('reports/weekly/', weekly_report, name='weekly_report'),

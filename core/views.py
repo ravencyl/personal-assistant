@@ -350,3 +350,71 @@ def service_worker(request):
     # 脚本已在根目录，这个头不是必需；留着以防日后改回子路径注册时踩坑
     response['Service-Worker-Allowed'] = '/'
     return response
+
+
+@login_required
+@require_POST
+def push_subscribe(request):
+    """保存浏览器推送订阅（static/js/push.js 订阅成功后 POST）
+
+    - 只认 JSON body：{endpoint, keys:{p256dh, auth}}（与浏览器
+      PushSubscription.toJSON 同构，前端直接透传）；
+    - endpoint 全局唯一，重复订阅走 update_or_create 幂等更新密钥；
+    - VAPID 未配置时 403（前端入口隐藏，这是双保险）；
+    - 单用户场景不做限流，但 keys 缺字段返回 400 而非报错堆栈。"""
+    import json as _json
+
+    from core.models import PushSubscription
+    from core.push import vapid_ready
+
+    if not vapid_ready():
+        return JsonResponse({'ok': False, 'error': '推送未配置'}, status=403)
+    try:
+        data = _json.loads(request.body)
+        endpoint = data['endpoint']
+        keys = data['keys']
+        p256dh, auth = keys['p256dh'], keys['auth']
+    except (ValueError, KeyError, TypeError):
+        return JsonResponse({'ok': False, 'error': '无效的订阅数据'}, status=400)
+
+    PushSubscription.objects.update_or_create(
+        endpoint=endpoint,
+        defaults={
+            'user': request.user,
+            'p256dh': p256dh,
+            'auth': auth,
+            'user_agent': (request.META.get('HTTP_USER_AGENT') or '')[:200],
+        },
+    )
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def push_unsubscribe(request):
+    """删除推送订阅（浏览器 unsubscribe() 成功后同步清理服务端记录）"""
+    import json as _json
+
+    from core.models import PushSubscription
+
+    try:
+        data = _json.loads(request.body)
+        endpoint = data['endpoint']
+    except (ValueError, KeyError, TypeError):
+        return JsonResponse({'ok': False, 'error': '无效的请求数据'}, status=400)
+    deleted, _ = PushSubscription.objects.filter(
+        user=request.user, endpoint=endpoint).delete()
+    return JsonResponse({'ok': True, 'deleted': deleted})
+
+
+@login_required
+@require_POST
+def push_test(request):
+    """立即给当前用户发一条测试推送（「开启推送」成功后的验证环节）
+
+    复用每日早报的 payload，用户收到即链路全通（订阅有效 + VAPID 签名 +
+    加密投递 + SW 弹通知）。失败不拋错，只返回失败计数给前端提示。"""
+    from core.push import build_daily_payload, send_push_to_user
+
+    sent, cleaned = send_push_to_user(request.user, build_daily_payload(request.user))
+    return JsonResponse({'ok': sent > 0, 'sent': sent, 'cleaned': cleaned})

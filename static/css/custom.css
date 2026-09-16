@@ -349,6 +349,11 @@ a.bg-\[var\(--accent\)\]:active {
     }
 }
 
+/* Web Push 订阅态铃铛：已开启时高亮 accent，一眼可分辨开关状态 */
+#push-toggle-btn.push-on {
+    color: var(--accent);
+}
+
 /* 悬停操作区：桌面有 hover 时随 .group 悬停显示；触屏/移动端常驻可见 */
 .hover-actions {
     opacity: 0;

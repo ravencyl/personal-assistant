@@ -4,3 +4,4 @@ redis>=5.0
 httpx[http2]>=0.27
 django-taggit>=6.0
 django-environ>=0.11
+pywebpush>=2.0

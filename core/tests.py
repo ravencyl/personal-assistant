@@ -1674,3 +1674,238 @@ class QuickChipsTest(TestCase):
                                 start_date=timezone.localdate(), status='planned')
         chips = self._chips()
         self.assertFalse(any('别人的活动' in c for c in chips), chips)
+
+
+VAPID_DUMMY = {
+    'VAPID_PUBLIC_KEY': 'BTest_public_key',
+    'VAPID_PRIVATE_KEY': 'Test_private_key',
+}
+
+
+class WebPushTest(TestCase):
+    """Web Push（VAPID）每日早报：订阅端点 + payload 组装 + 发送与清理
+
+    主动触达是产品最大结构空缺（线上审计：用户不打开站就收不到任何信息）。
+    锁住：幂等订阅、VAPID 双保险、失效订阅清理、cron 命令只发订阅者。
+    """
+
+    ENDPOINT = 'https://fcm.googleapis.com/fcm/send/abc'
+    SUB_BODY = {
+        'endpoint': ENDPOINT,
+        'keys': {'p256dh': 'k' * 40, 'auth': 'a' * 20},
+    }
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        self.user = get_user_model().objects.create_user('push_user', password='p')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def _subscribe(self, body=None):
+        from django.urls import reverse
+        return self.client.post(
+            reverse('push_subscribe'), data=json.dumps(body or self.SUB_BODY),
+            content_type='application/json')
+
+    def test_subscribe_creates_and_is_idempotent(self):
+        from core.models import PushSubscription
+        resp = self._subscribe()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+        self.assertEqual(PushSubscription.objects.count(), 1)
+        sub = PushSubscription.objects.get()
+        self.assertEqual(sub.user, self.user)
+
+        # 同一浏览器重复订阅（重装 SW/重开页面）：幂等更新而非新建
+        new_body = {**self.SUB_BODY,
+                    'keys': {'p256dh': 'new' * 20, 'auth': 'b' * 20}}
+        self._subscribe(new_body)
+        self.assertEqual(PushSubscription.objects.count(), 1)
+        self.assertEqual(PushSubscription.objects.get().p256dh, 'new' * 20)
+
+    def test_subscribe_requires_vapid_configured(self):
+        """VAPID 未配置 → 403（前端入口已隐藏，这里是服务端双保险）"""
+        from django.test import override_settings
+        with override_settings(VAPID_PUBLIC_KEY='', VAPID_PRIVATE_KEY=''):
+            resp = self._subscribe()
+        self.assertEqual(resp.status_code, 403)
+
+    def test_subscribe_rejects_bad_payload(self):
+        from django.urls import reverse
+        for body in ('not json', {'endpoint': 'x'},
+                     {'endpoint': 'x', 'keys': {}}):
+            resp = self.client.post(
+                reverse('push_subscribe'),
+                data=body if isinstance(body, str) else json.dumps(body),
+                content_type='application/json')
+            self.assertEqual(resp.status_code, 400, body)
+
+    def test_unsubscribe_only_own(self):
+        """退订只删自己的记录；别人拿同 endpoint 打接口删不掉（endpoint 全局唯一）"""
+        from django.contrib.auth import get_user_model
+        from django.urls import reverse
+        from core.models import PushSubscription
+        PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+        other = get_user_model().objects.create_user('push_other', password='p')
+
+        client2 = Client()
+        client2.force_login(other)
+        resp = client2.post(
+            reverse('push_unsubscribe'),
+            data=json.dumps({'endpoint': self.ENDPOINT}),
+            content_type='application/json')
+        self.assertEqual(resp.json()['deleted'], 0)
+        self.assertTrue(PushSubscription.objects.filter(endpoint=self.ENDPOINT).exists())
+
+        resp = self._post_json(reverse('push_unsubscribe'), {'endpoint': self.ENDPOINT})
+        self.assertEqual(resp.json()['deleted'], 1)
+        self.assertFalse(PushSubscription.objects.exists())
+
+    def _post_json(self, url, data):
+        return self.client.post(url, data=json.dumps(data),
+                                content_type='application/json')
+
+    def test_push_test_view_reports_sent_count(self):
+        from unittest.mock import patch
+        from django.urls import reverse
+        with patch('core.push.send_push_to_user', return_value=(1, 0)) as mock_send:
+            resp = self.client.post(reverse('push_test'))
+        self.assertTrue(resp.json()['ok'])
+        self.assertEqual(mock_send.call_count, 1)
+
+        with patch('core.push.send_push_to_user', return_value=(0, 0)):
+            resp = self.client.post(reverse('push_test'))
+        self.assertFalse(resp.json()['ok'])
+
+    def test_daily_payload_variants(self):
+        """payload 与 chips 同口径：今日点名/计数、未完成计数、空日兜底"""
+        from datetime import timedelta
+        from django.utils import timezone
+        from activities.models import Activity
+        from core.push import build_daily_payload
+
+        payload = build_daily_payload(self.user)
+        self.assertIn('今天暂无日程安排', payload['body'])
+        self.assertEqual(payload['url'], '/')
+
+        Activity.objects.create(user=self.user, name='牙医复诊',
+                                start_date=timezone.localdate(), status='planned')
+        payload = build_daily_payload(self.user)
+        self.assertIn('「牙医复诊」', payload['body'])
+
+        Activity.objects.create(user=self.user, name='晨跑',
+                                start_date=timezone.localdate(), status='planned')
+        Activity.objects.create(user=self.user, name='进行中', status='in_progress')
+        payload = build_daily_payload(self.user)
+        self.assertIn('2 个活动', payload['body'])
+        self.assertIn('1 个活动还没完成', payload['body'])
+
+        # 已取消不算日程（与 chips 同口径排除 cancelled）
+        Activity.objects.create(user=self.user, name='取消了的',
+                                start_date=timezone.localdate(), status='cancelled')
+        payload = build_daily_payload(self.user)
+        self.assertNotIn('取消了的', payload['body'])
+
+        # 数据隔离：别人的活动不进自己的早报
+        from django.contrib.auth import get_user_model
+        other = get_user_model().objects.create_user('push_other2', password='p')
+        Activity.objects.create(user=other, name='别人的安排',
+                                start_date=timezone.localdate(), status='planned')
+        self.assertNotIn('别人的安排', build_daily_payload(self.user)['body'])
+
+    @override_settings(**VAPID_DUMMY)
+    def test_send_push_ok_updates_last_sent(self):
+        from datetime import datetime
+        from unittest.mock import patch
+        from core.models import PushSubscription
+        from core.push import send_push_to_user
+        sub = PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+        with patch('core.push.webpush') as mock_webpush:
+            sent, cleaned = send_push_to_user(self.user, {'title': 't', 'body': 'b'})
+        self.assertEqual((sent, cleaned), (1, 0))
+        self.assertEqual(mock_webpush.call_count, 1)
+        sub.refresh_from_db()
+        self.assertIsNotNone(sub.last_sent_at)
+        # VAPID 私钥与 subject 从 settings 透传给 pywebpush
+        kwargs = mock_webpush.call_args.kwargs
+        self.assertEqual(kwargs['vapid_private_key'], VAPID_DUMMY['VAPID_PRIVATE_KEY'])
+        self.assertEqual(kwargs['vapid_claims']['sub'], settings.VAPID_SUBJECT)
+
+    @override_settings(**VAPID_DUMMY)
+    def test_send_push_410_cleans_expired_subscription(self):
+        """404/410 = 订阅已失效（清了浏览器数据/取消授权），自动删记录"""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from pywebpush import WebPushException
+        from core.models import PushSubscription
+        from core.push import send_push_to_user
+        PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+        exc = WebPushException('gone')
+        exc.response = SimpleNamespace(status_code=410)
+        with patch('core.push.webpush', side_effect=exc):
+            sent, cleaned = send_push_to_user(self.user, {'title': 't', 'body': 'b'})
+        self.assertEqual((sent, cleaned), (0, 1))
+        self.assertFalse(PushSubscription.objects.exists())
+
+    @override_settings(**VAPID_DUMMY)
+    def test_send_push_other_error_keeps_subscription(self):
+        """非 404/410 的发送失败（网络抖动等）不误删订阅"""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from pywebpush import WebPushException
+        from core.models import PushSubscription
+        from core.push import send_push_to_user
+        PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+        exc = WebPushException('boom')
+        exc.response = SimpleNamespace(status_code=503)
+        with patch('core.push.webpush', side_effect=exc):
+            sent, cleaned = send_push_to_user(self.user, {'title': 't', 'body': 'b'})
+        self.assertEqual((sent, cleaned), (0, 0))
+        self.assertTrue(PushSubscription.objects.exists())
+
+    def test_daily_push_command_only_targets_subscribers(self):
+        from datetime import datetime
+        from io import StringIO
+        from unittest.mock import patch
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+        from core.models import PushSubscription
+        other = get_user_model().objects.create_user('push_nosub', password='p')
+        PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+
+        out = StringIO()
+        with patch('core.management.commands.send_daily_push.build_daily_payload',
+                   return_value={'title': 't', 'body': 'b', 'url': '/'}) as mock_payload, \
+                patch('core.management.commands.send_daily_push.send_push_to_user',
+                      return_value=(1, 0)) as mock_send:
+            call_command('send_daily_push', stdout=out)
+        self.assertEqual(mock_send.call_count, 1)
+        self.assertEqual(mock_send.call_args.args[0], self.user)
+        self.assertEqual(mock_payload.call_count, 1)
+        self.assertIn('sent=1', out.getvalue())
+
+    def test_base_template_push_entry(self):
+        """VAPID 已配置 → 顶栏铃铛 + meta 公钥；未配置 → 入口完全不渲染"""
+        from django.test import override_settings
+        from django.urls import reverse
+        url = reverse('notes:note_list')
+        with override_settings(**VAPID_DUMMY):
+            html = self.client.get(url).content.decode()
+        self.assertIn('push-toggle-btn', html)
+        self.assertIn('name="vapid-key" content="BTest_public_key"', html)
+        self.assertIn('js/push.js', html)
+
+        with override_settings(VAPID_PUBLIC_KEY='', VAPID_PRIVATE_KEY=''):
+            html = self.client.get(url).content.decode()
+        self.assertNotIn('push-toggle-btn', html)
+        self.assertNotIn('js/push.js', html)
