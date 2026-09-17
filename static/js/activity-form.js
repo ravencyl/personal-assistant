@@ -145,13 +145,14 @@
         var toggle = document.getElementById('time-toggle');
         var fields = document.getElementById('time-fields');
         if (!toggle || !fields) return;
+        var labelEl = document.getElementById('time-toggle-label');
         function show() {
             fields.classList.remove('hidden');
-            toggle.textContent = '− 具体时间';
+            if (labelEl) labelEl.textContent = '收起时间';
         }
         function hide() {
             fields.classList.add('hidden');
-            toggle.textContent = '+ 具体时间（可选）';
+            if (labelEl) labelEl.textContent = '添加具体时间（可选）';
         }
         // initWidgets 可被弹窗重挂重复调用：已绑定的 toggle 不能二次 addEventListener
         // （双绑定会让一次点击翻转两次，等于没点）
