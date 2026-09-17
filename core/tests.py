@@ -1871,6 +1871,32 @@ class WebPushTest(TestCase):
         self.assertEqual((sent, cleaned), (0, 0))
         self.assertTrue(PushSubscription.objects.exists())
 
+    @override_settings(**VAPID_DUMMY)
+    def test_send_push_network_error_isolated_per_subscription(self):
+        """单条订阅的网络层异常（如国内连不上 FCM 的 ConnectionError）
+
+        不是 WebPushException：原实现直接炸掉整轮 send_push_to_user，
+        后面的订阅收不到、last_sent_date 落不了库 → 每 5 分钟重发（线上实测）。
+        修后：失败订阅记 'error'，其余订阅正常送达。
+        """
+        from unittest.mock import patch
+        from core.models import PushSubscription
+        from core.push import send_push_to_user
+        sub_a = PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+        sub_b = PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT + 'b',
+            p256dh='k' * 40, auth='a' * 20)
+        with patch('core.push.webpush',
+                   side_effect=[ConnectionError('fcm unreachable'), None]):
+            sent, cleaned = send_push_to_user(self.user, {'title': 't', 'body': 'b'})
+        self.assertEqual((sent, cleaned), (1, 0))
+        # 无订阅被误删；恰好一条送达（不依赖遍历顺序）
+        self.assertEqual(PushSubscription.objects.count(), 2)
+        self.assertEqual(
+            PushSubscription.objects.filter(last_sent_at__isnull=False).count(), 1)
+
     def test_base_template_push_entry(self):
         """VAPID 已配置 → 顶栏铃铛 + meta 公钥；未配置 → 入口完全不渲染"""
         from django.test import override_settings

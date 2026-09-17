@@ -175,6 +175,12 @@ def _send_one(sub, payload):
             return 'expired'
         logger.warning('push send failed (%s): %s', status, exc)
         return 'error'
+    except Exception as exc:
+        # 网络层异常（如国内服务器连不上 fcm.googleapis.com 的 ConnectionError）
+        # 不是 WebPushException：不接住会炸掉整轮投递——后面的订阅收不到、
+        # last_sent_date 落不了库 → 每 5 分钟重发一次（2026-09-17 线上实测踩到）
+        logger.warning('push send failed (network): %s', exc)
+        return 'error'
 
 
 def send_push_to_user(user, payload):
