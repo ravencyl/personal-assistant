@@ -898,6 +898,19 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
         border-bottom: 1px solid var(--border);
         padding: 1.25rem 0.5rem;
         transition: background-color 0.15s ease;
+        position: relative;
+    }
+
+    /* 桌面端操作按钮浮到行右缘垂直居中（传统行式列表交互）；
+     移动端不定位，跟随底部时间行流式排列。背景垫底防压住正文文字。 */
+    .note-item .hover-actions {
+        position: absolute;
+        right: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        background: var(--accent-light);
+        border-radius: 999px;
+        padding: 0.25rem;
     }
 
     .note-list > .note-item:first-child {
