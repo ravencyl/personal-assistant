@@ -1,0 +1,5 @@
+{% comment %}状态 chip 单项：radio 隐藏，label 即点选区，选中样式走 custom.css .status-chip{% endcomment %}
+<label class="status-chip status-chip--{{ widget.value }}">
+  <input type="{{ widget.type }}" name="{{ widget.name }}" value="{{ widget.value }}" {% if widget.selected %}checked{% endif %} {% include "django/forms/widgets/attrs.html" %}>
+  <span class="status-chip-text">{{ widget.label }}</span>
+</label>

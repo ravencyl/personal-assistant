@@ -1,0 +1,6 @@
+{% comment %}状态点选 chips 容器（ChipRadioSelect）：一排 pill 单选{% endcomment %}
+<div class="flex flex-wrap gap-2" role="radiogroup" {% include "django/forms/widgets/attrs.html" %}>
+  {% for group, options, index in widget.optgroups %}
+  {% for option in options %}{% include option.template_name with widget=option %}{% endfor %}
+  {% endfor %}
+</div>

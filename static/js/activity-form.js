@@ -171,11 +171,11 @@
     // ==================== 解析结果回填（弹窗「填入下方表单」与独立页快速填表共用） ====================
     var PARSE_FIELDS = {
         name: 'id_name', start_date: 'id_start_date', end_date: 'id_end_date',
-        status: 'id_status',
         cost: 'id_parsed_cost'
     };
-    // 时间字段是 小时/分钟 两个下拉（HourMinuteSelect），单独按前缀处理
+    // 时间字段是 小时/分钟 两个下拉（HourMinuteSelect），状态是点选 chips（radio 组）
     var TIME_PREFIX = { start_time: 'id_start_time', end_time: 'id_end_time' };
+    var RADIO_FIELDS = { status: 'id_status' };
     var FORM_DEFAULTS = null, lastFilled = [];
 
     function timeEl(prefix, part) {
@@ -202,6 +202,15 @@
         h.value = p[0];
         m.value = p[1];
     }
+    function readRadio(name) {
+        var el = document.querySelector('input[name="' + name + '"]:checked');
+        return el ? el.value : '';
+    }
+    function writeRadio(name, v) {
+        if (!v) return;
+        var el = document.querySelector('input[name="' + name + '"][value="' + v + '"]');
+        if (el) el.checked = true;
+    }
 
     function captureDefaults() {
         if (FORM_DEFAULTS) return;
@@ -212,6 +221,9 @@
         });
         Object.keys(TIME_PREFIX).forEach(function (k) {
             FORM_DEFAULTS[k] = readTime(TIME_PREFIX[k]);
+        });
+        Object.keys(RADIO_FIELDS).forEach(function (k) {
+            FORM_DEFAULTS[k] = readRadio(RADIO_FIELDS[k]);
         });
     }
 
@@ -228,6 +240,18 @@
             } else if (lastFilled.indexOf(k) !== -1) {
                 // 只回滚解析填过的值，用户手输的不动
                 el.value = FORM_DEFAULTS[k];
+                lastFilled = lastFilled.filter(function (x) { return x !== k; });
+            }
+        });
+        Object.keys(RADIO_FIELDS).forEach(function (k) {
+            if (!document.querySelector('input[name="' + RADIO_FIELDS[k] + '"]')) return;
+            var v = d[k];
+            if (v) {
+                writeRadio(RADIO_FIELDS[k], v);
+                if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
+            } else if (lastFilled.indexOf(k) !== -1) {
+                // 只回滚解析填过的值，用户手选的不动
+                writeRadio(RADIO_FIELDS[k], FORM_DEFAULTS[k]);
                 lastFilled = lastFilled.filter(function (x) { return x !== k; });
             }
         });

@@ -54,6 +54,14 @@ class HourMinuteSelect(forms.MultiWidget):
         return '{}:{}'.format(h, m or '00')
 
 
+class ChipRadioSelect(forms.RadioSelect):
+    """状态点选 chips：radio 隐藏 + 语义色标签（样式在 custom.css .status-chip），
+    替代四项下拉——点选比展开-滚动-选中少两层交互。"""
+
+    template_name = 'forms/status_chips.html'
+    option_template_name = 'forms/status_option.html'
+
+
 class ActivityForm(PlainTagFormMixin, forms.ModelForm):
     participants_input = forms.CharField(
         label='参与者',
@@ -96,7 +104,7 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
             # 具体时间可选：模板默认收起（「具体时间」开关展开），导出日历为定点事件
             'start_time': HourMinuteSelect(attrs={'class': INPUT_CLS}),
             'end_time': HourMinuteSelect(attrs={'class': INPUT_CLS}),
-            'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
+            'status': ChipRadioSelect,
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }
 
