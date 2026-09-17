@@ -1385,24 +1385,7 @@ class DailyDesktopLayoutTest(TestCase):
         # 近期完成分组
         Activity.objects.create(user=self.user, name='旧项目结项', status='done',
                                 start_date=today - timedelta(days=2))
-        self.html = self._render_morning()
-
-    def _render_morning(self):
-        """按早间（09:00）渲染：show_today_plan 只在 <18 点为真。
-
-        不固定时段的话，「提醒与子任务」整块会在傍晚以后跑测试时直接不渲染，
-        顺序锁与右列归属锁都会静默空跑。只替换「取当前时间」这一种调用，
-        模板里日期格式化（传 value 的 localtime）仍走原逻辑。
-        """
-        from unittest import mock
-        real = timezone.localtime
-        early = real().replace(hour=9, minute=0, second=0, microsecond=0)
-
-        def fake(value=None, current_timezone=None):
-            return early if value is None else real(value, current_timezone)
-
-        with mock.patch.object(timezone, 'localtime', fake):
-            return self.client.get('/activities/daily/').content.decode()
+        self.html = self.client.get('/activities/daily/').content.decode()
 
     def _at(self, text, anchor, desc):
         """在切片里找锚点位；找不到就是「这块被搬出该列」，当断言失败报而不是 ValueError"""
@@ -1450,7 +1433,7 @@ class DailyDesktopLayoutTest(TestCase):
         cols = self._cols()
         self.assertLess(self._at(cols, 'class="page-rail"', '右列'),
                         self._at(cols, 'class="page-main"', '左列'),
-                        '右列改成 DOM 在后会让移动端「提醒与子任务/统计」下跳，阅读顺序回退')
+                        '右列改成 DOM 在后会让移动端「统计/消费」下跳，阅读顺序回退')
         self.assertIn('page-cols--rail-first', self.html,
                       '缺 rail-first 修饰类：右列在 DOM 前就会出现在桌面左侧，左右颠倒')
         css = self.CSS.read_text(encoding='utf-8')
@@ -1460,7 +1443,7 @@ class DailyDesktopLayoutTest(TestCase):
 
     def test_primary_flow_left_auxiliary_right(self):
         rail, main = self._rail(), self._main()
-        for anchor, desc in [('data-section="daily-plan"', '子任务'), ('今日活动', '今日活动计数'),
+        for anchor, desc in [('今日活动', '今日活动计数'),
                              ('本周消费', '本周消费')]:
             self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
             self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
@@ -1471,7 +1454,7 @@ class DailyDesktopLayoutTest(TestCase):
         """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）。
         2026-09 移动端改造后：移动端快捷入口从 main 提到右列速览卡下方，
         与三数合一速览卡组成「今日速览」组，故「新建活动」先于「本周消费」"""
-        anchors = ['data-section="daily-plan"', '今日活动', '新建活动', '本周消费',
+        anchors = ['今日活动', '新建活动', '本周消费',
                    '今日进行中']
         positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
         self.assertEqual(positions, sorted(positions),
@@ -1496,8 +1479,7 @@ class DailyDesktopLayoutTest(TestCase):
                          '默认折叠只能作用于未手动折叠过的区块')
         self.assertIn("localStorage.getItem('daily_section_' + sectionId)", src,
                       '折叠状态仍走既有 localStorage 机制，不另造一套')
-        self.assertIn("'daily-plan', 'in_progress', "
-                      "'upcoming', 'recently_done'", src,
+        self.assertIn("'in_progress', 'upcoming', 'recently_done'", src,
                       '恢复脚本的分区清单被改，可能有区的折叠状态不再恢复')
 
     def test_no_structural_sm_breakpoint_in_template(self):

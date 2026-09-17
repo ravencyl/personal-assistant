@@ -79,14 +79,9 @@ def daily_view(request):
     ).aggregate(s=Sum('amount'))['s'] or 0
 
     # 问候 + 日期星期
-    hour = timezone.localtime().hour
     greeting = _greeting()
     weekdays = WEEKDAY_LABELS
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
-
-    # 子任务分组（早间 <18 点展示）
-    from core.daily_plan import generate_daily_plan
-    today_plan = generate_daily_plan(request.user)
 
     # 六个分组互斥，合并后一次 attach_costs：
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
@@ -111,8 +106,6 @@ def daily_view(request):
         'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
-        'today_plan': today_plan,
-        'show_today_plan': hour < 18,
     })
 
 

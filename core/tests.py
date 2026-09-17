@@ -24,7 +24,6 @@ from core.cross_link import get_related_content, _tag_intersection_scores
 from core.search import global_search
 from datetime import timedelta
 from django.utils import timezone
-from core.daily_plan import generate_daily_plan
 from core.layout_asserts import (assert_desktop_two_columns, code_only,
                                 python_code_only)
 from core.report_generator import (collect_report_data, generate_report,
@@ -314,60 +313,6 @@ class ReportAgentToolTest(TestCase):
         result = tool['fn'](self.user, {'report_type': 'weekly'})
         self.assertIn('周报', result['reply'])
         self.assertEqual(result['card'], 'report')
-
-
-class DailyPlanTest(TestCase):
-    """Daily 页顶部区数据：只保留下方活动卡片没覆盖的信息，不重复列今日活动"""
-
-    def setUp(self):
-        self.user = User.objects.create_user('planuser', password='test')
-        self.client.login(username='planuser', password='test')
-        self.today = timezone.localdate()
-        # 固定"当前时刻"为当天中午，绕开早间/晚间（hour < 18）时段互斥逻辑
-        self.noon = timezone.localtime().replace(hour=12, minute=0, second=0, microsecond=0)
-
-    def _span_today_activity(self):
-        return Activity.objects.create(
-            user=self.user, name='桐庐周末游', status='in_progress',
-            start_date=self.today - timedelta(days=1),
-            end_date=self.today + timedelta(days=1),
-        )
-
-    def test_plan_no_longer_lists_today_activities(self):
-        """跨今天的活动不再出现在 plan 里（改由「今日进行中」卡片承载）"""
-        self._span_today_activity()
-        plan = generate_daily_plan(self.user)
-        self.assertNotIn('due_today', plan)
-        self.assertTrue(plan['is_empty'])
-
-    def test_daily_page_renames_section(self):
-        """顶部区标题为「子任务」，不再渲染「今日到期」分组"""
-        self._span_today_activity()
-        with patch('django.utils.timezone.localtime', return_value=self.noon):
-            html = self.client.get(reverse('activities:daily')).content.decode()
-        self.assertIn('子任务', html)
-        self.assertNotIn('今日到期', html)
-
-    def test_daily_page_empty_plan_text(self):
-        """空分组时给出对应空状态文案"""
-        with patch('django.utils.timezone.localtime', return_value=self.noon):
-            html = self.client.get(reverse('activities:daily')).content.decode()
-        self.assertIn('今天没有待办子任务', html)
-
-    def test_subtask_groups_grouped_by_parent(self):
-        """未完成子任务按父活动分组，已完成的不列入"""
-        parent = Activity.objects.create(user=self.user, name='桐庐周末游')
-        Activity.objects.create(user=self.user, name='门票', parent=parent,
-                               start_date=self.today)
-        Activity.objects.create(user=self.user, name='高铁', parent=parent,
-                               status='in_progress')
-        Activity.objects.create(user=self.user, name='已订完的酒店', parent=parent,
-                               status='done')
-        plan = generate_daily_plan(self.user)
-        self.assertEqual(len(plan['subtask_groups']), 1)
-        group = plan['subtask_groups'][0]
-        self.assertEqual(group['parent'].name, '桐庐周末游')
-        self.assertEqual({c.name for c in group['children']}, {'门票', '高铁'})
 
 
 class VisibilityHelperTest(TestCase):
