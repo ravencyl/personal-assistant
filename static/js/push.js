@@ -106,7 +106,11 @@
     btn.addEventListener('click', function () {
         getRegistration().then(function (reg) {
             return reg.pushManager.getSubscription().then(function (sub) {
-                if (sub) return unsubscribe(reg);
+                if (sub) {
+                    // 已订阅：先确认再退订，避免误点一次就静默关掉早报
+                    if (!window.confirm('已开启每日推送，确定要关闭吗？\n关闭后每天 8 点的早报将不再推送。')) return null;
+                    return unsubscribe(reg);
+                }
                 if (isIOS() && !isStandalone()) {
                     alert('iPhone 上接收推送需要先把本站添加到主屏幕：\n\nSafari 底部分享按钮 → 「添加到主屏幕」，然后从主屏幕打开再点铃铛。');
                     return null;
