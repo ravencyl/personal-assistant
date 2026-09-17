@@ -45,6 +45,10 @@ class Activity(models.Model):
     description = models.TextField('活动描述', blank=True)
     start_date = models.DateField('开始日期', null=True, blank=True)
     end_date = models.DateField('结束日期', null=True, blank=True)
+    # 具体时间（可选，2026-09-17）：只填日期不填时间的活动行为与展示完全不变；
+    # 带时间的活动导出日历时用 DATE-TIME（含时区）替代全天事件，Apple 日历准点提醒
+    start_time = models.TimeField('开始时间', null=True, blank=True)
+    end_time = models.TimeField('结束时间', null=True, blank=True)
     status = models.CharField(
         '状态',
         max_length=20,
@@ -90,13 +94,27 @@ class Activity(models.Model):
 
     @property
     def date_range(self):
-        """日期范围展示"""
+        """日期范围展示（带具体时间时附在对应日期后）
+
+        时间用 str()[:5] 而非 {t:%H:%M}：实例内存里 time 可能仍是未经字段
+        转换的 str（同 PushSchedule.__str__ 踩过的坑），format spec 会炸。
+        """
+
+        def fmt(d, t):
+            return str(d) + (f' {str(t)[:5]}' if t else '')
+
+        st = str(self.start_time)[:5] if self.start_time else ''
+        et = str(self.end_time)[:5] if self.end_time else ''
         if self.start_date and self.end_date:
-            return f'{self.start_date} ~ {self.end_date}'
+            if self.start_date == self.end_date:
+                if st and et and et > st:
+                    return f'{self.start_date} {st} ~ {et}'
+                return fmt(self.start_date, self.start_time)
+            return f'{fmt(self.start_date, self.start_time)} ~ {fmt(self.end_date, self.end_time)}'
         if self.start_date:
-            return str(self.start_date)
+            return fmt(self.start_date, self.start_time)
         if self.end_date:
-            return f'~ {self.end_date}'
+            return f'~ {fmt(self.end_date, self.end_time)}'
         return '未设定'
 
 

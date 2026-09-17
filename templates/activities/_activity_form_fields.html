@@ -1,13 +1,11 @@
 {# 活动表单字段（不含 form 标签与提交按钮），独立创建/编辑页与列表页弹窗共用；弹窗无 activity 变量走创建模式分支（显示 new_children/parsed_cost） #}
+{# 布局原则（2026-09-17 收紧）：高频字段平铺（名称/日期/时间开关/状态/费用/标签/参与者） #}
+{# 低频字段（描述/父活动/子任务）收进「更多选项」details 折叠区——不删功能，只降视觉高度 #}
+{# 具体时间默认隐藏，点「具体时间」开关展开（展开逻辑在 activity-form.js initWidgets） #}
 <div>
     <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-zinc-800">*</span></label>
     {{ form.name }}
     {% if form.name.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.name.errors.0 }}</p>{% endif %}
-</div>
-
-<div>
-    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述</label>
-    {{ form.description }}
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -20,6 +18,27 @@
         <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
         {{ form.end_date }}
         {% if form.end_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
+    </div>
+</div>
+
+{# 具体时间（可选）：默认收起，开关展开后出现；解析出时间/编辑已有时间的活动会自动展开 #}
+<div>
+    <button type="button" id="time-toggle"
+            class="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors tap-target">
+        + 具体时间（可选）
+    </button>
+    <div id="time-fields" class="hidden mt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
+            {{ form.start_time }}
+            {% if form.start_time.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
+            {{ form.end_time }}
+            {% if form.end_time.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
+        </div>
+        <p class="sm:col-span-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
     </div>
 </div>
 
@@ -37,14 +56,6 @@
     </div>
     {% endif %}
 </div>
-
-{# 父活动仅独立创建页展示：弹窗不渲染（下拉会把未命中/隐藏活动名带进页面，桶内挂靠会污染费用归属），子活动创建在详情页有专属入口 #}
-{% if not hide_parent %}
-<div>
-    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">父活动</label>
-    {{ form.parent }}
-</div>
-{% endif %}
 
 <div>
     <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">标签</label>
@@ -78,10 +89,31 @@
     {% if form.participants_input.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
 </div>
 
-{% if not activity %}
-<div>
-    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.new_children.label }}</label>
-    {{ form.new_children }}
-    <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.new_children.help_text }}</p>
-</div>
-{% endif %}
+{# 低频字段折叠区：描述/父活动/子任务收进来，默认收起（编辑已有描述时自动展开防误以为丢失）；弹窗无 parent（hide_parent）、编辑页无 new_children #}
+<details class="rounded-md border border-[var(--border)] bg-[var(--bg-card)]" {% if form.description.value %}open{% endif %}>
+    <summary class="px-3 py-2 text-sm font-medium text-[var(--text-secondary)] cursor-pointer select-none list-none hover:bg-[var(--accent-light)] rounded-md">
+        更多选项<span class="text-xs font-normal text-[var(--text-muted)]">（描述{% if not hide_parent %}、父活动{% endif %}{% if not activity %}、子任务{% endif %}）</span>
+    </summary>
+    <div class="px-3 pb-3 pt-1 space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述</label>
+            {{ form.description }}
+        </div>
+
+        {# 父活动仅独立创建页展示：弹窗不渲染（下拉会把未命中/隐藏活动名带进页面，桶内挂靠会污染费用归属），子活动创建在详情页有专属入口 #}
+        {% if not hide_parent %}
+        <div>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">父活动</label>
+            {{ form.parent }}
+        </div>
+        {% endif %}
+
+        {% if not activity %}
+        <div>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.new_children.label }}</label>
+            {{ form.new_children }}
+            <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.new_children.help_text }}</p>
+        </div>
+        {% endif %}
+    </div>
+</details>

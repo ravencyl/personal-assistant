@@ -203,6 +203,14 @@ def normalize_input(data, today):
                 pass
     if out.get('start_date') and out.get('end_date') and out['end_date'] < out['start_date']:
         out['start_date'], out['end_date'] = out['end_date'], out['start_date']
+    # 具体时间（可选，2026-09-17）：仅接受 HH:MM/H:MM；孤时间（无任何日期）丢弃
+    for key in ('start_time', 'end_time'):
+        m = re.match(r'^(\d{1,2}):(\d{2})', str(data.get(key) or ''))
+        if m and 0 <= int(m.group(1)) <= 23 and 0 <= int(m.group(2)) <= 59:
+            out[key] = f'{int(m.group(1)):02d}:{int(m.group(2)):02d}'
+    if out.get('start_time') and not out.get('start_date') and not out.get('end_date'):
+        out.pop('start_time')
+        out.pop('end_time', None)
     cost = data.get('cost')
     if cost is not None and cost != '':
         try:

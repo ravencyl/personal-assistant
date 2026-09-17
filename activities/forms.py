@@ -42,12 +42,16 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
 
     class Meta:
         model = Activity
-        fields = ['name', 'description', 'start_date', 'end_date', 'status', 'parent', 'tags']
+        fields = ['name', 'description', 'start_date', 'end_date',
+                  'start_time', 'end_time', 'status', 'parent', 'tags']
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
             'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
+            # 具体时间可选：模板默认收起（「具体时间」开关展开），导出日历为定点事件
+            'start_time': forms.TimeInput(attrs={'class': INPUT_CLS, 'type': 'time'}),
+            'end_time': forms.TimeInput(attrs={'class': INPUT_CLS, 'type': 'time'}),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }
@@ -58,6 +62,9 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
         # 日期字段均非必填，不设置任何默认值
         self.fields['start_date'].required = False
         self.fields['end_date'].required = False
+        # 具体时间均非必填（可选增强：带时间导出日历为定点事件）
+        self.fields['start_time'].required = False
+        self.fields['end_time'].required = False
         # 父活动候选走统一可见性口径（超管不把活动限在自己名下，否则下拉缺项）
         self.fields['parent'].queryset = (
             visible_qs(Activity, user) if user is not None else Activity.objects.none())
@@ -84,6 +91,11 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
         end = cleaned.get('end_date')
         if start and end and end < start:
             raise forms.ValidationError('结束日期不能早于开始日期')
+        # 时间依附于日期存在：孤时间没有意义（日历无法落点），显式报错而非静默丢弃
+        if cleaned.get('start_time') and not start:
+            self.add_error('start_time', '填写开始时间需先填开始日期')
+        if cleaned.get('end_time') and not (start or end):
+            self.add_error('end_time', '填写结束时间需先填开始或结束日期')
         return cleaned
 
     def save_participants(self, activity):

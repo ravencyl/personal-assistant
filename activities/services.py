@@ -139,6 +139,8 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
         parent=parent,
         start_date=data.get('start_date'),
         end_date=data.get('end_date'),
+        start_time=data.get('start_time'),
+        end_time=data.get('end_time'),
         status=data.get('status', 'planned'),
     )
 

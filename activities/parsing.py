@@ -4,7 +4,7 @@
 只提取能明确识别的字段，不做猜测（返回值中不出现的 key = 未识别）。
 """
 import re
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from core.utils import week_monday
 
@@ -32,6 +32,32 @@ COST_PATTERN = re.compile(
     r'(?P<kind>预算|费用|花费|花销|开销|金额|花了)[^0-9]{0,6}(?P<num>[0-9]+(?:\.[0-9]+)?)\s*(?P<unit>千|万|元)?'
 )
 COST_YUAN_PATTERN = re.compile(r'(?P<num>[0-9]+(?:\.[0-9]+)?)\s*(?P<unit>元)')
+
+# 时间表述：词头（凌晨/早上/…/晚上）+ 「X点半/X点Y分/X点」或「HH:MM」钟表格式
+# 无词头的「X点」仅当小时 ≥ 13（如「15点」）才认定；「3点」歧义（凌晨/下午）不猜
+TIME_PATTERN = re.compile(
+    r'(凌晨|早晨|早上|上午|中午|下午|傍晚|晚上|夜里)?\s*'
+    r'(?:(\d{1,2})[点时](半|(\d{1,2})分?)?|(\d{1,2}):(\d{2}))'
+)
+
+
+def _convert_time(m):
+    """时间匹配 → (hour, minute) | None（歧义/越界不猜）"""
+    period, h, half, minutes, h24, m24 = m.groups()
+    if h24 is not None:      # 钟表格式 HH:MM，本身就是 24 小时制
+        h, mi = int(h24), int(m24)
+    else:
+        h, mi = int(h), (30 if half else int(minutes or 0))
+        if period is None:
+            if h < 13:       # 裸「3点」无词头，无法区分上下午 → 不猜
+                return None
+        elif period in ('下午', '傍晚', '晚上', '夜里') and h < 12:
+            h += 12
+        elif period == '中午' and h <= 2:
+            h += 12          # 中午1点=13:00；中午12点保持 12
+    if not (0 <= h <= 23 and 0 <= mi <= 59):
+        return None
+    return h, mi
 
 
 def _overlap(span, spans):
@@ -149,6 +175,15 @@ def parse_quick_input(text, today=None):
         month_end = date(today.year, today.month, 1) + timedelta(days=32)
         add_dates([month_end.replace(day=1) - timedelta(days=1)], m.span())
 
+    # 5.5 时间收集（第一个→开始时间，第二个→结束时间；识别后从名称剔除。
+    # 只有同时识别到日期才输出：孤时间无法落到日历，与其存怪数据不如不猜）
+    times = []
+    for m in TIME_PATTERN.finditer(text):
+        converted = _convert_time(m)
+        if converted and not _overlap(m.span(), spans):
+            times.append((converted, m.span()))
+            spans.append(m.span())
+
     if found:
         found.sort(key=lambda item: item[1][0])
         start, end = found[0][0], found[-1][0]
@@ -156,6 +191,9 @@ def parse_quick_input(text, today=None):
             start, end = end, start
         result['start_date'] = start.isoformat()
         result['end_date'] = end.isoformat()
+        for (h, mi), _span in times[:2]:
+            key = 'start_time' if 'start_time' not in result else 'end_time'
+            result[key] = time(h, mi).strftime('%H:%M')
 
     # 6. 名称：剔除全部已识别片段后的剩余文本
     chars = list(text)

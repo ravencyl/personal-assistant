@@ -153,6 +153,7 @@ def _ai_parse(text, today):
             f'从用户输入中提取活动记录的字段，只返回一个 JSON 对象（不要解释、不要 markdown 代码块）。\n'
             f'{_week_anchor_text(today)}\n'
             '字段：name（活动名称，字符串）、start_date、end_date（YYYY-MM-DD，相对日期如明天/昨天/上周六/月底/下周五请换算为绝对日期，未写年份用当年）、'
+            'start_time、end_time（HH:MM 24 小时制，如 14:00、15:30；用户写「下午3点」换算为 15:00、「上午9点半」换算为 09:30，只识别有明确上下午/词头或钟表格式的时间，未写时间则不出现在 JSON 中）、'
             'cost（数字，单位元，指已经花掉的钱）、'
             'status（planned/in_progress/done/cancelled 之一）、'
             'tags（字符串数组）、participants（字符串数组）。\n'

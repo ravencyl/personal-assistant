@@ -9,13 +9,17 @@ CalDAV 需要完整协议栈（PROPFIND/REPORT/etag 同步、鉴权挑战）与�
   done / cancelled 不进日历，保持日历干净。
 - 全天事件：DTSTART/DTEND 用 DATE 值；RFC 5545 规定 DTEND 为排他日期，
   故跨天活动导出为 end_date + 1 天。
+- 带具体时间的活动（2026-09-17）：DTSTART/DTEND 用 DATE-TIME 值，
+  统一转 UTC（Z 后缀，无需 VTIMEZONE 块），Apple 日历会在准确时刻提醒；
+  结束时间缺省时按「跨度 = 日期差 + 1 小时」收尾（跨天用同时间补足整天）。
+- 全天/定点两种模式共存：只要 start_time 为空就仍按全天导出。
 - 状态映射：in_progress → STATUS:CONFIRMED，planned → STATUS:TENTATIVE；
   CATEGORIES 写状态中文，便于在日历 App 里按分类辨识。
 - 详情页链接同时写入 URL 与 DESCRIPTION，方便从日历跳回站点。
 - 每个 VEVENT 附带 VALARM（提前 1 天提醒）；订阅日历若未触发，
   可在 Apple 日历中为该订阅日历设置「默认提醒」兜底。
 """
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.utils import timezone
 
@@ -64,6 +68,31 @@ def _date_param(d):
     return d.strftime('%Y%m%d')
 
 
+def _datetime_param(aware_dt):
+    """DATE-TIME 值（定点事件）：统一转 UTC，Z 后缀，避免 VTIMEZONE 块。"""
+    # 注意：django.utils.timezone.utc 在 Django 5 已移除，用标准库的
+    return aware_dt.astimezone(dt_timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+
+def _timed_datetimes(activity):
+    """定点活动的 (start_dt, end_dt)；start_time 未设返回 None（维持全天导出）。"""
+    if not activity.start_time:
+        return None
+    start = activity.start_date or activity.end_date
+    end = activity.end_date or activity.start_date
+    if start is None or end is None:
+        return None
+    start_dt = timezone.make_aware(datetime.combine(start, activity.start_time))
+    if activity.end_time:
+        end_dt = timezone.make_aware(datetime.combine(end, activity.end_time))
+    else:
+        # 未填结束时间：按「日期跨度 + 1 小时」收尾（当天 1 小时，跨天补足整天）
+        end_dt = start_dt + timedelta(days=(end - start).days, hours=1)
+    if end_dt <= start_dt:   # 同刻/倒挂兑底：保底 1 小时，不产生零时长/负时长事件
+        end_dt = start_dt + timedelta(hours=1)
+    return start_dt, end_dt
+
+
 def exportable_activities(user):
     """可导出到日历的活动集合（按用户隔离，遵守可见性约定）。"""
     today = timezone.localdate()
@@ -96,13 +125,24 @@ def _event_lines(activity, base_url):
     # iCloud 日历不展示 CATEGORIES，状态直接拼在名称后（2026-09-12 用户要求）
     summary = f'{_escape_text(activity.name)} - [{status_label}]'
 
+    timed = _timed_datetimes(activity)
+    if timed:
+        start_dt, end_dt = timed
+        dtstart = f'DTSTART:{_datetime_param(start_dt)}'
+        dtend = f'DTEND:{_datetime_param(end_dt)}'
+        alarm_trigger = 'TRIGGER:-PT30M'   # 定点事件提前半小时提醒
+    else:
+        dtstart = f'DTSTART;VALUE=DATE:{_date_param(start)}'
+        # RFC 5545：DTEND 为排他日期
+        dtend = f'DTEND;VALUE=DATE:{_date_param(end + timedelta(days=1))}'
+        alarm_trigger = 'TRIGGER:-P1D'
+
     lines = [
         'BEGIN:VEVENT',
         f'UID:activity-{activity.pk}@ravenclaw.top',
         f'DTSTAMP:{timezone.now():%Y%m%dT%H%M%SZ}',
-        f'DTSTART;VALUE=DATE:{_date_param(start)}',
-        # RFC 5545：DTEND 为排他日期
-        f'DTEND;VALUE=DATE:{_date_param(end + timedelta(days=1))}',
+        dtstart,
+        dtend,
         f'SUMMARY:{summary}',
         f'DESCRIPTION:{description}',
         f'URL:{detail_url}',
@@ -112,7 +152,7 @@ def _event_lines(activity, base_url):
         'BEGIN:VALARM',
         'ACTION:DISPLAY',
         f'DESCRIPTION:{_escape_text(activity.name)}',
-        'TRIGGER:-P1D',
+        alarm_trigger,
         'END:VALARM',
         'END:VEVENT',
     ]

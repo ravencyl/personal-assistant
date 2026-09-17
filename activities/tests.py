@@ -787,6 +787,116 @@ class RelativeDateParsingTest(TestCase):
         self.assertIn('不得早于今天', anchor)
 
 
+class TimeParsingTest(TestCase):
+    """规则解析识别具体时间表述（2026-09-17）：「明天下午3点」→ 15:00
+
+    原则与日期一致：只提取能明确识别的时间，歧义不猜；
+    无日期的孤时间不输出（无法落到日历）。
+    """
+
+    def parsed(self, text):
+        return parse_quick_input(text, date(2026, 9, 17))
+
+    def test_period_word_and_half(self):
+        d = self.parsed('明天下午3点半看牙')
+        self.assertEqual(d['start_date'], '2026-09-18')
+        self.assertEqual(d['start_time'], '15:30')
+        self.assertEqual(d['name'], '看牙')
+
+    def test_clock_format_and_end_time(self):
+        d = self.parsed('9月20日14:30到16:00开会')
+        self.assertEqual(d['start_date'], '2026-09-20')
+        self.assertEqual(d['start_time'], '14:30')
+        self.assertEqual(d['end_time'], '16:00')
+        self.assertEqual(d['name'], '开会')
+
+    def test_various_periods(self):
+        # 文本须带日期：孤时间按设计不输出（见 test_orphan_time_without_date_dropped）
+        self.assertEqual(self.parsed('明天晚上8点跑步')['start_time'], '20:00')
+        self.assertEqual(self.parsed('明天上午9点体检')['start_time'], '09:00')
+        self.assertEqual(self.parsed('明天中午12点聚餐')['start_time'], '12:00')
+        self.assertEqual(self.parsed('明天中午1点吃饭')['start_time'], '13:00')
+        self.assertEqual(self.parsed('明天15点取快递')['start_time'], '15:00')
+
+    def test_ambiguous_bare_hour_not_guessed(self):
+        """裸「3点」无词头不猜上下午；不产生时间，名称保留原文"""
+        d = self.parsed('明天3点出门')
+        self.assertNotIn('start_time', d)
+        self.assertIn('3点', d['name'])
+
+    def test_orphan_time_without_date_dropped(self):
+        """只有时间没有日期 → 不输出时间（孤时间落不到日历）"""
+        d = self.parsed('下午3点开会')
+        self.assertNotIn('start_time', d)
+        self.assertNotIn('start_date', d)
+
+    def test_time_spans_removed_from_name(self):
+        d = self.parsed('下周三早上7点半晨跑')
+        self.assertEqual(d['name'], '晨跑')
+        self.assertEqual(d['start_time'], '07:30')
+
+    def test_normalize_time_and_orphan_drop(self):
+        from activities.utils import normalize_input
+        out = normalize_input({'name': 'x', 'start_date': '2026-09-18',
+                               'start_time': '15:00', 'end_time': '9:30'}, date(2026, 9, 17))
+        self.assertEqual(out['start_time'], '15:00')
+        self.assertEqual(out['end_time'], '09:30')
+        out = normalize_input({'name': 'x', 'start_time': '15:00'}, date(2026, 9, 17))
+        self.assertNotIn('start_time', out)   # 无日期孤时间丢弃
+        out = normalize_input({'name': 'x', 'start_time': '25:00'}, date(2026, 9, 17))
+        self.assertNotIn('start_time', out)   # 越界丢弃
+
+
+class TimedActivityModelTest(TestCase):
+    """Activity 具体时间字段：date_range 展示与表单校验"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('tu', password='x')
+
+    def test_date_only_unchanged(self):
+        """只填日期不填时间：展示与原先完全一致"""
+        a = Activity.objects.create(user=self.user, name='x',
+                                    start_date=date(2026, 9, 20), end_date=date(2026, 9, 21))
+        self.assertEqual(a.date_range, '2026-09-20 ~ 2026-09-21')
+        single = Activity.objects.create(user=self.user, name='y', start_date=date(2026, 9, 20))
+        self.assertEqual(single.date_range, '2026-09-20')
+
+    def test_date_range_with_times(self):
+        from datetime import time
+        a = Activity.objects.create(user=self.user, name='x', start_date=date(2026, 9, 20),
+                                    end_date=date(2026, 9, 20), start_time=time(14, 0),
+                                    end_time=time(16, 0))
+        self.assertEqual(a.date_range, '2026-09-20 14:00 ~ 16:00')
+        multi = Activity.objects.create(user=self.user, name='y', start_date=date(2026, 9, 20),
+                                        end_date=date(2026, 9, 22), start_time=time(9, 0))
+        self.assertEqual(multi.date_range, '2026-09-20 09:00 ~ 2026-09-22')
+
+    def test_form_requires_date_for_time(self):
+        from activities.forms import ActivityForm
+        form = ActivityForm({'name': 'x', 'status': 'planned', 'start_time': '15:00'},
+                            user=self.user)
+        self.assertFalse(form.is_valid())
+        self.assertIn('start_time', form.errors)
+        # 带日期则通过，且时间字段被保存
+        form = ActivityForm({'name': 'x', 'status': 'planned',
+                             'start_date': '2026-09-20',
+                             'start_time': '15:00', 'end_time': '16:00'}, user=self.user)
+        self.assertTrue(form.is_valid(), form.errors)
+        obj = form.save(commit=False)   # user 由视图层注入，表单不含该字段
+        obj.user = self.user
+        obj.save()
+        self.assertEqual(str(obj.start_time)[:5], '15:00')
+
+    def test_create_from_parsed_passes_times(self):
+        from activities.utils import normalize_input
+        data = normalize_input({'name': '牙医', 'start_date': '2026-09-18',
+                                'start_time': '15:30'}, date(2026, 9, 17))
+        result = create_activity_from_parsed(self.user, data, source='测试')
+        a = result['activity']
+        self.assertEqual(str(a.start_time), '15:30')
+        self.assertIsNone(a.end_time)
+
+
 class DailyBucketSingleDefinitionTest(TestCase):
     """「日常开支」归属桶单一判定（H5）
 
@@ -2012,6 +2122,65 @@ class CalendarFeedTest(TestCase):
         # UID 稳定 + 详情链接
         self.assertIn('UID:activity-', body)
         self.assertIn('/activities/', body)
+
+    def test_timed_activity_exports_datetime_utc(self):
+        """带时间活动导出 DATE-TIME（UTC Z 后缀），Apple 日历准点提醒而非全天
+
+        2026-09-17：本地 14:00（Asia/Shanghai）应导出为 06:00Z；
+        定点事件不再出现 VALUE=DATE 行，提醒从提前 1 天改为提前 30 分钟。
+        """
+        from datetime import datetime, time as dt_time, timezone as dt_timezone
+        self._mk(name='定点活动', start_date=self.today, end_date=self.today,
+                 start_time=dt_time(14, 0), end_time=dt_time(16, 0))
+        body = self.client.get(self._feed_url()).content.decode()
+
+        def utc(h, m):
+            aware = timezone.make_aware(datetime.combine(self.today, dt_time(h, m)))
+            return aware.astimezone(dt_timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+        self.assertIn(f'DTSTART:{utc(14, 0)}', body)
+        self.assertIn(f'DTEND:{utc(16, 0)}', body)
+        self.assertNotIn('DTSTART;VALUE=DATE', body)
+        self.assertIn('TRIGGER:-PT30M', body)
+        self.assertNotIn('TRIGGER:-P1D', body)
+
+    def test_timed_end_time_defaults_and_inverted_fallback(self):
+        """只填开始时间 → 跨度+1 小时收尾；结束时间早于开始 → 兜底 1 小时"""
+        from datetime import datetime, time as dt_time, timezone as dt_timezone
+
+        def utc(h, m):
+            aware = timezone.make_aware(datetime.combine(self.today, dt_time(h, m)))
+            return aware.astimezone(dt_timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+        self._mk(name='只有开始时间', start_date=self.today, end_date=self.today,
+                 start_time=dt_time(9, 0), end_time=None)
+        body = self.client.get(self._feed_url()).content.decode()
+        self.assertIn(f'DTSTART:{utc(9, 0)}', body)
+        self.assertIn(f'DTEND:{utc(10, 0)}', body)
+
+        Activity.objects.all().delete()
+        self._mk(name='时间倒挂', start_date=self.today, end_date=self.today,
+                 start_time=dt_time(18, 0), end_time=dt_time(8, 0))
+        body = self.client.get(self._feed_url()).content.decode()
+        self.assertIn(f'DTSTART:{utc(18, 0)}', body)
+        self.assertIn(f'DTEND:{utc(19, 0)}', body)
+
+    def test_all_day_and_timed_coexist(self):
+        """纯日期活动维持全天导出，带时间活动走 DATE-TIME，两种模式共存"""
+        from datetime import time as dt_time
+        self._mk(name='全天活动')
+        self._mk(name='定点活动', start_date=self.today, end_date=self.today,
+                 start_time=dt_time(14, 0))
+        body = self.client.get(self._feed_url()).content.decode()
+        d = self.today.strftime('%Y%m%d')
+        # 全天：DATE 值 + 提前 1 天
+        self.assertIn(f'DTSTART;VALUE=DATE:{d}', body)
+        self.assertIn('TRIGGER:-P1D', body)
+        # 定点：DATE-TIME 值 + 提前 30 分钟
+        self.assertIn('DTSTART:2', body)
+        self.assertIn('TRIGGER:-PT30M', body)
+        self.assertIn('全天活动', body)
+        self.assertIn('定点活动', body)
 
     def test_subtask_exported(self):
         """符合条件的子任务也进日历，描述里带父活动名"""

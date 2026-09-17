@@ -92,7 +92,10 @@
             var parts = ['<span class="font-medium text-[var(--text)]">' + esc(d.name) + '</span>'];
             if (d.start_date) {
                 parts.push('<span class="text-[var(--text-secondary)]">' + d.start_date +
-                    (d.end_date && d.end_date !== d.start_date ? ' ~ ' + d.end_date : '') + '</span>');
+                    (d.start_time ? ' ' + d.start_time : '') +
+                    (d.end_date && d.end_date !== d.start_date
+                        ? ' ~ ' + d.end_date + (d.end_time ? ' ' + d.end_time : '')
+                        : (d.end_time && d.end_time !== d.start_time ? ' ~ ' + d.end_time : '')) + '</span>');
             }
             if (d.cost !== undefined && d.cost !== null) {
                 parts.push('<span class="text-[var(--text-secondary)]">费用 ¥ ' + esc(String(d.cost)) + '</span>');

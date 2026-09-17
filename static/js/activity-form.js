@@ -120,6 +120,7 @@
     // 挂载 chips 组件（字段 DOM 不存在时跳过；可重复调用，每次整体重建）
     function initWidgets() {
         window.__chipsInputs = {};
+        initTimeToggle();   // 弹窗重挂后时间开关也要重新就位（幂等，防重绑见函数内）
         if (document.getElementById('participant-box') && document.getElementById('participant-options')) {
             window.__chipsInputs.participants = initChipsInput({
                 boxId: 'participant-box', inputId: 'participant-input', suggestId: 'participant-suggest',
@@ -139,9 +140,38 @@
         return window.__chipsInputs;
     }
 
+    // ==================== 具体时间可选字段：默认收起，开关展开（表单减负，2026-09-17） ====================
+    function initTimeToggle() {
+        var toggle = document.getElementById('time-toggle');
+        var fields = document.getElementById('time-fields');
+        if (!toggle || !fields) return;
+        function show() {
+            fields.classList.remove('hidden');
+            toggle.textContent = '− 具体时间';
+        }
+        function hide() {
+            fields.classList.add('hidden');
+            toggle.textContent = '+ 具体时间（可选）';
+        }
+        // initWidgets 可被弹窗重挂重复调用：已绑定的 toggle 不能二次 addEventListener
+        // （双绑定会让一次点击翻转两次，等于没点）
+        if (!toggle.dataset.timeToggleBound) {
+            toggle.dataset.timeToggleBound = '1';
+            toggle.addEventListener('click', function () {
+                fields.classList.contains('hidden') ? show() : hide();
+            });
+        }
+        // 编辑已有时间的活动 / 解析出时间后自动展开（openTimeFields 供 fillForm 调用）
+        initTimeToggle.openTimeFields = show;
+        var st = document.getElementById('id_start_time');
+        var et = document.getElementById('id_end_time');
+        if ((st && st.value) || (et && et.value)) show();
+    }
+
     // ==================== 解析结果回填（弹窗「填入下方表单」与独立页快速填表共用） ====================
     var PARSE_FIELDS = {
         name: 'id_name', start_date: 'id_start_date', end_date: 'id_end_date',
+        start_time: 'id_start_time', end_time: 'id_end_time',
         status: 'id_status',
         cost: 'id_parsed_cost'
     };
@@ -174,11 +204,15 @@
         });
         if (d.tags && chips.tags) chips.tags.setNames(d.tags);
         if (d.participants && chips.participants) chips.participants.setNames(d.participants);
+        // 解析出时间 → 自动展开时间区（收起状态看不到回填值，等于没填）
+        if ((d.start_time || d.end_time) && initTimeToggle.openTimeFields) {
+            initTimeToggle.openTimeFields();
+        }
     }
 
     // ==================== 独立页自动初始化（chips + 快速填表 + 草稿） ====================
     function autoInit() {
-        initWidgets();
+        initWidgets();   // 含时间开关初始化（幂等）
 
         var qInput = document.getElementById('form-quick-input');
         if (!qInput) return;
