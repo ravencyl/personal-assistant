@@ -168,6 +168,22 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
             'skipped': skipped, 'created': created}
 
 
+def change_activity_status(activity, user, status, *, via=''):
+    """状态变更的统一写库处（页面快捷按钮 / AI 单改 / AI 批量三入口共用）
+
+    调用方负责保证 status 合法且 != activity.status；本函数只做落库 + 日志，
+    返回 (old_label, new_label) 供调用方拼提示文案。via 为来源后缀，只进日志。
+    """
+    labels = dict(Activity.STATUS_CHOICES)
+    old_label = labels.get(activity.status, activity.status)
+    activity.status = status
+    activity.save(update_fields=['status', 'updated_at'])
+    new_label = labels.get(status, status)
+    log_activity(user, activity, 'status_changed',
+                 f'状态「{old_label}」→「{new_label}」' + (f'（{via}）' if via else ''))
+    return old_label, new_label
+
+
 def due_activities(user=None):
     """到期该转为进行中的活动集（开始日期已到且状态仍为 planned）
 

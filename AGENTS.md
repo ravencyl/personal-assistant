@@ -300,14 +300,16 @@ REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 - `DEBUG=True`（开发）：LocMemCache 缓存
 - `DEBUG=False`（生产）：RedisCache + `SECURE_PROXY_SSL_HEADER` + 安全 Cookie
 
-## 修改 activities/views.py 前须知
+## 修改 activities/views/ 包前须知
+
+views 已按功能域拆包（2026-09-17，原单文件 views.py）：`_common`（共享小工具）、`quick_input_views`、`list_views`、`detail_views`、`form_views`、`expense_views`、`calendar_views`、`daily_views`；`views/__init__.py` 统一再导出，路由与测试仍从 `activities.views` 取符号，不要绕过包入口直接跨模块 import 私有函数。
 
 1. **可见性过滤**：所有查询通过 `visible_qs(Activity, request.user)` 或 `get_visible(Activity, request.user, ...)` 过滤，导入自 `core.utils`
 2. **渲染目标**：视图返回标准 Django `render()` / `JsonResponse()`，HTMX 交互由模板层 `hx-*` 属性控制（主要在 `activity_list.html` 的筛选表单和列表区域）
 3. **装饰器顺序**：`@login_required` → `@ensure_csrf_cookie`（如需）→ `@require_POST`（写操作）
 4. **标签建议**：`_user_tag_names(request.user)` 返回可见范围内已使用过的标签，供表单 autocomplete
 5. **快速输入**：`parse_quick_input_view` 先调 AI（Qoder agent），失败降级为 `parsing.parse_quick_input` 规则解析。两条路径的相对日期口径必须一致（含昨天/前天/大前天/N天前/上周X 这类**往回看**的说法，补记的花费要落在花钱那天）：改一边要同步 `_week_anchor_text` 与 `RelativeDateParsingTest`
-6. **写路径走 `activities/services.py`**：创建活动（含子任务）与记费用一律调 `create_activity_from_parsed` / `add_expense`，视图与 Agent 工具只做取参、鉴权、渲染；禁止在视图/工具里直接 `Activity.objects.create` 或 `Expense.objects.create`
+6. **写路径走 `activities/services.py`**：创建活动（含子任务）与记费用一律调 `create_activity_from_parsed` / `add_expense`，视图与 Agent 工具只做取参、鉴权、渲 染；状态变更一律调 `change_activity_status`（页面快捷按钮 / AI 单改 / AI 批量三入口共用）；禁止在视图/工具里直接 `Activity.objects.create` 或 `Expense.objects.create`
 
 ### 写入口径（services 已统一，新增入口不得偏离）
 

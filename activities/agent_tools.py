@@ -21,8 +21,8 @@ from core.utils import get_visible, visible_qs
 from core.tags import apply_tags, tag_names
 from chat.models import Message
 from .models import Activity, Expense, ActivityComment
-from .services import (InputError, add_expense, clean_amount,
-                       create_activity_from_parsed)
+from .services import (InputError, add_expense, change_activity_status,
+                       clean_amount, create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
                     fmt_field, get_daily_bucket, log_activity,
                     normalize_input, resolve_participants, snapshot_activity,
@@ -245,13 +245,9 @@ def tool_set_status(user, params):
             'activity_ids': [activity.id],
             'card_data': _activity_card_data(activity),
         }
-    old_label = STATUS_LABELS[activity.status]
-    activity.status = status
-    activity.save(update_fields=['status', 'updated_at'])
-    log_activity(user, activity, 'status_changed',
-                 f'状态「{old_label}」→「{STATUS_LABELS[status]}」（通过 AI 对话）')
+    old_label, new_label = change_activity_status(activity, user, status, via='AI 对话')
     return {
-        'reply': f'已将「{activity.name}」的状态从「{old_label}」改为「{STATUS_LABELS[status]}」',
+        'reply': f'已将「{activity.name}」的状态从「{old_label}」改为「{new_label}」',
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
@@ -978,11 +974,7 @@ def apply_batch_status(user, params):
     activities = visible_qs(Activity, user).filter(id__in=target_ids)
     count = 0
     for a in activities:
-        old_label = dict(Activity.STATUS_CHOICES).get(a.status, a.status)
-        a.status = status
-        a.save(update_fields=['status', 'updated_at'])
-        log_activity(user, a, 'status_changed',
-                     f'状态「{old_label}」→「{dict(Activity.STATUS_CHOICES).get(status, status)}」（通过 AI 对话批量操作）')
+        change_activity_status(a, user, status, via='AI 对话批量操作')
         count += 1
     if count == 0:
         return {
