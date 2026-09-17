@@ -873,14 +873,17 @@ class TimedActivityModelTest(TestCase):
 
     def test_form_requires_date_for_time(self):
         from activities.forms import ActivityForm
-        form = ActivityForm({'name': 'x', 'status': 'planned', 'start_time': '15:00'},
+        # 时间字段是 HourMinuteSelect 双下拉，POST 字段名为 start_time_0（时）/ _1（分）
+        form = ActivityForm({'name': 'x', 'status': 'planned',
+                             'start_time_0': '15', 'start_time_1': '00'},
                             user=self.user)
         self.assertFalse(form.is_valid())
         self.assertIn('start_time', form.errors)
         # 带日期则通过，且时间字段被保存
         form = ActivityForm({'name': 'x', 'status': 'planned',
                              'start_date': '2026-09-20',
-                             'start_time': '15:00', 'end_time': '16:00'}, user=self.user)
+                             'start_time_0': '15', 'start_time_1': '00',
+                             'end_time_0': '16', 'end_time_1': '00'}, user=self.user)
         self.assertTrue(form.is_valid(), form.errors)
         obj = form.save(commit=False)   # user 由视图层注入，表单不含该字段
         obj.user = self.user

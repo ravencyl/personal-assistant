@@ -9,35 +9,49 @@ from .utils import resolve_participants
 
 INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
 
-# 具体时间用 15 分钟一格的下拉（96 格）替代原生 time 输入：移动端时间滚轮按分钟一格滚太慢
-TIME_CHOICES = [('', '—')] + [
-    ('%02d:%02d' % (h, m), '%02d:%02d' % (h, m))
-    for h in range(24) for m in (0, 15, 30, 45)]
+# 具体时间拆成 小时 + 分钟 两个下拉（分钟 15 分钟一格）：单下拉 96 格太长不好选
+HOUR_CHOICES = [('', '—')] + [('%02d' % h, '%02d' % h) for h in range(24)]
+MINUTE_CHOICES = [('', '—')] + [('%02d' % m, '%02d' % m) for m in (0, 15, 30, 45)]
 
 
-class QuarterHourSelect(forms.Select):
-    """15 分钟粒度时间下拉。当前值不在格点上（解析出 14:07 之类 / 历史数据）时
-    追加为临时选项，保证编辑回显不丢值。"""
-
-    def __init__(self, attrs=None, choices=TIME_CHOICES):
-        super().__init__(attrs, choices)
-
-    def format_value(self, value):
-        # ChoiceWidget 约定 format_value 返回 list（optgroups 里对 value 做成员匹配，
-        # 返回字符串会退化成子串匹配）。get_context 会二次调用，须幂等。
-        if value in (None, ''):
-            return ['']
-        if isinstance(value, (list, tuple)):
-            return list(value)
-        if isinstance(value, str):
-            return [value[:5]]
-        return [value.strftime('%H:%M')]
+class _TimePartSelect(forms.Select):
+    """时/分子下拉：当前值不在选项中（历史数据 14:07 之类）时追加为临时选项，
+    保证编辑回显不丢值（否则静默丢 selected，保存后会静默改值）。"""
 
     def optgroups(self, name, value, attrs=None):
         current = value[0] if value else None
         if current and (current, current) not in self.choices:
             self.choices.append((current, current))
         return super().optgroups(name, value, attrs)
+
+
+class HourMinuteSelect(forms.MultiWidget):
+    """小时/分钟双下拉时间选择。value_from_datadict 合并为 'HH:MM' 交给 TimeField，
+    未选小时视为空（只选分钟不会意外落成凌晨）；decompress 支持编辑回显与字符串值。"""
+
+    template_name = 'forms/hour_minute.html'
+
+    def __init__(self, attrs=None):
+        widgets = (
+            _TimePartSelect(attrs=attrs, choices=HOUR_CHOICES),
+            _TimePartSelect(attrs=attrs, choices=MINUTE_CHOICES),
+        )
+        super().__init__(widgets, attrs)
+
+    def decompress(self, value):
+        if value in (None, ''):
+            return [None, None]
+        if isinstance(value, str):
+            h, _, m = value.partition(':')
+            return [h or None, m[:2] or None]
+        return [value.strftime('%H'), value.strftime('%M')]
+
+    def value_from_datadict(self, data, files, name):
+        h = data.get(name + '_0') or ''
+        m = data.get(name + '_1') or ''
+        if not h:
+            return None
+        return '{}:{}'.format(h, m or '00')
 
 
 class ActivityForm(PlainTagFormMixin, forms.ModelForm):
@@ -80,8 +94,8 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
             'start_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             'end_date': forms.DateInput(attrs={'class': INPUT_CLS, 'type': 'date'}, format='%Y-%m-%d'),
             # 具体时间可选：模板默认收起（「具体时间」开关展开），导出日历为定点事件
-            'start_time': QuarterHourSelect(attrs={'class': INPUT_CLS}),
-            'end_time': QuarterHourSelect(attrs={'class': INPUT_CLS}),
+            'start_time': HourMinuteSelect(attrs={'class': INPUT_CLS}),
+            'end_time': HourMinuteSelect(attrs={'class': INPUT_CLS}),
             'status': forms.Select(attrs={'class': 'rounded-md border border-gray-300 px-3 py-2 text-sm'}),
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
         }

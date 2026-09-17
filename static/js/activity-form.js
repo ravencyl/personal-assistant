@@ -164,28 +164,43 @@
         }
         // 编辑已有时间的活动 / 解析出时间后自动展开（openTimeFields 供 fillForm 调用）
         initTimeToggle.openTimeFields = show;
-        var st = document.getElementById('id_start_time');
-        var et = document.getElementById('id_end_time');
-        if ((st && st.value) || (et && et.value)) show();
+        // 时间字段拆成 小时/分钟 两个 select（id_*_0 / id_*_1）
+        if (readTime('id_start_time') || readTime('id_end_time')) show();
     }
 
     // ==================== 解析结果回填（弹窗「填入下方表单」与独立页快速填表共用） ====================
     var PARSE_FIELDS = {
         name: 'id_name', start_date: 'id_start_date', end_date: 'id_end_date',
-        start_time: 'id_start_time', end_time: 'id_end_time',
         status: 'id_status',
         cost: 'id_parsed_cost'
     };
+    // 时间字段是 小时/分钟 两个下拉（HourMinuteSelect），单独按前缀处理
+    var TIME_PREFIX = { start_time: 'id_start_time', end_time: 'id_end_time' };
     var FORM_DEFAULTS = null, lastFilled = [];
 
-    // 时间字段是 15 分钟一格的 select：非整格值（如 14:07）不在选项里，
-    // 直接赋值会静默失败，需先注入临时 option
-    function setFieldValue(el, v) {
-        if (el.tagName === 'SELECT' && v &&
-            !Array.prototype.some.call(el.options, function (o) { return o.value === v; })) {
-            el.add(new Option(v, v));
+    function timeEl(prefix, part) {
+        return document.getElementById(prefix + '_' + part);
+    }
+    // 非整格分钟（如 14:07 的 '07'）不在 4 格选项里，直接赋值会静默失败，先注入临时项
+    function ensureOption(sel, v) {
+        if (v && !Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) {
+            sel.add(new Option(v, v));
         }
-        el.value = v;
+    }
+    function readTime(prefix) {
+        var h = timeEl(prefix, '0'), m = timeEl(prefix, '1');
+        if (!h) return null;   // 页面无时间字段
+        return (h.value && m.value) ? h.value + ':' + m.value : '';
+    }
+    function writeTime(prefix, v) {
+        var h = timeEl(prefix, '0'), m = timeEl(prefix, '1');
+        if (!h || !m) return;
+        if (!v) { h.value = ''; m.value = ''; return; }
+        var p = String(v).split(':');
+        ensureOption(h, p[0]);
+        ensureOption(m, p[1]);
+        h.value = p[0];
+        m.value = p[1];
     }
 
     function captureDefaults() {
@@ -194,6 +209,9 @@
         Object.keys(PARSE_FIELDS).forEach(function (k) {
             var el = document.getElementById(PARSE_FIELDS[k]);
             if (el) FORM_DEFAULTS[k] = el.value;
+        });
+        Object.keys(TIME_PREFIX).forEach(function (k) {
+            FORM_DEFAULTS[k] = readTime(TIME_PREFIX[k]);
         });
     }
 
@@ -205,11 +223,23 @@
             if (!el) return;   // 编辑页无 id_parsed_cost
             var v = d[k];
             if (v !== undefined && v !== null && v !== '') {
-                setFieldValue(el, v);
+                el.value = v;
                 if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
             } else if (lastFilled.indexOf(k) !== -1) {
                 // 只回滚解析填过的值，用户手输的不动
                 el.value = FORM_DEFAULTS[k];
+                lastFilled = lastFilled.filter(function (x) { return x !== k; });
+            }
+        });
+        Object.keys(TIME_PREFIX).forEach(function (k) {
+            if (!timeEl(TIME_PREFIX[k], '0')) return;
+            var v = d[k];
+            if (v) {
+                writeTime(TIME_PREFIX[k], v);
+                if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
+            } else if (lastFilled.indexOf(k) !== -1) {
+                // 只回滚解析填过的值，用户手输的不动
+                writeTime(TIME_PREFIX[k], FORM_DEFAULTS[k]);
                 lastFilled = lastFilled.filter(function (x) { return x !== k; });
             }
         });
