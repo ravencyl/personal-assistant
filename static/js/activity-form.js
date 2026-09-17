@@ -178,6 +178,16 @@
     };
     var FORM_DEFAULTS = null, lastFilled = [];
 
+    // 时间字段是 15 分钟一格的 select：非整格值（如 14:07）不在选项里，
+    // 直接赋值会静默失败，需先注入临时 option
+    function setFieldValue(el, v) {
+        if (el.tagName === 'SELECT' && v &&
+            !Array.prototype.some.call(el.options, function (o) { return o.value === v; })) {
+            el.add(new Option(v, v));
+        }
+        el.value = v;
+    }
+
     function captureDefaults() {
         if (FORM_DEFAULTS) return;
         FORM_DEFAULTS = {};
@@ -195,7 +205,7 @@
             if (!el) return;   // 编辑页无 id_parsed_cost
             var v = d[k];
             if (v !== undefined && v !== null && v !== '') {
-                el.value = v;
+                setFieldValue(el, v);
                 if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
             } else if (lastFilled.indexOf(k) !== -1) {
                 // 只回滚解析填过的值，用户手输的不动
