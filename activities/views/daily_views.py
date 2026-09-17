@@ -111,44 +111,29 @@ def daily_view(request):
 
 @login_required
 def next_actions(request):
-    """下一步行动：两组待办视图（只读，复用 Activity 自引用父子结构）
+    """下一步行动：未来 7 天内开始的计划活动，按日期排序（只读）
 
-    组 1「待处理的子任务」：进行中的活动 + 其未完成（planned/in_progress）子活动；
-    组 2「临近的计划活动」：未来 7 天内开始的顶层 planned 活动，按日期排序。
+    子活动与顶层活动同口径混排（用户定策：子任务也是活动，一样处理，
+    不再单独设「待处理的子任务」分组）；卡片对子活动标注归属父活动。
     「日常开支」等系统归属桶统一排除。
     """
     today = timezone.localdate()
     base_qs = visible_qs(Activity, request.user)
 
-    # ── 组 1：进行中且仍有未完成子活动的活动（一次 prefetch 拉取未完成 children） ──
-    pending_children_qs = Activity.objects.filter(
-        status__in=['planned', 'in_progress']
-    ).order_by('start_date', 'created_at')
-    pending_parents = list(exclude_daily_bucket(
-        base_qs.filter(
-            status='in_progress',
-            children__status__in=['planned', 'in_progress'],
-        ).distinct().prefetch_related(
-            models.Prefetch('children', queryset=pending_children_qs,
-                            to_attr='pending_children'),
-            'tags',
-        ).order_by('-start_date')
-    )[:20])
-
-    # ── 组 2：未来 7 天内开始的顶层计划活动 ──
+    # 子活动与顶层活动同口径处理（用户定策：子任务也是活动，不单独分组），
+    # 按开始日期自然混排；select_related('parent') 供卡片展示归属父活动
     upcoming = list(exclude_daily_bucket(
         base_qs.filter(
             status='planned',
-            parent__isnull=True,
             start_date__gte=today,
             start_date__lte=today + timedelta(days=7),
-        ).order_by('start_date', 'created_at').prefetch_related('tags')
+        ).order_by('start_date', 'created_at')
+         .select_related('parent').prefetch_related('tags')
     ))
     for a in upcoming:
         a.days_until = (a.start_date - today).days
 
     return render(request, 'activities/next_actions.html', {
-        'pending_parents': pending_parents,
         'upcoming': upcoming,
         'today_display': f'{today.month}月{today.day}日',
     })

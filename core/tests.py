@@ -910,7 +910,7 @@ class DesktopLayoutCoverageTest(TestCase):
     SINGLE_COLUMN = {
         'activities/activity_list.html': '宽表格 min-w-[760px]，吃满整宽才放得下',
         'activities/activity_calendar.html': '月/周视图是 7 列网格，压进左列每格不足 123px',
-        'activities/next_actions.html': '两组等权重内容，用等分 md:grid-cols-2 而非主+辅',
+        'activities/next_actions.html': '单列待办列表，无辅助信息列可提',
         'activities/activity_form.html': '纯表单编辑页，输入宽度就是舒适宽度',
         'knowledge/article_form.html': '纯表单编辑页',
         'chat/conversation_detail.html': '消息流是单一线性时间轴，右列无天然内容',
