@@ -10,8 +10,6 @@ import logging
 import sys
 import threading
 
-from django.conf import settings
-
 logger = logging.getLogger(__name__)
 
 

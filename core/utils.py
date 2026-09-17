@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404

@@ -11,7 +11,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Q
 
 from knowledge.models import Article
-from knowledge.qmind import configured, sync_article
+from knowledge.qmind import configured
 from knowledge.qmind_sync import _sync_article
 
 

@@ -16,7 +16,7 @@
 import re
 
 from django.utils.html import escape
-from django.utils.safestring import SafeString, mark_safe
+from django.utils.safestring import mark_safe
 
 # 链接 scheme 白名单：相对路径与锚点也允许（以 / # . 开头）
 _SAFE_URL = re.compile(r'^(?:https?://|mailto:|[#/.])', re.I)

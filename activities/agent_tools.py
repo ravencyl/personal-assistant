@@ -18,7 +18,7 @@ from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
                                  parse_pick_index)
 from core.utils import get_visible, visible_qs
 
-from core.tags import add_tags, apply_tags, tag_names
+from core.tags import apply_tags, tag_names
 from chat.models import Message
 from .models import Activity, Expense, ActivityComment
 from .services import (InputError, add_expense, clean_amount,
@@ -919,7 +919,7 @@ def apply_move_date(user, params):
 
     activity.save(update_fields=['start_date', 'end_date', 'updated_at'])
     log_activity(user, activity, 'edited',
-                 f'{direction} {abs(days)} 天（{old_start} → {activity.start_date}）（通过 AI 对话）')
+                 f'{direction} {abs(days)} 天（{old_start} → {activity.start_date}，{old_end} → {activity.end_date}）（通过 AI 对话）')
 
     return {
         'reply': f'已将「{activity.name}」{direction} {abs(days)} 天',

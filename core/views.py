@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 
 from django.contrib.staticfiles import finders
 from django.shortcuts import render, redirect
@@ -12,7 +12,7 @@ from chat.models import Conversation
 from activities.models import Activity, Expense
 from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS
 from core.search import global_search
-from core.report_generator import collect_report_data, generate_report, save_report_to_knowledge
+from core.report_generator import generate_report, save_report_to_knowledge
 from knowledge.models import Article
 
 

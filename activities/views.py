@@ -9,7 +9,6 @@ from django.http import HttpResponse, JsonResponse, Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import models
 from django.db.models import Count, Sum
@@ -20,7 +19,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from .forms import ActivityForm
-from .models import Activity, Participant, ActivityLog, Expense, Attachment, ActivityComment
+from .models import Activity, Participant, Expense, Attachment, ActivityComment
 from .parsing import parse_quick_input
 from .utils import (edit_summary, filter_activities, get_filter_params, log_activity,
                     normalize_input, snapshot_activity,

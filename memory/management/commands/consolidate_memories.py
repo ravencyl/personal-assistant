@@ -10,7 +10,7 @@
 import logging
 
 from django.core.management.base import BaseCommand
-from django.db.models import Count, Q
+from django.db.models import Count
 
 from memory.models import Memory
 
@@ -124,7 +124,7 @@ class Command(BaseCommand):
             max_importance = max(m.importance for m in memories)
 
             # 创建聚合记忆
-            consolidated_memory = Memory.objects.create(
+            Memory.objects.create(
                 user_id=user_id,
                 content=summary[:500],
                 category=category,

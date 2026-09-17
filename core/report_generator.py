@@ -6,9 +6,8 @@ import json
 import logging
 from datetime import date, timedelta
 
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count
 from django.db.models.functions import TruncMonth
-from django.utils import timezone
 
 from core.ai import ai_round_trip
 from core.utils import pct_change
@@ -235,8 +234,6 @@ def _ai_generate_report(user, data, report_type, period_start, period_end):
 
 def _fallback_report(data, report_type, period_start, period_end):
     """AI 失败时的纯数据模板报告"""
-    from activities.models import Expense
-
     if report_type == 'yearly':
         return _fallback_yearly_report(data, period_start, period_end)
 
@@ -285,8 +282,6 @@ def _fallback_report(data, report_type, period_start, period_end):
 
 def _fallback_yearly_report(data, period_start, period_end):
     """年报的纯数据降级模板（含年度里程碑）"""
-    from activities.models import Expense
-
     lines = [
         f'# 年报 · {period_start.year}',
         '',

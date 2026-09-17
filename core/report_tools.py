@@ -1,6 +1,6 @@
 """报告生成 Agent 工具"""
 import logging
-from datetime import date, timedelta
+from datetime import date
 from django.utils import timezone
 from core.agent_registry import agent_tool, ToolError
 from core.utils import week_monday
