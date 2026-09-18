@@ -29,15 +29,15 @@
             <a href="{% url 'activities:activity_calendar' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="日历">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </a>
-            <a href="{% url 'activities:next_actions' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="下一步行动">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-            </a>
             <a href="{% url 'activities:archive_list' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="已归档">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
             </a>
             <a href="{% url 'activities:timeline' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="时间线">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </a>
+            <button type="button" id="toggle-dep-graph" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="依赖图">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+            </button>
             <button type="button" data-open-create-modal class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2 text-sm font-semibold text-[var(--bg)] shadow-md transition-colors">+ 新建</button>
         </div>
     </div>
@@ -63,10 +63,6 @@
             <a href="{% url 'activities:activity_calendar' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="日历视图">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                 日历
-            </a>
-            <a href="{% url 'activities:next_actions' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="下一步行动">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-                下一步行动
             </a>
             <a href="{% url 'activities:archive_list' %}" class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] shadow-sm border border-[var(--border)]" title="已归档">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
@@ -246,11 +242,14 @@
 
 <!-- Activity table (md+) / 卡片列表（移动端） -->
 {% if activities %}
-<div class="hidden md:block app-card overflow-hidden">
+<div id="activity-list" class="hidden md:block app-card overflow-hidden">
     <div class="overflow-x-auto">
     <table class="min-w-[760px] w-full text-sm">
         <thead class="border-b border-[var(--border)]">
             <tr>
+                <th class="px-2 py-3 w-8">
+                    <input type="checkbox" id="batch-select-all" class="rounded border-zinc-300">
+                </th>
                 <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-[var(--text)] {% if sort == 'name' or sort == '-name' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         活动名称{% if sort == 'name' %} ▲{% elif sort == '-name' %} ▼{% endif %}
@@ -285,6 +284,9 @@
             {% for activity in activities %}
             <tr class="hover:bg-[var(--accent-light)] tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
                 {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
+                <td class="px-2 py-3">
+                    {% if not activity.depth %}<input type="checkbox" class="batch-check rounded border-zinc-300" value="{{ activity.id }}">{% endif %}
+                </td>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
                         {% if tree_mode and activity.has_children %}
@@ -491,4 +493,38 @@
 })();
 </script>
 {% endif %}
+
+<!-- 依赖关系图（默认隐藏，点击按钮切换） -->
+<div id="dependency-graph" class="hidden mt-6 app-card p-4"></div>
+<script>
+(function(){
+    var btn = document.getElementById('toggle-dep-graph');
+    var graph = document.getElementById('dependency-graph');
+    if (!btn || !graph) return;
+    btn.addEventListener('click', function(){
+        graph.classList.toggle('hidden');
+        if (!graph.classList.contains('hidden')) {
+            // 手机上图卡在长列表底部，展开后必须滚过去，否则看起来像「点了没反应」
+            graph.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (!graph.dataset.loaded) {
+                graph.dataset.loaded = '1';
+                var s = document.createElement('script');
+                s.src = '{% staticv "js/dependency-graph.js" %}';
+                document.body.appendChild(s);
+            }
+        }
+    });
+})();
+</script>
+
+<!-- 批量操作栏 -->
+<div id="batch-bar" class="hidden fixed bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border)] px-4 py-3 flex items-center justify-between gap-3 z-50 shadow-lg">
+    <span class="text-sm text-[var(--text)]">已选 <span id="batch-count" class="font-bold text-[var(--accent)]">0</span> 项</span>
+    <div class="flex gap-2">
+        <button data-batch-action="status" class="px-3 py-1.5 rounded-md bg-[var(--accent-light)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white">改状态</button>
+        <button data-batch-action="tags" class="px-3 py-1.5 rounded-md bg-[var(--accent-light)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white">改标签</button>
+        <button data-batch-action="date" class="px-3 py-1.5 rounded-md bg-[var(--accent-light)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white">改日期</button>
+    </div>
+</div>
+<script src="{% staticv 'js/batch-ops.js' %}" defer></script>
 {% endblock %}

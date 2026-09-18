@@ -166,12 +166,37 @@
 
 <!-- AI 今日建议 -->
 {% if ai_suggestion %}
-<div class="app-card rounded-[1.25rem] bg-[var(--accent-light)] border border-[var(--accent)]/20 px-5 py-4 mb-6">
+<div id="ai-suggestion-card" class="app-card rounded-[1.25rem] bg-[var(--accent-light)] border border-[var(--accent)]/20 px-5 py-4 mb-6">
     <div class="flex items-start gap-3">
         <div class="shrink-0 w-8 h-8 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-sm">💡</div>
         <div class="flex-1 min-w-0">
-            <p class="text-xs font-medium text-[var(--accent)] mb-1">今日建议</p>
-            <p class="text-sm text-[var(--text)] leading-relaxed">{{ ai_suggestion }}</p>
+            <div class="flex items-center justify-between mb-1">
+                <p class="text-xs font-medium text-[var(--accent)]">今日建议</p>
+                <button type="button" id="refresh-suggestion-btn" title="刷新建议"
+                        class="tap-target p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </button>
+            </div>
+            <p id="ai-suggestion-text" class="text-sm text-[var(--text)] leading-relaxed">{{ ai_suggestion }}</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 行为模式洞察 -->
+{% if pattern_insights %}
+<div class="app-card rounded-[1.25rem] px-5 py-4 mb-6">
+    <div class="flex items-start gap-3">
+        <div class="shrink-0 w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-sm">📈</div>
+        <div class="flex-1 min-w-0">
+            <p class="text-xs font-medium text-emerald-600 mb-1.5">行为洞察</p>
+            <ul class="space-y-1">
+                {% for insight in pattern_insights %}
+                <li class="text-sm text-[var(--text-secondary)] leading-relaxed">{{ insight }}</li>
+                {% endfor %}
+            </ul>
         </div>
     </div>
 </div>
@@ -639,6 +664,44 @@ function toggleSection(sectionId) {
                 errEl.textContent = err.message || '保存失败';
                 errEl.classList.remove('hidden');
             }
+        });
+    });
+})();
+</script>
+
+<!-- AI 建议刷新：点击刷新按钮重新生成建议 -->
+<script>
+(function () {
+    var btn = document.getElementById('refresh-suggestion-btn');
+    if (!btn) return;
+    var textEl = document.getElementById('ai-suggestion-text');
+    var csrf = document.querySelector('meta[name="csrf-token"]').content;
+    var refreshUrl = '{% url "activities:refresh_suggestion" %}';
+
+    btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        // 旋转动画
+        btn.querySelector('svg').classList.add('animate-spin');
+        if (textEl) textEl.style.opacity = '0.5';
+
+        fetch(refreshUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' }
+        }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+        }).then(function (res) {
+            if (res.ok && res.data.suggestion) {
+                if (textEl) textEl.textContent = res.data.suggestion;
+            } else {
+                if (textEl) textEl.textContent = '刷新失败，请稍后重试';
+            }
+        }).catch(function () {
+            if (textEl) textEl.textContent = '网络异常，请稍后重试';
+        }).finally(function () {
+            btn.disabled = false;
+            btn.querySelector('svg').classList.remove('animate-spin');
+            if (textEl) textEl.style.opacity = '1';
         });
     });
 })();

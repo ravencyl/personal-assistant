@@ -160,3 +160,56 @@ def char_overlap_ratio(a, b, mode='symmetric'):
         return sum(1 for c in a if c in b) / len(a)
     set_a, set_b = set(a), set(b)
     return len(set_a & set_b) / max(len(set_a), len(set_b), 1)
+
+
+# ── 用户时区工具（session 存储，2026-09-18）────────────────────────────
+
+_SESSION_TZ_KEY = 'user_timezone'
+_DEFAULT_TZ = 'Asia/Shanghai'
+
+# 合法时区白名单（pytz/common 子集，覆盖绝大多数用户）
+VALID_TIMEZONES = {
+    'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul', 'Asia/Hong_Kong', 'Asia/Taipei',
+    'Asia/Singapore', 'Asia/Bangkok', 'Asia/Jakarta', 'Asia/Manila', 'Asia/Kuala_Lumpur',
+    'Asia/Dubai', 'Asia/Kolkata', 'Asia/Karachi', 'Asia/Riyadh', 'Asia/Jerusalem',
+    'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow', 'Europe/Rome',
+    'Europe/Madrid', 'Europe/Amsterdam', 'Europe/Zurich', 'Europe/Vienna', 'Europe/Stockholm',
+    'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+    'America/Toronto', 'America/Vancouver', 'America/Mexico_City', 'America/Sao_Paulo',
+    'America/Buenos_Aires', 'America/Lima', 'America/Bogota',
+    'Australia/Sydney', 'Australia/Melbourne', 'Australia/Brisbane', 'Australia/Perth',
+    'Pacific/Auckland', 'Pacific/Honolulu',
+    'Africa/Cairo', 'Africa/Lagos', 'Africa/Johannesburg', 'Africa/Nairobi',
+    'UTC',
+}
+
+
+def get_user_timezone(request):
+    """从 session 读取用户时区，未设置时返回默认时区"""
+    tz = request.session.get(_SESSION_TZ_KEY)
+    if tz and tz in VALID_TIMEZONES:
+        return tz
+    return _DEFAULT_TZ
+
+
+def set_user_timezone(request, tz_name):
+    """将时区存入 session（白名单校验）"""
+    if tz_name in VALID_TIMEZONES:
+        request.session[_SESSION_TZ_KEY] = tz_name
+        return True
+    return False
+
+
+def get_timezone_offset(tz_name):
+    """返回时区相对于 UTC 的偏移量（小时），用于前端显示"""
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        offset = now.utcoffset()
+        if offset is None:
+            return 0
+        return offset.total_seconds() / 3600
+    except Exception:
+        return 0

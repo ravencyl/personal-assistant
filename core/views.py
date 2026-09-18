@@ -10,7 +10,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 
 from chat.models import Conversation
 from activities.models import Activity, Expense
-from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS
+from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS, get_user_timezone, set_user_timezone, VALID_TIMEZONES
 from core.search import global_search
 from core.report_generator import generate_report, save_report_to_knowledge
 from knowledge.models import Article
@@ -512,6 +512,39 @@ def weekly_review_complete_view(request):
     return render(request, 'core/weekly_review_complete.html')
 
 
+def _compute_daily_focus(today_activities, recent_notes):
+    """计算今日焦点 top 3：纯规则排序（AI 建议已由 DailySuggestion cron 预计算）。
+
+    返回 [{'name': str, 'reason': str, 'url': str}, ...] 最多 3 项。
+    注意：不修改 recent_notes 列表（调用方还要传给模板）。
+    """
+    from django.urls import reverse
+
+    # 规则排序：进行中 > 今天开始的活动 > 笔记
+    focus = []
+    sorted_acts = sorted(
+        today_activities[:6],
+        key=lambda a: (0 if a.status == 'in_progress' else 1),
+    )
+    for a in sorted_acts[:3]:
+        focus.append({
+            'name': a.name,
+            'reason': a.get_status_display(),
+            'url': reverse('activities:activity_detail', args=[a.id]),
+        })
+    # 用索引遍历而非 pop，避免修改调用方的列表
+    i = 0
+    while len(focus) < 3 and i < len(recent_notes):
+        n = recent_notes[i]
+        i += 1
+        focus.append({
+            'name': n.content[:40],
+            'reason': '近期笔记',
+            'url': reverse('notes:note_edit', args=[n.id]),
+        })
+    return focus[:3]
+
+
 @login_required
 def today_view(request):
     """今天视图：聚合活动/笔记/知识/记忆中与今天相关的内容
@@ -558,6 +591,9 @@ def today_view(request):
     today_context = ' '.join(a.name for a in today_activities[:3])
     today_memories = retrieve_memories(user, query=today_context, limit=5) if today_context else []
 
+    # ── 今日焦点：AI 智能排序 top 3 ──
+    focus_items = _compute_daily_focus(today_activities, recent_notes)
+
     # ── 问候 ──
     hour = timezone.localtime().hour
     if hour < 6:
@@ -581,4 +617,27 @@ def today_view(request):
         'recent_notes': recent_notes,
         'recent_articles': recent_articles,
         'today_memories': today_memories,
+        'focus_items': focus_items,
     })
+
+
+@login_required
+@require_POST
+def set_timezone(request):
+    """设置用户时区（session 存储）"""
+    import json
+    try:
+        data = json.loads(request.body)
+        tz_name = data.get('timezone', '')
+    except (json.JSONDecodeError, TypeError):
+        tz_name = request.POST.get('timezone', '')
+
+    if set_user_timezone(request, tz_name):
+        return JsonResponse({'ok': True, 'timezone': tz_name})
+    return JsonResponse({'error': '无效的时区'}, status=400)
+
+
+@login_required
+def get_timezone(request):
+    """获取当前用户时区"""
+    return JsonResponse({'timezone': get_user_timezone(request), 'valid_timezones': sorted(VALID_TIMEZONES)})

@@ -113,3 +113,17 @@
     {% endif %}
 </div>
 {% endif %}
+
+{% if query %}
+<script>
+(function(){
+    var terms = '{{ query|escapejs }}'.split(/\s+/).filter(Boolean);
+    if (!terms.length) return;
+    var re = new RegExp('(' + terms.map(function(t){ return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
+    document.querySelectorAll('.search-result-item .text-sm, .search-result-item .text-xs').forEach(function(el){
+        if (el.children.length) return;
+        el.innerHTML = el.textContent.replace(re, '<mark class="bg-yellow-200 text-[var(--text)] rounded px-0.5">$1</mark>');
+    });
+})();
+</script>
+{% endif %}

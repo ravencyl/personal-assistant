@@ -98,8 +98,11 @@
 
     function unsubscribe(reg) {
         return reg.pushManager.getSubscription().then(function (sub) {
+            var endpoint = sub ? sub.endpoint : null;
             var p = sub ? sub.unsubscribe() : Promise.resolve();
-            return p.then(function () { return post('/api/push/unsubscribe/'); });
+            return p.then(function () {
+                return post('/api/push/unsubscribe/', {endpoint: endpoint});
+            });
         }).then(function () { mark(false); });
     }
 

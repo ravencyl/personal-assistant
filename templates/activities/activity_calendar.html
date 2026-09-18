@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static core_tags %}
 
 {% block title %}活动日历 · {{ SITE_NAME }}{% endblock %}
 
@@ -96,19 +97,21 @@
 
     <!-- ==================== 日视图 ==================== -->
     {% else %}
-    <div class="flex flex-col md:flex-row gap-4">
-        <!-- 时间轴 -->
-        <div class="app-card overflow-hidden flex-1">
-            {% for hour in hours %}
-            <div class="flex border-b border-[var(--border)] min-h-[40px]">
-                <div class="w-12 shrink-0 text-[11px] text-[var(--text-muted)] pt-1 pr-2 text-right tabular-nums">{{ hour.label }}</div>
-                <div class="flex-1 border-l border-[var(--border)]"></div>
-            </div>
-            {% endfor %}
-        </div>
-        <!-- 当日活动卡片：小屏全宽堆叠在时间轴下方，桌面端右侧固定宽 -->
-        <div class="w-full md:w-48 md:shrink-0 space-y-2" id="day-activities">
-            <p class="text-xs text-[var(--text-muted)] mb-2">当日活动</p>
+    <div class="app-card p-4 sm:p-6">
+        <div class="relative" id="day-timeline"
+             data-day-date="{{ day_date }}"
+             data-api-url="{% url 'activities:calendar_data' %}"
+             data-show-now="{% if day_date == today_iso %}1{% endif %}">
+            <!-- 活动时间线列表（JS 渲染）：时间列 0-48px（右对齐）· 节点圆点中心 70px ·
+                 内容 86px 起，列位常量与 calendar-day-select.js 保持一致。
+                 竖线必须放在 <ol> 外面：JS 渲染时会整体替换 <ol> 的内容 -->
+            <div class="absolute left-[70px] top-3 bottom-3 w-px bg-[var(--border-strong)]"></div>
+            <ol id="day-activity-list" class="relative">
+                <li id="day-empty-state" class="relative py-4">
+                    <span class="absolute left-[65px] top-[21px] w-2.5 h-2.5 rounded-full bg-[var(--border-strong)] ring-4 ring-[var(--bg-card)]"></span>
+                    <p class="ml-[86px] text-sm text-[var(--text-muted)]">这一天没有安排活动</p>
+                </li>
+            </ol>
         </div>
     </div>
     {% endif %}
@@ -144,14 +147,17 @@
     function renderActivities(activities) {
         var byDate = {};
         activities.forEach(function (a) {
-            var start = new Date(a.start_date + 'T00:00:00');
-            var end = new Date(a.end_date + 'T00:00:00');
-            var cur = new Date(start);
-            while (cur <= end) {
-                var ds = cur.toISOString().split('T')[0];
-                if (!byDate[ds]) byDate[ds] = [];
-                byDate[ds].push(a);
-                cur.setDate(cur.getDate() + 1);
+            // 直接用后端返回的 ISO 日期字符串，不经过 Date 对象（避免时区偏移导致日期错位）
+            var startDate = a.start_date;  // 'YYYY-MM-DD'
+            var endDate = a.end_date;      // 'YYYY-MM-DD'
+            var cur = startDate;
+            while (cur <= endDate) {
+                if (!byDate[cur]) byDate[cur] = [];
+                byDate[cur].push(a);
+                // 日期 +1 天（字符串运算，无时区问题）
+                var d = new Date(cur + 'T00:00:00Z');  // 强制 UTC 解析，保证 toISOString 不偏移
+                d.setDate(d.getDate() + 1);
+                cur = d.toISOString().split('T')[0];
             }
         });
 
@@ -183,6 +189,9 @@
                         block.className = 'block rounded px-1.5 py-0.5 text-[11px] ' + textCls + ' truncate hover:opacity-80 mb-1';
                     } else {
                         block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs ' + textCls + ' truncate hover:opacity-80 transition-opacity';
+                        // 月视图活动卡片可拖拽
+                        block.draggable = true;
+                        block.dataset.activityId = a.id;
                     }
                     block.style.backgroundColor = 'var(--status-' + a.status + ')';
                     block.title = a.name + ' (' + a.status_label + ')';
@@ -203,5 +212,13 @@
         .catch(function (err) { console.error('加载日历数据失败:', err); });
 })();
 </script>
+
+{% if mode == 'month' %}
+<script src="{% staticv 'js/calendar-dnd.js' %}" defer></script>
+{% endif %}
+
+{% if mode == 'day' %}
+<script src="{% staticv 'js/calendar-day-select.js' %}" defer></script>
+{% endif %}
 
 {% endblock %}

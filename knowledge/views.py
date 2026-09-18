@@ -5,7 +5,7 @@ from django.db import models
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
-from .models import Article
+from .models import Article, ArticleVersion
 from .forms import ArticleForm
 from core.models import Tag
 from core.tags import apply_tags, used_tags
@@ -87,6 +87,13 @@ def article_edit(request, pk):
     if request.method == 'POST':
         form = ArticleForm(request.POST, instance=article)
         if form.is_valid():
+            # 保存前自动创建版本快照
+            ArticleVersion.objects.create(
+                article=article,
+                content=article.content,
+                title=article.title,
+                edit_note='保存前自动快照',
+            )
             article = form.save()
             apply_tags(article, form.cleaned_data.get('tags'))
             messages.success(request, f'文章「{article.title}」已更新')
@@ -157,3 +164,15 @@ def suggest_tags(request):
         logger.warning('AI 标签建议降级: %s', exc)
 
     return JsonResponse({'tags': []})
+
+
+@login_required
+def article_history(request, pk):
+    """文章版本历史"""
+    article = get_visible(Article, request.user, pk=pk)
+    versions = article.versions.all()[:20]
+
+    return render(request, 'knowledge/article_history.html', {
+        'article': article,
+        'versions': versions,
+    })

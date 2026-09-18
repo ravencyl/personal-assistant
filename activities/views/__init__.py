@@ -35,6 +35,9 @@ from .detail_views import (  # noqa: F401
     add_subactivity,
     attachment_delete,
     attachment_upload,
+    blocked_add,
+    blocked_remove,
+    blocked_search,
     subactivity_manual_create,
 )
 from .form_views import activity_create, activity_delete, activity_edit  # noqa: F401
@@ -52,8 +55,9 @@ from .calendar_views import (  # noqa: F401
     calendar_data,
     calendar_feed,
     calendar_feed_settings,
+    move_date_view,
 )
-from .daily_views import daily_view, next_actions  # noqa: F401
+from .daily_views import daily_view, next_actions, refresh_suggestion  # noqa: F401
 from .archive_views import archive_list, archive_activity, unarchive_activity  # noqa: F401
 from .timeline_views import timeline_view  # noqa: F401
 from .template_views import (  # noqa: F401
@@ -61,6 +65,8 @@ from .template_views import (  # noqa: F401
     template_create,
     template_use,
 )
+from .batch_views import batch_update_view  # noqa: F401
+from .dependency_views import dependency_data  # noqa: F401
 
 __all__ = [
     'attach_costs',
@@ -74,7 +80,7 @@ __all__ = [
     'expense_create', 'expense_quick_create', 'expense_edit', 'expense_delete',
     'expense_report', 'expense_chart_data', 'expense_heatmap_data',
     'activity_calendar', 'calendar_data', 'calendar_feed', 'calendar_feed_settings',
-    'daily_view', 'next_actions',
+    'daily_view', 'next_actions', 'refresh_suggestion',
     'archive_list', 'archive_activity', 'unarchive_activity',
     'timeline_view',
     'template_list', 'template_create', 'template_use',

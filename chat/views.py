@@ -503,6 +503,14 @@ def _build_ai_content(request, conversation, content):
             ai_content = knowledge_context + ai_content
     except Exception as exc:
         logger.warning("knowledge injection failed: %s", exc)
+    # RAG 段落级检索增强（与知识库注入互补：一个走全文检索，一个走段落相似度）
+    try:
+        from knowledge.rag import build_rag_context
+        rag_context = build_rag_context(content, conversation.user)
+        if rag_context:
+            ai_content = rag_context + ai_content
+    except Exception as exc:
+        logger.warning('RAG injection failed: %s', exc)
     try:
         # 引用规则的补发（协议规则 10）：首帧只在建对话时下发一次，存量 session 根
         # 本没这句话，模型会继续把长正文重抄进 params.content 直到被长度上限截断。

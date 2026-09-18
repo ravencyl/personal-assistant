@@ -11,6 +11,23 @@
         <h1 class="text-2xl font-bold text-[var(--text)]">{{ greeting }}</h1>
     </div>
 
+    <!-- 今日焦点 -->
+    {% if focus_items %}
+    <section class="mb-6">
+        <h2 class="text-lg font-semibold text-[var(--text)] mb-3">✨ 今日焦点</h2>
+        <div class="space-y-2">
+            {% for item in focus_items %}
+            <a href="{{ item.url }}" class="app-card block p-3 border-l-4 border-l-[var(--accent)] hover:border-[var(--accent)] transition-colors">
+                <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-sm font-medium text-[var(--text)] truncate">{{ item.name }}</h3>
+                    <span class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ item.reason }}</span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
     <!-- 今日活动 -->
     <section class="mb-6">
         <div class="flex items-center justify-between mb-3">

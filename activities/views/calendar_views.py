@@ -172,6 +172,8 @@ def calendar_data(request):
             'name': a.name,
             'start_date': a.start_date.isoformat(),
             'end_date': (a.end_date or a.start_date).isoformat(),
+            'start_time': a.start_time.strftime('%H:%M') if a.start_time else None,
+            'end_time': a.end_time.strftime('%H:%M') if a.end_time else None,
             'status': a.status,
             'status_label': a.get_status_display(),
             'url': reverse('activities:activity_detail', args=[a.id]),
@@ -233,3 +235,40 @@ def calendar_feed_settings(request):
         'feed_url': feed_url,
         'webcal_url': webcal_url,
     })
+
+
+@login_required
+def move_date_view(request, pk):
+    """拖拽排期：更新活动开始日期（POST JSON: {date: 'YYYY-MM-DD'}）"""
+    import json
+
+    if request.method != 'POST':
+        return JsonResponse({'error': '仅支持 POST'}, status=405)
+
+    try:
+        activity = visible_qs(Activity, request.user).get(pk=pk)
+    except Activity.DoesNotExist:
+        raise Http404
+
+    try:
+        data = json.loads(request.body)
+        new_date = date.fromisoformat(data['date'])
+    except (ValueError, KeyError, TypeError):
+        return JsonResponse({'error': '无效的日期格式'}, status=400)
+
+    old_date = activity.start_date
+    activity.start_date = new_date
+    # 如果有结束日期且早于新开始日期，同步调整
+    if activity.end_date and activity.end_date < new_date:
+        activity.end_date = new_date
+    activity.save(update_fields=['start_date', 'end_date'])
+
+    # 记录操作日志
+    try:
+        from activities.views._common import log_activity
+        log_activity(request.user, activity, 'move_date',
+                     f'日期从 {old_date} 改为 {new_date}')
+    except Exception:
+        pass
+
+    return JsonResponse({'ok': True, 'old_date': str(old_date), 'new_date': str(new_date)})

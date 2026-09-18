@@ -441,6 +441,33 @@
     </details>
     {% endif %}
 
+    <!-- 前置依赖：手动配置 blocked_by（与 AI 对话同字段）；搜索/添加/移除均为原生 fetch + JSON，禁挂 hx-* -->
+    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+            前置依赖（<span id="dep-count">{{ blocked_deps|length }}</span>）<span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
+        <div id="dep-list" class="space-y-2">
+            {% for dep in blocked_deps %}
+            <div class="flex items-center gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2" data-dep-id="{{ dep.id }}">
+                <a href="{% url 'activities:activity_detail' dep.id %}" class="text-sm text-[var(--text)] truncate flex-1 min-w-0">{{ dep.name }}</a>
+                <span class="shrink-0 text-xs {% if dep.status == 'done' %}text-green-600{% else %}text-orange-600{% endif %}">{{ dep.get_status_display }}</span>
+                <button type="button" data-dep-remove="{{ dep.id }}"
+                        data-dep-remove-url="{% url 'activities:blocked_remove' activity.id dep.id %}"
+                        class="row-action text-xs text-[var(--text-muted)] hover:text-red-600">移除</button>
+            </div>
+            {% empty %}
+            <p id="dep-empty" class="text-sm text-[var(--text-muted)]">暂无前置依赖。配置后，前置活动全部完成前本活动会标灰提示「等待前置」。</p>
+            {% endfor %}
+        </div>
+        <!-- 添加：搜索选择已有活动（候选用 createElement+textContent 构建，活动名是用户数据） -->
+        <div class="mt-3 relative" id="dep-search-wrap">
+            <input type="text" id="dep-search" placeholder="搜索活动，添加为前置依赖" autocomplete="off"
+                   class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+            <div id="dep-candidates" class="hidden absolute left-0 right-0 top-full mt-1 z-20 rounded-xl bg-[var(--bg-card)] border border-[var(--border)] shadow-lg overflow-hidden"></div>
+            <p id="dep-error" class="hidden mt-2 text-xs font-semibold text-zinc-800"></p>
+        </div>
+    </details>
+
     <!-- 相关知识与笔记 -->
     {% if related_articles or related_notes %}
     <details data-mobile-collapse open class="app-card p-4 sm:p-6">
@@ -677,6 +704,146 @@ function appendExpenseTag(name) {
             resetSubmitBtn();
             showError('网络异常，请重试');
         });
+    });
+})();
+
+// ==================== 前置依赖：搜索添加 / 移除（原生 fetch + JSON，无 hx-*）====================
+(function () {
+    var wrap = document.getElementById('dep-search-wrap');
+    if (!wrap) return;
+    var input = document.getElementById('dep-search');
+    var candidatesEl = document.getElementById('dep-candidates');
+    var listEl = document.getElementById('dep-list');
+    var countEl = document.getElementById('dep-count');
+    var errEl = document.getElementById('dep-error');
+    var csrf = document.querySelector('meta[name="csrf-token"]').content;
+    var searchUrl = '{% url "activities:blocked_search" activity.id %}';
+    var addUrl = '{% url "activities:blocked_add" activity.id %}';
+
+    function showError(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    function hideError() { errEl.classList.add('hidden'); }
+
+    function setCount(n) {
+        countEl.textContent = n;
+        var empty = document.getElementById('dep-empty');
+        if (n === 0 && !empty) {
+            var p = document.createElement('p');
+            p.id = 'dep-empty';
+            p.className = 'text-sm text-[var(--text-muted)]';
+            p.textContent = '暂无前置依赖。配置后，前置活动全部完成前本活动会标灰提示「等待前置」。';
+            listEl.appendChild(p);
+        } else if (n > 0 && empty) {
+            empty.remove();
+        }
+    }
+
+    // 候选行：createElement + textContent 构建（活动名是用户数据，不得拼 HTML）
+    function buildCandidate(item) {
+        var row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'block w-full text-left px-4 py-2.5 hover:bg-[var(--accent-light)] transition-colors';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'block text-sm text-[var(--text)] truncate';
+        nameSpan.textContent = item.name;
+        var metaSpan = document.createElement('span');
+        metaSpan.className = 'block text-xs text-[var(--text-muted)]';
+        metaSpan.textContent = item.status_label;
+        row.appendChild(nameSpan);
+        row.appendChild(metaSpan);
+        row.addEventListener('click', function () { addDep(item); });
+        return row;
+    }
+
+    function hideCandidates() { candidatesEl.classList.add('hidden'); candidatesEl.innerHTML = ''; }
+
+    // 候选请求带 seq 号，慢响应不得盖掉新结果
+    var searchSeq = 0;
+    input.addEventListener('input', function () {
+        hideError();
+        var q = input.value.trim();
+        var seq = ++searchSeq;
+        fetch(searchUrl + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (seq !== searchSeq) return;
+                candidatesEl.innerHTML = '';
+                var items = data.items || [];
+                if (items.length === 0) {
+                    var none = document.createElement('p');
+                    none.className = 'px-4 py-3 text-sm text-[var(--text-muted)]';
+                    none.textContent = '没有匹配的活动';
+                    candidatesEl.appendChild(none);
+                } else {
+                    items.forEach(function (item) { candidatesEl.appendChild(buildCandidate(item)); });
+                }
+                candidatesEl.classList.remove('hidden');
+            })
+            .catch(function () { /* 静默：搜索失败不打断页面 */ });
+    });
+    // mousedown preventDefault：先于 blur 触发，避免输入框先失焦把候选列表收掉
+    candidatesEl.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    input.addEventListener('blur', function () { setTimeout(hideCandidates, 150); });
+
+    function addDep(item) {
+        hideError();
+        fetch(addUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ activity_id: item.id }),
+        }).then(function (r) {
+            return r.json().then(
+                function (d) { return { ok: r.ok, data: d }; },
+                function () { return { ok: false, data: {} }; }
+            );
+        }).then(function (res) {
+            if (!res.ok) { showError(res.data.error || '添加失败，请稍后重试'); return; }
+            var empty = document.getElementById('dep-empty');
+            if (empty) empty.remove();
+            var row = document.createElement('div');
+            row.className = 'flex items-center gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2';
+            row.dataset.depId = res.data.id;
+            var link = document.createElement('a');
+            link.href = '/activities/' + res.data.id + '/';
+            link.className = 'text-sm text-[var(--text)] truncate flex-1 min-w-0';
+            link.textContent = res.data.name;
+            var status = document.createElement('span');
+            status.className = 'shrink-0 text-xs ' + (res.data.done ? 'text-green-600' : 'text-orange-600');
+            status.textContent = res.data.status_label;
+            var removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '移除';
+            removeBtn.className = 'row-action text-xs text-[var(--text-muted)] hover:text-red-600';
+            removeBtn.dataset.depRemove = res.data.id;
+            removeBtn.dataset.depRemoveUrl = '/activities/{{ activity.id }}/blocked/' + res.data.id + '/remove/';
+            row.appendChild(link);
+            row.appendChild(status);
+            row.appendChild(removeBtn);
+            listEl.appendChild(row);
+            setCount(listEl.querySelectorAll('[data-dep-id]').length);
+            input.value = '';
+            hideCandidates();
+        }).catch(function () { showError('网络异常，请重试'); });
+    }
+
+    // 移除走事件委托：初始渲染与新添加的行共用一份逻辑
+    listEl.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-dep-remove]');
+        if (!btn) return;
+        hideError();
+        fetch(btn.dataset.depRemoveUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' },
+        }).then(function (r) {
+            return r.json().then(
+                function (d) { return { ok: r.ok, data: d }; },
+                function () { return { ok: false, data: {} }; }
+            );
+        }).then(function (res) {
+            if (!res.ok) { showError(res.data.error || '移除失败，请稍后重试'); return; }
+            var row = btn.closest('[data-dep-id]');
+            if (row) row.remove();
+            setCount(listEl.querySelectorAll('[data-dep-id]').length);
+        }).catch(function () { showError('网络异常，请重试'); });
     });
 })();
 </script>

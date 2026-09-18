@@ -7,7 +7,7 @@ from core.views import (dashboard, search_api, weekly_report, monthly_report, ye
                         report_send_to_chat, service_worker,
                         push_subscribe, push_unsubscribe, push_test,
                         weekly_review_view, weekly_review_complete_view,
-                        today_view)
+                        today_view, set_timezone, get_timezone)
 from activities.views import daily_view, calendar_feed
 
 urlpatterns = [
@@ -61,6 +61,10 @@ urlpatterns = [
 
     # Today View
     path('today/', today_view, name='today'),
+
+    # Timezone
+    path('api/timezone/', get_timezone, name='get_timezone'),
+    path('api/timezone/set/', set_timezone, name='set_timezone'),
 ]
 
 if settings.DEBUG:

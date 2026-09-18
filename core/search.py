@@ -1,6 +1,7 @@
 """全局搜索引擎
 
 跨 Activity / Article / Note / Conversation / Message / Memory 六个模块的统一搜索。
+FTS5 可用时优先走全文索引（BM25 排序），不可用时静默降级为 icontains。
 """
 import logging
 from datetime import timedelta
@@ -10,6 +11,20 @@ from django.utils import timezone
 from core.utils import visible_qs, visible_child_qs, q_or
 
 logger = logging.getLogger(__name__)
+
+
+def _try_fts(user, query, limit_per_module):
+    """尝试 FTS5 搜索，返回 (fts_ids, used) 二元组。
+
+    fts_ids: {'activity': [id,...], 'article': [id,...], 'note': [id,...]} 或 None
+    used: 是否成功使用了 FTS（False 表示需降级）
+    """
+    from core.fts import fts_search
+    fts_ids = fts_search(user, query, limit_per_module)
+    if fts_ids is None:
+        return None, False
+    # 即使三个模块都为空列表，也算 FTS 生效（只是没匹配到）
+    return fts_ids, True
 
 
 def global_search(user, query, limit_per_module=5):
@@ -31,25 +46,43 @@ def global_search(user, query, limit_per_module=5):
     q = query.strip()
     results = {}
 
+    # 尝试 FTS5 加速（仅覆盖 activity / article / note 三个模块）
+    fts_ids, fts_used = _try_fts(user, q, limit_per_module)
+
     # 活动：搜索名称、描述、标签
     from activities.models import Activity
-    activities = visible_qs(Activity, user).filter(
-        q_or(('name', 'description', 'tags__name'), q)
-    ).distinct()[:limit_per_module]
+    if fts_used and fts_ids.get('activity'):
+        activities = visible_qs(Activity, user).filter(
+            pk__in=fts_ids['activity']
+        )[:limit_per_module]
+    else:
+        activities = visible_qs(Activity, user).filter(
+            q_or(('name', 'description', 'tags__name'), q)
+        ).distinct()[:limit_per_module]
     results['activities'] = list(activities)
 
     # 知识库：搜索标题、内容、标签
     from knowledge.models import Article
-    articles = visible_qs(Article, user).filter(
-        q_or(('title', 'content', 'tags__name'), q)
-    ).distinct()[:limit_per_module]
+    if fts_used and fts_ids.get('article'):
+        articles = visible_qs(Article, user).filter(
+            pk__in=fts_ids['article']
+        )[:limit_per_module]
+    else:
+        articles = visible_qs(Article, user).filter(
+            q_or(('title', 'content', 'tags__name'), q)
+        ).distinct()[:limit_per_module]
     results['articles'] = list(articles)
 
     # 笔记：搜索内容、标签
     from notes.models import Note
-    notes = visible_qs(Note, user).filter(
-        q_or(('content', 'tags__name'), q)
-    ).distinct()[:limit_per_module]
+    if fts_used and fts_ids.get('note'):
+        notes = visible_qs(Note, user).filter(
+            pk__in=fts_ids['note']
+        )[:limit_per_module]
+    else:
+        notes = visible_qs(Note, user).filter(
+            q_or(('content', 'tags__name'), q)
+        ).distinct()[:limit_per_module]
     results['notes'] = list(notes)
 
     # 对话：搜索标题

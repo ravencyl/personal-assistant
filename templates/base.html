@@ -22,6 +22,10 @@
     <script defer src="{% staticv 'js/command-palette.js' %}"></script>
     {# 搜索历史 & 自动补全：localStorage 存最近 20 条搜索词 #}
     <script defer src="{% staticv 'js/search-history.js' %}"></script>
+    {# 键盘导航：j/k 选择、Enter 打开、Esc 返回、g+h/a/k/n/c 快速跳转 #}
+    <script defer src="{% staticv 'js/keyboard-nav.js' %}"></script>
+    {# 用户时区自动检测（Intl API 检测 + session 存储，导航栏显示缩写） #}
+    <script defer src="{% staticv 'js/timezone.js' %}"></script>
     {# 聊天异步收发流（分栏页与详情页共用一份）；同步加载，见上方例外说明 #}
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
     {# 全站统一确认卡（data-confirm 表单 + paConfirmCard API），替代原生 confirm() 弹窗 #}
@@ -71,6 +75,21 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="h-full antialiased">
+    <!-- 离线状态提示条 -->
+    <div id="offline-banner" class="hidden fixed top-0 left-0 right-0 z-50 bg-amber-500 text-white text-center text-xs py-1 px-4">
+        当前处于离线模式，部分功能不可用
+    </div>
+    <script>
+    (function(){
+        var banner = document.getElementById('offline-banner');
+        function update() {
+            banner.classList.toggle('hidden', navigator.onLine);
+        }
+        window.addEventListener('online', update);
+        window.addEventListener('offline', update);
+        update();
+    })();
+    </script>
     <!-- 导航切换进度条（JS 见页尾 navProgress 块） -->
     <div id="nav-progress" aria-hidden="true"></div>
     <div class="min-h-full">
@@ -94,7 +113,7 @@
                         挪进导航只会让顶栏变臃肿，且这两个 app_name='activities'
                         的页面本来就会点亮「活动记录」，归属关系是对的。
                         {% endcomment %}
-                        <div class="hidden md:ml-8 md:flex md:space-x-1">
+                        <div class="hidden md:ml-10 md:flex md:space-x-2">
                             <a href="/"
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'home' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 今日
@@ -136,6 +155,7 @@
                                 <kbd class="text-[10px] text-[var(--text-muted)] ml-1">⌘K</kbd>
                             </button>
                             <span class="hidden md:inline text-sm text-[var(--text-secondary)]">{{ user.username }}</span>
+                            <span id="tz-indicator" class="hidden md:inline text-[10px] text-[var(--text-muted)] bg-[var(--accent-light)] px-1.5 py-0.5 rounded-full font-mono" title="时区">--</span>
                             {% if push_ready %}
                             <button type="button" id="push-toggle-btn" class="tap-target p-2 -mx-1 text-[var(--text-secondary)] hover:text-[var(--text)]" title="开启每日推送">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

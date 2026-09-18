@@ -1,14 +1,28 @@
 {% extends "base.html" %}
+{% load static core_tags %}
 
 {% block title %}AI 记忆 · {{ SITE_NAME }}{% endblock %}
+
+{% block extra_head %}
+<script src="{% staticv 'js/memory-viz.js' %}" defer></script>
+{% endblock %}
 
 {% block content %}
 <!-- 头部 -->
 <div class="mb-6">
-    <h1 class="text-xl font-semibold">AI 记忆</h1>
-    <p class="mt-1 text-sm text-[var(--text-secondary)]">
-        AI 在对话中记住的关于你的信息。这些记忆会帮助 AI 更好地理解你。
-    </p>
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-xl font-semibold">AI 记忆</h1>
+            <p class="mt-1 text-sm text-[var(--text-secondary)]">
+                AI 在对话中记住的关于你的信息。这些记忆会帮助 AI 更好地理解你。
+            </p>
+        </div>
+        <!-- 视图切换 Tab -->
+        <div class="flex items-center rounded-full border border-[var(--border-strong)] overflow-hidden text-sm">
+            <button type="button" data-view="list" class="px-3 py-1 font-medium transition-colors bg-[var(--accent)] text-white">列表</button>
+            <button type="button" data-view="map" class="px-3 py-1 font-medium transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
+        </div>
+    </div>
 </div>
 
 {% comment %}
@@ -70,4 +84,65 @@
 
 </div><!-- /左列 -->
 </div><!-- /.page-cols -->
+
+<!-- 记忆可视化面板（默认隐藏，切换到「记忆地图」时显示） -->
+<div id="memory-viz-container" class="hidden" data-stats-url="{% url 'memory:memory_stats' %}"></div>
+
+<!-- 目标进度区 -->
+{% if goals %}
+<div class="mt-6">
+    <h2 class="text-base font-semibold text-[var(--text)] mb-3">目标进度</h2>
+    <div class="space-y-3">
+        {% for goal in goals %}
+        <div class="app-card rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-sm font-medium text-[var(--text)] truncate flex-1">{{ goal.content }}</p>
+                <span class="text-xs font-bold text-[var(--accent)] ml-2">{{ goal.percent }}%</span>
+            </div>
+            <div class="h-2 rounded-full bg-zinc-100 overflow-hidden">
+                <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {{ goal.percent }}%"></div>
+            </div>
+            <p class="text-[11px] text-[var(--text-muted)] mt-1.5">{{ goal.done }}/{{ goal.total }} 个相关活动已完成</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<script>
+// 视图切换：列表 / 记忆地图
+(function () {
+    var btns = document.querySelectorAll('[data-view]');
+    var listArea = document.querySelector('.page-cols');
+    var vizArea = document.getElementById('memory-viz-container');
+    if (!btns.length || !listArea || !vizArea) return;
+
+    btns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var view = btn.dataset.view;
+            btns.forEach(function (b) {
+                var isActive = b === btn;
+                b.classList.toggle('bg-[var(--accent)]', isActive);
+                b.classList.toggle('text-white', isActive);
+                b.classList.toggle('text-[var(--text-secondary)]', !isActive);
+            });
+            if (view === 'map') {
+                listArea.classList.add('hidden');
+                vizArea.classList.remove('hidden');
+                // 触发 memory-viz.js 加载（首次切到时才 fetch）
+                if (!vizArea.dataset.loaded) {
+                    vizArea.dataset.loaded = '1';
+                    var script = document.createElement('script');
+                    script.src = vizArea.querySelector('script') ? '' : '';
+                    // memory-viz.js 已在 extra_head 加载，这里只需触发重绘
+                    location.reload(); // 简单方案：切视图时刷新
+                }
+            } else {
+                listArea.classList.remove('hidden');
+                vizArea.classList.add('hidden');
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}

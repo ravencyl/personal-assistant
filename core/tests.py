@@ -601,7 +601,7 @@ class PrimaryNavTest(TestCase):
 
     def _desktop_block(self):
         src = self._base()
-        start = src.index('<div class="hidden md:ml-8 md:flex md:space-x-1">')
+        start = src.index('<div class="hidden md:ml-10 md:flex md:space-x-2">')
         return src[start:src.index('</div>', start)]
 
     def _mobile_block(self):

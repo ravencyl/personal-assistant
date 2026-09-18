@@ -48,24 +48,27 @@
 
 :root {
     /* periwinkle 蓝紫强调色（2026-09-13 用户选定向医疗预约风截图，推翻 09-11 纯蓝）
-       同时解禁大面积色块卡与宽松大卡节奏，圆角/胶囊全面放大 */
+       同时解禁大面积色块卡与宽松大卡节奏，圆角/胶囊全面放大
+       2026-09-18 质感升级：背景加微妙暖灰调、阴影分层加色彩倾向、卡片内发光 */
     --accent: #6478e8;
     --accent-hover: #5467d6;
     --accent-light: #eef0fe;    /* periwinkle 极浅底：hover/选中染色 */
     --accent-soft: #eef0fe;     /* 选中态/强调底色专用 */
-    --bg: #ffffff;                /* 白色画布 */
+    --bg: #f8f8fa;              /* 微暖灰画布（不再是纯白，增加层次） */
     --bg-card: #ffffff;
     --text: #18181b;
     --text-secondary: #52525b;
     --text-muted: #a1a1aa;
-    --border: rgba(0, 0, 0, 0.08);
-    --border-strong: rgba(0, 0, 0, 0.15);
+    --border: rgba(0, 0, 0, 0.06);
+    --border-strong: rgba(0, 0, 0, 0.12);
 
-    /* 阴影令牌：仅灰黑，全套唯一定义处（2026-09-11 用户解禁） */
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
-    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+    /* 阴影令牌：分层 + 微色彩倾向（蓝紫调混入外层阴影，增加精致感） */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(100, 120, 232, 0.04);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(100, 120, 232, 0.07);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(100, 120, 232, 0.10);
+    /* 卡片内发光（顶部高光模拟光源从上方向下） */
+    --card-inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 /* Apple 毛玻璃 Tab 栏：低透明白底 + backdrop-filter 模糊，iPhone Chrome/Safari 均支持 -webkit- 前缀 */
@@ -160,20 +163,21 @@ textarea {
     border-radius: 1rem !important;
 }
 
-/* 卡片：白底浮在淡紫蓝画布上——超大圆角 + 极淡描边 + 柔和阴影（截图风） */
+/* 卡片：白底浮在淡灰画布上——大圆角 + 内发光 + 分层阴影 + hover 上浮（精致细腻风） */
 .app-card, .card {
     background: var(--bg-card);
-    border: 1px solid rgba(100, 120, 232, 0.10);
-    border-radius: 1.5rem;
-    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(100, 120, 232, 0.08);
+    border-radius: 1.25rem;
+    box-shadow: var(--shadow-sm), var(--card-inner-glow);
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
 /* 面板：浮层容器，阴影比卡片高一档 */
 .panel {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 1.5rem;
-    box-shadow: var(--shadow-md);
+    border-radius: 1.25rem;
+    box-shadow: var(--shadow-md), var(--card-inner-glow);
 }
 
 /* 主按钮（黑底白字）：微阴影 + hover 上浮，点按下收——按钮要有「物理感」 */
@@ -194,19 +198,24 @@ textarea {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-/* 导航链接 */
+/* 导航链接（质感升级：柔和过渡 + 激活态微底色） */
 .nav-link {
     color: var(--text-muted);
     font-size: 0.875rem;
+    transition: color 0.2s ease, background-color 0.2s ease;
+    border-radius: 0.5rem;
+    padding: 0.375rem 0.75rem;
 }
 
 .nav-link:hover {
     color: var(--text-secondary);
+    background-color: rgba(100, 120, 232, 0.04);
 }
 
 .nav-link-active {
     color: var(--accent);
     font-weight: 600;
+    background-color: rgba(100, 120, 232, 0.08);
 }
 
 /* 品牌色的轻量落点：聚焦环 + 勾选框（模板未写 focus: 类，此处是全局唯一 focus 处理） */
@@ -234,6 +243,58 @@ input[type="number"], input[type="search"], textarea) {
 /* 链接悬停动效 */
 a {
     transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+/* ===== 质感升级（2026-09-18）：排版 + 细节增强 ===== */
+
+/* 全局字体渲染优化：启用亚像素抗锯齿，文字更清晰 */
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+/* 标题字间距微调：大标题收紧，增加精致感 */
+h1, h2, h3 {
+    letter-spacing: -0.01em;
+}
+
+/* 小字号行高补偿：12px/11px 文字行高稍放大，提高可读性 */
+.text-xs, .text-\[11px\], .text-\[10px\] {
+    line-height: 1.5;
+}
+
+/* 输入框精致化：更柔和的边框 + 微内阴影 */
+input[type="text"], input[type="email"], input[type="password"],
+input[type="number"], input[type="search"], select, textarea {
+    border-color: var(--border-strong);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03), 0 0 0 3px rgba(100, 120, 232, 0.12);
+}
+
+/* 分割线精致化：更细更淡 */
+hr, .border-t, .border-b {
+    border-color: var(--border) !important;
+}
+
+/* 滚动条精致化（WebKit） */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.2);
 }
 
 /* ===== 微动效（2026-09-11 用户解禁）：克制、灰阶、可关闭 ===== */
@@ -272,10 +333,12 @@ a.bg-\[var\(--accent\)\]:active {
     }
 }
 
-/* 悬停时卡片阴影加深一档（仅桌面有 hover 的设备上有意义） */
+/* 悬停时卡片微上浮 + 阴影加深（精致感的关键交互） */
 @media (hover: hover) {
     .app-card:hover, .card:hover {
-        box-shadow: var(--shadow-md);
+        box-shadow: var(--shadow-md), var(--card-inner-glow);
+        transform: translateY(-1px);
+        border-color: rgba(100, 120, 232, 0.14);
     }
 }
 
@@ -953,4 +1016,26 @@ details[data-mobile-collapse] summary span[aria-hidden] {
 
 details[data-mobile-collapse][open] summary span[aria-hidden] {
     transform: rotate(90deg);
+}
+
+/* ── 日历拖拽排期 ──────────────────────────────────────────────────────── */
+.cal-drop-target {
+    background-color: var(--accent-light) !important;
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+}
+
+[data-activity-id][draggable="true"] {
+    cursor: grab;
+}
+[data-activity-id][draggable="true"]:active {
+    cursor: grabbing;
+}
+
+/* 键盘导航焦点环 */
+.kb-focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 0.75rem;
+    transition: outline-color 150ms ease;
 }

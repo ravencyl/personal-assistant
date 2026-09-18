@@ -2466,3 +2466,101 @@ class ActivityCommentAgentToolTest(TestCase):
         with self.assertRaises(Exception):
             tool['fn'](other, {'target': '周末游', 'content': '越权'})
         self.assertFalse(self.activity.comments.exists())
+
+
+class BlockedByEditTest(TestCase):
+    """详情页前置依赖手动配置：搜索 / 添加（环检测）/ 移除，均为 JSON 端点"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.other = User.objects.create_user('other', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='意大利旅游')
+        self.client.login(username='raven', password='test')
+
+    def _search(self, q=''):
+        url = reverse('activities:blocked_search', args=[self.activity.id])
+        return self.client.get(url + ('?q=' + q if q else ''))
+
+    def _add(self, dep_id, activity=None):
+        target = activity or self.activity
+        return self.client.post(
+            reverse('activities:blocked_add', args=[target.id]),
+            data=json.dumps({'activity_id': dep_id}), content_type='application/json')
+
+    def _remove(self, dep_id):
+        return self.client.post(
+            reverse('activities:blocked_remove', args=[self.activity.id, dep_id]))
+
+    def test_search_excludes_self_and_linked(self):
+        visa = Activity.objects.create(user=self.user, name='办理签证')
+        hotel = Activity.objects.create(user=self.user, name='订酒店')
+        self.activity.blocked_by.add(visa)
+        data = self._search().json()
+        ids = {i['id'] for i in data['items']}
+        self.assertNotIn(self.activity.id, ids)      # 排除自己
+        self.assertNotIn(visa.id, ids)               # 排除已添加的
+        self.assertIn(hotel.id, ids)
+
+    def test_search_q_filters_by_name(self):
+        Activity.objects.create(user=self.user, name='办理签证')
+        Activity.objects.create(user=self.user, name='订酒店')
+        data = self._search('签证').json()
+        self.assertEqual([i['name'] for i in data['items']], ['办理签证'])
+
+    def test_add_success_with_log(self):
+        visa = Activity.objects.create(user=self.user, name='办理签证')
+        resp = self._add(visa.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+        self.assertIn(visa, self.activity.blocked_by.all())
+        self.assertTrue(ActivityLog.objects.filter(
+            activity=self.activity, action='edited',
+            summary__contains='办理签证').exists())
+
+    def test_add_rejects_self_duplicate_and_cycle(self):
+        a = Activity.objects.create(user=self.user, name='A')
+        b = Activity.objects.create(user=self.user, name='B')
+        a.blocked_by.add(b)   # a 的前置是 b → 再给 b 添加 a 就成环
+        self.assertEqual(self._add(self.activity.id).status_code, 400)  # 依赖自己
+        self._add(a.id)
+        self.assertEqual(self._add(a.id).status_code, 400)              # 重复添加
+        resp = self._add(a.id, activity=b)                               # b←a 成环
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('循环', resp.json()['error'])
+        self.assertFalse(b.blocked_by.filter(id=a.id).exists())
+
+    def test_add_foreign_activity_returns_json_404(self):
+        foreign = Activity.objects.create(user=self.other, name='别人的活动')
+        resp = self._add(foreign.id)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+
+    def test_foreign_user_on_target_activity_gets_json_404(self):
+        visa = Activity.objects.create(user=self.user, name='办理签证')
+        self.client.login(username='other', password='test')
+        resp = self._add(visa.id)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+        self.assertFalse(self.activity.blocked_by.exists())
+
+    def test_remove_success_then_404(self):
+        visa = Activity.objects.create(user=self.user, name='办理签证')
+        self.activity.blocked_by.add(visa)
+        resp = self._remove(visa.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(self.activity.blocked_by.exists())
+        self.assertTrue(ActivityLog.objects.filter(
+            activity=self.activity, action='edited',
+            summary__contains='移除前置依赖').exists())
+        self.assertEqual(self._remove(visa.id).status_code, 404)
+
+    def test_detail_page_renders_dep_section(self):
+        visa = Activity.objects.create(user=self.user, name='办理签证', status='in_progress')
+        self.activity.blocked_by.add(visa)
+        html = self.client.get(reverse(
+            'activities:activity_detail', args=[self.activity.id])).content.decode()
+        # 计数渲染在 <span id="dep-count"> 内，不能按纯文本「前置依赖（1）」断言
+        self.assertIn('前置依赖（', html)
+        self.assertIn('<span id="dep-count">1</span>', html)
+        self.assertIn('办理签证', html)
+        self.assertIn('搜索活动，添加为前置依赖', html)

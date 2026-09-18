@@ -50,3 +50,24 @@ class Article(models.Model):
                 counter += 1
             self.slug = slug
         super().save(*args, **kwargs)
+
+
+class ArticleVersion(models.Model):
+    """文章版本历史快照"""
+    article = models.ForeignKey(
+        Article,
+        on_delete=models.CASCADE,
+        related_name='versions',
+    )
+    content = models.TextField('内容快照')
+    title = models.CharField('标题快照', max_length=255)
+    edited_at = models.DateTimeField(auto_now_add=True)
+    edit_note = models.CharField('编辑备注', max_length=200, blank=True)
+
+    class Meta:
+        ordering = ['-edited_at']
+        verbose_name = '文章版本'
+        verbose_name_plural = '文章版本'
+
+    def __str__(self):
+        return f'{self.article.title} v{self.pk}'

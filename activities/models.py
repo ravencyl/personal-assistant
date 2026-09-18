@@ -398,3 +398,25 @@ class ActivityTemplate(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class DailySuggestion(models.Model):
+    """每日 AI 建议缓存：cron 每日 00:00 预计算，Daily 页直接读取，支持手动刷新"""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='daily_suggestions',
+    )
+    date = models.DateField('日期')
+    suggestion = models.TextField('建议内容', blank=True)
+    is_ai = models.BooleanField('是否 AI 生成', default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'date')
+        ordering = ['-date']
+        verbose_name = '每日建议'
+        verbose_name_plural = '每日建议'
+
+    def __str__(self):
+        return f'{self.user.username} {self.date}'

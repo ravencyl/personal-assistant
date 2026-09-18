@@ -5,6 +5,7 @@ import logging
 from django.contrib.auth.decorators import login_required
 from django.db import models
 from django.db.models import Sum
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -127,30 +128,22 @@ def daily_view(request):
     # ── 冲突检测：今日进行中 + 今日开始的活动 ──
     conflict_ids = _detect_conflicts([*ongoing, *starting_today])
 
-    # ── AI 今日建议（失败降级为规则模板） ──
-    ai_suggestion = None
-    all_today = [*ongoing, *starting_today, *overdue_rolled_in]
-    if all_today:
-        summary_lines = [f'- {a.name}（{a.get_status_display()}）' for a in all_today[:10]]
-        try:
-            from core.ai import ai_round_trip
-            reply = ai_round_trip(
-                '以下是用户今天的活动数据，请用不超过 80 字的中文给出一条可执行建议，'
-                '突出优先级最高的一件事，口语化，不要列表不要寒暄：\n'
-                + '\n'.join(summary_lines),
-                timeout=60, purpose='general')
-            if reply:
-                ai_suggestion = reply.strip().splitlines()[0][:120]
-        except Exception as exc:
-            logger.warning('AI 建议降级: %s', exc)
-        if not ai_suggestion:
-            # 规则降级
-            if overdue_rolled_in:
-                ai_suggestion = f'有 {len(overdue_rolled_in)} 个活动已过期，建议先处理最紧急的'
-            elif conflict_ids:
-                ai_suggestion = f'今天有 {len(conflict_ids)} 个活动时间冲突，注意调整'
-            elif ongoing:
-                ai_suggestion = f'当前有 {len(ongoing)} 个活动进行中，专注完成它们'
+    # ── AI 今日建议：读 cron 预计算缓存，无缓存时快速规则降级（不调 AI） ──
+    from ..models import DailySuggestion
+    cached = DailySuggestion.objects.filter(user=request.user, date=today).first()
+    if cached:
+        ai_suggestion = cached.suggestion
+        ai_suggestion_is_ai = cached.is_ai
+    else:
+        # cron 还没跑过或今天刚过零点，用规则快速降级（不阻塞页面）
+        ai_suggestion = None
+        ai_suggestion_is_ai = False
+        if overdue_rolled_in:
+            ai_suggestion = f'有 {len(overdue_rolled_in)} 个活动已过期，建议先处理最紧急的'
+        elif conflict_ids:
+            ai_suggestion = f'今天有 {len(conflict_ids)} 个活动时间冲突，注意调整'
+        elif ongoing:
+            ai_suggestion = f'当前有 {len(ongoing)} 个活动进行中，专注完成它们'
 
     # 六个分组互斥，合并后一次 attach_costs：
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
@@ -158,6 +151,20 @@ def daily_view(request):
                       *upcoming, *recently_done, *in_progress, *overdue_rolled_in]
     _annotate_blocked(all_activities)
     attach_costs(all_activities)
+
+    # 行为模式洞察：从已有 habit 类记忆读取（cron 每日 07:00 已算好存库），不再实时重算
+    pattern_insights = []
+    try:
+        from memory.models import Memory
+        pattern_insights = list(
+            visible_qs(Memory, request.user)
+            .filter(category='habit', content__startswith='[模式]')
+            .values_list('content', flat=True)[:3]
+        )
+        # 剥掉 [模式] 前缀
+        pattern_insights = [s.replace('[模式] ', '', 1) for s in pattern_insights]
+    except Exception as exc:
+        logger.warning('行为模式读取降级: %s', exc)
 
     return render(request, 'activities/daily.html', {
         'today': today,
@@ -176,11 +183,38 @@ def daily_view(request):
         'overdue_rolled_in': overdue_rolled_in,
         'conflict_ids': conflict_ids,
         'ai_suggestion': ai_suggestion,
+        'ai_suggestion_is_ai': ai_suggestion_is_ai,
+        'pattern_insights': pattern_insights,
         'today_expense': float(today_expense),
         'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
     })
+
+
+@login_required
+def refresh_suggestion(request):
+    """手动刷新今日 AI 建议：重新调用 AI 生成并缓存，返回 JSON"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+
+    from ..models import DailySuggestion
+    from ..management.commands.generate_daily_suggestion import _generate_suggestion_for_user
+
+    today = timezone.localdate()
+    try:
+        suggestion, is_ai = _generate_suggestion_for_user(request.user, today)
+        DailySuggestion.objects.update_or_create(
+            user=request.user, date=today,
+            defaults={'suggestion': suggestion, 'is_ai': is_ai},
+        )
+        return JsonResponse({
+            'suggestion': suggestion,
+            'is_ai': is_ai,
+        })
+    except Exception as exc:
+        logger.warning('手动刷新建议失败: %s', exc)
+        return JsonResponse({'error': '刷新失败，请稍后重试'}, status=500)
 
 
 @login_required

@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST
 
 from core.tags import apply_tags, tag_names, tag_suggestions, used_tags
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
-from core.utils import get_visible, wants_json
+from core.utils import get_visible, visible_qs, wants_json
 
 from ..models import Activity, Participant, Attachment, ActivityComment
 from ..services import (InputError, add_expense, change_activity_status,
@@ -77,6 +77,9 @@ def activity_detail(request, activity_id):
     # 评论时间线（追加式，正序；可见性跟随活动，无需再过滤）
     comments = activity.comments.select_related('user')
 
+    # 前置依赖（详情页右列展示 + 手动添加/移除入口）
+    blocked_deps = list(activity.blocked_by.all())
+
     # 「问 AI」深链：跳聊天页并预填针对当前活动的提问（chat 页 ?ask= 处理）。
     # 只填不发（与 chips 同一约定），用户可改两个字再发
     chat_ask_url = (
@@ -99,6 +102,7 @@ def activity_detail(request, activity_id):
         'today_date': timezone.localdate().isoformat(),
         'attachments': attachments,
         'subtask_done_count': subtask_done_count,
+        'blocked_deps': blocked_deps,
         'related_articles': related.get('articles', []),
         'related_notes': related.get('notes', []),
         # 手动内联创建子任务表单的 autocomplete 建议（scope=activity）
@@ -321,6 +325,72 @@ def subactivity_manual_create(request, activity_id):
             'children': children,
         }, request=request),
     })
+
+
+@login_required
+def blocked_search(request, activity_id):
+    """搜索可设为前置依赖的活动（JSON；排除自己与已添加的）"""
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if not activity:
+        # JSON 端点：越权/找不到统一 JSON 404，不能抛 Http404 返回 HTML 错误页
+        return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    q = (request.GET.get('q') or '').strip()
+    existing = set(activity.blocked_by.values_list('id', flat=True)) | {activity.id}
+    qs = visible_qs(Activity, request.user).exclude(id__in=existing)
+    if q:
+        qs = qs.filter(name__icontains=q)
+    return JsonResponse({'items': [{
+        'id': a.id,
+        'name': a.name,
+        'status_label': a.get_status_display(),
+    } for a in qs.order_by('-updated_at')[:8]]})
+
+
+@login_required
+@require_POST
+def blocked_add(request, activity_id):
+    """添加前置依赖（JSON；环检测与 AI 工具同一口径）"""
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if not activity:
+        return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': '请求数据格式错误'}, status=400)
+    dep = visible_qs(Activity, request.user).filter(id=data.get('activity_id')).first()
+    if not dep:
+        return JsonResponse({'error': '前置活动不存在或无权访问'}, status=404)
+    if dep.id == activity.id:
+        return JsonResponse({'error': '不能依赖自己'}, status=400)
+    if activity.blocked_by.filter(id=dep.id).exists():
+        return JsonResponse({'error': '已添加过该前置依赖'}, status=400)
+    if activity.would_create_cycle([dep.id]):
+        return JsonResponse({'error': '不能形成循环依赖（A→B→C→A 不允许）'}, status=400)
+    activity.blocked_by.add(dep)
+    log_activity(request.user, activity, 'edited', f'添加前置依赖「{dep.name}」')
+    return JsonResponse({
+        'ok': True,
+        'id': dep.id,
+        'name': dep.name,
+        'status_label': dep.get_status_display(),
+        'done': dep.status == 'done',
+    })
+
+
+@login_required
+@require_POST
+def blocked_remove(request, activity_id, dep_id):
+    """移除前置依赖（JSON）"""
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if not activity:
+        return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    # 前置只会从本人可见的候选里添加进来，直接从 M2M 里找即可；找不到一并 404
+    dep = activity.blocked_by.filter(id=dep_id).first()
+    if not dep:
+        return JsonResponse({'error': '前置依赖不存在'}, status=404)
+    activity.blocked_by.remove(dep)
+    log_activity(request.user, activity, 'edited', f'移除前置依赖「{dep.name}」')
+    return JsonResponse({'ok': True})
 
 
 @login_required

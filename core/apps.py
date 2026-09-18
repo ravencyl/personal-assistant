@@ -23,3 +23,9 @@ class CoreConfig(AppConfig):
         for model in [Activity, Article, Note]:
             post_save.connect(invalidate_related_cache, sender=model)
             post_delete.connect(invalidate_related_cache, sender=model)
+
+        # FTS5 全文索引同步
+        from core.fts import sync_to_fts, remove_from_fts
+        for model in [Activity, Article, Note]:
+            post_save.connect(sync_to_fts, sender=model)
+            post_delete.connect(remove_from_fts, sender=model)
