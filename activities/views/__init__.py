@@ -67,6 +67,7 @@ from .template_views import (  # noqa: F401
 )
 from .batch_views import batch_update_view  # noqa: F401
 from .dependency_views import dependency_data  # noqa: F401
+from .export_views import activity_export_csv, expense_export_csv  # noqa: F401
 
 __all__ = [
     'attach_costs',

@@ -2004,3 +2004,34 @@ class PushScheduleTest(TestCase):
         from core.models import PushSchedule
         self.assertIsInstance(admin.site._registry.get(PushSchedule),
                               PushScheduleAdmin)
+
+
+class ReportPushPayloadTest(TestCase):
+    """⑤ 周报/月报推送：生成入知识库 + 深链文章 + 同周期只生成一份"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_weekly_payload_links_to_article(self):
+        from core.push import build_payload
+        payload = build_payload(self.user, 'weekly_report')
+        self.assertIn('周报', payload['title'])
+        self.assertIn('完成', payload['body'])
+        # 深链到生成的文章，点推送能直接看全文
+        self.assertIn('/knowledge/', payload['url'])
+
+    def test_monthly_payload_links_to_article(self):
+        from core.push import build_payload
+        payload = build_payload(self.user, 'monthly_report')
+        self.assertIn('月报', payload['title'])
+        self.assertIn('/knowledge/', payload['url'])
+
+    def test_same_period_reuses_article(self):
+        """同周期重复触发不得生成重复文章（幂等的第二层）"""
+        from core.push import build_report_push_payload
+        p1 = build_report_push_payload(self.user, 'weekly')
+        p2 = build_report_push_payload(self.user, 'weekly')
+        self.assertEqual(p1['url'], p2['url'])
+        self.assertEqual(
+            Article.objects.filter(
+                user=self.user, tags__name='report-weekly').count(), 1)

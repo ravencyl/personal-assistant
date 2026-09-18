@@ -2563,3 +2563,58 @@ class ActivityDetailAskAiTest(TestCase):
         self.assertIn('href="/chat/?ask=', html)
         # ask= 后面必须紧跟编码后的提问文本（而非重复的 key），防止双 ?ask=ask= 回归
         self.assertIn('href="/chat/?ask=%E5%B8%AE%E6%88%91', html)  # 帮我…
+
+
+class ChatRagInjectionTest(TestCase):
+    """④ 对话 RAG：段落级检索结果注入 turn_prompt，历史只存原文
+
+    与知识库全文注入互补：一个走标题/全文匹配，一个走段落相似度。
+    注入进的是组装文本（turn_prompt），不是消息历史（现有约定）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_rag', agent_id='ag_rag',
+            title='RAG')
+
+    def _send(self, content):
+        with patch('chat.views.get_service', return_value=FakeQoderService()):
+            return self.client.post(
+                f'/chat/{self.conv.id}/send/',
+                {'content': content, 'page_context': 'chat'},
+                HTTP_ACCEPT='application/json')
+
+    def test_rag_context_enters_turn_prompt(self):
+        from knowledge.models import Article
+        Article.objects.create(
+            user=self.user, title='冲绳潜水攻略',
+            content='# 冲绳潜水攻略\n\n冲绳潜水需要提前一周预约教练，'
+                    '并确认天气窗口与潮汐表。')
+        resp = self._send('冲绳潜水要准备什么')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertIn('[相关知识库内容]', self.conv.turn_prompt)
+        self.assertIn('冲绳潜水攻略', self.conv.turn_prompt)
+        # 历史只存原文：注入文本不得污染用户消息
+        self.assertEqual(
+            self.conv.messages.get(role='user').content, '冲绳潜水要准备什么')
+
+    def test_no_match_leaves_prompt_clean(self):
+        resp = self._send('随便聊聊天气')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertNotIn('[相关知识库内容]', self.conv.turn_prompt)
+
+    def test_rag_failure_degrades_to_plain_send(self):
+        """RAG 环节抛异常只降级不阻断（容错铁律）"""
+        from knowledge.models import Article
+        Article.objects.create(
+            user=self.user, title='冲绳潜水攻略', content='冲绳潜水预约教练')
+        with patch('knowledge.rag.build_rag_context',
+                   side_effect=RuntimeError('fts down')):
+            resp = self._send('冲绳潜水要准备什么')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertNotIn('[相关知识库内容]', self.conv.turn_prompt)

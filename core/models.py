@@ -84,6 +84,8 @@ class PushSchedule(models.Model):
         ('ai_summary', 'AI 任务总结'),
         ('weekly_review', '每周回顾'),
         ('activity_reminder', '活动前提醒'),
+        ('weekly_report', '周报推送'),
+        ('monthly_report', '月报推送'),
     ]
 
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE,

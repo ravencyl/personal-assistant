@@ -2564,3 +2564,56 @@ class BlockedByEditTest(TestCase):
         self.assertIn('<span id="dep-count">1</span>', html)
         self.assertIn('办理签证', html)
         self.assertIn('搜索活动，添加为前置依赖', html)
+
+
+class CsvExportTest(TestCase):
+    """⑦ CSV 导出：BOM / 可见性隔离 / 字段齐全（数据主权兜底，可直接进 Excel）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.other = User.objects.create_user('other', password='test')
+        self.activity = Activity.objects.create(
+            user=self.user, name='意大利旅游', status='in_progress',
+            description='六天五夜')
+        apply_tags(self.activity, ['旅行'])
+        Expense.objects.create(
+            activity=self.activity, user=self.user, amount=Decimal('120.50'),
+            paid_at=timezone.localdate(), note='机票')
+        self.client.login(username='raven', password='test')
+
+    def test_activity_export_contains_bom_and_fields(self):
+        resp = self.client.get(reverse('activities:activity_export'))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        # BOM 必须在：Excel 打开无 BOM 的 UTF-8 中文 CSV 全是乱码
+        self.assertTrue(body.startswith('\ufeff'))
+        self.assertIn('意大利旅游', body)
+        self.assertIn('进行中', body)
+        self.assertIn('旅行', body)
+        self.assertIn('六天五夜', body)
+
+    def test_expense_export_contains_amount_and_note(self):
+        resp = self.client.get(reverse('activities:expense_export'))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        self.assertIn('120.5', body)
+        self.assertIn('机票', body)
+        self.assertIn('意大利旅游', body)
+
+    def test_export_respects_visibility(self):
+        """只导 visible_qs 范围内的数据，不混他人数据"""
+        Activity.objects.create(user=self.other, name='别人的秘密活动')
+        Expense.objects.create(
+            activity=Activity.objects.create(user=self.other, name='别人的日常'),
+            user=self.other, note='别人的账', amount=1)
+        body = self.client.get(
+            reverse('activities:activity_export')).content.decode('utf-8')
+        self.assertNotIn('别人的秘密活动', body)
+        body = self.client.get(
+            reverse('activities:expense_export')).content.decode('utf-8')
+        self.assertNotIn('别人的账', body)
+
+    def test_export_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse('activities:activity_export'))
+        self.assertEqual(resp.status_code, 302)

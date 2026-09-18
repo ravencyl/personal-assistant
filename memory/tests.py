@@ -2,9 +2,12 @@
 
 覆盖：模型、服务层（检索/提取/注入/AI 存储）、Agent 工具、视图。
 """
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from pathlib import Path
 
@@ -667,3 +670,79 @@ for _attr in list(ConsolidateCommandTest.__dict__.keys()):
         'test_no_groups_below_min_size',
     ):
         delattr(ConsolidateCommandTest, _attr)
+
+
+class MonthlyInsightCommandTest(TestCase):
+    """⑥ 月度洞察：上月数据 → 一条记忆；幂等 / 空月 / AI 降级三层防护"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='testpass')
+        from memory.management.commands.generate_monthly_insight import (
+            generate_monthly_insight as fn)
+        self.generate = fn
+
+    def _last_month(self):
+        today = timezone.localdate()
+        first = today.replace(day=1)
+        end = first - timedelta(days=1)
+        start = end.replace(day=1)
+        return start, end, f'{start.year}-{start.month:02d}'
+
+    def test_saves_insight_memory(self):
+        from activities.models import Activity
+        start, end, ym = self._last_month()
+        Activity.objects.create(
+            user=self.user, name='意大利旅行', status='done',
+            start_date=start)
+        with patch('core.ai.ai_round_trip',
+                   return_value='这个月主线是意大利旅行，花费集中在机票。'):
+            result = self.generate(self.user, start, end, ym)
+        self.assertEqual(result, 'saved')
+        mem = Memory.objects.get(user=self.user)
+        # 前缀即幂等键：同月重复扫描靠它跳过
+        self.assertTrue(mem.content.startswith(f'【{ym} 月度回顾】'))
+        self.assertIn('意大利旅行', mem.content)
+        self.assertEqual(mem.category, 'fact')
+        # importance 固定 4：索引型，不抢偏好/目标的注入位
+        self.assertEqual(mem.importance, 4)
+
+    def test_same_month_is_idempotent(self):
+        from activities.models import Activity
+        start, end, ym = self._last_month()
+        Activity.objects.create(user=self.user, name='搬家', status='done',
+                                start_date=start)
+        with patch('core.ai.ai_round_trip', return_value='主线是搬家。'):
+            self.assertEqual(
+                self.generate(self.user, start, end, ym), 'saved')
+            self.assertEqual(
+                self.generate(self.user, start, end, ym), 'skip:already')
+        self.assertEqual(Memory.objects.filter(user=self.user).count(), 1)
+
+    def test_empty_month_is_skipped(self):
+        """上月无任何活动：没数据硬生成就是占位垃圾"""
+        start, end, ym = self._last_month()
+        self.assertEqual(
+            self.generate(self.user, start, end, ym), 'skip:empty')
+        self.assertEqual(Memory.objects.filter(user=self.user).count(), 0)
+
+    def test_ai_failure_falls_back_to_template(self):
+        """AI 失败降级规则模板，仍要落一条（不能因 AI 抖动丢整月）"""
+        from activities.models import Activity
+        start, end, ym = self._last_month()
+        Activity.objects.create(user=self.user, name='装修', status='done',
+                                start_date=start)
+        with patch('core.ai.ai_round_trip', side_effect=RuntimeError('down')):
+            result = self.generate(self.user, start, end, ym)
+        self.assertEqual(result, 'saved')
+        mem = Memory.objects.get(user=self.user)
+        # fallback 模板只含统计数据（不含活动名），但必须落在前缀结构里
+        self.assertTrue(mem.content.startswith(f'【{ym} 月度回顾】'))
+        self.assertIn('完成', mem.content)
+
+    def test_command_runs_end_to_end(self):
+        """cron 入口：全用户扫描不炸（空月用户走 skip）"""
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('generate_monthly_insight', stdout=out)
+        self.assertIn('月度洞察完成', out.getvalue())

@@ -159,7 +159,7 @@ def build_ai_summary_payload(user):
 
 
 def build_payload(user, push_type):
-    """按计划类型分发内容组装（新类型 = 加分支 + PushSchedule.TYPE_CHOICES 加项）"""
+    """按计划类型分发内容组装（新类型 = 加分支 + PushSchedule.TYPE_CHOICES 加项 ）"""
     if push_type == 'task_reminder':
         return build_task_reminder_payload(user)
     if push_type == 'ai_summary':
@@ -168,7 +168,69 @@ def build_payload(user, push_type):
         return build_weekly_review_payload(user)
     if push_type == 'activity_reminder':
         return build_activity_reminder_payload(user)
+    if push_type == 'weekly_report':
+        return build_report_push_payload(user, 'weekly')
+    if push_type == 'monthly_report':
+        return build_report_push_payload(user, 'monthly')
     return build_daily_payload(user)
+
+
+def build_report_push_payload(user, report_type):
+    """周报/月报推送：到期自动生成报告存入知识库，推送摘要 + 深链文章
+
+    幂等分两层：send_scheduled_push 的 last_sent_date 管「同一天只扫一次」，
+    这里靠「本周期已有 report-weekly/monthly 标签文章则复用」管「同周期只
+    生成一份」（与 core.views 报告页同一判据）。生成走 AI（降级规则模板），
+    在 cron 里阻塞几十秒可接受。
+    """
+    import datetime as dt
+
+    from django.db.models import Sum
+    from django.urls import reverse
+    from django.utils import timezone
+
+    from activities.models import Activity, Expense
+    from core.report_generator import generate_report, save_report_to_knowledge
+    from core.utils import visible_qs, week_monday
+    from knowledge.models import Article
+
+    today = timezone.localdate()
+    is_weekly = report_type == 'weekly'
+    label = '周报' if is_weekly else '月报'
+    tag = 'report-weekly' if is_weekly else 'report-monthly'
+
+    if is_weekly:
+        period_start = week_monday(today)
+        title = (f'周报 · {today.year}年第{period_start.isocalendar()[1]}周 '
+                 f'({period_start:%m.%d}-{today:%m.%d})')
+    else:
+        period_start = today.replace(day=1)
+        title = f'月报 · {today:%Y年%m月}'
+    period_start_aware = timezone.make_aware(
+        dt.datetime.combine(period_start, dt.time.min))
+
+    article = Article.objects.filter(
+        user=user, tags__name=tag, created_at__gte=period_start_aware,
+    ).first()
+    if article is None:
+        markdown, _data = generate_report(user, report_type, period_start, today)
+        article = save_report_to_knowledge(user, report_type, title, markdown)
+
+    # 摘要统计：花费合计属「个人指标」口径，按 user 过滤（不混他人数据）
+    acts = visible_qs(Activity, user).filter(
+        start_date__gte=period_start, start_date__lte=today)
+    done = acts.filter(status='done').count()
+    total = acts.count()
+    expense = (Expense.objects.filter(
+        user=user, paid_at__gte=period_start, paid_at__lte=today,
+    ).aggregate(s=Sum('amount'))['s'] or 0)
+
+    span = '本周' if is_weekly else '本月'
+    return {
+        'title': f'{settings.SITE_NAME} · {label}',
+        'body': f'{span}完成 {done}/{total} 个活动，花费 ¥{expense:.0f}，{label}已生成',
+        'url': reverse('knowledge:article_detail', args=[article.slug]),
+    }
 
 
 def build_weekly_review_payload(user):
