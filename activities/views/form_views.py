@@ -6,7 +6,7 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from core.tags import apply_tags
+from core.tags import apply_tags, suggest_tags
 from core.utils import get_visible, visible_qs
 
 from ..forms import ActivityForm
@@ -26,8 +26,16 @@ def activity_create(request):
             activity.save()
             form.save_m2m()
             # tags 已改为普通文本字段（core.Tag M2M），ModelForm 不再代管，视图落库
-            apply_tags(activity, form.cleaned_data.get('tags'))
+            tags = form.cleaned_data.get('tags')
+            # 智能标签建议：用户未填标签时，基于内容 + 历史习惯自动推荐
+            if not tags:
+                suggested = suggest_tags(activity)
+                if suggested:
+                    tags = suggested
+                    messages.info(request, f'已自动添加标签：{"、".join(suggested)}')
+            apply_tags(activity, tags)
             form.save_participants(activity)
+            form.save_blocked_by(activity)
             children = form.save_children(activity)
             expense = form.save_cost(activity)
             log_activity(request.user, activity, 'created')
@@ -72,6 +80,7 @@ def activity_edit(request, activity_id):
             form.save()
             apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
+            form.save_blocked_by(activity)
             log_activity(request.user, activity, 'edited', edit_summary(old, activity))
             messages.success(request, f'活动「{activity.name}」已更新')
             return redirect('activities:activity_detail', activity.id)

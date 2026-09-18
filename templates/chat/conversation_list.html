@@ -41,6 +41,23 @@
     </div>
     {% endif %}
 
+    {# ── 待续聊提示条：超过 3 天无新消息且 AI 最后回复含待办暗示 ── #}
+    {% if stale_conversations and not query %}
+    <div class="px-4 py-2 bg-[var(--accent-light)] border-b border-[var(--border)]">
+        <p class="text-[10px] font-medium text-[var(--text-secondary)] mb-1">待续聊</p>
+        {% for conv in stale_conversations %}
+        <a href="javascript:void(0)" class="chat-conv-item group block rounded-lg px-2 py-1.5 -mx-2 mb-1 hover:bg-[var(--accent-light)]"
+           data-id="{{ conv.id }}" data-title="{{ conv.title }}">
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-[var(--accent)]">●</span>
+                <span class="text-xs text-[var(--text)] truncate flex-1">{{ conv.title|truncatechars:24 }}</span>
+                <span class="text-[10px] text-[var(--text-muted)]">{{ conv.updated_at|timesince }}前</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <!-- 对话列表 -->
     <div id="split-conv-list" class="flex-1 overflow-y-auto">
         {% if conversations %}
@@ -447,22 +464,36 @@
         });
     }
 
-    // ── 「问 AI」深链（?ask=…）：从活动详情页等场景页跳入 ──
+    // ─ 「问 AI」深链（?ask=…）：从活动详情页等场景页跳入 ─
     // 约定「填不发」（与 chips 一致）：只预填输入框供用户改两个字再发；
-    // 无激活对话时自动新建一个（创建流程会 selectConversation 并自动聚焦）。
+    // 无激活对话时优先复用列表中已有的空对话，没有才新建（避免每次深链都堆一个空对话）。
     (function () {
         var m = location.search.match(/[?&]ask=([^&]+)/);
         if (!m) return;
         var askText = decodeURIComponent(m[1].replace(/\+/g, ' '));
         history.replaceState(null, '', '/chat/');
+
+        // ── 周回顾特殊分支：服务端已创建回顾对话，直接跳转 ──
+        {% if weekly_review_conv %}
+        selectConversation('{{ weekly_review_conv.id }}', '{{ weekly_review_conv.title|escapejs }}');
+        return;
+        {% endif %}
+
         if (!input || !askText) return;
         input.value = askText;
         if (window.paFitTextarea) window.paFitTextarea(input);
-        if (!currentId && newBtn && newBtn.form) {
-            newBtn.form.dispatchEvent(new Event('submit', { cancelable: true }));
-        } else {
-            input.focus();
+        if (!currentId) {
+            // 优先复用列表中已有的空对话（标题「新对话」+ 正文「暂无消息」）
+            var emptyItem = convListEl && convListEl.querySelector('.chat-conv-item');
+            var isEmpty = emptyItem && emptyItem.querySelector('p') &&
+                          emptyItem.querySelector('p').textContent.trim() === '暂无消息';
+            if (isEmpty) {
+                selectConversation(emptyItem.dataset.id, emptyItem.dataset.title);
+            } else if (newBtn && newBtn.form) {
+                newBtn.form.dispatchEvent(new Event('submit', { cancelable: true }));
+            }
         }
+        input.focus();
     })();
 
     // 暴露给外部（如归档/删除后需要清状态）

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% load static core_tags %}
+
+{% block title %}今天 · {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6">
+    <!-- 头部问候 -->
+    <div class="mb-6">
+        <p class="text-sm text-[var(--text-muted)]">{{ today_display }}</p>
+        <h1 class="text-2xl font-bold text-[var(--text)]">{{ greeting }}</h1>
+    </div>
+
+    <!-- 今日活动 -->
+    <section class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold text-[var(--text)]">今日活动</h2>
+            <a href="{% url 'activities:daily' %}" class="text-xs text-[var(--accent)] hover:underline">查看全部</a>
+        </div>
+        {% if today_activities %}
+        <div class="space-y-2">
+            {% for activity in today_activities %}
+            <a href="{% url 'activities:activity_detail' activity.id %}"
+               class="app-card block p-3 hover:border-[var(--accent)] transition-colors">
+                <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-sm font-medium text-[var(--text)] truncate">{{ activity.name }}</h3>
+                    <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full
+                        {% if activity.status == 'in_progress' %}bg-[var(--accent)] text-white
+                        {% elif activity.status == 'planned' %}bg-[var(--accent-light)] text-[var(--text-secondary)]
+                        {% else %}bg-zinc-100 text-zinc-600{% endif %}">
+                        {{ activity.get_status_display }}
+                    </span>
+                </div>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">{{ activity.date_range }}</p>
+                {% if activity.tags.all %}
+                <div class="mt-1.5 flex flex-wrap gap-1">
+                    {% for tag in activity.tags.all %}
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg)] text-[var(--text-muted)] border border-[var(--border)]">{{ tag.name }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="app-card p-6 text-center">
+            <p class="text-sm text-[var(--text-muted)]">今天暂无活动安排</p>
+            <a href="{% url 'activities:activity_create' %}" class="mt-2 inline-block text-xs text-[var(--accent)] hover:underline">创建活动</a>
+        </div>
+        {% endif %}
+    </section>
+
+    <!-- 近期笔记 -->
+    <section class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold text-[var(--text)]">近期笔记</h2>
+            <a href="{% url 'notes:note_list' %}" class="text-xs text-[var(--accent)] hover:underline">查看全部</a>
+        </div>
+        {% if recent_notes %}
+        <div class="space-y-2">
+            {% for note in recent_notes %}
+            <a href="{% url 'notes:note_edit' note.id %}"
+               class="app-card block p-3 hover:border-[var(--accent)] transition-colors">
+                <p class="text-sm text-[var(--text)] line-clamp-2">{{ note.content|truncatechars:100 }}</p>
+                <p class="mt-1 text-[10px] text-[var(--text-muted)]">{{ note.updated_at|timesince }}前</p>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="app-card p-4 text-center">
+            <p class="text-sm text-[var(--text-muted)]">暂无近期笔记</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <!-- 近期知识 -->
+    {% if recent_articles %}
+    <section class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold text-[var(--text)]">近期知识</h2>
+            <a href="{% url 'knowledge:article_list' %}" class="text-xs text-[var(--accent)] hover:underline">查看全部</a>
+        </div>
+        <div class="space-y-2">
+            {% for article in recent_articles %}
+            <a href="{% url 'knowledge:article_detail' slug=article.slug %}"
+               class="app-card block p-3 hover:border-[var(--accent)] transition-colors">
+                <h3 class="text-sm font-medium text-[var(--text)]">{{ article.title }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-muted)] line-clamp-1">{{ article.content|truncatechars:80 }}</p>
+                <p class="mt-1 text-[10px] text-[var(--text-muted)]">{{ article.updated_at|timesince }}前</p>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- 相关记忆 -->
+    {% if today_memories %}
+    <section class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold text-[var(--text)]">相关记忆</h2>
+            <a href="{% url 'memory:memory_list' %}" class="text-xs text-[var(--accent)] hover:underline">查看全部</a>
+        </div>
+        <div class="space-y-1.5">
+            {% for memory in today_memories %}
+            <div class="flex items-start gap-2 px-3 py-2 rounded-lg bg-[var(--bg)] border border-[var(--border)]">
+                <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-light)] text-[var(--text-secondary)]">
+                    {{ memory.get_category_display }}
+                </span>
+                <p class="text-sm text-[var(--text)]">{{ memory.content }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- 快捷操作 -->
+    <section class="mt-8 pt-6 border-t border-[var(--border)]">
+        <div class="flex flex-wrap gap-2 justify-center">
+            <a href="{% url 'activities:activity_create' %}"
+               class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white hover:opacity-90">
+                + 新建活动
+            </a>
+            <a href="{% url 'notes:note_create' %}"
+               class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+                + 新建笔记
+            </a>
+            <a href="{% url 'chat:conversation_list' %}"
+               class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+                问 AI
+            </a>
+        </div>
+    </section>
+</div>
+{% endblock %}

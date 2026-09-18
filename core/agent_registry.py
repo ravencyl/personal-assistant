@@ -41,6 +41,9 @@ INTENT_TOOL_MAP = {
     'split_expense': 'activities.split_expense',
     'move_date': 'activities.move_date',
     'batch_status': 'activities.batch_status',
+    # 归档：已完成/已取消/长期无变动的活动从列表隐藏，数据保留
+    'archive': 'activities.archive',
+    'unarchive': 'activities.unarchive',
     # 活动评论：追加讨论/备注，后续决策可读（get 卡片快照也带最近评论）
     'add_comment': 'activities.add_comment',
     'list_comments': 'activities.comments',
@@ -56,6 +59,8 @@ INTENT_TOOL_MAP = {
     # 修订/忘掉已有记忆（用户点名「更正/不对，改成…/把那条忘了」时用；
     # 目标不唯一出候选卡，模式对齐 knowledge_update）
     'memory_update': 'memory.update',
+    # 依赖检查：用户问「XX能不能开始」「XX被什么卡住了」时查前置依赖
+    'check_blocked': 'activities.check_blocked',
 }
 
 # ── 协议回复被长度上限截断的兜底 ──────────────────────────────────────────────

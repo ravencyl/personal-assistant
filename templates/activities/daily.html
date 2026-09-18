@@ -164,7 +164,67 @@
        class="tap-target inline-flex items-center h-9 px-4 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">费用报告</a>
 </div>
 
+<!-- AI 今日建议 -->
+{% if ai_suggestion %}
+<div class="app-card rounded-[1.25rem] bg-[var(--accent-light)] border border-[var(--accent)]/20 px-5 py-4 mb-6">
+    <div class="flex items-start gap-3">
+        <div class="shrink-0 w-8 h-8 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-sm">💡</div>
+        <div class="flex-1 min-w-0">
+            <p class="text-xs font-medium text-[var(--accent)] mb-1">今日建议</p>
+            <p class="text-sm text-[var(--text)] leading-relaxed">{{ ai_suggestion }}</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 冲突活动提示 -->
+{% if conflict_ids %}
+<div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 mb-6 flex items-center gap-2">
+    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+    </svg>
+    <p class="text-sm text-red-700">今天有 {{ conflict_ids|length }} 个活动时间冲突，注意调整安排</p>
+</div>
+{% endif %}
+
 <div class="space-y-8">
+    <!-- 过期滚入活动 -->
+    {% if overdue_rolled_in %}
+    <section>
+        <h2 class="text-base font-semibold text-[var(--text)] mb-3 flex items-center gap-2">
+            <span>过期未完成</span>
+            <span class="text-[var(--text-muted)] font-normal normal-case">{{ overdue_rolled_in|length }}</span>
+        </h2>
+        <div class="space-y-3">
+            {% for a in overdue_rolled_in %}
+            <div class="daily-card group relative rounded-[1.25rem] bg-[var(--bg-card)] border border-dashed border-[var(--border-strong)] shadow-[var(--shadow-sm)] px-4 py-4 transition-shadow hover:shadow-[var(--shadow-md)] opacity-80">
+                <div class="flex items-start gap-3">
+                    <a href="{% url 'activities:activity_detail' a.id %}" class="flex items-start gap-3 flex-1 min-w-0">
+                        <div class="mt-0.5 shrink-0 w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-1">
+                                <h3 class="text-[15px] font-medium text-[var(--text)] truncate">{{ a.name }}</h3>
+                                <span class="shrink-0 text-[10px] font-medium text-orange-600 bg-orange-50 rounded-full px-1.5 py-0.5">过期 {{ a.overdue_days }} 天</span>
+                            </div>
+                            <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                                {% if a.start_date %}<span class="tabular-nums">{{ a.start_date }}</span>{% endif %}
+                            </div>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[var(--text-muted)] shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
     <!-- 今日进行中：区块头 + View All（截图区块头同构） -->
     {% if ongoing or starting_today %}
     <section>

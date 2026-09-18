@@ -19,17 +19,26 @@ def q_or(fields, term):
     return q
 
 
-def visible_qs(model, user):
-    """数据可见性规则：超级用户可见全部数据，普通用户仅可见自己的"""
+def visible_qs(model, user, include_archived=False):
+    """数据可见性规则：超级用户可见全部数据，普通用户仅可见自己的
+
+    include_archived=True 时不过滤已归档记录（归档管理页 / 归档筛选用）。
+    Activity 模型默认排除 archived_at 非空的记录；其他模型不受影响。
+    """
     qs = model.objects.all()
     if user.is_superuser:
-        return qs
-    return qs.filter(user=user)
+        qs_out = qs
+    else:
+        qs_out = qs.filter(user=user)
+    # 归档过滤：仅对含 archived_at 字段的模型生效
+    if not include_archived and hasattr(model, 'archived_at'):
+        qs_out = qs_out.filter(archived_at__isnull=True)
+    return qs_out
 
 
-def get_visible(model, user, **kwargs):
+def get_visible(model, user, include_archived=False, **kwargs):
     """按可见性规则取单对象，不存在或无权时 404"""
-    return get_object_or_404(visible_qs(model, user), **kwargs)
+    return get_object_or_404(visible_qs(model, user, include_archived=include_archived), **kwargs)
 
 
 def visible_child_qs(model, user, parent_lookup):

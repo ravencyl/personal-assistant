@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% load static core_tags %}
+
+{% block title %}活动时间线 · {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<!-- 头部：标题 + 返回按钮 -->
+<div class="mb-6 sm:mb-8 fade-in">
+    <div class="flex items-center gap-3 mb-4">
+        <a href="{% url 'activities:activity_list' %}" 
+           class="tap-target w-10 h-10 rounded-full bg-[var(--bg-card)] border border-[var(--border)] shadow-sm flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+            </svg>
+        </a>
+        <div class="flex-1 min-w-0">
+            <h1 class="text-2xl font-bold tracking-tight text-[var(--text)]">活动时间线</h1>
+            <p class="text-sm text-[var(--text-muted)] mt-0.5">共 {{ total_count }} 项活动 · {{ done_count }} 项已完成</p>
+        </div>
+    </div>
+</div>
+
+<!-- 时间线主体 -->
+{% if page_obj %}
+<div class="space-y-6">
+    {% for day_group in page_obj %}
+    <section class="fade-in">
+        <!-- 日期标题 -->
+        <div class="flex items-center gap-3 mb-3">
+            <div class="flex items-center gap-2">
+                <span class="text-lg font-bold text-[var(--text)]">{{ day_group.label }}</span>
+                <span class="text-sm text-[var(--text-muted)]">{{ day_group.weekday }}</span>
+            </div>
+            <div class="flex-1 h-px bg-[var(--border)]"></div>
+            <span class="text-xs text-[var(--text-muted)]">{{ day_group.count }} 项</span>
+        </div>
+        
+        <!-- 活动卡片列表 -->
+        <div class="space-y-3 pl-2 sm:pl-4 border-l-2 border-[var(--border)]">
+            {% for activity in day_group.activities %}
+            <div class="relative">
+                <!-- 时间线节点 -->
+                <div class="absolute -left-[calc(0.5rem+1px)] sm:-left-[calc(1rem+1px)] top-5 w-3 h-3 rounded-full bg-[var(--bg-card)] border-2 border-[var(--accent)]"></div>
+                
+                <!-- 复用日常卡片模板 -->
+                {% include "activities/_daily_card.html" with activity=activity badge="" %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+</div>
+
+<!-- 分页 -->
+{% if page_obj.has_other_pages %}
+<div class="flex items-center justify-center gap-2 mt-8 mb-4">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}" 
+       class="tap-target inline-flex items-center gap-1 rounded-full bg-[var(--bg-card)] border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+        更早
+    </a>
+    {% endif %}
+    
+    <span class="text-sm text-[var(--text-muted)] px-3">
+        第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页
+    </span>
+    
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" 
+       class="tap-target inline-flex items-center gap-1 rounded-full bg-[var(--bg-card)] border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">
+        更近
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<!-- 空状态 -->
+<div class="text-center py-16">
+    <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 mx-auto text-[var(--text-muted)] opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+    </svg>
+    <p class="mt-4 text-[var(--text-muted)]">暂无活动记录</p>
+    <a href="{% url 'activities:activity_create' %}" 
+       class="inline-flex items-center gap-2 mt-4 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        创建第一个活动
+    </a>
+</div>
+{% endif %}
+{% endblock %}

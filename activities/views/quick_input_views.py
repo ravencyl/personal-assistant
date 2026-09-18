@@ -21,6 +21,10 @@ from ._common import _participant_skip_text
 
 logger = logging.getLogger(__name__)
 
+# 图片上传大小限制（与 settings.ATTACHMENT_MAX_UPLOAD_SIZE 对齐）
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic'}
+
 
 @login_required
 @ensure_csrf_cookie
@@ -115,3 +119,54 @@ def _ai_parse(text, today):
     except Exception as e:
         logger.warning(f'快速输入 AI 解析失败，将降级规则解析: {e}')
         return None
+
+
+@login_required
+@require_POST
+def ocr_receipt_view(request):
+    """OCR 收据/发票识别：接收图片，提取金额/日期/类别等信息
+
+    当前实现：将图片转为 base64 编码，发送给 AI 进行解析。
+    如果 AI 不支持视觉输入，返回错误并建议手动输入。
+    失败时返回 400，前端降级为手动输入表单。
+    """
+    image = request.FILES.get('image')
+    if not image:
+        return JsonResponse({'error': '请上传图片'}, status=400)
+
+    # 验证文件类型
+    if image.content_type not in ALLOWED_IMAGE_TYPES:
+        return JsonResponse({'error': '不支持的图片格式，请使用 JPG/PNG/WebP'}, status=400)
+
+    # 验证文件大小
+    if image.size > MAX_IMAGE_SIZE:
+        return JsonResponse({'error': f'图片过大，请控制在 {MAX_IMAGE_SIZE // 1024 // 1024}MB 以内'}, status=400)
+
+    # 读取图片并尝试 OCR
+    try:
+        image_bytes = image.read()
+        result = _ocr_receipt_ai(image_bytes)
+        if not result:
+            return JsonResponse({
+                'error': '未能识别图片内容，请手动输入',
+                'fallback': True,
+            }, status=400)
+        return JsonResponse(result)
+    except Exception as e:
+        logger.warning(f'OCR 识别失败: {e}')
+        return JsonResponse({
+            'error': '图片识别失败，请手动输入',
+            'fallback': True,
+        }, status=400)
+
+
+def _ocr_receipt_ai(image_bytes):
+    """调用 AI 视觉能力识别收据/发票内容
+
+    当前 AI 服务不支持直接图片输入，返回 None 由调用方降级。
+    未来可在 AI 服务支持视觉输入时扩展此函数。
+    """
+    # TODO: 当 AI 服务支持视觉输入时，实现图片解析
+    # 目前返回 None，前端降级为手动输入
+    logger.info('OCR 视觉输入暂未实现，降级为手动输入')
+    return None

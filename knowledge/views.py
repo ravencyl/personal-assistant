@@ -2,6 +2,8 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 
 from .models import Article
 from .forms import ArticleForm
@@ -111,3 +113,47 @@ def article_delete(request, pk):
         return redirect('knowledge:article_list')
     
     return redirect('knowledge:article_detail', slug=article.slug)
+
+
+@login_required
+@require_POST
+def suggest_tags(request):
+    """AI 自动标签建议：分析文章内容，建议 3-5 个标签
+
+    AI 失败降级：返回空列表，前端静默隐藏建议区。"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    content = request.POST.get('content', '').strip()
+    title_text = request.POST.get('title', '').strip()
+    if not content and not title_text:
+        return JsonResponse({'tags': []})
+
+    # 获取已有标签作为候选（减少 AI 生成不存在的标签）
+    existing_tags = list(used_tags('knowledge', request.user))
+
+    try:
+        from core.ai import ai_round_trip
+        existing_str = '\u3001'.join(existing_tags[:20])
+        prompt = ('你是一个标签分类助手。根据以下文章标题和内容，建议 3-5 个合适的标签。'
+                  '标签应该简洁（2-6 个字），反映文章主题。'
+                  '优先使用以下已有标签：' + existing_str + '\u3002'
+                  '如果没有合适的已有标签，可以创建新标签。'
+                  '只返回标签列表，用逗号分隔，不要其他文字。\n\n'
+                  f'标题：{title_text}\n内容：{content[:500]}')
+        reply = ai_round_trip(prompt, timeout=30, purpose='general')
+        if reply:
+            # 解析回复：提取逗号/顿号分隔的标签
+            tags = []
+            for sep in ['\uff0c', ',', '\u3001', '\n']:
+                if sep in reply:
+                    tags = [t.strip() for t in reply.split(sep) if t.strip()]
+                    break
+            if not tags:
+                tags = [reply.strip()]
+            tags = tags[:5]
+            return JsonResponse({'tags': tags})
+    except Exception as exc:
+        logger.warning('AI 标签建议降级: %s', exc)
+
+    return JsonResponse({'tags': []})

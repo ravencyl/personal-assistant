@@ -264,3 +264,67 @@ def expense_chart_data(request):
         })
 
     return JsonResponse({'labels': [], 'values': []})
+
+
+@login_required
+def expense_heatmap_data(request):
+    """费用热力图数据 API：最近 12 个月 x 费用类别的聚合金额
+
+    返回 {months: ['YYYY-MM', ...], categories: ['cat1', ...], data: [[amount, ...]]}
+    data[row][col] = 该月该类别的总金额，无数据为 0。"""
+    from django.db.models.functions import TruncMonth
+
+    today = timezone.localdate()
+    # 最近 12 个月
+    months = []
+    for i in range(11, -1, -1):
+        d = today.replace(day=1) - timedelta(days=i * 28)
+        d = d.replace(day=1)
+        label = d.strftime('%Y-%m')
+        if label not in months:
+            months.append(label)
+    # 确保正好 12 个
+    months = months[-12:]
+
+    qs = Expense.objects.filter(user=request.user)
+
+    # 获取所有费用类别（从标签中提取）
+    all_tags = list(
+        qs.values_list('tags__name', flat=True)
+        .exclude(tags__name__isnull=True)
+        .distinct()
+    )[:10]  # 最多 10 个类别
+
+    if not all_tags:
+        return JsonResponse({'months': months, 'categories': [], 'data': []})
+
+    # 查询每月每标签的聚合金额
+    year_ago = today - timedelta(days=365)
+    tag_month_data = list(
+        qs.filter(paid_at__gte=year_ago)
+        .annotate(month=TruncMonth('paid_at'))
+        .values('month', 'tags__name')
+        .annotate(total=Sum('amount'))
+        .order_by('month')
+        .exclude(tags__name__isnull=True)
+    )
+
+    # 构建矩阵
+    matrix = {tag: {m: 0.0 for m in months} for tag in all_tags}
+    for row in tag_month_data:
+        tag = row['tags__name']
+        if tag not in matrix:
+            continue
+        month_label = row['month'].strftime('%Y-%m')
+        if month_label in matrix[tag]:
+            matrix[tag][month_label] = float(row['total'])
+
+    data = []
+    for tag in all_tags:
+        data.append([matrix[tag][m] for m in months])
+
+    return JsonResponse({
+        'months': months,
+        'categories': all_tags,
+        'data': data,
+    })

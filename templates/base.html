@@ -18,6 +18,10 @@
     {% endcomment %}
     <script defer src="{% staticv 'js/htmx.min.js' %}"></script>
     <script defer src="{% staticv 'js/offline-queue.js' %}"></script>
+    {# 全局命令面板（Cmd+K）：defer 加载，DOM 解析后可用 #}
+    <script defer src="{% staticv 'js/command-palette.js' %}"></script>
+    {# 搜索历史 & 自动补全：localStorage 存最近 20 条搜索词 #}
+    <script defer src="{% staticv 'js/search-history.js' %}"></script>
     {# 聊天异步收发流（分栏页与详情页共用一份）；同步加载，见上方例外说明 #}
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
     {# 全站统一确认卡（data-confirm 表单 + paConfirmCard API），替代原生 confirm() 弹窗 #}
@@ -95,6 +99,10 @@
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'home' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 今日
                             </a>
+                            <a href="{% url 'today' %}"
+                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'today' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                                工作台
+                            </a>
                             <a href="{% url 'activities:activity_list' %}"
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'activities' and request.resolver_match.url_name != 'daily' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 活动记录
@@ -120,11 +128,12 @@
                     </div>
                     <div class="flex items-center space-x-3">
                         {% if user.is_authenticated %}
-                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索">
+                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索（Cmd+K 打开命令面板）">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                 </svg>
                                 搜索
+                                <kbd class="text-[10px] text-[var(--text-muted)] ml-1">⌘K</kbd>
                             </button>
                             <span class="hidden md:inline text-sm text-[var(--text-secondary)]">{{ user.username }}</span>
                             {% if push_ready %}
@@ -237,7 +246,7 @@
          其余仅图标（aria-label 保证可达性）；循环/模板的入口在活动页头部图标组，
          记忆使用频率低且不在手机上读，暂不占位 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pointer-events-none">
-        <div class="pointer-events-auto mx-auto max-w-sm flex items-center justify-between rounded-full bg-[var(--bg-card)]/95 backdrop-blur border border-[var(--border)] shadow-[0_8px_24px_rgba(0,0,0,0.10)] px-2 py-1.5">
+        <div class="glass-tab-bar pointer-events-auto mx-auto max-w-sm flex items-center justify-between rounded-full px-2 py-1.5">
             <a href="/" aria-label="今日" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'home' %}bg-[var(--accent)] text-white px-3.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>

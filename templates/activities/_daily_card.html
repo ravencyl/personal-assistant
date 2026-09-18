@@ -1,5 +1,5 @@
 <!-- 卡式容器：截图 Popular Doctors 白卡同构（大圆角白底 + 淡描边 + 轻阴影） -->
-<div class="daily-card group relative rounded-[1.25rem] bg-[var(--bg-card)] border border-[var(--border)] shadow-[var(--shadow-sm)] px-4 py-4 transition-shadow hover:shadow-[var(--shadow-md)]"
+<div class="daily-card group relative rounded-[1.25rem] bg-[var(--bg-card)] border border-[var(--border)] shadow-[var(--shadow-sm)] px-4 py-4 transition-shadow hover:shadow-[var(--shadow-md)] {% if activity.is_blocked %}opacity-60{% endif %}"
      data-activity-id="{{ activity.id }}"
      data-status="{{ activity.status }}"
      data-status-url="{% url 'activities:activity_set_status' activity.id %}"
@@ -40,6 +40,9 @@
                     <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日开始</span>
                     {% elif badge == "ending" %}
                     <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日结束</span>
+                    {% endif %}
+                    {% if activity.is_blocked %}
+                    <span class="shrink-0 text-[10px] font-medium text-orange-600 bg-orange-50 rounded-full px-1.5 py-0.5" title="等待 {{ activity.blocking_names|join:'、' }} 完成">等待前置</span>
                     {% endif %}
                 </div>
 

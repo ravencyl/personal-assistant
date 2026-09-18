@@ -319,3 +319,89 @@ def summarize_conversation_for_memory(conversation):
     except Exception as e:
         logger.warning(f'归档对话摘要写入记忆失败: {e}')
         return None
+
+
+def extract_review_insights(conversation):
+    """周回顾对话归档时提取回顾内容为记忆（亮点/改进方向）
+
+    识别条件：对话标题以「周回顾」开头。
+    提取策略：从用户消息中提取反思内容，分为亮点和改进方向两类。
+    失败不阻断归档流程。
+    """
+    from .models import Memory
+
+    try:
+        # 只处理周回顾对话
+        if not conversation.title.startswith('周回顾'):
+            return []
+
+        user_messages = list(
+            conversation.messages.filter(role='user')
+            .order_by('created_at')
+            .values_list('content', flat=True)
+        )
+        if len(user_messages) < 1:
+            return []
+
+        # 检查是否已经提取过（幂等）
+        if Memory.objects.filter(
+            user=conversation.user,
+            content__startswith='[周回顾]',
+            source_message__conversation_id=conversation.id,
+        ).exists():
+            return []
+
+        created = []
+        # 把所有用户消息合并后提取
+        full_text = '\n'.join(user_messages)[:800]
+
+        # 简单启发式：包含「收获/完成/做到/开心/满意」的归为亮点
+        highlight_keywords = ['收获', '完成', '做到', '开心', '满意', '进步', '成功', '坚持']
+        # 包含「改进/下次/应该/可以更好/没做好」的归为改进方向
+        improvement_keywords = ['改进', '下次', '应该', '可以更好', '没做好', '不足', '问题', '困难']
+
+        highlight_parts = []
+        improvement_parts = []
+
+        for msg in user_messages:
+            msg_lower = msg.strip()
+            if any(kw in msg_lower for kw in highlight_keywords):
+                highlight_parts.append(msg_lower[:150])
+            elif any(kw in msg_lower for kw in improvement_keywords):
+                improvement_parts.append(msg_lower[:150])
+
+        # 如果分类不明确，把整体作为回顾记忆
+        if not highlight_parts and not improvement_parts:
+            if full_text.strip():
+                memory = Memory.objects.create(
+                    user=conversation.user,
+                    content=f'[周回顾] {full_text[:400]}',
+                    category='other',
+                    importance=5,
+                )
+                created.append(memory)
+        else:
+            if highlight_parts:
+                memory = Memory.objects.create(
+                    user=conversation.user,
+                    content='[本周亮点] ' + '；'.join(highlight_parts)[:400],
+                    category='fact',
+                    importance=5,
+                )
+                created.append(memory)
+            if improvement_parts:
+                memory = Memory.objects.create(
+                    user=conversation.user,
+                    content='[改进方向] ' + '；'.join(improvement_parts)[:400],
+                    category='goal',
+                    importance=5,
+                )
+                created.append(memory)
+
+        if created:
+            logger.info(f'周回顾对话 {conversation.id} → 提取 {len(created)} 条记忆')
+        return created
+
+    except Exception as e:
+        logger.warning(f'周回顾记忆提取失败: {e}')
+        return []

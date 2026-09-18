@@ -18,7 +18,7 @@ from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
                                  parse_pick_index)
 from core.utils import get_visible, visible_qs
 
-from core.tags import apply_tags, tag_names
+from core.tags import apply_tags, tag_names, suggest_tags
 from chat.models import Message
 from .models import Activity, Expense, ActivityComment
 from .services import (InputError, add_expense, change_activity_status,
@@ -83,15 +83,18 @@ def _activity_card_data(activity):
         'add_comment_url': reverse('activities:activity_comment_add', args=[activity.id]),
         'detail_url': reverse('activities:activity_detail', args=[activity.id]),
         'edit_url': reverse('activities:activity_edit', args=[activity.id]),
+        # 依赖关系
+        'is_blocked': activity.is_blocked() if activity.pk else False,
+        'blocking_names': activity.blocking_names() if activity.pk else [],
     }
 
 
-def _resolve_single(user, target, target_id=None, pick=None):
+def _resolve_single(user, target, target_id=None, pick=None, include_archived=False):
     """定位唯一活动：传 target_id 时按 id 直达（候选点选重放）；
     传 pick 时按上一轮候选列表的序号直达（用户打字回「第一个」）；
     否则按名称关键词定位；0 条报错，多条抛候选列表供用户辨认"""
     if target_id:
-        return _resolve_by_id(user, target_id)
+        return _resolve_by_id(user, target_id, include_archived=include_archived)
     index = parse_pick_index(pick)
     if index is not None:
         items = Message.latest_pick_items(user, tool_prefix='activities.')
@@ -100,12 +103,12 @@ def _resolve_single(user, target, target_id=None, pick=None):
                 raise ToolError(
                     f'上一轮候选只有 {len(items)} 个，你要的「第 {index} 个」对不上；'
                     '请在候选卡上点「选它」，或再说一次是哪一个')
-            return _resolve_by_id(user, items[index - 1]['id'])
+            return _resolve_by_id(user, items[index - 1]['id'], include_archived=include_archived)
         # 没有可用的候选上下文（超时/换了话题）：忽略 pick 按名称继续，宁慢勿错
     target = str(target or '').strip()
     if not target:
         raise ToolError('请告诉我目标活动的名称')
-    qs = visible_qs(Activity, user).filter(name__icontains=target)
+    qs = visible_qs(Activity, user, include_archived=include_archived).filter(name__icontains=target)
     count = qs.count()
     if count == 0:
         raise ToolError(f'没有找到名称包含「{target}」的活动')
@@ -125,9 +128,9 @@ def _resolve_single(user, target, target_id=None, pick=None):
     return qs.first()
 
 
-def _resolve_by_id(user, target_id):
+def _resolve_by_id(user, target_id, include_archived=False):
     """确认流执行阶段按 id 精确定位（预览时已锁定目标，避免二次匹配歧义）"""
-    return get_visible(Activity, user, id=target_id)
+    return get_visible(Activity, user, include_archived=include_archived, id=target_id)
 
 
 @agent_tool('activities.query', '按条件查询活动列表',
@@ -268,14 +271,52 @@ def tool_create(user, params):
     if parent_name:
         parent = visible_qs(Activity, user).filter(name__icontains=parent_name).first()
 
+    # 智能标签建议：用户未指定标签时，基于内容 + 历史习惯自动推荐
+    if not data.get('tags'):
+        # 构造一个临时对象用于 suggest_tags（不需要落库）
+        class _TempActivity:
+            def __init__(self, user, name, description):
+                self.user = user
+                self.name = name
+                self.description = description
+        temp = _TempActivity(user, data.get('name', ''), data.get('description', ''))
+        suggested = suggest_tags(temp)
+        if suggested:
+            data['tags'] = suggested
+
+    # 解析前置依赖（blocked_by）：传前置活动名称列表
+    blocked_by_ids = []
+    blocked_by_raw = params.get('blocked_by')
+    if blocked_by_raw:
+        if isinstance(blocked_by_raw, str):
+            blocked_by_names = [n.strip() for n in blocked_by_raw.split(',') if n.strip()]
+        elif isinstance(blocked_by_raw, (list, tuple)):
+            blocked_by_names = [str(n).strip() for n in blocked_by_raw if str(n).strip()]
+        else:
+            blocked_by_names = []
+        for name in blocked_by_names:
+            blocker = visible_qs(Activity, user).filter(name__icontains=name).first()
+            if blocker:
+                blocked_by_ids.append(blocker.id)
+
     # 建对象 → 记费用 → 打标签 → 解析参与者 → 写日志，全部走 services（与视图快速入口同一份实现）
     # 自动识别只填已有参与者（大小写不敏感），匹配不到不新建，避免 yyx/YYX 这类重复联系人
     result = create_activity_from_parsed(user, data, parent=parent, source='AI 对话')
     activity = result['activity']
 
+    # 设置前置依赖
+    if blocked_by_ids:
+        # 环检测：新建活动还没 ID 关联，不会形成环，但保险起见检查
+        activity.blocked_by.set(blocked_by_ids)
+
     suffix = f'，归属于「{parent.name}」' if parent else ''
+    tag_note = '，自动添加标签：' + '、'.join(tag_names(activity)) if tag_names(activity) else ''
+    blocked_note = ''
+    if blocked_by_ids:
+        blocked_names = list(Activity.objects.filter(id__in=blocked_by_ids).values_list('name', flat=True))
+        blocked_note = f'，前置依赖：{"、".join(blocked_names)}'
     return {
-        'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}'
+        'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}{tag_note}{blocked_note}'
                  + _participant_skip_note(result['skipped']),
         'card': 'activity',
         'activity_ids': [activity.id],
@@ -1023,4 +1064,141 @@ def tool_batch_status(user, params):
             'tool': 'activities.batch_status',
             'params': {'status': status, 'target_ids': list(qs.values_list('id', flat=True))},
         },
+    }
+
+
+# ── 归档工具 ──
+
+def apply_archive(user, params):
+    """执行归档：将指定活动标记 archived_at"""
+    from django.utils import timezone as _tz
+    target_ids = params.get('target_ids') or []
+    if not target_ids:
+        raise ToolError('没有要归档的活动')
+    qs = Activity.objects.filter(id__in=target_ids, user=user)
+    count = qs.update(archived_at=_tz.now())
+    return {'reply': f'已归档 {count} 个活动', 'changed': True}
+
+
+@agent_tool('activities.archive', '归档已完成或已取消的活动（从列表隐藏，数据保留）',
+            'target（活动名称关键词）+ scope（可选：done=已完成 / cancelled=已取消 / stale=长期无变动，'
+            '不传则按 target 归档单个）；先出预览，用户确认后生效',
+            apply_fn=apply_archive)
+def tool_archive(user, params):
+    from django.utils import timezone as _tz
+    scope = str(params.get('scope') or '').strip()
+    target_name = params.get('target') or params.get('name')
+
+    qs = visible_qs(Activity, user, include_archived=True)
+
+    if scope == 'done':
+        # 已完成超 90 天
+        cutoff = _tz.now() - timedelta(days=90)
+        qs = qs.filter(status='done', updated_at__lte=cutoff)
+    elif scope == 'cancelled':
+        # 已取消超 30 天
+        cutoff = _tz.now() - timedelta(days=30)
+        qs = qs.filter(status='cancelled', updated_at__lte=cutoff)
+    elif scope == 'stale':
+        # 超 180 天无变动且非进行中
+        cutoff = _tz.now() - timedelta(days=180)
+        qs = qs.exclude(status='in_progress').filter(updated_at__lte=cutoff)
+    elif target_name:
+        activity = _resolve_single(user, target_name,
+                                   target_id=params.get('target_id'),
+                                   pick=params.get('pick'))
+        if activity.archived_at:
+            return {'reply': f'活动「{activity.name}」已经归档了'}
+        qs = Activity.objects.filter(id=activity.id, user=user)
+    else:
+        raise ToolError('请告诉我要归档哪个活动，或指定 scope（done/cancelled/stale）')
+
+    count = qs.count()
+    if count == 0:
+        return {'reply': '没有符合条件的活动需要归档'}
+
+    scope_labels = {'done': '已完成超 90 天', 'cancelled': '已取消超 30 天',
+                    'stale': '超 180 天无变动'}
+    desc = scope_labels.get(scope, f'「{target_name}」')
+
+    return {
+        'reply': f'找到 {count} 个活动（{desc}），准备归档，确认吗？',
+        'card': 'confirm',
+        'activity_ids': list(qs.values_list('id', flat=True)[:20]),
+        'card_data': {
+            'kind': 'archive',
+            'count': count,
+            'condition': desc,
+        },
+        'action': {
+            'tool': 'activities.archive',
+            'params': {'target_ids': list(qs.values_list('id', flat=True))},
+        },
+    }
+
+
+@agent_tool('activities.unarchive', '取消归档，恢复已归档的活动到列表',
+            'target（活动名称关键词）')
+def tool_unarchive(user, params):
+    from django.utils import timezone as _tz
+    target_name = params.get('target') or params.get('name')
+    if not target_name:
+        raise ToolError('请告诉我要恢复哪个活动')
+
+    # 归档活动不在 visible_qs 默认范围内，需 include_archived
+    activity = _resolve_single(user, target_name, include_archived=True)
+    if not activity.archived_at:
+        return {'reply': f'活动「{activity.name}」本来就没归档'}
+
+    activity.archived_at = None
+    activity.save(update_fields=['archived_at'])
+    log_activity(user, activity, 'edited', '取消归档')
+
+    return {
+        'reply': f'活动「{activity.name}」已恢复到列表',
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'changed': True,
+    }
+
+
+@agent_tool('activities.check_blocked', '检查活动的前置依赖是否都已完成',
+            'target（活动名称关键词）或 target_id')
+def tool_check_blocked(user, params):
+    """检查活动是否被阻塞（前置依赖中有未完成的活动）"""
+    activity = _resolve_single(user, params.get('target') or params.get('name'),
+                               target_id=params.get('target_id'))
+
+    blocking = activity.blocked_by.all()
+    if not blocking:
+        return {
+            'reply': f'活动「{activity.name}」没有前置依赖，可以自由开始',
+            'card': 'activity',
+            'activity_ids': [activity.id],
+            'card_data': {**_activity_card_data(activity), 'is_blocked': False},
+        }
+
+    blocking_names = []
+    blocking_done = []
+    for b in blocking:
+        if b.status == 'done':
+            blocking_done.append(b.name)
+        else:
+            blocking_names.append(b.name)
+
+    if not blocking_names:
+        return {
+            'reply': f'活动「{activity.name}」的前置依赖都已完成：{"、".join(blocking_done)}，可以开始',
+            'card': 'activity',
+            'activity_ids': [activity.id],
+            'card_data': {**_activity_card_data(activity), 'is_blocked': False},
+        }
+
+    return {
+        'reply': f'活动「{activity.name}」被阻塞：等待{"、".join(blocking_names)}完成' +
+                 (f'（已完成：{"、".join(blocking_done)}）' if blocking_done else ''),
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': {**_activity_card_data(activity), 'is_blocked': True,
+                      'blocking': blocking_names},
     }

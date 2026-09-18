@@ -31,6 +31,17 @@
             </div>
             <p id="form-quick-msg" class="hidden mt-2 text-sm"></p>
         </div>
+
+        <!-- 从模板创建 -->
+        <div id="template-section" class="mb-4">
+            <div class="flex items-center gap-2">
+                <select id="template-select" class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+                    <option value="">从模板创建…</option>
+                </select>
+                <button type="button" id="template-use-btn" disabled
+                        class="shrink-0 rounded-md bg-[var(--accent-light)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed">使用</button>
+            </div>
+        </div>
         {% endif %}
 
         {% if form.non_field_errors %}
@@ -91,4 +102,72 @@
 {% block extra_js %}
 {# chips（拼音联想）与快速填表逻辑集中在 activity-form.js（与列表页创建弹窗共用） #}
 <script src="{% staticv 'js/activity-form.js' %}"></script>
+{% if not activity %}
+<script>
+// 活动模板：加载模板列表，选择后点击「使用」预填表单字段
+(function() {
+    var select = document.getElementById('template-select');
+    var useBtn = document.getElementById('template-use-btn');
+    if (!select || !useBtn) return;
+
+    // 加载模板列表
+    fetch('{% url "activities:template_list" %}')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.templates || !data.templates.length) {
+                document.getElementById('template-section').style.display = 'none';
+                return;
+            }
+            data.templates.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = JSON.stringify(t);
+                opt.textContent = t.name + (t.use_count ? ' (' + t.use_count + '次)' : '');
+                select.appendChild(opt);
+            });
+        });
+
+    // 选择模板后启用按钮
+    select.addEventListener('change', function() {
+        useBtn.disabled = !this.value;
+    });
+
+    // 点击「使用」：预填表单字段
+    useBtn.addEventListener('click', function() {
+        var data = select.value ? JSON.parse(select.value) : null;
+        if (!data) return;
+
+        // 预填名称
+        var nameInput = document.querySelector('[name="name"]');
+        if (nameInput && !nameInput.value) nameInput.value = data.name;
+
+        // 预填描述
+        var descInput = document.querySelector('[name="description"]');
+        if (descInput && !descInput.value && data.description) descInput.value = data.description;
+
+        // 预填标签
+        var tagsInput = document.querySelector('[name="tags"]');
+        if (tagsInput && !tagsInput.value && data.tags) tagsInput.value = data.tags;
+
+        // 预填参与者
+        var partInput = document.querySelector('[name="participants"]');
+        if (partInput && !partInput.value && data.participants) partInput.value = data.participants;
+
+        // 触发 input 事件以更新 chips 等联动
+        [nameInput, descInput, tagsInput, partInput].forEach(function(el) {
+            if (el) el.dispatchEvent(new Event('input', {bubbles: true}));
+        });
+
+        // 调用 template_use API 记录使用次数（异步，不阻塞）
+        var templateId = data.id;
+        if (templateId) {
+            fetch('/activities/templates/' + templateId + '/use/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]').value},
+                body: JSON.stringify({dry_run: true})  // 仅记录使用次数，不创建活动
+            }).catch(function() {});
+        }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

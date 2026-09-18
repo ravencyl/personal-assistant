@@ -137,6 +137,35 @@ class Conversation(models.Model):
         self.save(update_fields=['turn_state', 'turn_started_at', 'turn_prompt',
                                  'turn_idle_at', 'turn_message', 'updated_at'])
 
+    # ── 续聊提醒：AI 最后回复含待办暗示词时标记 ──
+    # 对话超过 FOLLOW_UP_STALE_DAYS 天无新消息且最后 assistant 消息含
+    # 待办暗示（"我帮你查"、"稍后"等），在对话列表展示「待续聊」提示条。
+    FOLLOW_UP_STALE_DAYS = 3
+    FOLLOW_UP_HINT_KEYWORDS = [
+        '我帮你', '我来帮你', '稍后', '记得', '别忘了', '别忘了',
+        'TODO', 'todo', '待办', '需要我', '要不要我',
+        '帮你查', '帮你看看', '帮你整理', '帮你汇总',
+    ]
+
+    @property
+    def follow_up_hint(self):
+        """最后 assistant 消息是否含待办暗示（供列表页「待续聊」提示条用）
+
+        扫描最后一条 assistant 消息内容，匹配预设的待办暗示关键词。
+        失败返回空串（不阻断列表渲染）。
+        """
+        try:
+            last_msg = self.last_message
+            if not last_msg or last_msg.role != 'assistant':
+                return ''
+            content = last_msg.content or ''
+            for kw in self.FOLLOW_UP_HINT_KEYWORDS:
+                if kw in content:
+                    return kw
+            return ''
+        except Exception:
+            return ''
+
     def pinned_context(self):
         """钉选对象的注入文本（拼在发给 Qoder 的正文前面）
 

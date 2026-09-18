@@ -39,6 +39,15 @@
                 <label for="{{ form.tags.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">标签</label>
                 {{ form.tags }}
                 <p class="mt-1 text-xs text-[var(--text-muted)]">多个标签用逗号分隔</p>
+                <!-- AI 标签建议 -->
+                <div id="tag-suggestions" class="hidden mt-2">
+                    <p class="text-xs text-[var(--text-muted)] mb-1">AI 建议：</p>
+                    <div id="tag-suggestion-chips" class="flex flex-wrap gap-1.5"></div>
+                </div>
+                <button type="button" id="suggest-tags-btn"
+                        class="mt-2 text-xs text-[var(--accent)] hover:opacity-80 transition-opacity">
+                    ✨ AI 建议标签
+                </button>
                 {% if form.tags.errors %}
                 <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.tags.errors.0 }}</p>
                 {% endif %}
@@ -55,4 +64,66 @@
         </form>
     </div>
 </div>
+
+<script>
+// AI 标签建议：点击按钮调 API，展示建议 chips，点击 chip 追加到标签输入框
+(function() {
+    var btn = document.getElementById('suggest-tags-btn');
+    var suggestionsDiv = document.getElementById('tag-suggestions');
+    var chipsDiv = document.getElementById('tag-suggestion-chips');
+    var tagsInput = document.getElementById('{{ form.tags.id_for_label }}');
+    if (!btn || !tagsInput) return;
+
+    btn.addEventListener('click', function() {
+        btn.disabled = true;
+        btn.textContent = '\u2728 \u5206\u6790\u4e2d\u2026';
+
+        var formData = new FormData();
+        formData.append('content', tagsInput.closest('form').querySelector('[name="content"]').value || '');
+        formData.append('title', tagsInput.closest('form').querySelector('[name="title"]').value || '');
+        formData.append('csrfmiddlewaretoken', document.querySelector('[name="csrfmiddlewaretoken"]').value);
+
+        fetch('{% url "knowledge:suggest_tags" %}', {method: 'POST', body: formData})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                btn.disabled = false;
+                btn.textContent = '\u2728 AI \u5efa\u8bae\u6807\u7b7e';
+                if (!data.tags || !data.tags.length) {
+                    btn.textContent = '\u2728 \u6682\u65e0\u5efa\u8bae';
+                    setTimeout(function() { btn.textContent = '\u2728 AI \u5efa\u8bae\u6807\u7b7e'; }, 2000);
+                    return;
+                }
+                suggestionsDiv.classList.remove('hidden');
+                chipsDiv.innerHTML = data.tags.map(function(tag) {
+                    return '<button type="button" class="tag-chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:border-[var(--accent)] transition-colors" data-tag="' + tag.replace(/"/g, '&quot;') + '">' +
+                        '<span>+</span><span>' + tag + '</span></button>';
+                }).join('');
+                // 点击 chip 追加到标签输入框
+                chipsDiv.querySelectorAll('.tag-chip').forEach(function(chip) {
+                    chip.addEventListener('click', function() {
+                        var tag = this.getAttribute('data-tag');
+                        var current = tagsInput.value.trim();
+                        if (current) {
+                            // 检查是否已存在
+                            var existing = current.split(/[,\uff0c]/).map(function(t) { return t.trim(); });
+                            if (existing.indexOf(tag) === -1) {
+                                tagsInput.value = current + ', ' + tag;
+                            }
+                        } else {
+                            tagsInput.value = tag;
+                        }
+                        this.remove();
+                        if (!chipsDiv.children.length) {
+                            suggestionsDiv.classList.add('hidden');
+                        }
+                    });
+                });
+            })
+            .catch(function() {
+                btn.disabled = false;
+                btn.textContent = '\u2728 \u83b7\u53d6\u5931\u8d25\uff0c\u91cd\u8bd5';
+            });
+    });
+})();
+</script>
 {% endblock %}

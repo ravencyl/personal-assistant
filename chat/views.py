@@ -14,7 +14,7 @@ from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      TURN_IDLE_GRACE_SECONDS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
-from core.chips import get_quick_chips
+from core.chips import get_quick_chips, get_stale_conversations
 from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
                                  CandidateToolError, ToolError,
@@ -82,6 +82,123 @@ def _is_placeholder_reply(body):
 CHAT_AGENT_PURPOSE = 'knowledge'
 
 
+def _create_weekly_review_conversation(user):
+    """创建周回顾对话：汇总本周数据 + 生成 3 个引导问题，注入为 AI 首条消息
+
+    失败返回 None（不阻断页面渲染，用户仍可用手动回顾入口）。
+    """
+    from datetime import timedelta
+    from activities.models import Activity, Expense
+    from core.utils import visible_qs, week_monday
+    from django.db.models import Sum
+
+    today = timezone.localdate()
+    week_start = week_monday(today)
+
+    try:
+        # 汇总本周数据
+        week_activities = visible_qs(Activity, user).filter(
+            start_date__gte=week_start, start_date__lte=today
+        ).prefetch_related('tags')
+        completed = week_activities.filter(status='done')
+        in_progress = week_activities.filter(status='in_progress')
+        planned = week_activities.filter(status='planned')
+
+        completed_count = completed.count()
+        in_progress_count = in_progress.count()
+        planned_count = planned.count()
+        total_count = week_activities.count()
+
+        # 本周费用
+        week_expense = Expense.objects.filter(
+            user=user, paid_at__gte=week_start, paid_at__lte=today
+        ).aggregate(s=Sum('amount'))['s'] or 0
+
+        # 完成的活动名称（取前 5 个）
+        completed_names = list(completed.values_list('name', flat=True)[:5])
+        # 进行中的活动名称
+        in_progress_names = list(in_progress.values_list('name', flat=True)[:3])
+
+        # 生成 3 个引导问题（基于活动类型）
+        questions = []
+        if completed_names:
+            names_str = '\u3001'.join(completed_names[:2])
+            questions.append(f'这周完成了\u300c{names_str}\u300d，感觉怎么样？有什么收获？')
+        if in_progress_names:
+            names_str = '\u3001'.join(in_progress_names[:2])
+            questions.append(f'\u300c{names_str}\u300d还在进行中，下周计划怎么推进？')
+        if float(week_expense) > 0:
+            questions.append(f'本周花了 ¥{float(week_expense):.0f}，觉得哪些花费最值得？')
+        if not questions:
+            questions = [
+                '这周有什么让你印象深刻的亊吗？',
+                '有没有什么亊情可以做得更好？',
+                '下周最想完成什么？',
+            ]
+
+        # 组装 AI 首条消息
+        summary_parts = [
+            f'📝 本周回顾（{week_start.strftime("%m/%d")} - {today.strftime("%m/%d")}）',
+            f'\n完成 {completed_count} 个，进行中 {in_progress_count} 个，计划 {planned_count} 个',
+        ]
+        if float(week_expense) > 0:
+            summary_parts.append(f'本周消费 ¥{float(week_expense):.0f}')
+        summary_parts.append('\n来聊聊这周的感受吧：')
+        for i, q in enumerate(questions[:3], 1):
+            summary_parts.append(f'{i}. {q}')
+
+        ai_first_message = '\n'.join(summary_parts)
+
+        # 创建对话
+        agent_config = (AgentConfig.objects.filter(is_active=True, purpose=CHAT_AGENT_PURPOSE).first()
+                        or AgentConfig.objects.filter(is_active=True).first())
+        if not agent_config:
+            return None
+
+        env_config = EnvironmentConfig.objects.filter(is_default=True).first() or EnvironmentConfig.objects.first()
+        if not env_config:
+            return None
+
+        service = get_service()
+        session_data = service.create_session(
+            agent_id=agent_config.agent_id,
+            environment_id=env_config.env_id
+        )
+
+        conversation = Conversation.objects.create(
+            user=user,
+            session_id=session_data['id'],
+            agent_id=agent_config.agent_id,
+            title=f'周回顾 · {week_start.strftime("%m/%d")}',
+            status='idle',
+        )
+
+        # 注入 AI 首条消息（回顾引导）
+        Message.objects.create(
+            conversation=conversation,
+            role='assistant',
+            content=ai_first_message,
+            event_type='assistant.message',
+            payload={'card': 'weekly_review', 'card_data': {
+                'week_start': str(week_start),
+                'completed_count': completed_count,
+                'questions': questions[:3],
+            }},
+        )
+
+        # 发送首帧协议指令
+        try:
+            service.send_message(session_data['id'], build_protocol_prompt())
+        except Exception as e:
+            logger.warning(f'周回顾首帧协议指令发送失败（对话 {conversation.id}）: {e}')
+
+        return conversation
+
+    except Exception as e:
+        logger.warning(f'创建周回顾对话失败: {e}')
+        return None
+
+
 @login_required
 def conversation_list(request, conversation_id=None):
     """对话列表 + 可选的当前对话详情（桌面端分栏 / 移动端聊天视图共用）
@@ -114,6 +231,19 @@ def conversation_list(request, conversation_id=None):
         )
     )
 
+    # 过滤多余的空对话：深链 ?ask= 会自动创建空对话，用户没发消息就离开会留下垃圾。
+    # 策略：非空对话全部保留，空对话最多保留一个（最新的），多余的在渲染前剔除。
+    filtered = []
+    seen_empty = False
+    for conv in conversations:
+        has_msg = bool(conv.last_message_list)
+        if not has_msg:
+            if seen_empty:
+                continue  # 跳过多余的空对话
+            seen_empty = True
+        filtered.append(conv)
+    conversations = filtered
+
     # 如果指定了 conversation_id，额外加载该对话的消息（右栏用）
     active_conversation = None
     chat_messages = []
@@ -124,6 +254,11 @@ def conversation_list(request, conversation_id=None):
         except Http404:
             pass  # 无权或不存在 → 右栏显示空状态
 
+    # ── 周回顾深链：?ask=weekly_review 自动创建回顾对话并注入引导 ──
+    weekly_review_conv = None
+    if request.GET.get('ask') == 'weekly_review':
+        weekly_review_conv = _create_weekly_review_conversation(request.user)
+
     return render(request, 'chat/conversation_list.html', {
         'conversations': conversations,
         'agents': agents,
@@ -133,6 +268,10 @@ def conversation_list(request, conversation_id=None):
         'turn_ttl': TURN_TTL_SECONDS,
         # 动态开场 chips：按当日日程/未完成/上次话题生成（core.chips）
         'chips': get_quick_chips(request.user),
+        # 待续聊对话：超过 3 天无新消息且 AI 最后回复含待办暗示
+        'stale_conversations': get_stale_conversations(request.user, limit=3) if not query else [],
+        # 周回顾对话（非空时模板自动跳转）
+        'weekly_review_conv': weekly_review_conv,
     })
 
 
@@ -378,6 +517,10 @@ def _build_ai_content(request, conversation, content):
         pinned = conversation.pinned_context()
         if pinned:
             ai_content = pinned + ai_content
+            # 钉选活动的标签相关知识：按标签搜知识库，取 top 2 摘要注入
+            pinned_knowledge = _build_pinned_knowledge_context(conversation)
+            if pinned_knowledge:
+                ai_content = pinned_knowledge + ai_content
     except Exception as exc:
         logger.warning("pin injection failed: %s", exc)
     return ai_content
@@ -428,6 +571,47 @@ def _build_knowledge_context(user, text):
     for r in results:
         context += f"--- {r['title']} ---\n{r['content'][:800]}\n\n"
     return context
+
+
+def _build_pinned_knowledge_context(conversation):
+    """按钉选活动的标签检索相关知识库文章，构造注入上下文；无命中返回空串
+
+    与 _build_knowledge_context 的区别：
+    - 后者按用户消息关键词搜索（通用）
+    - 本函数按钉选活动的标签搜索（针对性更强）
+    两者同时注入时，本函数结果跟在钉选活动信息之后。
+    """
+    from knowledge.models import Article
+    from core.tags import tag_names
+
+    activity = conversation.pin_activity
+    if not activity or activity.user_id != conversation.user_id:
+        return ''
+
+    # 取活动标签名
+    tags = tag_names(activity)
+    if not tags:
+        return ''
+
+    # 按标签搜知识库文章（取 top 2）
+    try:
+        articles = Article.objects.filter(
+            user=conversation.user,
+            tags__name__in=tags
+        ).distinct()[:2]
+
+        if not articles:
+            return ''
+
+        context = '\n[钉选活动的相关知识]\n'
+        for article in articles:
+            # 取文章摘要（前 500 字）
+            content_preview = (article.content or '')[:500]
+            context += f"--- {article.title} ---\n{content_preview}\n\n"
+        return context
+    except Exception as e:
+        logger.warning(f'钉选活动知识注入失败: {e}')
+        return ''
 
 
 @json_login_required
@@ -842,8 +1026,10 @@ def archive_conversation(request, conversation_id):
     # 归档即沉淀：留一条「讨论过什么 + 结论」的记忆，下次开新对话时 AI 能想起来。
     # 它只读库里的消息（不碰平台），所以放在 cancel 之前；失败不得影响归档本身。
     try:
-        from memory.services import summarize_conversation_for_memory
+        from memory.services import summarize_conversation_for_memory, extract_review_insights
         summarize_conversation_for_memory(conversation)
+        # 周回顾对话额外提取亮点/改进方向
+        extract_review_insights(conversation)
     except Exception as e:
         logger.warning(f'归档摘要写入记忆失败（对话 {conversation.id}）: {e}')
 

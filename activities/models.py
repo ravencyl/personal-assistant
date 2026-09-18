@@ -72,8 +72,18 @@ class Activity(models.Model):
         related_name='children',
         verbose_name='父活动'
     )
+    # 活动依赖关系：前置未完成时后续活动标灰提醒
+    # symmetrical=False：A 阻塞 B 不等于 B 阻塞 A
+    blocked_by = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        blank=True,
+        related_name='blocking',
+        verbose_name='前置依赖',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived_at = models.DateTimeField('归档时间', null=True, blank=True)
 
     class Meta:
         ordering = ['-start_date', '-created_at']
@@ -116,6 +126,54 @@ class Activity(models.Model):
         if self.end_date:
             return f'~ {fmt(self.end_date, self.end_time)}'
         return '未设定'
+
+    def is_blocked(self):
+        """检查此活动是否被阻塞（前置依赖中有未完成的活动）"""
+        if not self.pk:
+            return False
+        return self.blocked_by.exclude(status='done').exists()
+
+    def blocking_names(self):
+        """返回阻塞此活动的未完成前置依赖名称列表"""
+        if not self.pk:
+            return []
+        return list(
+            self.blocked_by.exclude(status='done')
+            .values_list('name', flat=True)
+        )
+
+    def would_create_cycle(self, target_ids):
+        """检测将 blocked_by 设为 target_ids 是否会形成环
+
+        环检测策略：从每个 target 出发沿 blocked_by 反向链（blocking）向上走，
+        如果能走到 self，说明形成了环。
+        """
+        if not self.pk or not target_ids:
+            return False
+        target_ids = set(target_ids)
+        if self.pk in target_ids:
+            return True  # 自己依赖自己
+
+        # BFS：从每个 target 出发，沿 blocking 反向链查找是否可达 self
+        visited = set()
+        queue = list(target_ids)
+        while queue:
+            current_id = queue.pop(0)
+            if current_id in visited:
+                continue
+            visited.add(current_id)
+            if current_id == self.pk:
+                return True  # 从 target 能走到 self，形成环
+            # 找 current 的 blocked_by（它的前置依赖）
+            try:
+                blockers = list(
+                    Activity.objects.filter(id=current_id)
+                    .values_list('blocked_by__id', flat=True)
+                )
+                queue.extend(b for b in blockers if b and b not in visited)
+            except Exception:
+                pass
+        return False
 
 
 class ActivityLog(models.Model):
@@ -313,3 +371,30 @@ class CalendarFeed(models.Model):
     @property
     def active(self):
         return self.revoked_at is None
+
+
+class ActivityTemplate(models.Model):
+    """活动模板：保存常用活动的字段快照，创建时一键填充"""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='activity_templates',
+    )
+    name = models.CharField('模板名称', max_length=100)
+    default_tags = models.CharField('默认标签', max_length=255, blank=True,
+                                    help_text='逗号分隔')
+    default_participants = models.CharField('默认参与者', max_length=255, blank=True,
+                                            help_text='逗号分隔')
+    default_budget = models.DecimalField('默认预算', max_digits=10, decimal_places=2,
+                                          null=True, blank=True)
+    default_description = models.TextField('默认描述', blank=True)
+    use_count = models.IntegerField('使用次数', default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-use_count', '-created_at']
+        verbose_name = '活动模板'
+        verbose_name_plural = '活动模板'
+
+    def __str__(self):
+        return self.name

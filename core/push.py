@@ -25,7 +25,7 @@ def vapid_ready():
 
 
 def build_daily_payload(user):
-    """组装每日早报 payload：今日日程 + 未完成 + 引导（与 chips 同口径）"""
+    """组装每日早报 payload：今日日程 + 未完成 + 冲突提示 + 引导（与 chips 同口径）"""
     from django.utils import timezone
 
     from activities.models import Activity
@@ -40,6 +40,17 @@ def build_daily_payload(user):
               + visible_qs(Activity, user)
               .filter(status='planned', start_date__lt=today).count())
 
+    # 冲突检测：今天有多个带时间的活动时提示
+    timed_today = [a for a in today_acts if a.start_time]
+    conflict_count = 0
+    if len(timed_today) >= 2:
+        for i, a in enumerate(timed_today):
+            for b in timed_today[i+1:]:
+                a_end = a.end_time or a.start_time
+                b_end = b.end_time or b.start_time
+                if a.start_time < b_end and b.start_time < a_end:
+                    conflict_count += 1
+
     parts = []
     if today_count == 1:
         parts.append(f'今天有「{today_acts.first().name}」')
@@ -48,6 +59,8 @@ def build_daily_payload(user):
         suffix = '等' if today_count > 3 else ''
         parts.append(f'今天有 {today_count} 个活动：'
                      + '、'.join(f'「{n}」' for n in names) + suffix)
+    if conflict_count:
+        parts.append(f'{conflict_count} 对活动时间冲突')
     if undone:
         parts.append(f'{undone} 个活动还没完成')
     if not parts:
@@ -151,7 +164,76 @@ def build_payload(user, push_type):
         return build_task_reminder_payload(user)
     if push_type == 'ai_summary':
         return build_ai_summary_payload(user)
+    if push_type == 'weekly_review':
+        return build_weekly_review_payload(user)
+    if push_type == 'activity_reminder':
+        return build_activity_reminder_payload(user)
     return build_daily_payload(user)
+
+
+def build_weekly_review_payload(user):
+    """每周回顾推送：对话式引导，深链到聊天页自动发起回顾对话"""
+    from django.utils import timezone
+    from activities.models import Activity
+    from core.utils import visible_qs, week_monday
+
+    today = timezone.localdate()
+    week_start = week_monday(today)
+
+    # 本周统计
+    week_activities = visible_qs(Activity, user).filter(
+        start_date__gte=week_start, start_date__lte=today
+    )
+    completed = week_activities.filter(status='done').count()
+    total = week_activities.count()
+
+    body = f'本周完成了 {completed}/{total} 个活动，来聊聊感受？'
+
+    return {
+        'title': f'{settings.SITE_NAME} · 每周回顾',
+        'body': body,
+        'url': '/chat/?ask=weekly_review',
+    }
+
+
+def build_activity_reminder_payload(user):
+    """活动前提醒：扫描未来 30 分钟内即将开始的活动，深链直达详情
+
+    幂等由 PushSchedule.last_sent_date 保证（同一天同一计划只发一次）；
+    没有即将开始的活动时返回 None，调用方跳过发送。"""
+    from datetime import timedelta
+    from django.utils import timezone
+
+    from activities.models import Activity
+    from core.utils import visible_qs
+
+    now = timezone.localtime()
+    soon = now + timedelta(minutes=30)
+    today = now.date()
+
+    upcoming = (visible_qs(Activity, user)
+                .filter(start_date=today, status__in=['planned', 'in_progress'])
+                .exclude(start_time=None)
+                .filter(start_time__gte=now.time(), start_time__lte=soon.time())
+                .order_by('start_time'))
+
+    if not upcoming.exists():
+        return None  # 没有即将开始的活动，不调
+
+    act = upcoming.first()
+    count = upcoming.count()
+
+    if count == 1:
+        body = f'「{act.name}」将在 30 分钟内开始，点开查看详情'
+    else:
+        names = list(upcoming.values_list('name', flat=True)[:3])
+        body = f'{count} 个活动即将开始：' + '、'.join(f'「{n}」' for n in names)
+
+    return {
+        'title': f'{settings.SITE_NAME} · 活动提醒',
+        'body': body,
+        'url': f'/activities/{act.id}/',
+    }
 
 
 def _send_one(sub, payload):

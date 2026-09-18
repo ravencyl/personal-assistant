@@ -5,7 +5,9 @@ from django.conf.urls.static import static
 
 from core.views import (dashboard, search_api, weekly_report, monthly_report, yearly_report,
                         report_send_to_chat, service_worker,
-                        push_subscribe, push_unsubscribe, push_test)
+                        push_subscribe, push_unsubscribe, push_test,
+                        weekly_review_view, weekly_review_complete_view,
+                        today_view)
 from activities.views import daily_view, calendar_feed
 
 urlpatterns = [
@@ -52,6 +54,13 @@ urlpatterns = [
     path('reports/monthly/', monthly_report, name='monthly_report'),
     path('reports/yearly/', yearly_report, name='yearly_report'),
     path('reports/send-to-chat/', report_send_to_chat, name='report_send_to_chat'),
+
+    # Weekly Review
+    path('weekly-review/', weekly_review_view, name='weekly_review'),
+    path('weekly-review/complete/', weekly_review_complete_view, name='weekly_review_complete'),
+
+    # Today View
+    path('today/', today_view, name='today'),
 ]
 
 if settings.DEBUG:

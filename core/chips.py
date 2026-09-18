@@ -17,8 +17,9 @@
 横切查询层（cross_link / search / report 同款模式），chat 只消费结果。
 """
 from django.utils import timezone
+from django.db import models
 
-from chat.models import Conversation
+from chat.models import Conversation, Message
 from core.utils import visible_qs
 
 CHIP_LIMIT = 4
@@ -33,6 +34,9 @@ FALLBACK_CHIPS = [
 
 # 上次话题只取 3 天内的对话，更久远的「继续聊聊」反而突兀
 RECENT_CONVERSATION_DAYS = 3
+
+# 续聊提醒：对话超过此天数无新消息且 AI 最后回复含待办暗示时提醒
+FOLLOW_UP_STALE_DAYS = 3
 
 # 话题标题在 chip 里太长会溢出按钮（.chat-chip 移动端 nowrap），截断保护
 TOPIC_MAX_LEN = 12
@@ -74,8 +78,13 @@ def get_quick_chips(user, limit=CHIP_LIMIT):
         topic = (last_conv.title or '').strip()[:TOPIC_MAX_LEN]
         if topic:
             chips.append(f'继续聊聊「{topic}」')
-
-    # 4) 兜底凑满：跳过与动态条重复的文本，保持顺序
+    
+    # 3.5) 续聊提醒：超过 FOLLOW_UP_STALE_DAYS 天无新消息且 AI 最后回复含待办暗示
+    stale_chip = _stale_follow_up_chip(user)
+    if stale_chip and stale_chip not in chips:
+        chips.append(stale_chip)
+    
+    # 4) 兆底凑满：跳过与动态条重复的文本，保持顺序
     for chip in FALLBACK_CHIPS:
         if len(chips) >= limit:
             break
@@ -83,3 +92,53 @@ def get_quick_chips(user, limit=CHIP_LIMIT):
             chips.append(chip)
 
     return chips[:limit]
+
+
+def _stale_follow_up_chip(user, limit=1):
+    """检测 stale 对话并生成续聊 chip（超过 FOLLOW_UP_STALE_DAYS 天无消息 + AI 含待办暗示）
+
+    返回 chip 文本或空串。失败静默降级（不阻断 chips 渲染）。
+    """
+    try:
+        stale = get_stale_conversations(user, limit=limit)
+        if not stale:
+            return ''
+        conv = stale[0]
+        topic = (conv.title or '').strip()[:TOPIC_MAX_LEN]
+        if topic:
+            return f'继续聊聊「{topic}」——上次 AI 说有待办'
+        return '有个对话还没聊完，上次 AI 说有待办'
+    except Exception:
+        return ''
+
+
+def get_stale_conversations(user, limit=3):
+    """返回待续聊的对话列表（超过 FOLLOW_UP_STALE_DAYS 天无新消息 + AI 最后回复含待办暗示）
+
+    供对话列表页「待续聊」提示条和 chips 共用。失败返回空列表。
+    """
+    try:
+        since = timezone.now() - timezone.timedelta(days=FOLLOW_UP_STALE_DAYS)
+        stale_qs = (visible_qs(Conversation, user)
+                    .exclude(status='archived')
+                    .filter(updated_at__lte=since)
+                    .order_by('-updated_at'))
+
+        # 预取最后一条消息（与 conversation_list 同口径）
+        stale_qs = stale_qs.prefetch_related(
+            models.Prefetch(
+                'messages',
+                queryset=Message.objects.order_by('-created_at')[:1],
+                to_attr='last_message_list',
+            )
+        )
+
+        result = []
+        for conv in stale_qs[:limit * 3]:  # 多取一些，过滤后可能不足
+            if conv.follow_up_hint:
+                result.append(conv)
+                if len(result) >= limit:
+                    break
+        return result
+    except Exception:
+        return []

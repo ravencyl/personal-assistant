@@ -95,7 +95,7 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
     class Meta:
         model = Activity
         fields = ['name', 'description', 'start_date', 'end_date',
-                  'start_time', 'end_time', 'status', 'parent', 'tags']
+                  'start_time', 'end_time', 'status', 'parent', 'tags', 'blocked_by']
         widgets = {
             'name': forms.TextInput(attrs={'class': INPUT_CLS, 'placeholder': '活动名称'}),
             'description': forms.Textarea(attrs={'class': INPUT_CLS, 'rows': 3, 'placeholder': '活动描述（可选）'}),
@@ -106,6 +106,7 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
             'end_time': HourMinuteSelect(attrs={'class': INPUT_CLS}),
             'status': ChipRadioSelect,
             'parent': forms.Select(attrs={'class': INPUT_CLS}),
+            'blocked_by': forms.HiddenInput,
         }
 
     def __init__(self, *args, user=None, **kwargs):
@@ -148,7 +149,29 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
             self.add_error('start_time', '填写开始时间需先填开始日期')
         if cleaned.get('end_time') and not (start or end):
             self.add_error('end_time', '填写结束时间需先填开始或结束日期')
+
+        # 前置依赖：解析逗号分隔的 ID，并检测环
+        blocked_by_raw = cleaned.get('blocked_by', '')
+        if blocked_by_raw:
+            try:
+                ids = [int(x.strip()) for x in str(blocked_by_raw).split(',') if x.strip()]
+            except (ValueError, TypeError):
+                ids = []
+            # 环检测：检查是否会形成依赖环
+            if self.instance.pk and ids and self.instance.would_create_cycle(ids):
+                self.add_error('blocked_by', '不能形成循环依赖（A→B→C→A 不允许）')
+                cleaned['blocked_by'] = ''
+            else:
+                cleaned['blocked_by_ids'] = ids
+        else:
+            cleaned['blocked_by_ids'] = []
+
         return cleaned
+
+    def save_blocked_by(self, activity):
+        """保存前置依赖关系"""
+        ids = self.cleaned_data.get('blocked_by_ids', [])
+        activity.blocked_by.set(ids)
 
     def save_participants(self, activity):
         """解析参与者输入：先不区分大小写复用已有写法，确实没有才新建，并全量替换关联"""

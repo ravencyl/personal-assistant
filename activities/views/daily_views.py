@@ -1,5 +1,6 @@
 """Daily 每日简报页与「下一步行动」页"""
 from datetime import timedelta
+import logging
 
 from django.contrib.auth.decorators import login_required
 from django.db import models
@@ -13,6 +14,38 @@ from ..forms import ActivityForm
 from ..models import Activity, Expense, Participant
 from ..utils import exclude_daily_bucket
 from ._common import _user_tag_names, _greeting, attach_costs
+
+logger = logging.getLogger(__name__)
+
+
+def _annotate_blocked(activities):
+    """标注活动的阻塞状态：is_blocked + blocking_names"""
+    for a in activities:
+        a.is_blocked = a.is_blocked()
+        a.blocking_names = a.blocking_names()
+    return activities
+
+
+def _detect_conflicts(activities):
+    """检测时间冲突：同一天有多个带时间的活动（全天活动不参与冲突检测）
+
+    返回冲突活动 ID 集合。无冲突返回空集。
+    """
+    conflict_ids = set()
+    # 只检查有 start_time 的活动（全天活动不参与时间冲突）
+    timed = [a for a in activities if a.start_time]
+    for i, a in enumerate(timed):
+        for b in timed[i+1:]:
+            # 简单冲突判定：同一天且时间段重叠
+            a_start = a.start_time
+            a_end = a.end_time or a.start_time
+            b_start = b.start_time
+            b_end = b.end_time or b.start_time
+            # 时间段重叠条件：a_start < b_end AND b_start < a_end
+            if a_start < b_end and b_start < a_end:
+                conflict_ids.add(a.id)
+                conflict_ids.add(b.id)
+    return conflict_ids
 
 
 @login_required
@@ -83,10 +116,48 @@ def daily_view(request):
     weekdays = WEEKDAY_LABELS
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
+    # ── 过期未完成自动滚入：status='planned' 且 start_date < today ──
+    overdue_rolled_in = list(qs.filter(
+        status='planned',
+        start_date__lt=today,
+    ).order_by('start_date')[:10])
+    for a in overdue_rolled_in:
+        a.overdue_days = (today - a.start_date).days
+
+    # ── 冲突检测：今日进行中 + 今日开始的活动 ──
+    conflict_ids = _detect_conflicts([*ongoing, *starting_today])
+
+    # ── AI 今日建议（失败降级为规则模板） ──
+    ai_suggestion = None
+    all_today = [*ongoing, *starting_today, *overdue_rolled_in]
+    if all_today:
+        summary_lines = [f'- {a.name}（{a.get_status_display()}）' for a in all_today[:10]]
+        try:
+            from core.ai import ai_round_trip
+            reply = ai_round_trip(
+                '以下是用户今天的活动数据，请用不超过 80 字的中文给出一条可执行建议，'
+                '突出优先级最高的一件事，口语化，不要列表不要寒暄：\n'
+                + '\n'.join(summary_lines),
+                timeout=60, purpose='general')
+            if reply:
+                ai_suggestion = reply.strip().splitlines()[0][:120]
+        except Exception as exc:
+            logger.warning('AI 建议降级: %s', exc)
+        if not ai_suggestion:
+            # 规则降级
+            if overdue_rolled_in:
+                ai_suggestion = f'有 {len(overdue_rolled_in)} 个活动已过期，建议先处理最紧急的'
+            elif conflict_ids:
+                ai_suggestion = f'今天有 {len(conflict_ids)} 个活动时间冲突，注意调整'
+            elif ongoing:
+                ai_suggestion = f'当前有 {len(ongoing)} 个活动进行中，专注完成它们'
+
     # 六个分组互斥，合并后一次 attach_costs：
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
-    attach_costs([*ongoing, *starting_today, *ending_today,
-                  *upcoming, *recently_done, *in_progress])
+    all_activities = [*ongoing, *starting_today, *ending_today,
+                      *upcoming, *recently_done, *in_progress, *overdue_rolled_in]
+    _annotate_blocked(all_activities)
+    attach_costs(all_activities)
 
     return render(request, 'activities/daily.html', {
         'today': today,
@@ -102,6 +173,9 @@ def daily_view(request):
         'upcoming': upcoming,
         'recently_done': recently_done,
         'in_progress': in_progress,
+        'overdue_rolled_in': overdue_rolled_in,
+        'conflict_ids': conflict_ids,
+        'ai_suggestion': ai_suggestion,
         'today_expense': float(today_expense),
         'this_week_expense': float(this_week_expense),
         'ongoing_count': len(ongoing) + len(starting_today),

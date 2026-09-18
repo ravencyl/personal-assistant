@@ -87,6 +87,14 @@
         </div>
     </div>
 
+    <!-- 费用热力图：月份 x 类别 -->
+    <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
+        <h2 class="text-sm font-semibold text-[var(--text)] mb-4">费用热力图（近 12 个月）</h2>
+        <div id="heatmap-container" class="overflow-x-auto">
+            <p class="text-sm text-[var(--text-muted)] py-6 text-center">加载中…</p>
+        </div>
+    </div>
+
 <!-- 本月标签明细 -->
 <div class="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 sm:p-6">
     <div class="flex items-center justify-between gap-3 mb-4">
@@ -281,6 +289,81 @@
     document.getElementById('mcPrev').addEventListener('click', function() { shiftMonth(-1); });
     document.getElementById('mcNext').addEventListener('click', function() { shiftMonth(1); });
     load(); // 页面加载默认渲染当月
+})();
+</script>
+
+<script>
+// 费用热力图：SVG 渲染，月份 x 类别，颜色深浅 = 金额大小
+(function() {
+    var container = document.getElementById('heatmap-container');
+    if (!container) return;
+
+    fetch('{% url "activities:expense_heatmap_data" %}')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.categories || !data.categories.length) {
+                container.innerHTML = '<p class="text-sm text-[var(--text-muted)] py-6 text-center">暂无带标签的费用记录</p>';
+                return;
+            }
+            var months = data.months;
+            var categories = data.categories;
+            var matrix = data.data;
+
+            // 计算最大值用于颜色映射
+            var maxVal = 0;
+            for (var i = 0; i < matrix.length; i++) {
+                for (var j = 0; j < matrix[i].length; j++) {
+                    if (matrix[i][j] > maxVal) maxVal = matrix[i][j];
+                }
+            }
+
+            // SVG 尺寸
+            var cellW = 48, cellH = 28, padLeft = 80, padTop = 30;
+            var svgW = padLeft + months.length * cellW + 10;
+            var svgH = padTop + categories.length * cellH + 10;
+
+            var svg = '<svg width="' + svgW + '" height="' + svgH + '" xmlns="http://www.w3.org/2000/svg">';
+
+            // 月份标题
+            for (var j = 0; j < months.length; j++) {
+                var label = months[j].substring(5); // 'YYYY-MM' -> 'MM'
+                svg += '<text x="' + (padLeft + j * cellW + cellW / 2) + '" y="16" text-anchor="middle" font-size="10" fill="#71717a">' + label + '月</text>';
+            }
+
+            // 行标签 + 单元格
+            for (var i = 0; i < categories.length; i++) {
+                var y = padTop + i * cellH;
+                // 类别标签
+                svg += '<text x="' + (padLeft - 8) + '" y="' + (y + cellH / 2 + 4) + '" text-anchor="end" font-size="11" fill="#18181b">' + categories[i] + '</text>';
+                // 单元格
+                for (var j = 0; j < months.length; j++) {
+                    var val = matrix[i][j];
+                    var intensity = maxVal > 0 ? val / maxVal : 0;
+                    // 颜色：从浅到深（蓝灰色系）
+                    var r = Math.round(241 - intensity * 200);
+                    var g = Math.round(245 - intensity * 180);
+                    var b = Math.round(249 - intensity * 100);
+                    if (val === 0) {
+                        r = 250; g = 250; b = 250;
+                    }
+                    var color = 'rgb(' + r + ',' + g + ',' + b + ')';
+                    var x = padLeft + j * cellW;
+                    svg += '<rect x="' + (x + 1) + '" y="' + (y + 1) + '" width="' + (cellW - 2) + '" height="' + (cellH - 2) + '" rx="3" fill="' + color + '">';
+                    svg += '<title>' + categories[i] + ' · ' + months[j] + ': ¥' + Math.round(val) + '</title>';
+                    svg += '</rect>';
+                    // 金额文字（仅当金额 > 0 时显示）
+                    if (val > 0) {
+                        svg += '<text x="' + (x + cellW / 2) + '" y="' + (y + cellH / 2 + 4) + '" text-anchor="middle" font-size="9" fill="' + (intensity > 0.5 ? '#fff' : '#71717a') + '">¥' + Math.round(val) + '</text>';
+                    }
+                }
+            }
+
+            svg += '</svg>';
+            container.innerHTML = svg;
+        })
+        .catch(function() {
+            container.innerHTML = '<p class="text-sm text-[var(--text-muted)] py-6 text-center">加载失败，请稍后重试</p>';
+        });
 })();
 </script>
 {% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% load static core_tags %}
+
+{% block title %}已归档活动 · {{ SITE_NAME }}{% endblock %}
+
+{% block content %}
+<!-- 头部 -->
+<div class="mb-6 sm:mb-8 fade-in">
+    <div class="flex items-center justify-between">
+        <div>
+            <p class="text-sm text-[var(--text-muted)] mb-1">从列表隐藏，数据保留，可随时恢复</p>
+            <h1 class="text-2xl sm:text-3xl font-bold text-[var(--text)] tracking-tight">已归档活动</h1>
+        </div>
+        <a href="{% url 'activities:activity_list' %}"
+           class="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] px-4 py-2 text-sm font-medium hover:bg-[var(--accent-light)] transition-colors">
+            ← 返回活动列表
+        </a>
+    </div>
+</div>
+
+{% if archived %}
+<section class="max-w-2xl">
+    <p class="text-sm text-[var(--text-muted)] mb-4">共 {{ archived|length }} 个已归档活动</p>
+    <div class="space-y-2">
+        {% for a in archived %}
+        <div class="group flex items-start gap-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4">
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1 flex-wrap">
+                    <h3 class="text-sm font-medium text-[var(--text)]">{{ a.name }}</h3>
+                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-muted)] bg-zinc-100 rounded-full px-1.5 py-0.5">
+                        {{ a.archived_at|date:"m月d日" }} 归档
+                    </span>
+                </div>
+                <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                    <span class="tabular-nums">{{ a.date_range }}</span>
+                    {% include "activities/_status_badge.html" with status=a.status label=a.get_status_display %}
+                </div>
+                {% if a.tags.all %}
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    {% for tag in a.tags.all|slice:":3" %}
+                    <span class="text-[10px] text-[var(--text-muted)]">#{{ tag.name }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <a href="{% url 'activities:activity_detail' a.id %}"
+                   class="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                   title="查看详情">详情</a>
+                <button type="button" data-unarchive-id="{{ a.id }}"
+                        class="text-xs text-[var(--accent)] hover:underline font-medium">
+                    恢复
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<script>
+document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-unarchive-id]');
+    if (!btn) return;
+    var id = btn.getAttribute('data-unarchive-id');
+    var csrf = document.querySelector('meta[name="csrf-token"]').content;
+    btn.textContent = '恢复中…';
+    btn.disabled = true;
+    fetch('/activities/' + id + '/unarchive/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' }
+    }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) {
+            btn.closest('.group').style.opacity = '0.3';
+            setTimeout(function () { location.reload(); }, 400);
+        } else {
+            btn.textContent = '恢复';
+            btn.disabled = false;
+            alert(d.error || '操作失败');
+        }
+    }).catch(function () {
+        btn.textContent = '恢复';
+        btn.disabled = false;
+        alert('网络异常，请重试');
+    });
+});
+</script>
+{% else %}
+<div class="text-center py-16">
+    <p class="text-[var(--text-muted)] text-sm">没有已归档的活动</p>
+    <p class="text-[var(--text-muted)] text-xs mt-2">在对话中说「归档 xxx」或「归档已完成的」即可自动归档</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -418,3 +418,167 @@ def push_test(request):
 
     sent, cleaned = send_push_to_user(request.user, build_daily_payload(request.user))
     return JsonResponse({'ok': sent > 0, 'sent': sent, 'cleaned': cleaned})
+
+
+@login_required
+def weekly_review_view(request):
+    """每周回顾：引导式 3 步流程（数据摘要 → 引导问题 → 完成）
+
+    步骤由 GET 参数 step 控制（1/2/3），POST 提交回顾内容并保存为记忆。
+    """
+    from memory.models import Memory
+
+    user = request.user
+    today = timezone.localdate()
+    week_start = week_monday(today)
+
+    # 本周活动统计
+    activities = visible_qs(Activity, user)
+    week_activities = activities.filter(
+        start_date__gte=week_start, start_date__lte=today
+    )
+    completed = week_activities.filter(status='done').count()
+    in_progress = week_activities.filter(status='in_progress').count()
+    planned = week_activities.filter(status='planned').count()
+    cancelled = week_activities.filter(status='cancelled').count()
+    total = week_activities.count()
+
+    # 本周费用
+    week_expense = Expense.objects.filter(
+        user=user, paid_at__gte=week_start, paid_at__lte=today
+    ).aggregate(s=Sum('amount'))['s'] or 0
+
+    # 本周完成的活动列表
+    completed_activities = list(week_activities.filter(status='done').order_by('-end_date', '-start_date')[:10])
+
+    # 当前步骤
+    step = request.GET.get('step', '1')
+    try:
+        step = int(step)
+    except (ValueError, TypeError):
+        step = 1
+    step = max(1, min(3, step))
+
+    # POST 提交回顾
+    if request.method == 'POST':
+        reflection = request.POST.get('reflection', '').strip()
+        highlights = request.POST.get('highlights', '').strip()
+        improvements = request.POST.get('improvements', '').strip()
+
+        # 保存为记忆（importance=5，与计划一致）
+        if reflection:
+            Memory.objects.create(
+                user=user,
+                content=f'[周回顾] {reflection[:400]}',
+                category='other',
+                importance=5,
+            )
+        if highlights:
+            Memory.objects.create(
+                user=user,
+                content=f'[本周亮点] {highlights[:400]}',
+                category='fact',
+                importance=5,
+            )
+        if improvements:
+            Memory.objects.create(
+                user=user,
+                content=f'[改进方向] {improvements[:400]}',
+                category='goal',
+                importance=5,
+            )
+
+        return redirect('weekly_review_complete')
+
+    return render(request, 'core/weekly_review.html', {
+        'step': step,
+        'week_start': week_start,
+        'today': today,
+        'stats': {
+            'completed': completed,
+            'in_progress': in_progress,
+            'planned': planned,
+            'cancelled': cancelled,
+            'total': total,
+            'expense': float(week_expense),
+        },
+        'completed_activities': completed_activities,
+    })
+
+
+@login_required
+def weekly_review_complete_view(request):
+    """每周回顾完成页"""
+    return render(request, 'core/weekly_review_complete.html')
+
+
+@login_required
+def today_view(request):
+    """今天视图：聚合活动/笔记/知识/记忆中与今天相关的内容
+
+    「今日工作台」概念：把分散在各模块的当天信息聚合到一个页面，
+    用户打开就知道今天该关心什么。
+    """
+    from datetime import timedelta
+    from django.db.models import Q
+    from activities.models import Activity
+    from notes.models import Note
+    from knowledge.models import Article as KnowledgeArticle
+    from memory.services import retrieve_memories
+    from core.tags import tag_names
+
+    user = request.user
+    today = timezone.localdate()
+
+    # ── 今日活动：复用 daily_view 的 ongoing + starting_today 逻辑 ──
+    act_qs = visible_qs(Activity, user).prefetch_related('tags', 'participants')
+    ongoing = list(act_qs.filter(
+        start_date__lte=today,
+    ).filter(
+        Q(end_date__gte=today) | Q(end_date__isnull=True, start_date=today)
+    ).exclude(status='cancelled').exclude(status='done'))
+    ongoing_ids = [a.id for a in ongoing]
+    starting_today = list(act_qs.filter(start_date=today).exclude(
+        status='cancelled'
+    ).exclude(status='done').exclude(id__in=ongoing_ids))
+    today_activities = ongoing + starting_today
+
+    # ── 今日相关笔记：最近 7 天更新的，按标签交集/更新时间排序 ──
+    note_since = today - timedelta(days=7)
+    recent_notes = list(visible_qs(Note, user).filter(
+        updated_at__date__gte=note_since
+    ).order_by('-updated_at')[:5])
+
+    # ── 今日相关知识：最近 7 天更新的文章 ──
+    recent_articles = list(visible_qs(KnowledgeArticle, user).filter(
+        updated_at__date__gte=note_since
+    ).order_by('-updated_at')[:3])
+
+    # ── 今日相关记忆：按今天活动名称检索 ──
+    today_context = ' '.join(a.name for a in today_activities[:3])
+    today_memories = retrieve_memories(user, query=today_context, limit=5) if today_context else []
+
+    # ── 问候 ──
+    hour = timezone.localtime().hour
+    if hour < 6:
+        greeting = '夜深了，早点休息'
+    elif hour < 12:
+        greeting = '早上好'
+    elif hour < 14:
+        greeting = '中午好'
+    elif hour < 18:
+        greeting = '下午好'
+    else:
+        greeting = '晚上好'
+    weekdays = WEEKDAY_LABELS
+    today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
+
+    return render(request, 'core/today.html', {
+        'today': today,
+        'today_display': today_display,
+        'greeting': greeting,
+        'today_activities': today_activities,
+        'recent_notes': recent_notes,
+        'recent_articles': recent_articles,
+        'today_memories': today_memories,
+    })

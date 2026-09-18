@@ -1,6 +1,6 @@
 """全局搜索引擎
 
-跨 Activity / Article / Note / Conversation / Message 五个模块的统一搜索。
+跨 Activity / Article / Note / Conversation / Message / Memory 六个模块的统一搜索。
 """
 import logging
 from datetime import timedelta
@@ -21,11 +21,12 @@ def global_search(user, query, limit_per_module=5):
         'notes': [Note, ...],
         'conversations': [Conversation, ...],
         'messages': [(Message, Conversation), ...],
+        'memories': [Memory, ...],
     }
     """
     if not query or not query.strip():
         return {'activities': [], 'articles': [], 'notes': [],
-                'conversations': [], 'messages': []}
+                'conversations': [], 'messages': [], 'memories': []}
 
     q = query.strip()
     results = {}
@@ -66,5 +67,12 @@ def global_search(user, query, limit_per_module=5):
         created_at__gte=thirty_days_ago,
     ).select_related('conversation')[:limit_per_module]
     results['messages'] = [(m, m.conversation) for m in messages]
+
+    # 记忆：搜索内容（按用户可见性，与活动/文章同口径）
+    from memory.models import Memory
+    memories = visible_qs(Memory, user).filter(
+        content__icontains=q
+    )[:limit_per_module]
+    results['memories'] = list(memories)
 
     return results

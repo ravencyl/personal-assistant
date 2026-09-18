@@ -53,7 +53,7 @@
     --accent-hover: #5467d6;
     --accent-light: #eef0fe;    /* periwinkle 极浅底：hover/选中染色 */
     --accent-soft: #eef0fe;     /* 选中态/强调底色专用 */
-    --bg: #e2e6fa;              /* 淡紫蓝画布（截图同源，比截图略浅保证内容可读） */
+    --bg: #ffffff;                /* 白色画布 */
     --bg-card: #ffffff;
     --text: #18181b;
     --text-secondary: #52525b;
@@ -66,6 +66,15 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
     --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+/* Apple 毛玻璃 Tab 栏：低透明白底 + backdrop-filter 模糊，iPhone Chrome/Safari 均支持 -webkit- 前缀 */
+.glass-tab-bar {
+    background: rgba(255, 255, 255, 0.2);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid rgba(200, 200, 215, 0.45);
+    box-shadow: 0 -1px 16px rgba(0, 0, 0, 0.05), 0 6px 24px rgba(0, 0, 0, 0.07), inset 0 0.5px 0 rgba(255, 255, 255, 0.9);
 }
 
 /* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
@@ -386,20 +395,9 @@ a.bg-\[var\(--accent\)\]:active {
     }
 }
 
-/* Web Push 订阅态铃铛：已开启时高亮 accent + 右上角小圆点，一眼可分辨开关状态 */
+/* Web Push 订阅态铃铛：已开启时高亮 accent 色（不再用圆点，避免与未读消息徽标混淆） */
 #push-toggle-btn.push-on {
     color: var(--accent);
-    position: relative;
-}
-#push-toggle-btn.push-on::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    width: 7px;
-    height: 7px;
-    border-radius: 9999px;
-    background: var(--accent);
 }
 
 /* 悬停操作区：桌面有 hover 时随 .group 悬停显示；触屏/移动端常驻可见 */

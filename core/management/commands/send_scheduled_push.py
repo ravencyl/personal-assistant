@@ -36,6 +36,12 @@ class Command(BaseCommand):
         for sched in due:
             try:
                 payload = build_payload(sched.user, sched.push_type)
+                if payload is None:
+                    # 内容组装结果为空（如活动提醒无即将开始的活动）：
+                    # 标记已发避免反复扫描，但不实际推送
+                    sched.last_sent_date = today
+                    sched.save(update_fields=['last_sent_date'])
+                    continue
                 sent, cleaned = send_push_to_user(sched.user, payload)
             except Exception:
                 logger.exception('scheduled push failed (schedule=%s)', sched.pk)
