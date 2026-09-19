@@ -148,7 +148,6 @@
     window.PaChatTurn = function (opts) {
         var messagesEl = opts.messagesEl;
         var statusEl = opts.statusEl;
-        var chipsEl = opts.chipsEl;                 // 常驻快捷指令容器（可缺省）
         var form = opts.form;
         var input = opts.input;
         var urls = opts.urls;                       // function() -> {send, poll, cancel}
@@ -377,18 +376,6 @@
                 send(follow.getAttribute('data-followup'));
             }
         });
-
-        if (chipsEl) {
-            chipsEl.addEventListener('click', function (e) {
-                var chip = e.target.closest && e.target.closest('[data-chip]');
-                if (!chip || !input) return;
-                var text = chip.getAttribute('data-chip') || '';
-                // 有草稿时追加而不是覆盖：快捷指令不能吃掉用户已经打好的字
-                input.value = input.value.trim() ? input.value.replace(/\s+$/, '') + '\n' + text : text;
-                input.focus();
-                if (window.paFitTextarea) window.paFitTextarea(input);
-            });
-        }
 
         // 只停轮询、不取消服务端的本轮：分栏页切到另一个对话时用。
         // 不单独供这个口子就会误用 stop()：切个对话把 AI 正在跑的那轮真停了。

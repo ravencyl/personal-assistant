@@ -43,24 +43,7 @@
         AI 服务未配置：请在 .env 中设置 QODER_ACCESS_TOKEN
     </div>
     {% endif %}
-
-    {# ── 待续聊提示条：超过 3 天无新消息且 AI 最后回复含待办暗示 ── #}
-    {% if stale_conversations and not query %}
-    <div class="px-4 py-2 bg-[var(--accent-light)] border-b border-[var(--border)]">
-        <p class="text-[10px] font-medium text-[var(--text-secondary)] mb-1">待续聊</p>
-        {% for conv in stale_conversations %}
-        <a href="javascript:void(0)" class="chat-conv-item group block rounded-lg px-2 py-1.5 -mx-2 mb-1 hover:bg-[var(--accent-light)]"
-           data-id="{{ conv.id }}" data-title="{{ conv.title }}">
-            <div class="flex items-center gap-2">
-                <span class="text-xs text-[var(--accent)]">●</span>
-                <span class="text-xs text-[var(--text)] truncate flex-1">{{ conv.title|truncatechars:24 }}</span>
-                <span class="text-[10px] text-[var(--text-muted)]">{{ conv.updated_at|timesince }}前</span>
-            </div>
-        </a>
-        {% endfor %}
-    </div>
-    {% endif %}
-
+    
     <!-- 对话列表 -->
     <div id="split-conv-list" class="flex-1 overflow-y-auto">
         {% if conversations %}
@@ -191,8 +174,6 @@
     {% include "chat/partials/pin_host.html" with host_id="split-pin" conversation=active_conversation %}
 
     {% include "chat/partials/local_cards.html" %}
-
-    {% include "chat/partials/quick_chips.html" with chips_id="split-chips" chips_class="px-4 pb-2" %}
 
     {# --- 发送表单（始终渲染；action 由 JS 在切换对话时更新） --- #}
     <form id="split-form" method="post" action="{% if active_conversation %}{% url 'chat:send_message' active_conversation.id %}{% endif %}" class="flex-none px-4 py-3 border-t border-[var(--border)]">
@@ -341,7 +322,6 @@
         chatTurn = window.PaChatTurn({
             messagesEl: messagesEl,
             statusEl: document.querySelector('[data-turn-status]'),
-            chipsEl: document.getElementById('split-chips'),
             form: form,
             input: input,
             urls: function () {

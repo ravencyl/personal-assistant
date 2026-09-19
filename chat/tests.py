@@ -967,11 +967,10 @@ class ChatMarkdownRenderTest(TestCase):
 
 
 class ChatQuickActionsTest(SimpleTestCase):
-    """常驻快捷 chips 与复制按钮的接线锁
+    """消息复制按钮与 .chat-chip 样式的接线锁
 
-    chips 只在两个宿主（对话详情页、右下角浮窗）各挂一份，处理逻辑只有一份（在
-    chat-turn.js 里）。这类“两处入口 + 一处实现”的东西漂起来的方式就是：某一处
-    忘 include、或者有人直接在模板里写 onclick 叉出第二份实现。
+    开场 chips 已于 2026-09-19 按用户要求下线（使用率太低，core.chips 已删）；
+    .chat-chip 类仍被「下一步」chips 的「还有 N 条建议…」展开钮使用，CSS 锁保留。
     """
 
     @classmethod
@@ -980,27 +979,6 @@ class ChatQuickActionsTest(SimpleTestCase):
         root = Path(__file__).resolve().parent.parent
         js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
-        cls.chips = (root / 'templates' / 'chat' / 'partials' / 'quick_chips.html')\
-            .read_text(encoding='utf-8')
-        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html')\
-            .read_text(encoding='utf-8')
-        cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html')\
-            .read_text(encoding='utf-8')
-
-    # ── chips ──
-
-    def test_chips_render_with_tappable_buttons(self):
-        from django.template.loader import render_to_string
-        html = render_to_string('chat/partials/quick_chips.html', {'chips_id': 'x-chips'})
-        prompts = re.findall(r'data-chip="([^"]+)"', html)
-        self.assertGreaterEqual(len(prompts), 3, 'chips 太少了就不叫常驻入口')
-        self.assertTrue(all(p.strip() for p in prompts), '空 prompt 的 chip 点下去什么也不会发生')
-        # 漏了 type 的 button 在表单里会被当成提交按钮（这里是防御性钳制）
-        self.assertEqual(html.count('<button'), len(prompts))
-        self.assertNotIn('<button class', html)
-        # chips 在移动端是主要入口：触控区走全站统一的 .tap-target（≤44px 规则），
-        # 而不是在 .chat-chip 里另外写死一个高度（那样桌面与移动只能顾一头）
-        self.assertEqual(html.count('class="chat-chip tap-target"'), len(prompts))
 
     def test_chip_height_defers_to_tap_target_on_mobile(self):
         """移动端不得在 .chat-chip 里自己写死高度
@@ -1016,25 +994,6 @@ class ChatQuickActionsTest(SimpleTestCase):
         for r in tall:
             self.assertIn('min-width', r['media'],
                           '基础规则里定高会压掉 .tap-target：%s' % r['selectors'])
-
-    def test_chips_mounted_on_both_surfaces_with_distinct_ids(self):
-        self.assertIn('quick_chips.html', self.detail)
-        self.assertIn('quick_chips.html', self.split)
-        ids = re.findall(r'chips_id="([^"]+)"', self.detail + self.split)
-        self.assertEqual(len(ids), 2, '两个宿主各挂一份，多了就是写了第三处')
-        self.assertEqual(len(set(ids)), 2, 'id 撞了 getElementById 只会拿到第一个')
-        for src, name in ((self.detail, '详情页'), (self.split, '分栏页')):
-            self.assertIn('chipsEl: document.getElementById', src,
-                          '%s 没有把 chips 容器交给 PaChatTurn' % name)
-
-    def test_chip_click_fills_draft_instead_of_sending(self):
-        """点 chip 只负责填入输入框：Enter 不提交是全站约定，直接发出去就剥夺了改两字的机会"""
-        # 锚点全部取自己代码（剔注释后的 js_code）：拿注释文本当锚点必碎
-        block = self.js_code[self.js_code.index('if (chipsEl) {'):self.js_code.index('function halt()')]
-        self.assertGreater(len(block.strip()), 200, '切片切空了，这条锁就是假的')
-        self.assertIn('input.value', block)
-        self.assertIn('input.focus()', block)
-        self.assertNotIn('send(', block, 'chip 不得直接发送')
 
     # ── 复制 ──
 
@@ -1191,7 +1150,7 @@ class ChatPinTest(TestCase):
     def test_chat_page_renders_without_template_syntax_leaks(self):
         """对话页的模板语法泄漏锁
 
-        输入区现在挂了三个 include（pin_host / pin_bar / quick_chips），而浮窗在
+        输入区现在挂了两个 include（pin_host / local_cards），而浮窗在
         base.html 里 → 漏写一个跨行的 {# #} 就会泄到**每一页**，但现有的泄漏锁
         只盖住活动详情与 Daily（本轮实测就是它先抱住的）。
         """
@@ -2504,27 +2463,16 @@ class PickCandidateTest(TestCase):
         self.assertIn('详情', resp.content.decode()) if False else None
 
 
-class DynamicQuickChipsTest(TestCase):
-    """动态开场 chips 渲染与「问 AI」深链（2026-09-15 提升对话使用率）"""
+class AskDeepLinkTest(TestCase):
+    """「问 AI」深链（?ask=）：预填输入框供用户改两个字再发
+
+    动态开场 chips 已于 2026-09-19 按用户要求下线（core.chips 已删）；
+    深链机制与 chips 无关，是活动详情页「问 AI」入口的承载，保留。"""
 
     TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'conversation_list.html'
 
     def setUp(self):
-        self.user = User.objects.create_user('chips_view', password='test')
-        self.client.login(username='chips_view', password='test')
-        Conversation.objects.create(user=self.user, session_id='sess_chip',
-                                    title='嫉妒的自救方法')
         self.src = self.TEMPLATE.read_text(encoding='utf-8')
-
-    def test_list_view_renders_dynamic_chips(self):
-        """/chat/ 的 chips 来自 core.chips 动态生成（含上次话题），不再固定四条"""
-        html = self.client.get('/chat/').content.decode()
-        self.assertIn('继续聊聊「嫉妒的自救方法」', html)
-
-    def test_chips_fill_not_send(self):
-        """动态 chips 仍是 data-chip（点一下只填输入框，由 PaChatTurn 处理）"""
-        html = self.client.get('/chat/').content.decode()
-        self.assertIn('data-chip="继续聊聊「嫉妒的自救方法」"', html)
 
     def test_ask_deep_link_script_wiring(self):
         """?ask= 深链处理必须存在：预填输入框、无激活对话时自动新建"""
@@ -2558,7 +2506,6 @@ class ActivityDetailAskAiTest(TestCase):
         self.assertIn('%E6%A1%90%E5%BA%90%E5%91%A8%E6%9C%AB%E6%B8%B8', html)  # 桐庐周末游
 
     def test_ask_url_targets_chat_list(self):
-        from core.chips import get_quick_chips  # noqa: F401  确认依赖可导入
         resp = self.client.get(f'/activities/{self.activity.id}/')
         html = resp.content.decode()
         self.assertIn('href="/chat/?ask=', html)

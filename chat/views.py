@@ -14,7 +14,6 @@ from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      TURN_IDLE_GRACE_SECONDS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
-from core.chips import get_quick_chips, get_stale_conversations
 from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
                                  CandidateToolError, ToolError,
@@ -333,10 +332,6 @@ def conversation_list(request, conversation_id=None):
         'active_conversation': active_conversation,
         'chat_messages': chat_messages,
         'turn_ttl': TURN_TTL_SECONDS,
-        # 动态开场 chips：按当日日程/未完成/上次话题生成（core.chips）
-        'chips': get_quick_chips(request.user),
-        # 待续聊对话：超过 3 天无新消息且 AI 最后回复含待办暗示
-        'stale_conversations': get_stale_conversations(request.user, limit=3) if not query else [],
         # 周回顾对话（非空时模板自动跳转）
         'weekly_review_conv': weekly_review_conv,
     })
@@ -356,7 +351,6 @@ def conversation_detail(request, conversation_id):
         'conversation': conversation,
         'chat_messages': conversation.messages.all(),
         'turn_ttl': TURN_TTL_SECONDS,
-        'chips': get_quick_chips(request.user),
     })
 
 
