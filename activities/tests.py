@@ -98,7 +98,10 @@ class AddExpenseAutoTargetTest(TestCase):
         client.login(username='testuser', password='test')
         response = client.get('/activities/')
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn(DAILY_BUCKET_NAME, response.content.decode())
+        # 列表数据不含归属桶。不能用整页 HTML 断言：base.html 快记面板的
+        # 「不挂活动，直接记入「日常开支」」兑底按钮文案合法地含桶名（2026-09-19 两步流）
+        page_names = {a.name for a in response.context['activities']}
+        self.assertNotIn(DAILY_BUCKET_NAME, page_names)
         # 费用统计口径包含桶内费用（按用户聚合）
         total = Expense.objects.filter(user=self.user).aggregate(s=Sum('amount'))['s']
         self.assertEqual(total, Decimal('10'))
@@ -1075,6 +1078,86 @@ class WritePathServiceTest(TestCase):
         self.assertEqual(tag_names(expense), ['餐饮'])
         self.assertEqual(expense.activity.name, DAILY_BUCKET_NAME)
         self.assertEqual(expense.paid_at, timezone.localdate())
+
+
+class ExpenseQuickCandidatesTest(TestCase):
+    """快记费用两步流：提交后先弹归属选择卡（2026-09-19，用户要求）
+
+    旧版直接落「日常开支」桶被用户认为不合理——无活动语境的快记应先让
+    用户从「计划 + 进行中」的活动里选归属；桶只作为显式兑底按钮保留。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def _candidates(self, q=''):
+        resp = self.client.get(reverse('activities:expense_quick_candidates'), {'q': q})
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()['items']
+
+    def test_login_required(self):
+        out = Client().get(reverse('activities:expense_quick_candidates'))
+        self.assertEqual(out.status_code, 302)
+
+    def test_only_planned_and_in_progress_excludes_bucket_and_archived(self):
+        planned = Activity.objects.create(user=self.user, name='周末爬山', status='planned')
+        ongoing = Activity.objects.create(user=self.user, name='装修房子', status='in_progress')
+        Activity.objects.create(user=self.user, name='老旅行', status='done')
+        Activity.objects.create(user=self.user, name='黄了的局', status='cancelled')
+        archived = Activity.objects.create(user=self.user, name='去年的项目', status='in_progress')
+        archived.archived_at = timezone.now()
+        archived.save(update_fields=['archived_at'])
+        get_daily_bucket(self.user)
+        names = [i['name'] for i in self._candidates()]
+        self.assertEqual(set(names), {'周末爬山', '装修房子'})
+        # 进行中优先
+        self.assertEqual(names[0], '装修房子')
+        self.assertNotIn(DAILY_BUCKET_NAME, names)
+
+    def test_q_filters_by_name(self):
+        Activity.objects.create(user=self.user, name='周末爬山', status='planned')
+        Activity.objects.create(user=self.user, name='装修房子', status='in_progress')
+        names = [i['name'] for i in self._candidates(q='爬山')]
+        self.assertEqual(names, ['周末爬山'])
+
+    def test_picked_activity_receives_expense(self):
+        """选择卡点选后带 activity_id 提交：费用记到选中的活动而不是桶"""
+        activity = Activity.objects.create(user=self.user, name='周末爬山', status='planned')
+        resp = self.client.post(reverse('activities:expense_quick_create'),
+                                {'amount': '66', 'activity_id': str(activity.id)})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()['activity_name'], '周末爬山')
+        self.assertEqual(Expense.objects.get().activity_id, activity.id)
+        self.assertFalse(Activity.objects.filter(name=DAILY_BUCKET_NAME).exists())
+
+
+class ExpenseQuickPickWiringTest(SimpleTestCase):
+    """两步流前端接线锁：base.html 必须先取候选再展示选择卡，禁 innerHTML"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        cls.html = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
+
+    def test_submit_first_fetches_candidates_then_renders_pick_card(self):
+        self.assertIn("url \"activities:expense_quick_candidates\"", self.html)
+        self.assertIn("id=\"quick-expense-pick\"", self.html)
+        # 提交 handler 里先拉候选再切视图
+        submit_idx = self.html.index("expenseForm.addEventListener('submit'")
+        fetch_idx = self.html.index('fetch(candidatesUrl', submit_idx)
+        show_idx = self.html.index("expensePick.classList.remove('hidden')", fetch_idx)
+        self.assertLess(fetch_idx, show_idx)
+
+    def test_pick_list_built_without_innerhtml(self):
+        pick_start = self.html.index('id="quick-expense-pick"')
+        note_start = self.html.index('<!-- 备忘 Tab -->', pick_start)
+        block = self.html[pick_start:note_start]
+        self.assertNotIn('innerHTML', block)
+        # 列表行只能 createElement + textContent 构建（活动名是用户数据）
+        self.assertIn('pickListEl.textContent', self.html)
 
 
 class StatusDisplaySingleSourceTest(TestCase):

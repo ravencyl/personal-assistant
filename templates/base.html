@@ -216,6 +216,21 @@
                 </div>
                 <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
             </form>
+            <!-- 归属选择卡：费用表单提交后先选活动（两步流，由 JS 接管）；
+                 列表由 createElement + textContent 构建（活动名是用户数据，禁 innerHTML） -->
+            <div id="quick-expense-pick" class="hidden p-4 pt-0 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                    <p class="text-xs font-medium text-[var(--text-secondary)]">记到哪里？</p>
+                    <button type="button" data-pick-back
+                            class="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">返回修改</button>
+                </div>
+                <input type="text" data-pick-filter placeholder="筛选活动名称…"
+                       class="w-full rounded-full border border-[var(--border)] bg-transparent px-3 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
+                <div data-pick-list class="max-h-56 overflow-y-auto space-y-1"></div>
+                <button type="button" data-pick-bucket
+                        class="w-full rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs text-zinc-600 hover:bg-[var(--accent-light)]">不挂活动，直接记入「日常开支」</button>
+                <p data-pick-status class="hidden text-xs text-[var(--text-muted)]"></p>
+            </div>
             <!-- 备忘 Tab -->
             <form id="quick-note-form" data-quick-pane="note" class="hidden p-4 space-y-2">
                 <textarea name="content" rows="4" placeholder="记点什么…"
@@ -341,6 +356,8 @@
         // ── Tab 切换（纯 JS） ──
         var tabBtns = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-tab]'));
         var panes = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-pane]'));
+        var expensePick = document.getElementById('quick-expense-pick');
+        var expenseFormEl = document.getElementById('quick-expense-form');
         function switchTab(name) {
             tabBtns.forEach(function (b) {
                 var active = b.getAttribute('data-quick-tab') === name;
@@ -354,6 +371,11 @@
             panes.forEach(function (p) {
                 p.classList.toggle('hidden', p.getAttribute('data-quick-pane') !== name);
             });
+            // 费用 Tab 每次进入都回到表单视图：上次的选择卡不残留（切走再切回是重新开始）
+            if (name === 'expense') {
+                expensePick.classList.add('hidden');
+                expenseFormEl.classList.remove('hidden');
+            }
         }
         tabBtns.forEach(function (b) {
             b.addEventListener('click', function () { switchTab(b.getAttribute('data-quick-tab')); });
@@ -385,17 +407,56 @@
             return '已暂存，联网后自动提交';
         }
 
-        // ── 费用 Tab ──
+        // ── 费用 Tab：两步流 ──提交后先拉归属候选（计划/进行中），选完才落库；
+        // 「日常开支」兑底按钮不带 activity_id 走同一端点。提交函数失败仍入离线队列。
         var expenseForm = document.getElementById('quick-expense-form');
         var expenseBtn = expenseForm.querySelector('button[type="submit"]');
         var expenseStatus = expenseForm.querySelector('[data-quick-status]');
         var expenseUrl = '{% url "activities:expense_quick_create" %}';
-        expenseForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-            if (expenseBtn.disabled) return;
+        var candidatesUrl = '{% url "activities:expense_quick_candidates" %}';
+        var pickListEl = expensePick.querySelector('[data-pick-list]');
+        var pickFilterEl = expensePick.querySelector('[data-pick-filter]');
+        var pickStatusEl = expensePick.querySelector('[data-pick-status]');
+        var pickItems = [];
+
+        function showFormView() {
+            expensePick.classList.add('hidden');
+            expenseForm.classList.remove('hidden');
+        }
+        function renderPickList() {
+            var kw = pickFilterEl.value.trim().toLowerCase();
+            pickListEl.textContent = '';
+            pickItems.forEach(function (item) {
+                if (kw && item.name.toLowerCase().indexOf(kw) === -1) return;
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'tap-target w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--accent-light)]';
+                var nameEl = document.createElement('span');
+                nameEl.className = 'text-sm text-[var(--text)] truncate flex-1';
+                nameEl.textContent = item.name;
+                var tagEl = document.createElement('span');
+                tagEl.className = 'text-[10px] shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-zinc-500';
+                tagEl.textContent = item.status_label;
+                row.appendChild(nameEl);
+                row.appendChild(tagEl);
+                row.addEventListener('click', function () {
+                    submitExpense(item.id);
+                });
+                pickListEl.appendChild(row);
+            });
+            if (!pickListEl.children.length) {
+                var empty = document.createElement('p');
+                empty.className = 'text-xs text-[var(--text-muted)] py-2';
+                empty.textContent = kw ? '没有匹配的活动' : '没有计划或进行中的活动，可直接记入「日常开支」';
+                pickListEl.appendChild(empty);
+            }
+        }
+        function submitExpense(activityId) {
+            var fd = new FormData(expenseForm);
+            if (activityId != null) fd.set('activity_id', String(activityId));
+            var expBody = new URLSearchParams(fd).toString();
+            var expHeaders = { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' };
             setBtnLoading(expenseBtn, true, '记入中…');
-            var expBody = new URLSearchParams(new FormData(expenseForm)).toString();
-            var expHeaders = { 'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded' };
             fetch(expenseUrl, {
                 method: 'POST',
                 body: expBody,
@@ -403,16 +464,43 @@
             }).then(function (r) {
                 return r.json().then(function (d) { return { ok: r.ok, data: d }; });
             }).then(function (res) {
-                if (!res.ok) { setStatus(expenseStatus, res.data.error || '保存失败，请重试'); return; }
+                if (!res.ok) { setStatus(pickStatusEl, res.data.error || '保存失败，请重试'); return; }
                 var d = res.data;
+                showFormView();
                 setStatus(expenseStatus, '已记 ¥' + d.amount + (d.tags ? ' [' + d.tags + ']' : '') + ' 至「' + d.activity_name +
                     '」（累计 ¥' + d.expense_total + ' · ' + d.expense_count + ' 笔）');
                 expenseForm.querySelector('[name="amount"]').value = '';
                 expenseForm.querySelector('[name="note"]').value = '';
                 expenseForm.querySelector('[name="tags"]').value = '';
             }).catch(function (err) {
-                setStatus(expenseStatus, netFail(err) ? stashOffline(expenseUrl, expBody, expHeaders) : '网络异常，请重试');
+                setStatus(pickStatusEl, netFail(err) ? stashOffline(expenseUrl, expBody, expHeaders) : '网络异常，请重试');
             }).finally(function () { setBtnLoading(expenseBtn, false); });
+        }
+        expenseForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (expenseBtn.disabled) return;
+            setBtnLoading(expenseBtn, true, '选择归属…');
+            fetch(candidatesUrl + (candidatesUrl.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now(), {
+                headers: { 'Accept': 'application/json' }
+            }).then(function (r) {
+                return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+            }).then(function (res) {
+                if (!res.ok) { setStatus(expenseStatus, res.data.error || '候选加载失败，请重试'); return; }
+                pendingExpense = true;
+                pickItems = res.data.items || [];
+                pickFilterEl.value = '';
+                pickStatusEl.classList.add('hidden');
+                renderPickList();
+                expenseForm.classList.add('hidden');
+                expensePick.classList.remove('hidden');
+            }).catch(function (err) {
+                setStatus(expenseStatus, netFail(err) ? '网络异常，候选加载失败，请重试' : '候选加载失败，请重试');
+            }).finally(function () { setBtnLoading(expenseBtn, false); });
+        });
+        pickFilterEl.addEventListener('input', renderPickList);
+        expensePick.querySelector('[data-pick-back]').addEventListener('click', showFormView);
+        expensePick.querySelector('[data-pick-bucket]').addEventListener('click', function () {
+            submitExpense(null);
         });
 
         // ── 备忘 Tab ──

@@ -47,6 +47,7 @@ from .expense_views import (  # noqa: F401
     expense_delete,
     expense_edit,
     expense_heatmap_data,
+    expense_quick_candidates,
     expense_quick_create,
     expense_report,
 )
@@ -78,7 +79,7 @@ __all__ = [
     'activity_comment_add', 'activity_comment_delete', 'activity_quick_sub',
     'subactivity_manual_create', 'attachment_upload', 'attachment_delete',
     'activity_create', 'activity_edit', 'activity_delete',
-    'expense_create', 'expense_quick_create', 'expense_edit', 'expense_delete',
+    'expense_create', 'expense_quick_candidates', 'expense_quick_create', 'expense_edit', 'expense_delete',
     'expense_report', 'expense_chart_data', 'expense_heatmap_data',
     'activity_calendar', 'calendar_data', 'calendar_feed', 'calendar_feed_settings',
     'daily_view', 'next_actions', 'refresh_suggestion',
