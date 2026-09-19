@@ -173,7 +173,7 @@
         <div class="shrink-0 w-8 h-8 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-sm">💡</div>
         <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between mb-1">
-                <p class="text-xs font-medium text-[var(--accent)]">今日建议</p>
+                <p class="text-xs font-medium text-[var(--accent-text)]">今日建议</p>
                 <button type="button" id="refresh-suggestion-btn" title="刷新建议"
                         class="tap-target p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -193,7 +193,7 @@
     <div class="flex items-start gap-3">
         <div class="shrink-0 w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-sm">📈</div>
         <div class="flex-1 min-w-0">
-            <p class="text-xs font-medium text-emerald-600 mb-1.5">行为洞察</p>
+            <p class="text-xs font-medium text-emerald-700 mb-1.5">行为洞察</p>
             <ul class="space-y-1">
                 {% for insight in pattern_insights %}
                 <li class="text-sm text-[var(--text-secondary)] leading-relaxed">{{ insight }}</li>

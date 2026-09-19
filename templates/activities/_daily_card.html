@@ -78,7 +78,7 @@
         <div class="hidden md:flex items-center gap-1.5 shrink-0 mt-0.5">
             {% if activity.status != 'done' %}
             <button type="button" data-action="set-status" data-status-target="done"
-                    class="rounded-full bg-[var(--accent)] text-white text-xs px-2.5 py-1 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
+                    class="rounded-full bg-[var(--accent-hover)] text-white text-xs px-2.5 py-1 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
             {% else %}
             <button type="button" data-action="set-status" data-status-target="in_progress"
                     class="rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs px-2.5 py-1 hover:bg-[var(--accent-light)] transition-colors">↺ 恢复进行中</button>
@@ -92,7 +92,7 @@
     <div class="flex md:hidden mt-2.5 pt-2.5 border-t border-[var(--border)] gap-2">
         {% if activity.status != 'done' %}
         <button type="button" data-action="set-status" data-status-target="done"
-                class="tap-target inline-flex items-center justify-center rounded-full bg-[var(--accent)] text-white text-xs font-medium px-3 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
+                class="tap-target inline-flex items-center justify-center rounded-full bg-[var(--accent-hover)] text-white text-xs font-medium px-3 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
         {% else %}
         <button type="button" data-action="set-status" data-status-target="in_progress"
                 class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs font-medium px-3 transition-colors">↺ 恢复进行中</button>
