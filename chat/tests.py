@@ -2621,10 +2621,10 @@ class ChatRagInjectionTest(TestCase):
         self.assertNotIn('[相关知识库内容]', self.conv.turn_prompt)
 
 
-# ==================== 交互重构：daily 常驻会话 + 非 AI 快捷卡片（2026-09-19）====================
+# ==================== 交互重构：根路径与快捷卡片（2026-09-19）====================
 
 class _FakeCreateService(FakeQoderService):
-    """在 FakeQoderService 之上补 create_session：供 daily 常驻会话创建链路用
+    """在 FakeQoderService 之上补 create_session：供建对话链路的测试用
 
     基类故意没有 create_session（发送/轮询路径若回退成“隐式建会话”会当场炸）。
     """
@@ -2638,63 +2638,40 @@ class _FakeCreateService(FakeQoderService):
         return {'id': f'sess_daily{len(self.created_sessions)}'}
 
 
-class DailyConversationTest(TestCase):
-    """daily 常驻会话：根路径默认落地、一次创建长期复用、归档复活、失败降级
+class ChatHomeTest(TestCase):
+    """站点根路径：落到对话列表
 
-    Agent 对话是整个 app 的默认入口：/ 直接落进 daily，零选择步骤；
-    daily 本身仍是正常 AI 会话（走与「+ 新建」完全相同的创建链路）。
+    daily 常驻会话机制已下线（2026-09-19）：此前每次访问都会复活/重建
+    「daily」会话，用户删了又回来、看起来「无法删除」。现在根路径只跳
+    列表，删除就是真删除；daily 简报不依赖任何特定会话。
     """
 
     def setUp(self):
         self.user = User.objects.create_user('d', password='p')
         self.client.force_login(self.user)
 
-    @staticmethod
-    def _make_agent_env():
-        from agents.models import AgentConfig, EnvironmentConfig
-        AgentConfig.objects.create(agent_id='agent_daily', is_active=True,
-                                   purpose='knowledge')
-        EnvironmentConfig.objects.create(env_id='env_1', is_default=True)
-
-    def test_root_redirects_to_daily_conversation(self):
-        self._make_agent_env()
-        service = _FakeCreateService()
-        with patch('chat.views.get_service', return_value=service):
-            resp = self.client.get('/')
-        self.assertEqual(resp.status_code, 302)
-        conv = Conversation.objects.get(user=self.user, is_daily=True)
-        self.assertEqual(resp['Location'], f'/chat/{conv.id}/')
-        self.assertEqual(conv.title, 'daily')
-        # 与「+ 新建」同链路：首帧协议必须已下发（否则新会话永远看不到协议规则）
-        self.assertTrue(service.sent)
-
-    def test_daily_is_created_once_and_reused(self):
-        self._make_agent_env()
-        service = _FakeCreateService()
-        with patch('chat.views.get_service', return_value=service):
-            self.client.get('/')
-            self.client.get('/')
-        self.assertEqual(
-            Conversation.objects.filter(user=self.user, is_daily=True).count(), 1)
-        self.assertEqual(len(service.created_sessions), 1)
-
-    def test_archived_daily_is_revived(self):
-        """常驻身份不因一次归档就消失：再访问时复活为 idle"""
-        conv = Conversation.objects.create(
-            user=self.user, session_id='sess_d', agent_id='ag_d',
-            title='daily', is_daily=True, status='archived')
-        resp = self.client.get('/')
-        self.assertEqual(resp['Location'], f'/chat/{conv.id}/')
-        conv.refresh_from_db()
-        self.assertEqual(conv.status, 'idle')
-
-    def test_creation_failure_falls_back_to_list(self):
-        """云端不可用（无 Agent 配置）时退回列表页，不把错误甩在用户脸上"""
+    def test_root_redirects_to_conversation_list(self):
         resp = self.client.get('/')
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp['Location'], '/chat/')
+
+    def test_root_does_not_create_any_conversation(self):
+        """反证锁：删光全部对话后访问根路径，不得凭空冒出新会话
+
+        （旧机制会在根路径 get_or_create daily：云端失败才降级列表，
+        云端可用时用户删掉的对话会在下次访问静默重建）"""
+        Conversation.objects.all().delete()
+        self.client.get('/')
+        self.assertFalse(Conversation.objects.exists())
+
+    def test_deleted_daily_conversation_stays_deleted(self):
+        """用户删掉的 daily 对话不得被系统复活重建（本次需求的直接反证）"""
+        conv = Conversation.objects.create(
+            user=self.user, session_id='sess_d', agent_id='ag_d', title='daily')
+        conv.delete()
+        self.client.get('/')
         self.assertFalse(
-            Conversation.objects.filter(user=self.user, is_daily=True).exists())
+            Conversation.objects.filter(user=self.user, title='daily').exists())
 
     def test_login_required(self):
         self.client.logout()
@@ -2703,30 +2680,25 @@ class DailyConversationTest(TestCase):
         self.assertIn('/accounts/login/', resp['Location'])
 
     def test_local_card_row_available_in_every_conversation(self):
-        """daily 按钮在所有对话可用（2026-09-19 扩大范围）：不再按 daily 会话 id 显隐，
-        选中任一对话即由 JS 撤掉 hidden；详情页也带同一份 partial"""
+        """daily 按钮在所有对话可用（2026-09-19 扩大范围）：选中任一对话
+        即由 JS 撤掉 hidden；详情页也带同一份 partial"""
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_d', agent_id='ag_d',
-            title='daily', is_daily=True)
+            title='普通对话')
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
         self.assertIn('data-local-card="daily_brief"', html)
         self.assertIn('data-local-card="today_brief"', html)
         self.assertNotIn('data-daily-id', html, '旧的按会话 id 显隐机制应已删净')
-        # 非 daily 会话同样有按钮行
-        other = Conversation.objects.create(
-            user=self.user, session_id='sess_o', agent_id='ag_o', title='普通对话')
-        html2 = self.client.get(f'/chat/{other.id}/').content.decode()
-        self.assertIn('data-local-card="daily_brief"', html2)
         # 详情页共用同一份 partial
-        detail = self.client.get(f'/chat/{other.id}/detail/').content.decode()
+        detail = self.client.get(f'/chat/{conv.id}/detail/').content.decode()
         self.assertIn('data-local-card="daily_brief"', detail)
 
     def test_nav_daily_page_retired(self):
         """/daily/ 页下线：导航不再有「今日」入口（移动 Tab 换快记 dock），
-        /daily/ 路由保留但重定向回首页（= daily 常驻会话）"""
+        /daily/ 路由保留但重定向回首页（= 对话列表）"""
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_d', agent_id='ag_d',
-            title='daily', is_daily=True)
+            title='普通对话')
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
         self.assertNotIn('href="/daily/"', html)
         # 移动 Tab 栏的快记 dock 替代了原「今日」Tab（Daily 页顶栏入口随之消失）
@@ -2748,7 +2720,7 @@ class LocalCardTest(TestCase):
         self.client.force_login(self.user)
         self.conv = Conversation.objects.create(
             user=self.user, session_id='sess_lc', agent_id='ag_lc',
-            title='daily', is_daily=True)
+            title='普通对话')
         self.url = f'/chat/{self.conv.id}/local-card/'
 
     def _activity(self, **kw):

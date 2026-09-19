@@ -200,12 +200,11 @@ def _create_weekly_review_conversation(user):
         return None
 
 
-def _create_conversation_for_user(user, title='新对话', is_daily=False, agent_id=None):
+def _create_conversation_for_user(user, title='新对话', agent_id=None):
     """建一条完整的对话创建链路：Qoder session + 本地记录 + 首帧协议 + 记忆注入
 
-    「+ 新建」与 daily 常驻会话共用这条链路，保证首帧协议、记忆注入两个初始化
-    步骤不漂移（daily 若绕开它，新会话就永远看不到协议规则）。失败抛异常，
-    由调用方决定降级方式。
+    所有对话（含「+ 新建」）共用这条链路，保证首帧协议、记忆注入两个初始化
+    步骤不漂移。失败抛异常，由调用方决定降级方式。
     """
     if not agent_id:
         # 默认绑定固定用途的 Agent（见 CHAT_AGENT_PURPOSE 注释）
@@ -234,7 +233,6 @@ def _create_conversation_for_user(user, title='新对话', is_daily=False, agent
         agent_id=agent_id,
         title=title,
         status='idle',
-        is_daily=is_daily,
     )
 
     # 首帧下发意图协议指令（失败不阻断，降级为普通对话）
@@ -256,36 +254,15 @@ def _create_conversation_for_user(user, title='新对话', is_daily=False, agent
     return conversation
 
 
-def _get_or_create_daily_conversation(user):
-    """取（或建）当前用户的常驻会话「daily」
-
-    Agent 对话是 app 的默认入口：每次打开都落到同一个会话里，零选择步骤。
-    维护规则：已存在（含已归档）→ 直接复用，归档的顺手复活为 idle（常驻身份
-    不因一次归档就消失）；不存在（首次访问 / 被删）→ 走与「+ 新建」完全相同的
-    创建链路；云端失败 → 返回 None，调用方降级，绝不阻断。
-    """
-    daily = Conversation.objects.filter(user=user, is_daily=True).first()
-    if daily:
-        if daily.status == 'archived':
-            daily.status = 'idle'
-            daily.save(update_fields=['status', 'updated_at'])
-        return daily
-    try:
-        return _create_conversation_for_user(user, title='daily', is_daily=True)
-    except Exception as e:
-        logger.warning(f'创建 daily 常驻会话失败（user {user.pk}）: {e}')
-        return None
-
-
 @login_required
 def chat_home(request):
-    """站点根路径：默认落进 daily 常驻会话（Agent 对话即整个 app 的默认界面）
+    """站点根路径：落到对话列表（Agent 对话仍是整个 app 的默认入口）
 
-    daily 创建失败（云端不可用等）时退回对话列表页，不把错误甩在用户脸上。
+    daily 常驻会话机制已按用户要求下线（2026-09-19）：此前每次访问都会
+    复活/重建「daily」会话，用户删了又回来，看起来「无法删除」。现在
+    删除就是真删除；daily 简报不依赖任何特定会话（任一对话点「daily」
+    按钮即可直出）。
     """
-    daily = _get_or_create_daily_conversation(request.user)
-    if daily:
-        return redirect('chat:conversation_list_with_active', conversation_id=daily.id)
     return redirect('chat:conversation_list')
 
 
@@ -403,7 +380,7 @@ def widget_messages(request, conversation_id):
 def create_conversation(request):
     """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）
 
-    创建链路统一走 _create_conversation_for_user（daily 常驻会话同源）。
+    创建链路统一走 _create_conversation_for_user。
     """
     try:
         conversation = _create_conversation_for_user(

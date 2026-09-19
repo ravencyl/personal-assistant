@@ -12,12 +12,12 @@ from activities.views import daily_view, calendar_feed
 from chat.views import chat_home
 
 urlpatterns = [
-    # 首页 = Agent 对话（daily 常驻会话）：对话是整个 app 的默认入口，
+    # 首页 = Agent 对话列表：对话是整个 app 的默认入口，
     # 打开即落在对话里，零选择步骤；daily 创建失败自动退回对话列表
     path('', chat_home, name='home'),
 
     # /daily/ 简报页已下线（2026-09-19）：daily 信息与操作收进对话里的 daily 简报卡；
-    # 路由保留重定向回首页（= daily 常驻会话），name 不变让旧书签/模板 url 标签不破
+    # 路由保留重定向回首页（= 对话列表），name 不变让旧书签/模板 url 标签不破
     path('daily/', daily_view, name='daily'),
 
     # Dashboard

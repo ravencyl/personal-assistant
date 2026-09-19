@@ -81,15 +81,6 @@ class Conversation(models.Model):
                   '结构化现状，用户不必反复说对象名。存 FK 而不是裸 id：活动被删要自动失效；'
                   'Message.payload 里那种裸 id 是给一次性卡片用的，不是长期状态。',
     )
-    # ── 常驻会话「daily」──
-    # Agent 对话是整个 app 的默认入口（根路径直接落到这里），用户每次打开都落
-    # 在同一个会话里，零选择步骤。它本身仍是正常 AI 会话；is_daily 只是身份
-    # 标记：/ 与 /chat/ 的默认落地、daily 简报按钮行的显隐都靠它定位。
-    is_daily = models.BooleanField(
-        default=False,
-        help_text='常驻会话标记（每用户最多一个）：系统自动创建维护，'
-                  '归档会被复活，删除后下次访问自动重建。',
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

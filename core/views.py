@@ -551,7 +551,7 @@ def today_view(request):
     收进对话里的「工作台」快捷卡（chat.local_cards 注册的 today_brief）。
 
     路由与 name='today' 保留：旧书签 / 模板 url 标签不破，重定向回首页
-    （= daily 常驻会话）。数据层 gather_today 仍是卡片共用的。
+    （= 对话列表）。数据层 gather_today 仍是卡片共用的。
     """
     return redirect('home')
 

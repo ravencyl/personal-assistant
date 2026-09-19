@@ -240,7 +240,7 @@ def daily_view(request):
     对话里的 daily 简报卡（chat/partials/local_cards.html 直出 + 卡内操作行）。
 
     路由与 name='daily' 保留：旧书签 / 推送 / 模板 url 标签不破，重定向回首页
-    （= daily 常驻会话），零跨 app import。数据层 gather_daily 仍是卡片共用的。
+    （= 对话列表），零跨 app import。数据层 gather_daily 仍是卡片共用的。
     """
     return redirect('home')
 

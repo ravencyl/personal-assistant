@@ -526,7 +526,7 @@ class DailyGatherStatusTest(TestCase):
 
 
 class DailyPageRetiredTest(TestCase):
-    """/daily/ 页面下线（2026-09-19）：路由保留但重定向回首页（= daily 常驻会话），
+    """/daily/ 页面下线（2026-09-19）：路由保留但重定向回首页（= 对话列表），
     旧书签 / 推送 / 模板 url 标签不破；渲染层已删除，任何残留在 template 里都会 TemplateDoesNotExist"""
 
     def setUp(self):
