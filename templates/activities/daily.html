@@ -71,16 +71,18 @@
 {% comment %}速览蓝底大卡：截图 Upcoming Appointments 卡同构——
   头行（圆图标 + 标题 + 右上白圆钮）+ 白描边内嵌指标行 + 底部双胶囊；
   原「今日速览」组（移动快捷入口）并入卡底双胶囊，新建弹窗入口总数不变{% endcomment %}
-<div class="rounded-[1.5rem] bg-[var(--accent)] text-white px-5 py-5 mb-8 md:mb-10 shadow-[var(--shadow-md)]">
+{% comment %} a11y（WCAG 1.4.3）：卡底用 accent-hover（#5467d6，白小字 4.88:1 达 AA）；#6478e8 上白字仅 3.9:1，
+   次级白字 text-white/95 而非 /70；白胶囊文字用 accent-text（5.5:1）。视觉仅深半档，医疗预约风不变 {% endcomment %}
+<div class="rounded-[1.5rem] bg-[var(--accent-hover)] text-white px-5 py-5 mb-8 md:mb-10 shadow-[var(--shadow-md)]">
     <div class="flex items-center gap-3 mb-4">
         <!-- 医生头像位同构：用户照片 + 白描边圈（黑白照与 periwinkle 底天然和谐） -->
         <img src="{% staticv 'img/avatar.jpg' %}" alt="" class="w-11 h-11 rounded-full object-cover ring-2 ring-white/40 shrink-0">
         <div class="flex-1 min-w-0">
             <p class="text-base font-bold leading-tight">今日安排</p>
-            <p class="text-xs text-white/70 leading-tight">{{ today_display }}</p>
+            <p class="text-xs text-white/95 leading-tight">{{ today_display }}</p>
         </div>
         <a href="{% url 'activities:activity_calendar' %}" aria-label="打开日历"
-           class="tap-target w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors shrink-0">
+           class="tap-target w-10 h-10 rounded-full bg-white text-[var(--accent-text)] hover:bg-white/90 flex items-center justify-center transition-colors shrink-0">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
             </svg>
@@ -88,25 +90,25 @@
     </div>
     <div class="grid grid-cols-3 rounded-2xl border border-white/25 px-4 py-3.5 mb-4">
         <div>
-            <p class="text-[11px] mb-1 text-white/70">今日活动</p>
+            <p class="text-[11px] mb-1 text-white/95">今日活动</p>
             <p class="text-2xl md:text-xl font-bold tabular-nums">{{ ongoing_count }}</p>
         </div>
         <div class="border-l border-white/15 pl-4">
-            <p class="text-[11px] mb-1 text-white/70">进行中</p>
+            <p class="text-[11px] mb-1 text-white/95">进行中</p>
             <p class="text-2xl md:text-xl font-bold tabular-nums">{{ in_progress_count }}</p>
         </div>
         <div class="pl-4">
-            <p class="text-[11px] mb-1 text-white/70">今日费用</p>
+            <p class="text-[11px] mb-1 text-white/95">今日费用</p>
             <p class="text-2xl md:text-xl font-bold tabular-nums">{% if today_expense %}¥{{ today_expense|floatformat:"0" }}{% else %}—{% endif %}</p>
         </div>
     </div>
     <div class="flex items-center gap-2.5">
         <button type="button" data-open-create-modal
-           class="tap-target flex-1 h-10 rounded-full bg-white text-[var(--accent)] text-sm font-semibold hover:bg-white/90 transition-colors">
+           class="tap-target flex-1 h-10 rounded-full bg-white text-[var(--accent-text)] text-sm font-semibold hover:bg-white/90 transition-colors">
             ＋ 新建活动
         </button>
         <a href="{% url 'activities:activity_calendar' %}"
-           class="tap-target flex-1 h-10 rounded-full bg-white/15 hover:bg-white/25 text-white text-sm font-medium flex items-center justify-center transition-colors">
+           class="tap-target flex-1 h-10 rounded-full bg-white text-[var(--accent-text)] text-sm font-medium flex items-center justify-center transition-colors hover:bg-white/90">
             查看日历
         </a>
     </div>
@@ -144,7 +146,7 @@
 <!-- 快捷操作（桌面端）：主操作实心 accent 胶囊，次级入口沉到下方 chips 行（截图 Popular Doctors 分类胶囊同构） -->
 <div class="hidden md:flex items-center mb-6">
     <button type="button" data-open-create-modal
-       class="tap-target inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] text-white px-5 h-10 text-sm font-semibold hover:opacity-90 transition-colors shadow-sm">
+       class="tap-target inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-hover)] text-white px-5 h-10 text-sm font-semibold hover:opacity-90 transition-colors shadow-sm">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
         </svg>
@@ -155,7 +157,7 @@
 <!-- 快捷入口 chips：首项实心 accent，其余白底描边胶囊（双端可见） -->
 <div class="flex flex-wrap items-center gap-2 mb-8 md:mb-6">
     <a href="{% url 'activities:activity_list' %}"
-       class="tap-target inline-flex items-center h-9 px-4 rounded-full bg-[var(--accent)] text-white text-sm font-medium shadow-sm">全部活动</a>
+       class="tap-target inline-flex items-center h-9 px-4 rounded-full bg-[var(--accent-hover)] text-white text-sm font-medium shadow-sm">全部活动</a>
     <a href="{% url 'activities:activity_calendar' %}"
        class="tap-target inline-flex items-center h-9 px-4 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">日历</a>
     <a href="{% url 'activities:next_actions' %}"
@@ -356,9 +358,10 @@
 </div><!-- /.page-cols -->
 
 <!-- 移动端 OnePage 页点指示器：当前页 accent 高亮，点击整页翻转（JS 见页尾翻页器）；桌面端不出现 -->
-<nav id="daily-pager-dots" class="md:hidden fixed right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-2.5" aria-label="页面切换">
-    <button type="button" data-page="1" aria-label="今日概览" class="w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]/40 transition-all duration-300"></button>
-    <button type="button" data-page="2" aria-label="活动安排" class="w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]/40 transition-all duration-300"></button>
+{% comment %} a11y（WCAG 2.5.8）：视觉点 10px，点击区扩到 24px；点色切换在内部 span（页尾 JS） {% endcomment %}
+<nav id="daily-pager-dots" class="md:hidden fixed right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1" aria-label="页面切换">
+    <button type="button" data-page="1" aria-label="今日概览" class="w-6 h-6 flex items-center justify-center"><span class="block w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]/40 transition-all duration-300"></span></button>
+    <button type="button" data-page="2" aria-label="活动安排" class="w-6 h-6 flex items-center justify-center"><span class="block w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]/40 transition-all duration-300"></span></button>
 </nav>
 
 <!-- 新建活动弹窗：与列表页共用同一份 partial，入口在上方快捷操作区与空态各一处 -->
@@ -437,9 +440,11 @@ function toggleSection(sectionId) {
         var onP2 = Math.abs(target - page2Start) < 2;
         dots.forEach(function (d) {
             var active = (d.dataset.page === '2') === onP2;
-            d.classList.toggle('bg-[var(--accent)]', active);
-            d.classList.toggle('scale-125', active);
-            d.classList.toggle('bg-[var(--text-muted)]/40', !active);
+            var dot = d.firstElementChild;
+            if (!dot) return;
+            dot.classList.toggle('bg-[var(--accent)]', active);
+            dot.classList.toggle('scale-125', active);
+            dot.classList.toggle('bg-[var(--text-muted)]/40', !active);
         });
     }
 

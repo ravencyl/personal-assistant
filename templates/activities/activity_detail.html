@@ -174,22 +174,22 @@
             <input type="hidden" name="_method" value="POST" id="expense-method">
             <!-- 移动端：每行一个字段（全宽）；桌面端（sm+）：金额+日期同行，备注/标签同行 -->
             <div class="md:w-28 md:shrink-0">
-                <input type="number" name="amount" step="0.01" min="0" required placeholder="金额"
+                <input type="number" name="amount" step="0.01" min="0" required placeholder="金额" aria-label="金额"
                        class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 日期：移动端全宽独占一行，桌面端固定宽度 -->
             <div class="md:w-40 md:shrink-0">
-                <input type="date" name="paid_at" value="{{ today_date }}"
+                <input type="date" name="paid_at" value="{{ today_date }}" aria-label="消费日期"
                        class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 备注：移动端全宽独占一行，桌面端自适应剩余宽度 -->
             <div class="col-span-2 flex-1 md:min-w-[10rem]">
-                <input type="text" name="note" maxlength="255" placeholder="备注"
+                <input type="text" name="note" maxlength="255" placeholder="备注" aria-label="备注"
                        class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
             </div>
             <!-- 费用标签（scope=expense，与活动标签隔离；逗号分隔，datalist 提供建议） -->
             <div class="md:w-44 md:shrink-0">
-                <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" list="expense-tag-options"
+                <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" aria-label="费用标签" list="expense-tag-options"
                        class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
                 <datalist id="expense-tag-options">
                     {% for t in expense_tag_suggestions %}<option value="{{ t }}"></option>{% endfor %}
@@ -208,7 +208,7 @@
         <!-- 快速记一笔：一句话解析后预览确认创建子任务 -->
         <div class="mb-4">
             <div class="flex gap-2">
-                <input type="text" id="sub-quick-input" maxlength="500"
+                <input type="text" id="sub-quick-input" maxlength="500" aria-label="快速记一笔子任务"
                        placeholder="快速记一笔子任务，如：下周三去杭州团建 #团建 @小王"
                        autocomplete="off"
                        class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
@@ -240,22 +240,22 @@
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3">
                     <div class="md:col-span-2">
                         <label for="sub-manual-name" class="block text-xs text-[var(--text-muted)] mb-1">名称 <span class="text-[var(--text-secondary)]">*</span></label>
-                        <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="子任务名称" autocomplete="off"
+                        <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="子任务名称" autocomplete="off" aria-label="子任务名称"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-start" class="block text-xs text-[var(--text-muted)] mb-1">开始日期</label>
-                        <input type="date" id="sub-manual-start" name="start_date"
+                        <input type="date" id="sub-manual-start" name="start_date" aria-label="子任务开始日期"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-end" class="block text-xs text-[var(--text-muted)] mb-1">结束日期</label>
-                        <input type="date" id="sub-manual-end" name="end_date"
+                        <input type="date" id="sub-manual-end" name="end_date" aria-label="子任务结束日期"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-status" class="block text-xs text-[var(--text-muted)] mb-1">状态</label>
-                        <select id="sub-manual-status" name="status"
+                        <select id="sub-manual-status" name="status" aria-label="子任务状态"
                                 class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
                             {% for value, label in status_choices %}
                             <option value="{{ value }}" {% if value == 'planned' %}selected{% endif %}>{{ label }}</option>
@@ -264,12 +264,12 @@
                     </div>
                     <div>
                         <label for="sub-manual-amount" class="block text-xs text-[var(--text-muted)] mb-1">费用金额</label>
-                        <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选"
+                        <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选" aria-label="子任务金额（可选）"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-tags" class="block text-xs text-[var(--text-muted)] mb-1">标签</label>
-                        <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off"
+                        <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="子任务标签"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                         <datalist id="sub-manual-tag-options">
                             {% for tag_name in tag_suggestions %}<option value="{{ tag_name }}"></option>{% endfor %}
@@ -277,7 +277,7 @@
                     </div>
                     <div>
                         <label for="sub-manual-participants" class="block text-xs text-[var(--text-muted)] mb-1">参与者</label>
-                        <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off"
+                        <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="子任务参与者"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                         <datalist id="sub-manual-participant-options">
                             {% for p_name in participant_suggestions %}<option value="{{ p_name }}"></option>{% endfor %}

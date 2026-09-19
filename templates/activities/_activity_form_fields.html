@@ -2,20 +2,21 @@
 {# 布局原则（2026-09-17 收紧）：高频字段平铺（名称/日期/时间开关/状态/费用/标签/参与者） #}
 {# 低频字段（描述/父活动/子任务）收进「更多选项」details 折叠区——不删功能，只降视觉高度 #}
 {# 具体时间默认隐藏，点「具体时间」开关展开（展开逻辑在 activity-form.js initWidgets） #}
+{# a11y：label 必须 for 关联到 input（Django 自动 id 为 id_<field>），否则屏幕阅读器读不到字段名 #}
 <div>
-    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-zinc-800">*</span></label>
+    <label for="id_name" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-zinc-800">*</span></label>
     {{ form.name }}
     {% if form.name.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.name.errors.0 }}</p>{% endif %}
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     <div>
-        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
+        <label for="id_start_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
         {{ form.start_date }}
         {% if form.start_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
     </div>
     <div>
-        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
+        <label for="id_end_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
         {{ form.end_date }}
         {% if form.end_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
     </div>
@@ -32,12 +33,12 @@
     </button>
     <div id="time-fields" class="hidden mt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
+            <label for="id_start_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
             {{ form.start_time }}
             {% if form.start_time.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
         </div>
         <div>
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
+            <label for="id_end_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
             {{ form.end_time }}
             {% if form.end_time.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
         </div>
@@ -47,12 +48,12 @@
 
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     <div>
-        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">状态</label>
+        <label for="id_status" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">状态</label>
         {{ form.status }}
     </div>
     {% if form.parsed_cost %}
     <div>
-        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.parsed_cost.label }}</label>
+        <label for="id_parsed_cost" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.parsed_cost.label }}</label>
         {{ form.parsed_cost }}
         <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.parsed_cost.help_text }}</p>
         {% if form.parsed_cost.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.parsed_cost.errors.0 }}</p>{% endif %}
@@ -61,11 +62,11 @@
 </div>
 
 <div>
-    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">标签</label>
+    <label for="tag-input" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">标签</label>
     <div class="relative">
         <div id="tag-box"
              class="flex flex-wrap gap-1.5 items-center rounded-md border border-[var(--border-strong)] bg-[var(--bg-card)] px-2 py-1.5 focus-within:border-[var(--accent)]">
-            <input type="text" id="tag-input" placeholder="输入标签，回车添加"
+            <input type="text" id="tag-input" aria-label="添加标签" placeholder="输入标签，回车添加"
                    autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
         </div>
         <div id="tag-suggest"
@@ -77,11 +78,11 @@
 </div>
 
 <div>
-    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">参与者</label>
+    <label for="participant-input" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">参与者</label>
     <div class="relative">
         <div id="participant-box"
              class="flex flex-wrap gap-1.5 items-center rounded-md border border-[var(--border-strong)] bg-[var(--bg-card)] px-2 py-1.5 focus-within:border-[var(--accent)]">
-            <input type="text" id="participant-input" placeholder="输入姓名，回车添加"
+            <input type="text" id="participant-input" aria-label="添加参与者" placeholder="输入姓名，回车添加"
                    autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
         </div>
         <div id="participant-suggest"
@@ -99,21 +100,21 @@
     </summary>
     <div class="px-3 pb-3 pt-1 space-y-4">
         <div>
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述</label>
+            <label for="id_description" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述</label>
             {{ form.description }}
         </div>
 
         {# 父活动仅独立创建页展示：弹窗不渲染（下拉会把未命中/隐藏活动名带进页面，桶内挂靠会污染费用归属），子活动创建在详情页有专属入口 #}
         {% if not hide_parent %}
         <div>
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">父活动</label>
+            <label for="id_parent" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">父活动</label>
             {{ form.parent }}
         </div>
         {% endif %}
 
         {% if not activity %}
         <div>
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.new_children.label }}</label>
+            <label for="id_new_children" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.new_children.label }}</label>
             {{ form.new_children }}
             <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.new_children.help_text }}</p>
         </div>

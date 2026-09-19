@@ -8,7 +8,8 @@ from io import StringIO
 from pathlib import Path
 
 from django.conf import settings
-from django.test import TestCase, TransactionTestCase, Client, override_settings
+from django.test import (TestCase, TransactionTestCase, Client, SimpleTestCase,
+                         override_settings)
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
 from core.models import Tag
@@ -2617,3 +2618,34 @@ class CsvExportTest(TestCase):
         self.client.logout()
         resp = self.client.get(reverse('activities:activity_export'))
         self.assertEqual(resp.status_code, 302)
+
+
+class DependencyGraphJsTest(SimpleTestCase):
+    """⑨ 依赖图升级：SVG 必须用 DOM API 构建，禁止 innerHTML 拼用户数据
+
+    活动名是用户输入，旧版用 innerHTML 拼 SVG 字符串会把名字里的 <、"
+    直接注进 DOM；这个锁剔注释后扫禁用词，防止回潮。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.js = (Path(settings.BASE_DIR) / 'static' / 'js'
+                  / 'dependency-graph.js').read_text(encoding='utf-8')
+
+    @staticmethod
+    def _strip_js_comments(src):
+        # 注释里写的「禁止 innerHTML」自己包含这个词，不剔就是假失败（本项目三次坑）
+        no_block = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+        return re.sub(r'^\s*//.*$', '', no_block, flags=re.M)
+
+    def test_no_innerhtml_in_svg_construction(self):
+        code = self._strip_js_comments(self.js)
+        self.assertNotIn('innerHTML', code)
+
+    def test_uses_dom_api_and_accessibility_attrs(self):
+        code = self._strip_js_comments(self.js)
+        self.assertIn('createElementNS', code)
+        self.assertIn('textContent', code)   # 活动名走 textContent
+        self.assertIn('aria-label', code)    # 节点可访问名
+        self.assertIn("createElementNS(NS, 'title')", code)  # SVG hover 全名

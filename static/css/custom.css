@@ -52,13 +52,18 @@
        2026-09-18 质感升级：背景加微妙暖灰调、阴影分层加色彩倾向、卡片内发光 */
     --accent: #6478e8;
     --accent-hover: #5467d6;
+    /* a11y（WCAG 1.4.3）：小字号 accent 文字（导航激活页签等）用加深版，
+       白底对比度 5.5:1 达 AA；#6478e8 仅 3.9:1，只用于大字/图形/按钮底色 */
+    --accent-text: #4a5cd6;
     --accent-light: #eef0fe;    /* periwinkle 极浅底：hover/选中染色 */
     --accent-soft: #eef0fe;     /* 选中态/强调底色专用 */
     --bg: #f8f8fa;              /* 微暖灰画布（不再是纯白，增加层次） */
     --bg-card: #ffffff;
     --text: #18181b;
     --text-secondary: #52525b;
-    --text-muted: #a1a1aa;
+    /* a11y（WCAG 1.4.3）：#a1a1aa 白底仅 2.1:1，加深到 #71717a（白底 4.83:1，
+       bg #f8f8fa 上 4.57:1）达 AA；灰阶层级仍保留（secondary #52525b 更深一档） */
+    --text-muted: #71717a;
     --border: rgba(0, 0, 0, 0.06);
     --border-strong: rgba(0, 0, 0, 0.12);
 
@@ -200,7 +205,9 @@ textarea {
 
 /* 导航链接（质感升级：柔和过渡 + 激活态微底色） */
 .nav-link {
-    color: var(--text-muted);
+    /* a11y（WCAG 1.4.3）：导航文字用 text-muted（#a1a1aa，对比度约 2.1:1）不达 AA 4.5:1，
+       改 text-secondary（#52525b，约 7.4:1）；未激活页签的视觉弱化交给字重与背景 */
+    color: var(--text-secondary);
     font-size: 0.875rem;
     transition: color 0.2s ease, background-color 0.2s ease;
     border-radius: 0.5rem;
@@ -213,7 +220,7 @@ textarea {
 }
 
 .nav-link-active {
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
     background-color: rgba(100, 120, 232, 0.08);
 }

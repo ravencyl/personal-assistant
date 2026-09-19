@@ -17,7 +17,7 @@
             <!-- 输入框口径对齐快记浮层：白卡上 bg-transparent + 纯边框聚焦（原 bg-[var(--bg)]
                  在白卡里会渲染成淡紫色块，与全站不一致）；语音钮贴 textarea 底对齐（聊天页同款） -->
             <div class="flex items-end gap-2">
-                <textarea name="content" rows="2" id="noteContentInput"
+                <textarea name="content" rows="2" id="noteContentInput" aria-label="备忘内容"
                           placeholder="记点什么..."
                           class="flex-1 rounded-xl border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-3.5 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
                 <!-- 语音速记按钮：不支持 Web Speech API 时由脚本保持 hidden -->
@@ -34,7 +34,7 @@
             <!-- 语音识别错误提示（灰字内联） -->
             <p id="voiceError" class="hidden text-xs text-[var(--text-muted)]"></p>
             <div class="flex items-center justify-between gap-3">
-                <input type="text" name="tags" placeholder="标签（可选，逗号分隔）"
+                <input type="text" name="tags" placeholder="标签（可选，逗号分隔）" aria-label="标签（可选，逗号分隔）"
                        class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 <button type="submit" class="tap-target rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-5 py-2 text-sm font-medium transition-colors">
                     保存
@@ -76,7 +76,7 @@
         {% if tag_filter %}
         <input type="hidden" name="tag" value="{{ tag_filter }}">
         {% endif %}
-        <input type="text" name="q" value="{{ q }}" placeholder="搜索备忘录..."
+        <input type="text" name="q" value="{{ q }}" placeholder="搜索备忘录..." aria-label="搜索备忘录"
                class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
         {% if q %}
         <a href="{% url 'notes:note_list' %}{% if tag_filter %}?tag={{ tag_filter }}{% endif %}"
@@ -100,8 +100,8 @@
             </div>
             <div class="flex items-center gap-3">
                 <div class="flex-1">
-                    <label class="block text-xs text-[var(--text-muted)] mb-1">标签（逗号分隔）</label>
-                    <input type="text" name="tags" value="{{ edit_note.tags|join:', ' }}"
+                    <label class="block text-xs text-[var(--text-muted)] mb-1"> 标签（逗号分隔）</label>
+                    <input type="text" name="tags" value="{{ edit_note.tags|join:', ' }}" aria-label="编辑标签（逗号分隔）"
                            class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 </div>
                 <label class="flex items-center gap-2 cursor-pointer">
