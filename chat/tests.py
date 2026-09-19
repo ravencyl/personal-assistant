@@ -2894,6 +2894,9 @@ class DailyCardActionRowTest(SimpleTestCase):
         self.assertIn('application/x-www-form-urlencoded', self.js)
         # chatId 从 location.pathname 解析（分栏 replaceState 与详情页 /detail/ 都覆盖）
         self.assertIn('/\\/chat\\/(\\d+)/', self.js)
+        # 详情页没有分栏页的 updateLocalCards：onReady 必须统一撤掉按钮行初始 hidden
+        self.assertIn("getElementById('local-cards')", self.js)
+        self.assertIn("classList.remove('hidden')", self.js)
 
 
 class ChatWideLayoutTest(SimpleTestCase):

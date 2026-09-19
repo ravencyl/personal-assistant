@@ -609,10 +609,19 @@
         });
     });
 
-    // 页面加载完先收一遍历史里已有的 chips（详情页 / 分栏页首屏都靠这条覆盖）
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { window.paTidyFollowUps(document); });
-    } else {
+    // 页面加载完：① 收一遍历史里已有的 chips（详情页 / 分栏页首屏都靠这条覆盖）；
+    // ② 撤掉快捷按钮行的初始 hidden —— 分栏页有自己的 updateLocalCards，但详情页
+    // 没有那段 JS，不在这里统一撤的话详情页的「daily」按钮永远点不了（线上实测）
+    function onReady() {
         window.paTidyFollowUps(document);
+        if (currentChatId()) {
+            var row = document.getElementById('local-cards');
+            if (row) row.classList.remove('hidden');
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', onReady);
+    } else {
+        onReady();
     }
 })();
