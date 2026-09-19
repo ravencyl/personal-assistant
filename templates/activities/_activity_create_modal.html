@@ -1,4 +1,4 @@
-{# 新建活动弹窗（lightbox）：列表页与 Daily 页共用的唯一实现；依赖宿主页 extra_head 已加载 pinyin-pro.js / activity-form.js / quick-parse.js；渲染上下文需提供 form、all_participants、all_tags（校验失败 422 换体时同） #}
+{# 新建活动弹窗（lightbox）：活动列表页等宿主共用的唯一实现（原 Daily 页已下线）；依赖宿主页 extra_head 已加载 pinyin-pro.js / activity-form.js / quick-parse.js；渲染上下文需提供 form、all_participants、all_tags（校验失败 422 换体时同） #}
 <div id="create-activity-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
     <div class="w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl bg-white shadow-2xl border border-[var(--border)]" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
         <div class="flex items-center justify-between px-5 sm:px-6 pt-4 pb-3 border-b border-[var(--border)] shrink-0">

@@ -349,9 +349,6 @@ def conversation_list(request, conversation_id=None):
     if request.GET.get('ask') == 'weekly_review':
         weekly_review_conv = _create_weekly_review_conversation(request.user)
 
-    # daily 常驻会话 id：前端据它显隐「daily」快捷按钮行（只查不建，建是 chat_home 的事）
-    daily_conv = Conversation.objects.filter(user=request.user, is_daily=True).first()
-
     return render(request, 'chat/conversation_list.html', {
         'conversations': conversations,
         'agents': agents,
@@ -365,7 +362,6 @@ def conversation_list(request, conversation_id=None):
         'stale_conversations': get_stale_conversations(request.user, limit=3) if not query else [],
         # 周回顾对话（非空时模板自动跳转）
         'weekly_review_conv': weekly_review_conv,
-        'daily_conversation_id': daily_conv.id if daily_conv else None,
     })
 
 

@@ -7,6 +7,7 @@ urlpatterns = [
     path('', views.activity_list, name='activity_list'),
     path('export/csv/', export_views.export_csv, name='export_csv'),
     path('export/json/', export_views.export_json, name='export_json'),
+    # /daily/ 简报页已下线（2026-09-19）：路由保留重定向回首页，name 不变让旧 url 标签不破
     path('daily/', views.daily_view, name='daily'),
     path('daily/refresh-suggestion/', views.refresh_suggestion, name='refresh_suggestion'),
     path('new/', views.activity_create, name='activity_create'),

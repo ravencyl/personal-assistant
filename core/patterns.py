@@ -1,7 +1,7 @@
 """
 行为模式分析：从活动历史中提取规律性洞察
 
-结果存为 Memory(category='habit')，同时在 daily 页面的建议区展示。
+结果存为 Memory(category='habit')，同时在对话的 daily 简报卡建议区展示。
 所有函数幂等、无副作用（只读分析 + 返回结构化数据）。
 """
 import logging

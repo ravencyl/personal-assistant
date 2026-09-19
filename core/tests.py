@@ -590,10 +590,12 @@ class PrimaryNavTest(TestCase):
 
     TEMPLATES = Path(settings.BASE_DIR) / 'templates'
 
-    # 桌面顶栏：七个一级模块，顺序即视觉顺序（'工作台' 2026-09 新增）
-    DESKTOP = ['今日', '工作台', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
-    # 移动底栏：比顶栏少「记忆」（用户定的口径 —— 手机上不读记忆，使用频率也不占位）
-    MOBILE = ['今日', '活动', '对话', '备忘', '知识']
+    # 桌面顶栏：六个一级模块，顺序即视觉顺序（「今日」随 /daily/ 页下线移除，
+    # daily 信息走对话里的 daily 简报卡；'工作台' 2026-09 新增）
+    DESKTOP = ['工作台', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
+    # 移动底栏：比顶栏少「记忆」（用户定的口径 —— 手机上不读记忆，使用频率也不占位）；
+    # 「今日」同样随 /daily/ 页下线移除，原位置换成快记 dock（button，不算导航条目）
+    MOBILE = ['活动', '对话', '备忘', '知识']
     # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
 
     def _base(self):
@@ -900,7 +902,7 @@ class DesktopLayoutCoverageTest(TestCase):
 
     # 走通用列容器的页面（口径：左列=主内容流，右列=辅助信息/概览/操作入口）
     TWO_COLUMN = [
-        'activities/daily.html', 'activities/activity_detail.html',
+        'activities/activity_detail.html',
         'core/dashboard.html', 'core/weekly_report.html',
         'activities/expense_report.html',
         'knowledge/article_list.html', 'knowledge/article_detail.html',

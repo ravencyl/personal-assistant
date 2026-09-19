@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.db.models import Sum
 
 from activities.models import Activity, ActivityLog, Attachment, Expense, Participant, CalendarFeed
+from activities.views.daily_views import gather_daily
 from notes.models import Note
 from activities.parsing import parse_quick_input
 from core.agent_registry import CandidateToolError, ToolError
@@ -482,14 +483,17 @@ class MergeParticipantsCommandTest(TestCase):
         self.assertEqual(self._run('--map', 'yyx:YYX').count('合并「yyx」'), 1)
 
 
-class DailyViewStatusTest(TestCase):
-    """Daily 页分区口径：已完成的活动不占用「今日进行中/今日结束」，由「近期完成」承载"""
+class DailyGatherStatusTest(TestCase):
+    """daily 分区口径（gather_daily，daily 简报卡与旧 daily 页共用的数据层）：
+    已完成的活动不占用「今日进行中/今日结束」，由「近期完成」承载。
+    daily 页面已下线，这里直接测数据层——口径不会因为渲染层消失而失效。"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
         self.today = timezone.localdate()
+
+    def _gather(self):
+        return gather_daily(self.user)
 
     def test_done_activities_are_out_of_today_sections(self):
         Activity.objects.create(user=self.user, name='今日已打卡',
@@ -502,13 +506,13 @@ class DailyViewStatusTest(TestCase):
         Activity.objects.create(user=self.user, name='今日待办',
                                 start_date=self.today, status='planned')
 
-        ctx = self.client.get(reverse('activities:daily')).context
+        data = self._gather()
         # 单日 planned 活动归 ongoing（既有口径），done/cancelled 不再出现在今日各区
-        self.assertEqual([a.name for a in ctx['ongoing']], ['今日待办'])
-        self.assertEqual([a.name for a in ctx['starting_today']], [])
-        self.assertEqual([a.name for a in ctx['ending_today']], [])
-        self.assertEqual(ctx['ongoing_count'], 1)
-        self.assertEqual({a.name for a in ctx['recently_done']},
+        self.assertEqual([a.name for a in data['ongoing']], ['今日待办'])
+        self.assertEqual([a.name for a in data['starting_today']], [])
+        self.assertEqual([a.name for a in data['ending_today']], [])
+        self.assertEqual(data['ongoing_count'], 1)
+        self.assertEqual({a.name for a in data['recently_done']},
                          {'今日已打卡', '跨度今日完成'})
 
     def test_span_activity_still_in_ongoing(self):
@@ -517,8 +521,30 @@ class DailyViewStatusTest(TestCase):
                                 start_date=self.today - timedelta(days=1),
                                 end_date=self.today + timedelta(days=1),
                                 status='in_progress')
-        ctx = self.client.get(reverse('activities:daily')).context
-        self.assertEqual([a.name for a in ctx['ongoing']], ['新西兰之旅'])
+        data = self._gather()
+        self.assertEqual([a.name for a in data['ongoing']], ['新西兰之旅'])
+
+
+class DailyPageRetiredTest(TestCase):
+    """/daily/ 页面下线（2026-09-19）：路由保留但重定向回首页（= daily 常驻会话），
+    旧书签 / 推送 / 模板 url 标签不破；渲染层已删除，任何残留在 template 里都会 TemplateDoesNotExist"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def test_daily_url_redirects_home(self):
+        for name in ('daily', 'activities:daily'):
+            with self.subTest(name=name):
+                r = self.client.get(reverse(name))
+                self.assertEqual(r.status_code, 302)
+                self.assertEqual(r['Location'], reverse('home'))
+
+    def test_template_file_is_gone(self):
+        from django.conf import settings as dj_settings
+        self.assertFalse(
+            (dj_settings.BASE_DIR / 'templates' / 'activities' / 'daily.html').exists())
 
 
 class QuickParseWiringTest(TestCase):
@@ -1353,209 +1379,6 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         """概览增强：子任务完成度进度条"""
         self.assertIn('title="子任务完成度 1/2"', self.html)
         self.assertIn('width: 50%', self.html)
-
-
-class DailyDesktopLayoutTest(TestCase):
-    """Daily 页桌面两列布局与右列常驻卡回归锁
-
-    为什么锁：Daily 页的两列完全靠模板里两个列容器 + CSS 在 768px 下的
-    grid/sticky/order 实现，改回单列、把某块从右列挤进左列、给移动端加了 sm:
-    结构断点，都不会报错，只在真实屏幕上退化。
-
-    移动端契约与活动详情页不同：Daily 页的右列整块在 DOM 里排在主内容流之前
-    （这样移动端阅读顺序与改造前逐块一致），桌面端靠 .page-cols--rail-first 的
-    order 换回右侧 ——所以 DOM 里的块顺序就是移动端顺序契约，下面按它断言。
-    """
-    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'daily.html'
-    CSS = Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
-    RAIL_END = '</div><!-- /右列 -->'
-    MAIN_END = '</div><!-- /左列 -->'
-    COLS_END = '</div><!-- /.page-cols -->'
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.client = Client()
-        self.client.login(username='raven', password='test')
-        today = timezone.localdate()
-        trip = Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress',
-                                       start_date=today - timedelta(days=1),
-                                       end_date=today + timedelta(days=2))
-        expense = Expense.objects.create(activity=trip, user=self.user,
-                                         amount=Decimal('600'), paid_at=today)
-        apply_tags(expense, ['交通'])
-        # 近期完成分组
-        Activity.objects.create(user=self.user, name='旧项目结项', status='done',
-                                start_date=today - timedelta(days=2))
-        self.html = self.client.get('/activities/daily/').content.decode()
-
-    def _at(self, text, anchor, desc):
-        """在切片里找锚点位；找不到就是「这块被搬出该列」，当断言失败报而不是 ValueError"""
-        at = text.find(anchor)
-        if at < 0:
-            self.fail(f'{desc}：预期内容不在该列里（找不到 {anchor}）')
-        return at
-
-    def _cols(self):
-        start = self._at(self.html, 'class="page-cols', '两列容器')
-        return self.html[start:self._at(self.html, self.COLS_END, '两列收尾')]
-
-    def _rail(self):
-        cols = self._cols()
-        start = self._at(cols, 'class="page-rail"', '右列容器')
-        return cols[start:self._at(cols, self.RAIL_END, '右列')]
-
-    def _main(self):
-        cols = self._cols()
-        start = self._at(cols, 'class="page-main"', '左列容器')
-        return cols[start:self._at(cols, self.MAIN_END, '左列')]
-
-    def test_two_column_grid_and_exactly_two_columns(self):
-        self.assertEqual(self.html.count('class="page-cols'), 1, '两列容器应唯一')
-        cols = self._cols()
-        self.assertEqual(cols.count('class="page-rail"'), 1, 'page-cols 内应恰好一个右列')
-        self.assertEqual(cols.count('class="page-main"'), 1, 'page-cols 内应恰好一个左列')
-        self.assertIn(self.RAIL_END, cols, '右列未闭合，两列结构已破损')
-        self.assertIn(self.MAIN_END, cols, '左列未闭合，两列结构已破损')
-
-    def test_column_containers_have_no_visibility_class(self):
-        """列容器不加显隐类是「移动端视觉顺序 = DOM 顺序」的前提。
-        锁意图而非锁实现：允许 id 等非显隐属性（Daily 双页滚动用 id 锚点），
-        但 class 里出现 hidden/block/flex 等显隐类即视为破坏单列顺序。"""
-        for tag, desc in [('<div class="page-rail', '右列容器'),
-                          ('<div class="page-main', '左列容器')]:
-            start = self._at(self.html, tag, desc)
-            open_tag = self.html[start:self.html.index('>', start) + 1]
-            self.assertNotRegex(
-                open_tag, r'class="[^"]*\b(hidden|block|flex|inline|grid)\b[^"]*"',
-                f'{desc}加了显隐类，移动端可能少一整列')
-
-    def test_right_column_is_dom_first_and_visually_right_on_desktop(self):
-        """右列整块在 DOM 里排在左列之前：移动端顺序才能与改造前逐块一致"""
-        cols = self._cols()
-        self.assertLess(self._at(cols, 'class="page-rail"', '右列'),
-                        self._at(cols, 'class="page-main"', '左列'),
-                        '右列改成 DOM 在后会让移动端「统计/消费」下跳，阅读顺序回退')
-        self.assertIn('page-cols--rail-first', self.html,
-                      '缺 rail-first 修饰类：右列在 DOM 前就会出现在桌面左侧，左右颠倒')
-        css = self.CSS.read_text(encoding='utf-8')
-        rail_order = [b for b in _css_rules(css, '.page-rail') if 'order' in b['body']]
-        self.assertTrue(rail_order, '没有把右列换回右侧的 order 声明，桌面端左右会颠倒')
-        self.assertIn('order: 2', rail_order[0]['body'])
-
-    def test_primary_flow_left_auxiliary_right(self):
-        rail, main = self._rail(), self._main()
-        for anchor, desc in [('今日活动', '今日活动计数'),
-                             ('本周消费', '本周消费')]:
-            self.assertIn(anchor, rail, f'{desc}应在右列（今日概览）')
-            self.assertNotIn(anchor, main, f'{desc}不该出现在左列')
-        for anchor, desc in [('新建活动', '快捷入口'), ('今日进行中', '活动分组')]:
-            self.assertIn(anchor, main, f'{desc}应在左列主内容流')
-
-    def test_mobile_reading_order_matches_dom(self):
-        """移动端单列顺序：与改造前的块序列逐块对齐（含只在桌面出现的进度卡占位）。
-        2026-09 移动端改造后：移动端快捷入口从 main 提到右列速览卡下方，
-        与三数合一速览卡组成「今日速览」组，故「新建活动」先于「本周消费」"""
-        anchors = ['今日活动', '新建活动', '本周消费',
-                   '今日进行中']
-        positions = [self._at(self.html, a, f'移动端顺序锁定位 {a}') for a in anchors]
-        self.assertEqual(positions, sorted(positions),
-                         '移动端单列顺序变了：速览卡 + 快捷入口（今日速览组）之后才是本周消费与活动分组')
-
-    def test_no_manual_htmx_process_and_json_tags_clean(self):
-        """模板不手动 htmx.process（避免双重绑定），JSON 端点标签不带 hx-*"""
-        src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertNotIn('htmx.process', src, '手动 htmx.process 会造成双重绑定与旧节点引用残留')
-        for tag in re.findall(r'<[^>]*\bdata-status-url\b[^>]*>', src):
-            self.assertNotIn('hx-', tag, 'JSON 端点只能由 fetch 消费，元素上不能挂 hx-*')
-
-    def test_secondary_lists_default_collapsed_on_desktop_only(self):
-        """三个次要长列表两端默认折叠（2026-09 改：原来仅桌面折叠，移动端首屏
-        被非今日内容挤满，390×844 走查后改为两端同默认）；手动展开后仍由 localStorage 记忆"""
-        src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertNotIn("matchMedia('(min-width: 768px)')", src,
-                         '默认折叠不再分端门控（两端同默认），不应再出现 768px 断点判断')
-        self.assertRegex(src, r"var defaultCollapsed = \[[^\]]*'upcoming'[^\]]*\]",
-                         '「即将开始」应保留在默认折叠清单里')
-        self.assertRegex(src, r'if \(!state && defaultCollapsed',
-                         '默认折叠只能作用于未手动折叠过的区块')
-        self.assertIn("localStorage.getItem('daily_section_' + sectionId)", src,
-                      '折叠状态仍走既有 localStorage 机制，不另造一套')
-        self.assertIn("'in_progress', 'upcoming', 'recently_done'", src,
-                      '恢复脚本的分区清单被改，可能有区的折叠状态不再恢复')
-
-    def test_no_structural_sm_breakpoint_in_template(self):
-        """分端只允许 md:（768px）；sm: 仅可作纯尺寸渐进（p/gap/text/space）"""
-        src = self.TEMPLATE.read_text(encoding='utf-8')
-        hits = re.findall(r'sm:(hidden|block|flex|inline|grid|order|col-span|row-span|sticky|absolute|fixed)\S*', src)
-        self.assertEqual(hits, [], f'模板出现 sm: 结构性断点：{hits}')
-
-    def test_columns_css_uses_single_md_breakpoint(self):
-        css = self.CSS.read_text(encoding='utf-8')
-        for selector in ('.page-cols', '.page-rail'):
-            blocks = _css_rules(css, selector)
-            self.assertTrue(blocks, f'custom.css 里 {selector} 的声明丢了')
-            for block in blocks:
-                self.assertEqual(block['media'], '(min-width: 768px)',
-                                 f'{selector} 必须只落在 768px 这个唯一结构断点内')
-        grid = _css_rules(css, '.page-cols')[0]
-        self.assertEqual(grid['selectors'], '.page-cols',
-                         '两列声明必须全站只一份且独立不分组（与别的页面分组共享，一处改会连带飘）')
-        self.assertIn('320px', grid['body'])
-        self.assertIn('minmax(0, 1fr)', grid['body'], '左列须用 minmax(0,1fr) 兜住长内容撑破列')
-        self.assertIn('align-items: start', grid['body'],
-                      '网格默认 stretch 会把右列拉高，sticky 就没空间钉住')
-        rail = _css_rules(css, '.page-rail')[0]
-        self.assertIn('position: sticky', rail['body'])
-        self.assertIn('max-height', rail['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
-
-    def test_no_template_syntax_leaked_into_rendered_html(self):
-        """模板注释语法泄漏锁：Django 的 {# #} 不支持跳行，写多行会整段渲染成正文"""
-        for token in ('{%', '{{', '{#'):
-            self.assertNotIn(token, self.html, f'渲染结果里出现 {token}，模板语法泄漏')
-
-
-class DailyCreateModalTest(TestCase):
-    """Daily 页「新建活动」弹窗接入回归锁
-
-    为什么锁：入口从独立创建页改为与列表页共用的 Lightbox 弹窗，改回去
-    （链接跳 /activities/new/ 或局部拷一份弹窗 DOM）不会报错，只有体验分裂。
-    弹窗骨架的唯一实现在 _activity_create_modal.html，两页共同 include。
-    """
-    TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'daily.html'
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.client = Client()
-        self.client.login(username='raven', password='test')
-        self.html = self.client.get('/activities/daily/').content.decode()
-
-    def test_create_entries_open_modal_not_page(self):
-        """快捷入口与空态按钮都走弹窗，不再跳独立创建页"""
-        src = self.TEMPLATE.read_text(encoding='utf-8')
-        # 3 处：桌面端快捷操作区 + 移动端快捷入口（双渲染）+ 空态按钮
-        self.assertEqual(src.count('data-open-create-modal'), 3,
-                         '桌面操作区 + 移动快捷入口 + 空态应各有一个弹窗入口')
-        self.assertNotIn("url 'activities:activity_create'", src,
-                         'Daily 页不应再直链独立创建页')
-
-    def test_modal_skeleton_shared_with_list_page(self):
-        """弹窗骨架来自共享 partial，两页渲染出同一份 DOM"""
-        self.assertIn('{% include "activities/_activity_create_modal.html" %}',
-                      self.TEMPLATE.read_text(encoding='utf-8'),
-                      '弹窗骨架必须 include 共享 partial，禁止局部拷贝')
-        list_src = (Path(settings.BASE_DIR) / 'templates' / 'activities'
-                    / 'activity_list.html').read_text(encoding='utf-8')
-        self.assertIn('{% include "activities/_activity_create_modal.html" %}', list_src)
-        for token in ('id="create-activity-modal"', 'id="modal-quick-input"'):
-            self.assertEqual(self.html.count(token), 1, f'{token} 应恰好渲染一份')
-
-    def test_modal_context_and_scripts_rendered(self):
-        """视图注入弹窗表单与 chips 联想数据，页面加载弹窗所需三个脚本"""
-        self.assertIn('id="create-activity-form"', self.html, '弹窗表单未渲染')
-        self.assertIn('id="participant-options"', self.html, '参与者联想数据未渲染')
-        self.assertIn('id="tag-options"', self.html, '标签联想数据未渲染')
-        for script in ('js/pinyin-pro.js', 'js/activity-form.js', 'js/quick-parse.js'):
-            self.assertIn(script, self.html, f'弹窗依赖脚本未加载：{script}')
 
 
 class ExpenseReportDesktopLayoutTest(TestCase):

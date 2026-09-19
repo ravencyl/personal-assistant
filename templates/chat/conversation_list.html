@@ -190,17 +190,7 @@
     {% include "chat/partials/turn_status.html" %}
     {% include "chat/partials/pin_host.html" with host_id="split-pin" conversation=active_conversation %}
 
-    {# ── 非 AI 快捷卡片行：点击 → 服务端直出（不碰 Qoder / 不耗 token / 不占 turn） #}
-    {# 目前只有 daily 简报一张；行只对 daily 常驻会话可见（JS 按 data-daily-id 显隐） #}
-    <div id="local-cards" class="flex-none px-4 pb-2 hidden" data-daily-id="{{ daily_conversation_id|default:'' }}">
-        <button type="button" data-local-card="daily_brief" aria-label="插入今日简报卡片"
-                class="tap-target inline-flex items-center gap-1 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            daily
-        </button>
-    </div>
+    {% include "chat/partials/local_cards.html" %}
 
     {% include "chat/partials/quick_chips.html" with chips_id="split-chips" chips_class="px-4 pb-2" %}
 
@@ -385,52 +375,11 @@
         updateLocalCards();
     }
 
-    // ── 非 AI 快捷卡片行：只对 daily 常驻会话可见 ──
+    // ── 非 AI 快捷卡片行：选中任一对话即可用（点击/失败提示在 chat-turn.js 统一委托） ──
     var localRow = document.getElementById('local-cards');
     function updateLocalCards() {
         if (!localRow) return;
-        var dailyId = localRow.getAttribute('data-daily-id');
-        localRow.classList.toggle('hidden', !(currentId && currentId === dailyId));
-    }
-
-    function flashLocal(text) {
-        // 失败静默降级为一条瞬态提示（不落消息、不阻断对话）
-        if (!localRow) return;
-        var tip = document.createElement('span');
-        tip.className = 'text-xs text-red-600 ml-1';
-        tip.textContent = text;
-        localRow.appendChild(tip);
-        setTimeout(function () { tip.remove(); }, 2500);
-    }
-
-    if (localRow) {
-        localRow.addEventListener('click', function (e) {
-            var btn = e.target.closest && e.target.closest('[data-local-card]');
-            if (!btn || !currentId) return;
-            btn.disabled = true;
-            window.paJsonFetch('/chat/' + currentId + '/local-card/', {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': csrf,
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                    // Accept 交给 paJsonFetch 统一补（JSON 端点禁挂 hx-*）
-                },
-                body: 'card=' + encodeURIComponent(btn.getAttribute('data-local-card'))
-            })
-                .then(function (r) {
-                    return r.json().then(function (d) { return { ok: r.ok, d: d }; },
-                                         function () { return { ok: false, d: {} }; });
-                })
-                .then(function (res) {
-                    if (!res.ok) { flashLocal(res.d.error || '卡片生成失败，请稍后重试'); return; }
-                    if (messagesEl && res.d.html) {
-                        messagesEl.insertAdjacentHTML('beforeend', res.d.html);
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                    }
-                })
-                .catch(function () { flashLocal('网络异常，请稍后重试'); })
-                .finally(function () { btn.disabled = false; });
-        });
+        localRow.classList.toggle('hidden', !currentId);
     }
 
     // ── 桌面端侧栏折叠（状态存 localStorage；移动端本来就用 data-view 切换） ──

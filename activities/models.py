@@ -401,7 +401,7 @@ class ActivityTemplate(models.Model):
 
 
 class DailySuggestion(models.Model):
-    """每日 AI 建议缓存：cron 每日 00:00 预计算，Daily 页直接读取，支持手动刷新"""
+    """每日 AI 建议缓存：cron 每日 00:00 预计算，对话里的 daily 简报卡直接读取，支持手动刷新"""
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

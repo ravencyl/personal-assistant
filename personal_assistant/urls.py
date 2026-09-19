@@ -16,8 +16,8 @@ urlpatterns = [
     # 打开即落在对话里，零选择步骤；daily 创建失败自动退回对话列表
     path('', chat_home, name='home'),
 
-    # Daily 简报页（原首页）：保留完整页面，从导航「今日」进入；
-    # 同一份数据层（gather_daily）也供对话里的 daily 简报卡使用
+    # /daily/ 简报页已下线（2026-09-19）：daily 信息与操作收进对话里的 daily 简报卡；
+    # 路由保留重定向回首页（= daily 常驻会话），name 不变让旧书签/模板 url 标签不破
     path('daily/', daily_view, name='daily'),
 
     # Dashboard

@@ -1,4 +1,4 @@
-"""Daily 每日简报页与「下一步行动」页"""
+"""Daily 数据采集层与「下一步行动」页（daily 页面已于 2026-09-19 下线，/daily/ 重定向回对话）"""
 from datetime import timedelta
 import logging
 
@@ -6,15 +6,14 @@ from django.contrib.auth.decorators import login_required
 from django.db import models
 from django.db.models import Sum
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 
 from core.utils import visible_qs, week_monday, WEEKDAY_LABELS
 
-from ..forms import ActivityForm
-from ..models import Activity, Expense, Participant
+from ..models import Activity, Expense
 from ..utils import exclude_daily_bucket
-from ._common import _user_tag_names, _greeting, attach_costs
+from ._common import attach_costs
 
 logger = logging.getLogger(__name__)
 
@@ -237,42 +236,13 @@ def daily_brief_payload(user):
 
 @login_required
 def daily_view(request):
-    """每日简报：展示当天活动概况、进行中/即将开始/近期完成的活动
+    """/daily/ 页面已下线（2026-09-19，用户定策）：daily 信息与后续操作全部收进
+    对话里的 daily 简报卡（chat/partials/local_cards.html 直出 + 卡内操作行）。
 
-    数据采集统一走 gather_daily（对话里的 daily 简报卡共用同一层，口径永不漂移）。
+    路由与 name='daily' 保留：旧书签 / 推送 / 模板 url 标签不破，重定向回首页
+    （= daily 常驻会话），零跨 app import。数据层 gather_daily 仍是卡片共用的。
     """
-    data = gather_daily(request.user)
-    today = data['today']
-
-    # 问候 + 日期星期
-    greeting = _greeting()
-    weekdays = WEEKDAY_LABELS
-    today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
-
-    return render(request, 'activities/daily.html', {
-        'today': today,
-        'today_display': today_display,
-        'greeting': greeting,
-        # 新建活动弹窗（与列表页共用 partial）：空白表单 + chips 联想数据
-        'form': ActivityForm(user=request.user),
-        'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
-        'all_tags': _user_tag_names(request.user),
-        'ongoing': data['ongoing'],
-        'starting_today': data['starting_today'],
-        'ending_today': data['ending_today'],
-        'upcoming': data['upcoming'],
-        'recently_done': data['recently_done'],
-        'in_progress': data['in_progress'],
-        'overdue_rolled_in': data['overdue_rolled_in'],
-        'conflict_ids': data['conflict_ids'],
-        'ai_suggestion': data['ai_suggestion'],
-        'ai_suggestion_is_ai': data['ai_suggestion_is_ai'],
-        'pattern_insights': data['pattern_insights'],
-        'today_expense': data['today_expense'],
-        'this_week_expense': data['this_week_expense'],
-        'ongoing_count': data['ongoing_count'],
-        'in_progress_count': data['in_progress_count'],
-    })
+    return redirect('home')
 
 
 @login_required

@@ -49,6 +49,8 @@ Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_mes
 
 {% include "chat/partials/pin_host.html" with host_id="message-pin" %}
 
+{% include "chat/partials/local_cards.html" %}
+
 {% include "chat/partials/quick_chips.html" with chips_id="message-chips" chips_class="pb-2" %}
 
 {% comment %}收发走原生 fetch + 轮询（见 static/js/chat-turn.js），表单不挂任何 hx-*：

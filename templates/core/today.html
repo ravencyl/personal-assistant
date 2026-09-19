@@ -32,7 +32,7 @@
     <section class="mb-6">
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold text-[var(--text)]">今日活动</h2>
-            <a href="{% url 'activities:daily' %}" class="text-xs text-[var(--accent)] hover:underline">查看全部</a>
+            <a href="{% url 'activities:activity_list' %}" class="text-xs text-[var(--accent)] hover:underline">查看全部</a>
         </div>
         {% if today_activities %}
         <div class="space-y-2">

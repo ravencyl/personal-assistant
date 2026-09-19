@@ -555,6 +555,60 @@
         return { paint: paint, close: close };
     };
 
+    /* 非 AI 快捷卡片与卡片内操作的统一委托（分栏页 / 详情页共用这一份，document 级）。
+       [data-local-card] → POST /chat/<id>/local-card/ 直出卡片（零 token、不碰 turn 锁），
+         chatId 从 location.pathname 解析：分栏页切对话会 replaceState 成 /chat/<id>/，
+         详情页是 /chat/<id>/detail/，两个形态都被同一条正则覆盖。
+       [data-quick-open] → 调 base.html 暴露的 paQuickOpen(tab) 打开快记面板
+         （daily 卡片内的「新建活动 / 记一笔」走这条，对话式创建不跳页）。 */
+    function currentChatId() {
+        var m = /\/chat\/(\d+)/.exec(location.pathname);
+        return m ? m[1] : null;
+    }
+
+    function flashLocalError(btn, text) {
+        var tip = document.createElement('span');
+        tip.className = 'text-xs text-red-600';
+        tip.textContent = text;
+        btn.insertAdjacentElement('afterend', tip);
+        setTimeout(function () { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 2500);
+    }
+
+    function insertLocalHtml(html) {
+        var box = document.getElementById('split-messages') || document.getElementById('messages');
+        if (!box) return;
+        box.insertAdjacentHTML('beforeend', html);
+        box.scrollTop = box.scrollHeight;
+        if (window.paTidyFollowUps) window.paTidyFollowUps(box);
+    }
+
+    document.addEventListener('click', function (e) {
+        var quick = e.target.closest && e.target.closest('[data-quick-open]');
+        if (quick) {
+            if (typeof window.paQuickOpen === 'function') window.paQuickOpen(quick.getAttribute('data-quick-open'));
+            return;
+        }
+        var btn = e.target.closest && e.target.closest('[data-local-card]');
+        if (!btn) return;
+        var chatId = currentChatId();
+        if (!chatId) { flashLocalError(btn, '先选择一个对话'); return; }
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        // 端点读 request.POST（表单体），发 urlencoded 而不是 JSON
+        apiFetch('/chat/' + chatId + '/local-card/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': meta ? meta.getAttribute('content') : '' },
+            body: 'card=' + encodeURIComponent(btn.getAttribute('data-local-card'))
+        }).then(function (r) {
+            if (!r.ok) throw new Error('http ' + r.status);
+            return r.json();
+        }).then(function (d) {
+            if (!d || !d.html) throw new Error('empty');
+            insertLocalHtml(d.html);
+        }).catch(function () {
+            flashLocalError(btn, '插入失败，请重试');
+        });
+    });
+
     // 页面加载完先收一遍历史里已有的 chips（详情页 / 分栏页首屏都靠这条覆盖）
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () { window.paTidyFollowUps(document); });

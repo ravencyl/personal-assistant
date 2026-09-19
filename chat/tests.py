@@ -352,7 +352,7 @@ class ConversationListDesktopLayoutTest(TestCase):
             '移动端 .chat-layout 高度算术被改，发送框会被底部 Tab 栏遮住')
         self.assertIn('id="quick-fab-root"', base)
         self.assertIn('data-quick-toggle', base,
-                      '快记入口（Daily 页顶栏钮 + 桌面 FAB）共用标记不能丢')
+                      '快记入口（移动 Tab 栏快记 dock + 桌面 FAB）共用标记不能丢')
         self.assertIn("document.getElementById('quick-fab-root')", self.src)
         self.assertIn("view === 'chat' ? 'none' : ''", self.src,
                       '返回列表视图时必须恢复快记 FAB 显隐')
@@ -2702,32 +2702,37 @@ class DailyConversationTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/accounts/login/', resp['Location'])
 
-    def test_daily_page_renders_local_card_row(self):
-        """分栏页带出 daily 会话 id：daily 按钮行只对常驻会话可见（JS 按 id 显隐）"""
-        conv = Conversation.objects.create(
-            user=self.user, session_id='sess_d', agent_id='ag_d',
-            title='daily', is_daily=True)
-        resp = self.client.get(f'/chat/{conv.id}/')
-        self.assertEqual(resp.status_code, 200)
-        html = resp.content.decode()
-        self.assertIn(f'data-daily-id="{conv.id}"', html)
-        self.assertIn('data-local-card="daily_brief"', html)
-        # 非 daily 会话：按钮行仍在 DOM（JS 统一控显隐），但 data-daily-id 对不上
-        other = Conversation.objects.create(
-            user=self.user, session_id='sess_o', agent_id='ag_o', title='普通对话')
-        html2 = self.client.get(f'/chat/{other.id}/').content.decode()
-        self.assertNotIn(f'data-daily-id="{other.id}"', html2)
-
-    def test_nav_points_to_daily_page(self):
-        """「今日」入口指 Daily 简报页；首页 / 已让给对话（默认入口互换）"""
+    def test_local_card_row_available_in_every_conversation(self):
+        """daily 按钮在所有对话可用（2026-09-19 扩大范围）：不再按 daily 会话 id 显隐，
+        选中任一对话即由 JS 撤掉 hidden；详情页也带同一份 partial"""
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_d', agent_id='ag_d',
             title='daily', is_daily=True)
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
-        self.assertIn('href="/daily/"', html)
-        # Daily 简报页本身仍然可访（数据层抽出后行为不变）
+        self.assertIn('data-local-card="daily_brief"', html)
+        self.assertNotIn('data-daily-id', html, '旧的按会话 id 显隐机制应已删净')
+        # 非 daily 会话同样有按钮行
+        other = Conversation.objects.create(
+            user=self.user, session_id='sess_o', agent_id='ag_o', title='普通对话')
+        html2 = self.client.get(f'/chat/{other.id}/').content.decode()
+        self.assertIn('data-local-card="daily_brief"', html2)
+        # 详情页共用同一份 partial
+        detail = self.client.get(f'/chat/{other.id}/detail/').content.decode()
+        self.assertIn('data-local-card="daily_brief"', detail)
+
+    def test_nav_daily_page_retired(self):
+        """/daily/ 页下线：导航不再有「今日」入口（移动 Tab 换快记 dock），
+        /daily/ 路由保留但重定向回首页（= daily 常驻会话）"""
+        conv = Conversation.objects.create(
+            user=self.user, session_id='sess_d', agent_id='ag_d',
+            title='daily', is_daily=True)
+        html = self.client.get(f'/chat/{conv.id}/').content.decode()
+        self.assertNotIn('href="/daily/"', html)
+        # 移动 Tab 栏的快记 dock 替代了原「今日」Tab（Daily 页顶栏入口随之消失）
+        self.assertIn('data-quick-toggle', html)
         resp = self.client.get('/daily/')
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], reverse('home'))
 
 
 class LocalCardTest(TestCase):
@@ -2851,6 +2856,44 @@ class LocalCardTest(TestCase):
         self.assertIn('今天有什么安排', self.conv.turn_prompt)
         self.assertNotIn('今日进行中', self.conv.turn_prompt,
                          '简报卡内容不得漏进 AI 上下文（它只活在消息历史的 payload 里）')
+
+
+class DailyCardActionRowTest(SimpleTestCase):
+    """daily 卡片内操作行与前端委托接线锁（/daily/ 页下线后卡内就是唯一出口）
+
+    为什么静态锁：操作行靠 data-quick-open → chat-turn.js 委托 → base.html 的
+    paQuickOpen 三段接力，任何一环断了都是「点了没反应」且无报错。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = Path(__file__).resolve().parent.parent
+        cls.card = (base / 'templates' / 'chat' / 'cards' / 'daily_brief_card.html').read_text(encoding='utf-8')
+        cls.base_html = (base / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.js = (base / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+
+    def test_card_action_row_tabs(self):
+        """新建活动 / 记一笔走快记面板（不跳页）；日历 / 费用报告保留页面链接"""
+        self.assertIn('data-quick-open="activity"', self.card)
+        self.assertIn('data-quick-open="expense"', self.card)
+        self.assertIn("url 'activities:activity_calendar'", self.card)
+        self.assertIn("url 'activities:expense_report'", self.card)
+
+    def test_card_no_daily_page_link(self):
+        """页面已下线：卡片头部不得再出现 Daily 页链接"""
+        self.assertNotIn("url 'activities:daily'", self.card)
+        self.assertNotIn("url 'daily'", self.card)
+
+    def test_quick_open_chain_wired(self):
+        """三段接力：卡片 data-quick-open → JS 委托调 paQuickOpen → base.html 暴露该函数"""
+        self.assertIn('window.paQuickOpen', self.base_html)
+        self.assertIn("'[data-quick-open]'", self.js)
+        self.assertIn("'[data-local-card]'", self.js)
+        # 端点读 request.POST：委托必须发表单体而不是 JSON（发 JSON 会静默拿不到 card）
+        self.assertIn('application/x-www-form-urlencoded', self.js)
+        # chatId 从 location.pathname 解析（分栏 replaceState 与详情页 /detail/ 都覆盖）
+        self.assertIn('/\\/chat\\/(\\d+)/', self.js)
 
 
 class ChatWideLayoutTest(SimpleTestCase):
