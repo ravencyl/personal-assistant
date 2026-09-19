@@ -110,6 +110,41 @@
     // 宿主页（base.html 的新建对话）也用同一个出口，否则它会靠假的 HX-Request 头骗视图返回 JSON
     window.paJsonFetch = apiFetch;
 
+    /* 「下一步」chips 收敛：把空间还给消息流。
+     * 两条规则（都是视觉收纳，不碰发送委托 [data-followup] 的行为）：
+     *  ① 历史消息的 chips 整组加 .follow-ups-folded 藏起，只留最新一条 ——
+     *     回复滚过一屏后旧建议没有再点的意义，却一路占着屏；
+     *  ② 单条超过 2 个的：第 3 个起先 hidden，加一颗「还有 N 条建议…」
+     *     展开钮（不带 data-followup，不会被委托误发）。
+     * append() 每次新增消息后重跑一遍，页面加载完也跑一遍（详情页共用本文件，
+     * 无需各模板自己接线）。无 JS 时 chips 全部可见，渐进增强。 */
+    window.paTidyFollowUps = function (root) {
+        var scope = root && root.querySelectorAll ? root : document;
+        var groups = scope.querySelectorAll('[data-follow-ups]');
+        Array.prototype.forEach.call(groups, function (group, i) {
+            var chips = group.querySelectorAll('[data-followup]');
+            Array.prototype.forEach.call(chips, function (chip, j) {
+                if (j >= 2) chip.classList.add('hidden');
+            });
+            if (chips.length > 2 && !group.querySelector('[data-followups-more]')) {
+                var more = document.createElement('button');
+                more.type = 'button';
+                more.className = 'chat-chip tap-target follow-up';
+                more.setAttribute('data-followups-more', '');
+                more.textContent = '还有 ' + (chips.length - 2) + ' 条建议…';
+                more.addEventListener('click', function () {
+                    Array.prototype.forEach.call(
+                        group.querySelectorAll('[data-followup].hidden'),
+                        function (c) { c.classList.remove('hidden'); });
+                    more.remove();
+                });
+                group.appendChild(more);
+            }
+            // 文档序即消息序：最后一组是最新的回复，只有它保持展开
+            group.classList.toggle('follow-ups-folded', i !== groups.length - 1);
+        });
+    };
+
     window.PaChatTurn = function (opts) {
         var messagesEl = opts.messagesEl;
         var statusEl = opts.statusEl;
@@ -154,6 +189,7 @@
             messagesEl.insertAdjacentHTML('beforeend', html);
             // 新增节点里的 hx-* 由 htmx 自带的 MutationObserver 处理，
             // 这里绝不能再调 htmx.process()（会双重绑定、旧节点引用残留）
+            if (window.paTidyFollowUps) window.paTidyFollowUps(messagesEl);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
@@ -518,4 +554,11 @@
 
         return { paint: paint, close: close };
     };
+
+    // 页面加载完先收一遍历史里已有的 chips（详情页 / 分栏页首屏都靠这条覆盖）
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { window.paTidyFollowUps(document); });
+    } else {
+        window.paTidyFollowUps(document);
+    }
 })();

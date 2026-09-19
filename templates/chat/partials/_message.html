@@ -7,11 +7,11 @@
 
 变量：msg（Message 实例）
 {% endcomment %}
-<div class="chat-message {% if msg.role == 'user' %}user{% else %}assistant{% endif %}" data-message-id="{{ msg.id }}">
+<div class="chat-message {% if msg.role == 'user' %}user{% elif msg.role == 'system' %}system{% else %}assistant{% endif %}" data-message-id="{{ msg.id }}">
     {# chat-bubble 不是 Tailwind 类，是 custom.css 末尾移动端段（全宽 + 左侧角色竖条）的选择器钩子 #}
-    <div class="chat-bubble rounded-lg p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
+    <div class="chat-bubble rounded-lg p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% elif msg.role == 'system' %}bg-zinc-50 border border-dashed border-[var(--border-strong)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
         <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-medium text-[var(--text-secondary)]">{% if msg.role == 'user' %}你{% else %}AI 助手{% endif %}</span>
+            <span class="text-xs font-medium text-[var(--text-secondary)]">{% if msg.role == 'user' %}你{% elif msg.role == 'system' %}系统{% else %}AI 助手{% endif %}</span>
             <span class="text-xs text-[var(--text-muted)]">{{ msg.created_at|timesince }}前</span>
             {% if msg.role == 'assistant' %}
             {# 复制的是渲染后的可读文本（.md-body 的 innerText），不是 Markdown 源文 #}
@@ -21,7 +21,8 @@
         </div>
         {% if msg.role == 'assistant' %}
         {# AI 回复走 Markdown 渲染；容器不能带 whitespace-pre-wrap，否则与渲染出的 #}
-        {# <br>/块级元素叠加成双倍行距。用户消息保持字面纯文本（用户打的就是原文） #}
+        {# <br>/块级元素叠加成双倍行距。用户/系统消息保持字面纯文本（本地卡片是 #}
+        {# 服务端直出的快照，卡片本体在下面的 payload 分支，正文只是一行标签） #}
         <div class="markdown-content md-body text-sm text-[var(--text)]">{{ msg.content|ai_markdown }}</div>
         {% else %}
         <div class="markdown-content text-sm text-[var(--text)] whitespace-pre-wrap">{{ msg.content }}</div>

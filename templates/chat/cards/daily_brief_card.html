@@ -1,0 +1,45 @@
+{% comment %}daily 简报卡：非 AI 快捷卡片（chat.local_cards 注册的 daily_brief）的展示模板。
+
+数据是点按钮那一刻的服务端快照（msg.payload.card_data），只读不回查：
+sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
+样式沿用 activity_list_card.html 的行式卡片语言，不引新的视觉词汇。
+变量：card（daily_brief_payload 的返回值）
+{% endcomment %}
+<div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
+    <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-medium text-zinc-500">{{ card.today_display }} · 今日概览</span>
+        <a href="{% url 'daily' %}" class="text-xs text-zinc-600 hover:text-zinc-900 font-medium shrink-0">Daily 页 →</a>
+    </div>
+    <div class="mt-2 flex flex-wrap gap-1.5 text-xs">
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600">进行中 {{ card.counts.ongoing }}</span>
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600">长期 {{ card.counts.in_progress }}</span>
+        {% if card.counts.overdue %}<span class="rounded-full bg-zinc-100 px-2 py-0.5 text-red-700">逾期 {{ card.counts.overdue }}</span>{% endif %}
+        {% if card.counts.conflict %}<span class="rounded-full bg-zinc-100 px-2 py-0.5 text-red-700">时间冲突 {{ card.counts.conflict }}</span>{% endif %}
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600 tabular-nums">今日 ¥{{ card.expenses.today|floatformat:0 }}</span>
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600 tabular-nums">本周 ¥{{ card.expenses.week|floatformat:0 }}</span>
+    </div>
+    {% if card.ai_suggestion %}
+    <p class="mt-2 text-xs text-[var(--text-secondary)]">建议：{{ card.ai_suggestion }}</p>
+    {% endif %}
+    {% for section in card.sections %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs font-medium text-zinc-500">{{ section.title }}{% if section.total > section.items|length %} · 共 {{ section.total }} 条{% endif %}</p>
+        <div class="mt-1 space-y-1">
+            {% for item in section.items %}
+            <div class="flex items-center gap-2 text-sm min-w-0">
+                {% if item.blocked %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" title="被其他活动阻塞"></span>
+                {% else %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-300"></span>{% endif %}
+                <a href="{% url 'activities:activity_detail' item.id %}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
+                <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{% if item.cost %}¥{{ item.cost|floatformat:0 }} · {% endif %}{{ item.meta }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% if card.insights %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs font-medium text-zinc-500">行为洞察</p>
+        {% for tip in card.insights %}<p class="mt-0.5 text-xs text-zinc-500">{{ tip }}</p>{% endfor %}
+    </div>
+    {% endif %}
+</div>

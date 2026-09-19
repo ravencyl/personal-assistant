@@ -23,6 +23,7 @@ from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
                                  make_action_token, orchestrator)
 from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_child,
                         json_login_required)
+from .local_cards import get_local_card
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +200,95 @@ def _create_weekly_review_conversation(user):
         return None
 
 
+def _create_conversation_for_user(user, title='新对话', is_daily=False, agent_id=None):
+    """建一条完整的对话创建链路：Qoder session + 本地记录 + 首帧协议 + 记忆注入
+
+    「+ 新建」与 daily 常驻会话共用这条链路，保证首帧协议、记忆注入两个初始化
+    步骤不漂移（daily 若绕开它，新会话就永远看不到协议规则）。失败抛异常，
+    由调用方决定降级方式。
+    """
+    if not agent_id:
+        # 默认绑定固定用途的 Agent（见 CHAT_AGENT_PURPOSE 注释）
+        agent_config = (AgentConfig.objects.filter(is_active=True, purpose=CHAT_AGENT_PURPOSE).first()
+                        or AgentConfig.objects.filter(is_active=True).first())
+        if not agent_config:
+            raise RuntimeError('没有可用的 Agent 配置')
+        agent_id = agent_config.agent_id
+
+    env_config = EnvironmentConfig.objects.filter(is_default=True).first()
+    if not env_config:
+        env_config = EnvironmentConfig.objects.first()
+    if not env_config:
+        raise RuntimeError('没有可用的 Environment 配置')
+
+    service = get_service()
+    # 在 Qoder 平台创建 Session
+    session_data = service.create_session(
+        agent_id=agent_id,
+        environment_id=env_config.env_id
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        session_id=session_data['id'],
+        agent_id=agent_id,
+        title=title,
+        status='idle',
+        is_daily=is_daily,
+    )
+
+    # 首帧下发意图协议指令（失败不阻断，降级为普通对话）
+    try:
+        service.send_message(session_data['id'], build_protocol_prompt())
+    except Exception as e:
+        logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
+
+    # 首帧注入用户记忆（让 AI 天然「认识」用户）
+    try:
+        from memory.services import retrieve_memories, format_memory_for_injection
+        top_memories = retrieve_memories(user, limit=10)
+        if top_memories:
+            memory_context = format_memory_for_injection(top_memories)
+            service.send_message(session_data['id'], memory_context)
+    except Exception as e:
+        logger.warning(f'记忆注入失败（对话 {conversation.id}）: {e}')
+
+    return conversation
+
+
+def _get_or_create_daily_conversation(user):
+    """取（或建）当前用户的常驻会话「daily」
+
+    Agent 对话是 app 的默认入口：每次打开都落到同一个会话里，零选择步骤。
+    维护规则：已存在（含已归档）→ 直接复用，归档的顺手复活为 idle（常驻身份
+    不因一次归档就消失）；不存在（首次访问 / 被删）→ 走与「+ 新建」完全相同的
+    创建链路；云端失败 → 返回 None，调用方降级，绝不阻断。
+    """
+    daily = Conversation.objects.filter(user=user, is_daily=True).first()
+    if daily:
+        if daily.status == 'archived':
+            daily.status = 'idle'
+            daily.save(update_fields=['status', 'updated_at'])
+        return daily
+    try:
+        return _create_conversation_for_user(user, title='daily', is_daily=True)
+    except Exception as e:
+        logger.warning(f'创建 daily 常驻会话失败（user {user.pk}）: {e}')
+        return None
+
+
+@login_required
+def chat_home(request):
+    """站点根路径：默认落进 daily 常驻会话（Agent 对话即整个 app 的默认界面）
+
+    daily 创建失败（云端不可用等）时退回对话列表页，不把错误甩在用户脸上。
+    """
+    daily = _get_or_create_daily_conversation(request.user)
+    if daily:
+        return redirect('chat:conversation_list_with_active', conversation_id=daily.id)
+    return redirect('chat:conversation_list')
+
+
 @login_required
 def conversation_list(request, conversation_id=None):
     """对话列表 + 可选的当前对话详情（桌面端分栏 / 移动端聊天视图共用）
@@ -259,6 +349,9 @@ def conversation_list(request, conversation_id=None):
     if request.GET.get('ask') == 'weekly_review':
         weekly_review_conv = _create_weekly_review_conversation(request.user)
 
+    # daily 常驻会话 id：前端据它显隐「daily」快捷按钮行（只查不建，建是 chat_home 的事）
+    daily_conv = Conversation.objects.filter(user=request.user, is_daily=True).first()
+
     return render(request, 'chat/conversation_list.html', {
         'conversations': conversations,
         'agents': agents,
@@ -272,6 +365,7 @@ def conversation_list(request, conversation_id=None):
         'stale_conversations': get_stale_conversations(request.user, limit=3) if not query else [],
         # 周回顾对话（非空时模板自动跳转）
         'weekly_review_conv': weekly_review_conv,
+        'daily_conversation_id': daily_conv.id if daily_conv else None,
     })
 
 
@@ -311,65 +405,56 @@ def widget_messages(request, conversation_id):
 @json_login_required
 @require_POST
 def create_conversation(request):
-    """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）"""
-    agent_id = request.POST.get('agent_id')
-    if not agent_id:
-        # 默认绑定固定用途的 Agent（见 CHAT_AGENT_PURPOSE 注释）
-        agent_config = (AgentConfig.objects.filter(is_active=True, purpose=CHAT_AGENT_PURPOSE).first()
-                        or AgentConfig.objects.filter(is_active=True).first())
-        if not agent_config:
-            return JsonResponse({'error': '没有可用的 Agent 配置'}, status=400)
-        agent_id = agent_config.agent_id
+    """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）
 
-    # 获取 environment
-    env_config = EnvironmentConfig.objects.filter(is_default=True).first()
-    if not env_config:
-        env_config = EnvironmentConfig.objects.first()
-    if not env_config:
-        return JsonResponse({'error': '没有可用的 Environment 配置'}, status=400)
-
-    service = get_service()
+    创建链路统一走 _create_conversation_for_user（daily 常驻会话同源）。
+    """
     try:
-        # 在 Qoder 平台创建 Session
-        session_data = service.create_session(
-            agent_id=agent_id,
-            environment_id=env_config.env_id
-        )
-
-        # 本地创建对话记录
-        conversation = Conversation.objects.create(
-            user=request.user,
-            session_id=session_data['id'],
-            agent_id=agent_id,
-            title=f'新对话',
-            status='idle',
-        )
-
-        # 首帧下发意图协议指令（失败不阻断，降级为普通对话）
-        try:
-            service.send_message(session_data['id'], build_protocol_prompt())
-        except Exception as e:
-            logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
-
-        # 首帧注入用户记忆（让 AI 天然「认识」用户）
-        try:
-            from memory.services import retrieve_memories, format_memory_for_injection
-            top_memories = retrieve_memories(request.user, limit=10)
-            if top_memories:
-                memory_context = format_memory_for_injection(top_memories)
-                service.send_message(session_data['id'], memory_context)
-        except Exception as e:
-            logger.warning(f'记忆注入失败（对话 {conversation.id}）: {e}')
-
-        if request.htmx or request.headers.get('Accept') == 'application/json':
-            return JsonResponse({
-                'conversation_id': conversation.id,
-                'title': conversation.title,
-            })
-        return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
+        conversation = _create_conversation_for_user(
+            request.user, agent_id=request.POST.get('agent_id') or None)
+    except RuntimeError as e:
+        # Agent/Environment 缺配置是环境问题，不是云端故障：400 与旧口径一致
+        return JsonResponse({'error': str(e)}, status=400)
     except Exception as e:
         logger.error(f'Failed to create conversation: {e}')
         return JsonResponse({'error': str(e)}, status=500)
+
+    if request.htmx or request.headers.get('Accept') == 'application/json':
+        return JsonResponse({
+            'conversation_id': conversation.id,
+            'title': conversation.title,
+        })
+    return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
+
+
+@json_login_required
+@require_POST
+def local_card_create(request, conversation_id):
+    """非 AI 快捷卡片：点击 → 服务端直出，不碰 Qoder、不耗 token、不算一轮 turn
+
+    以 role='system' 消息落库（payload 走既有卡片协议）：消息历史本来就不进 AI
+    上下文（_build_ai_content 只组装 turn_prompt），$LAST_REPLY 引用池也只认
+    assistant（_referenceable_reply），所以系统消息既不污染对话、也不会被当成
+    「上一条回复」。也不碰 turn 状态机：AI 正在忙时照样能出卡片，两不干扰。
+    失败静默降级为提示文本（gather 抛错只回 JSON 错误，不落消息），绝不阻断对话。
+    """
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
+    card = get_local_card(request.POST.get('card', ''))
+    if not card:
+        return JsonResponse({'error': '未知的快捷卡片'}, status=400)
+    try:
+        card_data = card['gather'](request.user)
+    except Exception as e:
+        logger.warning(f'快捷卡片 {card["key"]} 数据采集失败（对话 {conversation.id}）: {e}')
+        return JsonResponse({'error': '卡片生成失败，请稍后重试'}, status=500)
+    msg = Message.objects.create(
+        conversation=conversation,
+        role='system',
+        content=card['label'],
+        event_type=f'local.{card["key"]}',
+        payload={'card': card['key'], 'card_data': card_data},
+    )
+    return JsonResponse({'message_id': msg.id, 'html': _message_fragment(request, msg)})
 
 
 @json_login_required

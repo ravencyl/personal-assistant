@@ -12,6 +12,8 @@ urlpatterns = [
     path('<int:conversation_id>/widget-messages/', views.widget_messages, name='widget_messages'),
     path('create/', views.create_conversation, name='create_conversation'),
     path('<int:conversation_id>/send/', views.send_message, name='send_message'),
+    # 非 AI 快捷卡片：点击 → 服务端直出（不碰 Qoder / turn 状态机，JSON 由原生 fetch 消费，禁挂 hx-*）
+    path('<int:conversation_id>/local-card/', views.local_card_create, name='local_card_create'),
     # 异步收发：发送秒返回，结果靠轮询；两个端点都回 JSON，由原生 fetch 消费（禁止挂 hx-*）
     path('<int:conversation_id>/turn/', views.turn_poll, name='turn_poll'),
     path('<int:conversation_id>/turn/cancel/', views.turn_cancel, name='turn_cancel'),

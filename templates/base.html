@@ -115,8 +115,9 @@
                         的页面本来就会点亮「活动记录」，归属关系是对的。
                         {% endcomment %}
                         <div class="hidden md:ml-10 md:flex md:space-x-2">
-                            <a href="/"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'home' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                            {# 「今日」指 Daily 简报页（/daily/）；首页 / 已改为直接落进对话（daily 常驻会话） #}
+                            <a href="{% url 'daily' %}"
+                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'daily' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 今日
                             </a>
                             <a href="{% url 'today' %}"
@@ -256,8 +257,8 @@
     </div>
     {% endif %}
 
-        <!-- Main content（移动端底部预留 Tab 栏高度） -->
-        <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-28 md:pb-8">
+        <!-- Main content（移动端底部预留 Tab 栏高度；main_class 供聊天等页面加宽/减留白） -->
+        <main class="{% block main_class %}mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-28 md:pb-8{% endblock %}">
             {% block content %}{% endblock %}
         </main>
     </div>
@@ -268,11 +269,11 @@
          记忆使用频率低且不在手机上读，暂不占位 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pointer-events-none">
         <div class="glass-tab-bar pointer-events-auto mx-auto max-w-sm flex items-center justify-between rounded-full px-2 py-1.5">
-            <a href="/" aria-label="今日" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'home' %}bg-[var(--accent-hover)] text-white px-3.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+            <a href="{% url 'daily' %}" aria-label="今日" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'daily' %}bg-[var(--accent-hover)] text-white px-3.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
                 </svg>
-                <span class="text-xs font-medium {% if request.resolver_match.url_name != 'home' %}hidden{% endif %}">今日</span>
+                <span class="text-xs font-medium {% if request.resolver_match.url_name != 'daily' %}hidden{% endif %}">今日</span>
             </a>
             <a href="{% url 'activities:activity_list' %}" aria-label="活动" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'activities' %}bg-[var(--accent-hover)] text-white px-3.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">

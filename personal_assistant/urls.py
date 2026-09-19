@@ -9,10 +9,16 @@ from core.views import (dashboard, search_api, weekly_report, monthly_report, ye
                         weekly_review_view, weekly_review_complete_view,
                         today_view, set_timezone, get_timezone)
 from activities.views import daily_view, calendar_feed
+from chat.views import chat_home
 
 urlpatterns = [
-    # 首页 = 每日简报
-    path('', daily_view, name='home'),
+    # 首页 = Agent 对话（daily 常驻会话）：对话是整个 app 的默认入口，
+    # 打开即落在对话里，零选择步骤；daily 创建失败自动退回对话列表
+    path('', chat_home, name='home'),
+
+    # Daily 简报页（原首页）：保留完整页面，从导航「今日」进入；
+    # 同一份数据层（gather_daily）也供对话里的 daily 简报卡使用
+    path('daily/', daily_view, name='daily'),
 
     # Dashboard
     path('dashboard/', dashboard, name='dashboard'),

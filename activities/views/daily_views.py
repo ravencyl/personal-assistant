@@ -49,11 +49,16 @@ def _detect_conflicts(activities):
     return conflict_ids
 
 
-@login_required
-def daily_view(request):
-    """每日简报：展示当天活动概况、进行中/即将开始/近期完成的活动"""
+def gather_daily(user):
+    """Daily 页与对话里的 daily 简报卡共用的数据采集层（2026-09-19 从 daily_view 抽出）
+
+    只查数据，不碰纯展示件（问候语、新建表单等仍归 daily_view）。
+    可见性口径照旧：活动列表走 visible_qs；花费合计是「我花了多少」的
+    个人指标，故意只算本人（AGENTS.md「两个可见性口径」）。
+    返回 dict，键与 daily_view 的模板上下文一一对应。
+    """
     today = timezone.localdate()
-    qs = visible_qs(Activity, request.user).prefetch_related('tags', 'participants')
+    qs = visible_qs(Activity, user).prefetch_related('tags', 'participants')
 
     # ── 今日活动：start_date <= today 且 (end_date >= today 或无 end_date) ──
     ongoing = list(qs.filter(
@@ -101,21 +106,16 @@ def daily_view(request):
     # ── 统计：今日实际消费 / 本周消费（按 paid_at 筛选）──
     # 这两个是「我花了多少」的个人指标，故意只算本人费用（不走 visible_qs）；
     # 页面上的活动列表则统一跟 visible_qs 口径。参见 AGENTS.md「两个可见性口径」。
-    today_expense = Expense.objects.filter(
-        user=request.user,
+    today_expense = float(Expense.objects.filter(
+        user=user,
         paid_at=today,
-    ).aggregate(s=Sum('amount'))['s'] or 0
+    ).aggregate(s=Sum('amount'))['s'] or 0)
 
     this_week_start = week_monday(today)
-    this_week_expense = Expense.objects.filter(
-        user=request.user,
+    this_week_expense = float(Expense.objects.filter(
+        user=user,
         paid_at__gte=this_week_start,
-    ).aggregate(s=Sum('amount'))['s'] or 0
-
-    # 问候 + 日期星期
-    greeting = _greeting()
-    weekdays = WEEKDAY_LABELS
-    today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
+    ).aggregate(s=Sum('amount'))['s'] or 0)
 
     # ── 过期未完成自动滚入：status='planned' 且 start_date < today ──
     overdue_rolled_in = list(qs.filter(
@@ -130,7 +130,7 @@ def daily_view(request):
 
     # ── AI 今日建议：读 cron 预计算缓存，无缓存时快速规则降级（不调 AI） ──
     from ..models import DailySuggestion
-    cached = DailySuggestion.objects.filter(user=request.user, date=today).first()
+    cached = DailySuggestion.objects.filter(user=user, date=today).first()
     if cached:
         ai_suggestion = cached.suggestion
         ai_suggestion_is_ai = cached.is_ai
@@ -157,7 +157,7 @@ def daily_view(request):
     try:
         from memory.models import Memory
         pattern_insights = list(
-            visible_qs(Memory, request.user)
+            visible_qs(Memory, user)
             .filter(category='habit', content__startswith='[模式]')
             .values_list('content', flat=True)[:3]
         )
@@ -166,14 +166,8 @@ def daily_view(request):
     except Exception as exc:
         logger.warning('行为模式读取降级: %s', exc)
 
-    return render(request, 'activities/daily.html', {
+    return {
         'today': today,
-        'today_display': today_display,
-        'greeting': greeting,
-        # 新建活动弹窗（与列表页共用 partial）：空白表单 + chips 联想数据
-        'form': ActivityForm(user=request.user),
-        'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
-        'all_tags': _user_tag_names(request.user),
         'ongoing': ongoing,
         'starting_today': starting_today,
         'ending_today': ending_today,
@@ -185,10 +179,99 @@ def daily_view(request):
         'ai_suggestion': ai_suggestion,
         'ai_suggestion_is_ai': ai_suggestion_is_ai,
         'pattern_insights': pattern_insights,
-        'today_expense': float(today_expense),
-        'this_week_expense': float(this_week_expense),
+        'today_expense': today_expense,
+        'this_week_expense': this_week_expense,
         'ongoing_count': len(ongoing) + len(starting_today),
         'in_progress_count': exclude_daily_bucket(qs).filter(status='in_progress').count(),
+    }
+
+
+def daily_brief_payload(user):
+    """daily 简报卡的快照数据（chat.local_cards 注册的 gather）
+
+    非 AI 快捷卡片机制的数据源：纯服务端查询，不碰云端 Agent、不耗 token。
+    返回值整份存进 Message.payload.card_data，历史渲染只读快照不回查 ——
+    所以这里只放可 JSON 序列化的标量（活动只留 id/name/meta/cost）。
+    """
+    data = gather_daily(user)
+    today = data['today']
+
+    def _section(key, title, items, limit=5):
+        rows = []
+        for a in items[:limit]:
+            meta = a.get_status_display()
+            if a.date_range:
+                meta += f' · {a.date_range}'
+            rows.append({
+                'id': a.id,
+                'name': a.name,
+                'meta': meta,
+                'cost': float(getattr(a, 'total_cost', 0) or 0),
+                'blocked': bool(getattr(a, 'is_blocked', False)),
+            })
+        return {'key': key, 'title': title, 'items': rows, 'total': len(items)}
+
+    sections = [
+        _section('ongoing', '今日进行中', [*data['ongoing'], *data['starting_today']]),
+        _section('ending_today', '今日结束', data['ending_today']),
+        _section('upcoming', '即将开始（7 天内）', data['upcoming']),
+        _section('recently_done', '近期完成', data['recently_done']),
+        _section('in_progress', '长期进行中', data['in_progress']),
+        _section('overdue', '已过期待处理', data['overdue_rolled_in']),
+    ]
+    return {
+        'today_display': f'{today.month}月{today.day}日 · {WEEKDAY_LABELS[today.weekday()]}',
+        'counts': {
+            'ongoing': data['ongoing_count'],
+            'in_progress': data['in_progress_count'],
+            'overdue': len(data['overdue_rolled_in']),
+            'conflict': len(data['conflict_ids']),
+        },
+        'expenses': {'today': data['today_expense'], 'week': data['this_week_expense']},
+        'ai_suggestion': data['ai_suggestion'] or '',
+        'insights': data['pattern_insights'],
+        # 空分组直接不进快照：历史卡里留一排「无」的空壳毫无信息量
+        'sections': [s for s in sections if s['total']],
+    }
+
+
+@login_required
+def daily_view(request):
+    """每日简报：展示当天活动概况、进行中/即将开始/近期完成的活动
+
+    数据采集统一走 gather_daily（对话里的 daily 简报卡共用同一层，口径永不漂移）。
+    """
+    data = gather_daily(request.user)
+    today = data['today']
+
+    # 问候 + 日期星期
+    greeting = _greeting()
+    weekdays = WEEKDAY_LABELS
+    today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
+
+    return render(request, 'activities/daily.html', {
+        'today': today,
+        'today_display': today_display,
+        'greeting': greeting,
+        # 新建活动弹窗（与列表页共用 partial）：空白表单 + chips 联想数据
+        'form': ActivityForm(user=request.user),
+        'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
+        'all_tags': _user_tag_names(request.user),
+        'ongoing': data['ongoing'],
+        'starting_today': data['starting_today'],
+        'ending_today': data['ending_today'],
+        'upcoming': data['upcoming'],
+        'recently_done': data['recently_done'],
+        'in_progress': data['in_progress'],
+        'overdue_rolled_in': data['overdue_rolled_in'],
+        'conflict_ids': data['conflict_ids'],
+        'ai_suggestion': data['ai_suggestion'],
+        'ai_suggestion_is_ai': data['ai_suggestion_is_ai'],
+        'pattern_insights': data['pattern_insights'],
+        'today_expense': data['today_expense'],
+        'this_week_expense': data['this_week_expense'],
+        'ongoing_count': data['ongoing_count'],
+        'in_progress_count': data['in_progress_count'],
     })
 
 

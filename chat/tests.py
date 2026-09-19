@@ -338,7 +338,7 @@ class ConversationListDesktopLayoutTest(TestCase):
         """聊天页输入框不被 Tab 栏 / 悬浮按钮遮挡（线上实测回归锁）
 
         两层防线，缺一不可：
-        ① .chat-layout 移动端高度必须扣除 顶栏+main 顶距(80px)、Tab 栏实高+空隙(72px)
+        ① .chat-layout 移动端高度必须扣除 顶栏+main 顶距(68px)、Tab 栏实高+空隙(72px)
           与 iOS 安全区 —— 改小会让发送框被 Tab 栏压住；
         ② 移动端进入聊天视图时快记入口隐藏（面板宿主 + data-quick-toggle 按钮），
           返回列表时恢复 —— quick-fab-root wrapper id 与 [data-quick-toggle]
@@ -348,7 +348,7 @@ class ConversationListDesktopLayoutTest(TestCase):
         base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
         css = (Path(__file__).resolve().parent.parent / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
         self.assertIn(
-            'calc(100dvh - 9.5rem - env(safe-area-inset-bottom, 0px))', css,
+            'calc(100dvh - 8.75rem - env(safe-area-inset-bottom, 0px))', css,
             '移动端 .chat-layout 高度算术被改，发送框会被底部 Tab 栏遮住')
         self.assertIn('id="quick-fab-root"', base)
         self.assertIn('data-quick-toggle', base,
@@ -1352,6 +1352,7 @@ JSON_FETCH_ENDPOINTS = {
     'turn_cancel': ('post', '/chat/1/turn/cancel/'),
     'pin_conversation': ('post', '/chat/1/pin/'),
     'pin_candidates': ('get', '/chat/pin/search/'),
+    'local_card_create': ('post', '/chat/1/local-card/'),
 }
 
 
@@ -2618,3 +2619,294 @@ class ChatRagInjectionTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.conv.refresh_from_db()
         self.assertNotIn('[相关知识库内容]', self.conv.turn_prompt)
+
+
+# ==================== 交互重构：daily 常驻会话 + 非 AI 快捷卡片（2026-09-19）====================
+
+class _FakeCreateService(FakeQoderService):
+    """在 FakeQoderService 之上补 create_session：供 daily 常驻会话创建链路用
+
+    基类故意没有 create_session（发送/轮询路径若回退成“隐式建会话”会当场炸）。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.created_sessions = []
+
+    def create_session(self, agent_id, environment_id):
+        self.created_sessions.append(agent_id)
+        return {'id': f'sess_daily{len(self.created_sessions)}'}
+
+
+class DailyConversationTest(TestCase):
+    """daily 常驻会话：根路径默认落地、一次创建长期复用、归档复活、失败降级
+
+    Agent 对话是整个 app 的默认入口：/ 直接落进 daily，零选择步骤；
+    daily 本身仍是正常 AI 会话（走与「+ 新建」完全相同的创建链路）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('d', password='p')
+        self.client.force_login(self.user)
+
+    @staticmethod
+    def _make_agent_env():
+        from agents.models import AgentConfig, EnvironmentConfig
+        AgentConfig.objects.create(agent_id='agent_daily', is_active=True,
+                                   purpose='knowledge')
+        EnvironmentConfig.objects.create(env_id='env_1', is_default=True)
+
+    def test_root_redirects_to_daily_conversation(self):
+        self._make_agent_env()
+        service = _FakeCreateService()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 302)
+        conv = Conversation.objects.get(user=self.user, is_daily=True)
+        self.assertEqual(resp['Location'], f'/chat/{conv.id}/')
+        self.assertEqual(conv.title, 'daily')
+        # 与「+ 新建」同链路：首帧协议必须已下发（否则新会话永远看不到协议规则）
+        self.assertTrue(service.sent)
+
+    def test_daily_is_created_once_and_reused(self):
+        self._make_agent_env()
+        service = _FakeCreateService()
+        with patch('chat.views.get_service', return_value=service):
+            self.client.get('/')
+            self.client.get('/')
+        self.assertEqual(
+            Conversation.objects.filter(user=self.user, is_daily=True).count(), 1)
+        self.assertEqual(len(service.created_sessions), 1)
+
+    def test_archived_daily_is_revived(self):
+        """常驻身份不因一次归档就消失：再访问时复活为 idle"""
+        conv = Conversation.objects.create(
+            user=self.user, session_id='sess_d', agent_id='ag_d',
+            title='daily', is_daily=True, status='archived')
+        resp = self.client.get('/')
+        self.assertEqual(resp['Location'], f'/chat/{conv.id}/')
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, 'idle')
+
+    def test_creation_failure_falls_back_to_list(self):
+        """云端不可用（无 Agent 配置）时退回列表页，不把错误甩在用户脸上"""
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], '/chat/')
+        self.assertFalse(
+            Conversation.objects.filter(user=self.user, is_daily=True).exists())
+
+    def test_login_required(self):
+        self.client.logout()
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/login/', resp['Location'])
+
+    def test_daily_page_renders_local_card_row(self):
+        """分栏页带出 daily 会话 id：daily 按钮行只对常驻会话可见（JS 按 id 显隐）"""
+        conv = Conversation.objects.create(
+            user=self.user, session_id='sess_d', agent_id='ag_d',
+            title='daily', is_daily=True)
+        resp = self.client.get(f'/chat/{conv.id}/')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertIn(f'data-daily-id="{conv.id}"', html)
+        self.assertIn('data-local-card="daily_brief"', html)
+        # 非 daily 会话：按钮行仍在 DOM（JS 统一控显隐），但 data-daily-id 对不上
+        other = Conversation.objects.create(
+            user=self.user, session_id='sess_o', agent_id='ag_o', title='普通对话')
+        html2 = self.client.get(f'/chat/{other.id}/').content.decode()
+        self.assertNotIn(f'data-daily-id="{other.id}"', html2)
+
+    def test_nav_points_to_daily_page(self):
+        """「今日」入口指 Daily 简报页；首页 / 已让给对话（默认入口互换）"""
+        conv = Conversation.objects.create(
+            user=self.user, session_id='sess_d', agent_id='ag_d',
+            title='daily', is_daily=True)
+        html = self.client.get(f'/chat/{conv.id}/').content.decode()
+        self.assertIn('href="/daily/"', html)
+        # Daily 简报页本身仍然可访（数据层抽出后行为不变）
+        resp = self.client.get('/daily/')
+        self.assertEqual(resp.status_code, 200)
+
+
+class LocalCardTest(TestCase):
+    """非 AI 快捷卡片：点击 → 服务端直出（不碰 Qoder / turn 状态机 / token）
+
+    三条硬边界：不调云端（消息历史本来就不进 AI 上下文）；不占 turn 锁
+    （AI 忙时照样能出卡）；失败降级为提示文本（绝不阻断对话）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('lc', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_lc', agent_id='ag_lc',
+            title='daily', is_daily=True)
+        self.url = f'/chat/{self.conv.id}/local-card/'
+
+    def _activity(self, **kw):
+        defaults = dict(user=self.user, name='贵州行', status='planned',
+                        start_date=timezone.localdate() + timedelta(days=2))
+        defaults.update(kw)
+        return Activity.objects.create(**defaults)
+
+    def test_local_card_creates_system_message_with_snapshot(self):
+        self._activity()
+        resp = self.client.post(self.url, {'card': 'daily_brief'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        msg = Message.objects.get(id=data['message_id'])
+        self.assertEqual(msg.role, 'system')
+        self.assertEqual(msg.event_type, 'local.daily_brief')
+        self.assertEqual(msg.payload['card'], 'daily_brief')
+        self.assertTrue(msg.payload['card_data']['sections'])
+        # 返回的是服务端渲染的消息片段（模板只有一份，前端只 append）
+        self.assertIn('chat-message', data['html'])
+
+    def test_local_card_does_not_touch_turn_or_qoder(self):
+        """FakeQoderService 故意没有 create_session：真被调去碰云端会当场炸"""
+        service = FakeQoderService()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.post(self.url, {'card': 'daily_brief'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(service.sent, [], '快捷卡片不得向云端发送任何消息')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_NONE)
+
+    def test_local_card_works_while_ai_is_busy(self):
+        """不占 turn 锁：AI 正在跑也能出卡，两不干扰"""
+        self.conv.turn_state = Conversation.TURN_AWAITING
+        self.conv.turn_started_at = timezone.now()
+        self.conv.save()
+        resp = self.client.post(self.url, {'card': 'daily_brief'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_AWAITING)
+
+    def test_unknown_card_rejected(self):
+        resp = self.client.post(self.url, {'card': 'nope'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_other_users_conversation_404(self):
+        other = User.objects.create_user('o', password='p')
+        conv2 = Conversation.objects.create(user=other, session_id='s2', agent_id='a2')
+        resp = self.client.post(f'/chat/{conv2.id}/local-card/',
+                                {'card': 'daily_brief'}, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_gather_failure_degrades_without_message(self):
+        """gather 抛异常只回错误提示（前端降级为瞬态文本），不落消息不阻断"""
+        from chat import local_cards
+        registry_patch = patch.dict(local_cards._REGISTRY, {
+            'boom': {'key': 'boom', 'label': 'b', 'gather': lambda u: 1 / 0}})
+        with registry_patch:
+            resp = self.client.post(self.url, {'card': 'boom'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 500)
+        self.assertIn('error', resp.json())
+        self.assertFalse(Message.objects.filter(conversation=self.conv).exists())
+
+    def test_history_renders_snapshot_without_requery(self):
+        """快照式 payload：历史渲染只读卡片数据，回看不随后端数据漂移"""
+        self._activity()
+        resp = self.client.post(self.url, {'card': 'daily_brief'},
+                                HTTP_ACCEPT='application/json')
+        msg = Message.objects.get(id=resp.json()['message_id'])
+        html = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
+        self.assertIn('贵州行', html)
+        self.assertIn(str(msg.id), html)
+        # 之后把活动改名：历史卡仍是点按钮那一刻的快照
+        self._activity_set_name(msg, '贵州行', renamed='改名后的活动')
+        html2 = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
+        self.assertIn('贵州行', html2)
+
+    @staticmethod
+    def _activity_set_name(msg, old, renamed):
+        from activities.models import Activity
+        Activity.objects.filter(name=old).update(name=renamed)
+
+    def test_system_message_is_not_referenceable_as_last_reply(self):
+        """$LAST_REPLY 引用池只认 assistant：系统卡片不会被当成「上一条回复」展开"""
+        Message.objects.create(conversation=self.conv, role='system',
+                               content='daily', event_type='local.daily_brief')
+        self.assertIsNone(chat_views._referenceable_reply(self.conv))
+
+    def test_system_message_never_enters_turn_prompt(self):
+        """非 AI 消息不进 AI 上下文：发送新消息时 turn_prompt 不含卡片内容"""
+        self._activity()
+        self.client.post(self.url, {'card': 'daily_brief'},
+                         HTTP_ACCEPT='application/json')
+        service = FakeQoderService()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.post(f'/chat/{self.conv.id}/send/',
+                                    {'content': '今天有什么安排', 'page_context': 'chat'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertIn('今天有什么安排', self.conv.turn_prompt)
+        self.assertNotIn('今日进行中', self.conv.turn_prompt,
+                         '简报卡内容不得漏进 AI 上下文（它只活在消息历史的 payload 里）')
+
+
+class ChatWideLayoutTest(SimpleTestCase):
+    """对话区加宽：base.html 的 main_class 钩子 + 聊天页覆盖 + 侧栏折叠"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = Path(__file__).resolve().parent.parent
+        cls.base_html = (base / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.list_html = (base / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
+        cls.css = (base / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+
+    def test_main_class_hook_exists(self):
+        self.assertIn('{% block main_class %}', self.base_html)
+
+    def test_chat_page_widens_container(self):
+        self.assertIn('{% block main_class %}mx-auto max-w-[1700px]', self.list_html)
+
+    def test_sidebar_collapse_wiring(self):
+        self.assertIn('id="sidebar-toggle"', self.list_html)
+        self.assertIn("localStorage.getItem('pa-chat-sidebar')", self.list_html)
+        self.assertIn('.chat-layout.sidebar-collapsed .chat-sidebar', self.css)
+
+
+class FollowUpCollapseTest(SimpleTestCase):
+    """chips 收敛：历史回复的 chips 折叠、超量折叠，把空间还给消息流
+
+    三方接线（JS 逻辑 / CSS 类 / 模板标记）缺一就静默失效，所以全部静态锁。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = Path(__file__).resolve().parent.parent
+        cls.js = (base / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+        cls.tpl = (base / 'templates' / 'chat' / 'cards' / '_follow_ups.html').read_text(encoding='utf-8')
+        cls.css = (base / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+
+    def test_tidy_helper_exists_and_hooks(self):
+        self.assertIn('window.paTidyFollowUps', self.js)
+        self.assertIn("querySelectorAll('[data-follow-ups]')", self.js)
+        # 两条触发路径都要在：append 后重跑 + 页面加载完首跑
+        self.assertIn('window.paTidyFollowUps(messagesEl)', self.js)
+        self.assertIn('window.paTidyFollowUps(document)', self.js)
+
+    def test_folded_class_has_css(self):
+        self.assertIn('.follow-ups-folded', self.css)
+
+    def test_template_marker_intact(self):
+        self.assertIn('data-follow-ups', self.tpl)
+        self.assertIn('data-followup="{{ item }}"', self.tpl)
+
+    def test_more_button_never_sends(self):
+        """「还有 N 条建议…」展开钮不得带 data-followup（否则会被发送委托误发）"""
+        self.assertIn("setAttribute('data-followups-more'", self.js)
+        tidy_body = self.js.split('window.paTidyFollowUps =')[1].split('window.PaChatTurn')[0]
+        self.assertNotIn("'data-followup'", tidy_body.replace("'[data-followup]'", ''),
+                         '收敛函数内部不得给任何元素挂 data-followup 属性')
