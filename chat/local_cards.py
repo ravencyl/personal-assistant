@@ -35,11 +35,13 @@ def get_local_card(key):
 
 
 def _register_defaults():
-    """内置卡片。gather 一律函数内延迟导入：activities 是业务 app，
+    """内置卡片。gather 一律函数内延迟导入：core/activities 是其他 app，
     让 import 发生在首次真正取卡片时，避免模块加载顺序耦合。"""
     from activities.views.daily_views import daily_brief_payload
+    from core.views import today_brief_payload
 
     register_local_card('daily_brief', 'daily', daily_brief_payload)
+    register_local_card('today_brief', '工作台', today_brief_payload)
 
 
 _register_defaults()

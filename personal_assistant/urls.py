@@ -65,7 +65,8 @@ urlpatterns = [
     path('weekly-review/', weekly_review_view, name='weekly_review'),
     path('weekly-review/complete/', weekly_review_complete_view, name='weekly_review_complete'),
 
-    # Today View
+    # /today/ 工作台页已下线（2026-09-19，与 /daily/ 同口径）：信息收进对话里的工作台卡；
+    # 路由保留重定向回首页，name 不变让旧书签/模板 url 标签不破
     path('today/', today_view, name='today'),
 
     # Timezone

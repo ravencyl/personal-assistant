@@ -1,0 +1,91 @@
+{% comment %}工作台快捷卡：非 AI 快捷卡片（chat.local_cards 注册的 today_brief）的展示模板。
+
+数据是点按钮那一刻的服务端快照（msg.payload.card_data），只读不回查：
+活动/笔记/文章行只带 id/name/标量与「X 天前」（快照时算死，回看不漂移）。
+样式沿用 daily_brief_card.html 的行式卡片语言，不引新的视觉词汇。
+变量：card（today_brief_payload 的返回值）
+{% endcomment %}
+<div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
+    <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-medium text-zinc-500">{{ card.today_display }} · 工作台</span>
+    </div>
+    {% if card.focus_items %}
+    <div class="mt-2 pt-1">
+        <p class="text-xs font-medium text-zinc-500">今日焦点</p>
+        {% for item in card.focus_items %}
+        <a href="{{ item.url }}" class="mt-1 flex items-center gap-2 text-sm min-w-0">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--accent)]"></span>
+            <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</span>
+            <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.reason }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if card.today_activities %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs font-medium text-zinc-500">今日活动</p>
+        {% for item in card.today_activities %}
+        <a href="{% url 'activities:activity_detail' item.id %}" class="mt-1 block text-sm min-w-0">
+            <div class="flex items-center gap-2">
+                <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</span>
+                <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.date_range }}</span>
+            </div>
+            {% if item.tags %}
+            <div class="mt-0.5 flex flex-wrap gap-1">
+                {% for tag in item.tags %}<span class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">{{ tag }}</span>{% endfor %}
+            </div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs text-zinc-500">今天暂无活动安排</p>
+    </div>
+    {% endif %}
+    {% if card.recent_notes %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs font-medium text-zinc-500">近期笔记</p>
+        {% for item in card.recent_notes %}
+        <a href="{% url 'notes:note_edit' item.id %}" class="mt-1 flex items-center gap-2 text-sm min-w-0">
+            <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.excerpt }}</span>
+            <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.ago }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if card.recent_articles %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs font-medium text-zinc-500">近期知识</p>
+        {% for item in card.recent_articles %}
+        <a href="{% url 'knowledge:article_detail' slug=item.slug %}" class="mt-1 flex items-center gap-2 text-sm min-w-0">
+            <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.title }}</span>
+            <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.ago }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if card.today_memories %}
+    <div class="mt-2 pt-2 border-t border-zinc-100">
+        <p class="text-xs font-medium text-zinc-500">相关记忆</p>
+        {% for item in card.today_memories %}
+        <div class="mt-1 flex items-start gap-2">
+            <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">{{ item.category }}</span>
+            <p class="text-xs text-zinc-600 min-w-0">{{ item.content }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+{% comment %}后续操作行：工作台页已下线，建/记/问的能力直接挂在卡片上。
+   新建活动/记一笔/新建备忘走快记面板（data-quick-open，chat-turn.js 委托调 paQuickOpen）。{% endcomment %}
+    <div class="mt-2 pt-2 border-t border-zinc-100 flex flex-wrap items-center gap-1.5">
+        <button type="button" data-quick-open="activity"
+                class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] hover:opacity-90">＋ 新建活动</button>
+        <button type="button" data-quick-open="note"
+                class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-zinc-600 hover:bg-[var(--accent-light)]">＋ 新建备忘</button>
+        <button type="button" data-quick-open="expense"
+                class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-zinc-600 hover:bg-[var(--accent-light)]">记一笔</button>
+        <a href="{% url 'activities:activity_list' %}"
+           class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-zinc-600 hover:bg-[var(--accent-light)]">全部活动</a>
+    </div>
+</div>

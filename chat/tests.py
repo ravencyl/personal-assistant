@@ -2710,6 +2710,7 @@ class DailyConversationTest(TestCase):
             title='daily', is_daily=True)
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
         self.assertIn('data-local-card="daily_brief"', html)
+        self.assertIn('data-local-card="today_brief"', html)
         self.assertNotIn('data-daily-id', html, '旧的按会话 id 显隐机制应已删净')
         # 非 daily 会话同样有按钮行
         other = Conversation.objects.create(
@@ -2897,6 +2898,93 @@ class DailyCardActionRowTest(SimpleTestCase):
         # 详情页没有分栏页的 updateLocalCards：onReady 必须统一撤掉按钮行初始 hidden
         self.assertIn("getElementById('local-cards')", self.js)
         self.assertIn("classList.remove('hidden')", self.js)
+
+
+class WorkbenchCardTest(TestCase):
+    """工作台快捷卡（today_brief）：/today/ 页下线后的唯一出口，机制与 daily_brief 同一套"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('wb', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_wb', agent_id='ag_wb', title='普通对话')
+        self.url = f'/chat/{self.conv.id}/local-card/'
+
+    def test_registry_has_today_brief(self):
+        from chat.local_cards import get_local_card
+        card = get_local_card('today_brief')
+        self.assertIsNotNone(card)
+        self.assertEqual(card['label'], '工作台')
+
+    def test_today_brief_creates_system_message_with_snapshot(self):
+        from activities.models import Activity
+        Activity.objects.create(user=self.user, name='今日待办',
+                                start_date=timezone.localdate(), status='planned')
+        resp = self.client.post(self.url, {'card': 'today_brief'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        msg = Message.objects.get(id=data['message_id'])
+        self.assertEqual(msg.role, 'system')
+        self.assertEqual(msg.event_type, 'local.today_brief')
+        self.assertEqual(msg.payload['card'], 'today_brief')
+        self.assertEqual(msg.payload['card_data']['today_activities'][0]['name'], '今日待办')
+        self.assertIn('chat-message', data['html'])
+
+    def test_card_renders_sections_and_action_row(self):
+        """渲染锁：焦点/活动/笔记区与卡内操作行（含备忘）都在同一份消息片段里"""
+        from activities.models import Activity
+        from notes.models import Note
+        Activity.objects.create(user=self.user, name='今日待办',
+                                start_date=timezone.localdate(), status='planned')
+        Note.objects.create(user=self.user, content='今天要买年糕')
+        resp = self.client.post(self.url, {'card': 'today_brief'},
+                                HTTP_ACCEPT='application/json')
+        html = resp.json()['html']
+        self.assertIn('今日待办', html)
+        self.assertIn('今天要买年糕', html)
+        self.assertIn('今日焦点', html)
+        for key in ('activity', 'note', 'expense'):
+            self.assertIn(f'data-quick-open="{key}"', html)
+
+    def test_today_brief_does_not_touch_turn_or_qoder(self):
+        service = FakeQoderService()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.post(self.url, {'card': 'today_brief'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(service.sent, [], '快捷卡片不得向云端发送任何消息')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_NONE)
+
+
+class WorkbenchCardWiringTest(SimpleTestCase):
+    """工作台卡的静态接线锁：partial 双按钮 / _card 分发 / 卡模板操作行与页链接退场"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = Path(__file__).resolve().parent.parent
+        cls.partial = (base / 'templates' / 'chat' / 'partials' / 'local_cards.html').read_text(encoding='utf-8')
+        cls.dispatch = (base / 'templates' / 'chat' / 'cards' / '_card.html').read_text(encoding='utf-8')
+        cls.card = (base / 'templates' / 'chat' / 'cards' / 'today_brief_card.html').read_text(encoding='utf-8')
+
+    def test_partial_has_both_buttons(self):
+        self.assertIn('data-local-card="daily_brief"', self.partial)
+        self.assertIn('data-local-card="today_brief"', self.partial)
+
+    def test_dispatch_includes_today_brief_card(self):
+        self.assertIn("msg.payload.card == 'today_brief'", self.dispatch)
+        self.assertIn('today_brief_card.html', self.dispatch)
+
+    def test_card_action_row_and_no_retired_link(self):
+        """卡内操作行走快记面板；下线页链接不得残留"""
+        self.assertIn('data-quick-open="activity"', self.card)
+        self.assertIn('data-quick-open="note"', self.card)
+        self.assertIn('data-quick-open="expense"', self.card)
+        self.assertIn("url 'activities:activity_list'", self.card)
+        self.assertNotIn("url 'today'", self.card)
+        self.assertNotIn('core/today.html', self.card)
 
 
 class ChatWideLayoutTest(SimpleTestCase):

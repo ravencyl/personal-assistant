@@ -115,11 +115,8 @@
                         的页面本来就会点亮「活动记录」，归属关系是对的。
                         {% endcomment %}
                         <div class="hidden md:ml-10 md:flex md:space-x-2">
-                            {# 「今日」导航已删：/daily/ 页下线，daily 简报在任一对话里点「daily」按钮直出（chat/partials/local_cards.html） #}
-                            <a href="{% url 'today' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.url_name == 'today' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
-                                工作台
-                            </a>
+                            {# 「今日」/「工作台」导航已删：/daily/ 与 /today/ 页均已下线 #}
+                            {# 信息在任一对话里点「daily」/「工作台」按钮直出（chat/partials/local_cards.html） #}
                             <a href="{% url 'activities:activity_list' %}"
                                class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'activities' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 活动记录

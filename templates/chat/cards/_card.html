@@ -16,4 +16,7 @@
 {% elif msg.payload and msg.payload.card == 'daily_brief' and msg.payload.card_data %}
     {# 非 AI 快捷卡片（chat.local_cards）：服务端直出的快照，历史渲染只读 payload 不回查 #}
     {% include "chat/cards/daily_brief_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'today_brief' and msg.payload.card_data %}
+    {# 同上：工作台卡（/today/ 页下线后的唯一出口） #}
+    {% include "chat/cards/today_brief_card.html" with card=msg.payload.card_data %}
 {% endif %}

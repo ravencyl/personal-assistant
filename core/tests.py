@@ -590,11 +590,11 @@ class PrimaryNavTest(TestCase):
 
     TEMPLATES = Path(settings.BASE_DIR) / 'templates'
 
-    # 桌面顶栏：六个一级模块，顺序即视觉顺序（「今日」随 /daily/ 页下线移除，
-    # daily 信息走对话里的 daily 简报卡；'工作台' 2026-09 新增）
-    DESKTOP = ['工作台', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
+    # 桌面顶栏：五个一级模块，顺序即视觉顺序（「今日」/「工作台」随 /daily/ 与
+    # /today/ 页下线移除，信息走对话里的 daily/工作台快捷卡）
+    DESKTOP = ['活动记录', 'AI 对话', '备忘', '知识库', '记忆']
     # 移动底栏：比顶栏少「记忆」（用户定的口径 —— 手机上不读记忆，使用频率也不占位）；
-    # 「今日」同样随 /daily/ 页下线移除，原位置换成快记 dock（button，不算导航条目）
+    # 「今日」同样随页下线移除，原位置换成快记 dock（button，不算导航条目）
     MOBILE = ['活动', '对话', '备忘', '知识']
     # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
 
@@ -640,6 +640,41 @@ class PrimaryNavTest(TestCase):
         items = re.findall(r'<a\b', block)
         self.assertEqual(len(items), len(self._labels(block)),
                          '底栏 <a> 数与条目清单不一致：会有空位或孤立图标')
+
+
+class TodayPageRetiredTest(TestCase):
+    """/today/ 工作台页下线（2026-09-19，与 /daily/ 同口径）：路由保留但重定向回首页，
+    旧书签 / 模板 url 标签不破；渲染层已删除，任何残留在 template 里都会 TemplateDoesNotExist"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('tb', password='p')
+        self.client = Client()
+        self.client.login(username='tb', password='p')
+
+    def test_today_url_redirects_home(self):
+        r = self.client.get(reverse('today'))
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r['Location'], reverse('home'))
+
+    def test_template_file_is_gone(self):
+        self.assertFalse(
+            (Path(settings.BASE_DIR) / 'templates' / 'core' / 'today.html').exists())
+
+    def test_gather_and_payload_still_work(self):
+        """页面下线不等于数据层下线：工作台卡仍要靠 gather_today/today_brief_payload"""
+        from activities.models import Activity as Act
+        from notes.models import Note as N
+        today = timezone.localdate()
+        Act.objects.create(user=self.user, name='今日待办', start_date=today, status='planned')
+        N.objects.create(user=self.user, content='今天要买年糕')
+        from core.views import gather_today, today_brief_payload
+        data = gather_today(self.user)
+        self.assertEqual([a.name for a in data['today_activities']], ['今日待办'])
+        self.assertEqual(len(data['recent_notes']), 1)
+        payload = today_brief_payload(self.user)
+        self.assertEqual(payload['today_activities'][0]['name'], '今日待办')
+        self.assertTrue(payload['recent_notes'][0]['ago'].endswith('前'))
+        self.assertEqual(payload['focus_items'][0]['name'], '今日待办')
 
 
 class ServiceWorkerTest(TestCase):

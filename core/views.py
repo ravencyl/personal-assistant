@@ -547,23 +547,31 @@ def _compute_daily_focus(today_activities, recent_notes):
 
 @login_required
 def today_view(request):
-    """今天视图：聚合活动/笔记/知识/记忆中与今天相关的内容
+    """/today/ 工作台页已下线（2026-09-19，与 /daily/ 同口径）：信息与后续操作全部
+    收进对话里的「工作台」快捷卡（chat.local_cards 注册的 today_brief）。
 
-    「今日工作台」概念：把分散在各模块的当天信息聚合到一个页面，
-    用户打开就知道今天该关心什么。
+    路由与 name='today' 保留：旧书签 / 模板 url 标签不破，重定向回首页
+    （= daily 常驻会话）。数据层 gather_today 仍是卡片共用的。
+    """
+    return redirect('home')
+
+
+def gather_today(user):
+    """工作台数据采集层（原 today_view 抽出，与对话里的工作台卡共用，口径永不漂移）。
+
+    只查数据不碰纯展示件；可见性口径照旧：各模块列表走 visible_qs。
+    返回 dict：today_activities / recent_notes / recent_articles / today_memories /
+    focus_items / today_display。
     """
     from datetime import timedelta
     from django.db.models import Q
-    from activities.models import Activity
     from notes.models import Note
     from knowledge.models import Article as KnowledgeArticle
     from memory.services import retrieve_memories
-    from core.tags import tag_names
 
-    user = request.user
     today = timezone.localdate()
 
-    # ── 今日活动：复用 daily_view 的 ongoing + starting_today 逻辑 ──
+    # ── 今日活动：进行中/长期跨到今天的 + 今天开始的（与 daily 口径一致的双段查询） ──
     act_qs = visible_qs(Activity, user).prefetch_related('tags', 'participants')
     ongoing = list(act_qs.filter(
         start_date__lte=today,
@@ -576,49 +584,78 @@ def today_view(request):
     ).exclude(status='done').exclude(id__in=ongoing_ids))
     today_activities = ongoing + starting_today
 
-    # ── 今日相关笔记：最近 7 天更新的，按标签交集/更新时间排序 ──
+    # ── 近期笔记：最近 7 天更新的 ──
     note_since = today - timedelta(days=7)
     recent_notes = list(visible_qs(Note, user).filter(
         updated_at__date__gte=note_since
     ).order_by('-updated_at')[:5])
 
-    # ── 今日相关知识：最近 7 天更新的文章 ──
+    # ── 近期知识：最近 7 天更新的文章 ──
     recent_articles = list(visible_qs(KnowledgeArticle, user).filter(
         updated_at__date__gte=note_since
     ).order_by('-updated_at')[:3])
 
-    # ── 今日相关记忆：按今天活动名称检索 ──
+    # ── 相关记忆：按今天活动名称检索（个人上下文口径：只算本人） ──
     today_context = ' '.join(a.name for a in today_activities[:3])
     today_memories = retrieve_memories(user, query=today_context, limit=5) if today_context else []
 
-    # ── 今日焦点：AI 智能排序 top 3 ──
+    # ── 今日焦点：规则排序 top 3（AI 建议由 DailySuggestion cron 预计算，不在这层调） ──
     focus_items = _compute_daily_focus(today_activities, recent_notes)
 
-    # ── 问候 ──
-    hour = timezone.localtime().hour
-    if hour < 6:
-        greeting = '夜深了，早点休息'
-    elif hour < 12:
-        greeting = '早上好'
-    elif hour < 14:
-        greeting = '中午好'
-    elif hour < 18:
-        greeting = '下午好'
-    else:
-        greeting = '晚上好'
     weekdays = WEEKDAY_LABELS
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
-    return render(request, 'core/today.html', {
+    return {
         'today': today,
         'today_display': today_display,
-        'greeting': greeting,
         'today_activities': today_activities,
         'recent_notes': recent_notes,
         'recent_articles': recent_articles,
         'today_memories': today_memories,
         'focus_items': focus_items,
-    })
+    }
+
+
+def today_brief_payload(user):
+    """工作台快捷卡的快照（chat.local_cards 注册的 today_brief 消费）。
+
+    只带模板需要的标量与 id/name/reason，活动/笔记/文章行各留跳转 id，
+    历史渲染只读快照不回查（与 daily_brief_payload 同一口径）。
+    相对时间（「3 天前」）在快照时算死：回看历史卡不该随时间漂移。
+    """
+    from django.utils.timesince import timesince
+
+    data = gather_today(user)
+    return {
+        'today_display': data['today_display'],
+        # 今日焦点（规则排序 top3，带 reason 与跳转 url，沿用 _compute_daily_focus 结构）
+        'focus_items': data['focus_items'],
+        # 今日活动（最多 6 条；status 供模板选色，date_range 是模型 property 纯标量）
+        'today_activities': [
+            {'id': a.id, 'name': a.name, 'status': a.status,
+             'status_display': a.get_status_display(), 'date_range': a.date_range,
+             'tags': [t.name for t in a.tags.all()]}
+            for a in data['today_activities'][:6]
+        ],
+        # 近期笔记（最多 5 条）
+        'recent_notes': [
+            {'id': n.id, 'excerpt': str(n.content)[:100],
+             'ago': f'{timesince(n.updated_at)}前'}
+            for n in data['recent_notes'][:5]
+        ],
+        # 近期知识（最多 3 条）
+        'recent_articles': [
+            {'slug': art.slug, 'title': art.title,
+             'excerpt': str(art.content)[:80],
+             'ago': f'{timesince(art.updated_at)}前'}
+            for art in data['recent_articles'][:3]
+        ],
+        # 相关记忆（category 显示名 + 正文，只读展示）
+        'today_memories': [
+            {'category': m.get_category_display(), 'content': str(m.content)}
+            for m in data['today_memories'][:5]
+        ],
+    }
 
 
 @login_required
