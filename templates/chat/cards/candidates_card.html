@@ -7,6 +7,7 @@
         <div class="flex items-center gap-2 text-sm min-w-0">
             <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ item.status }}"></span>
             <a href="{{ item.detail_url }}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
+            <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ item.id }}</span>
             <span class="text-xs text-zinc-400 shrink-0">{{ item.status_label }}</span>
             <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{{ item.date_label }}</span>
             <form hx-post="{% url 'chat:pick_candidate' msg.id %}"

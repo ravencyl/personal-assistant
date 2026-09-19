@@ -108,6 +108,14 @@ def _resolve_single(user, target, target_id=None, pick=None, include_archived=Fa
     target = str(target or '').strip()
     if not target:
         raise ToolError('请告诉我目标活动的名称')
+    if target.isdigit():
+        # 卡片与列表页都展示活动 ID（#N）：用户说「为活动 3 添加费用」时
+        # 模型会把 3 写进 target，按名称模糊匹配数字必然误伤，这里按 ID 直达
+        by_id = visible_qs(Activity, user,
+                           include_archived=include_archived).filter(id=int(target)).first()
+        if by_id is None:
+            raise ToolError(f'没有 ID 为 {target} 的活动（ID 见对话卡片或列表页活动名旁的 #N）')
+        return by_id
     qs = visible_qs(Activity, user, include_archived=include_archived).filter(name__icontains=target)
     count = qs.count()
     if count == 0:
@@ -788,7 +796,7 @@ def _auto_expense_target(user, note):
 
 
 @agent_tool('activities.add_expense', '为活动添加一笔费用（目标可省略，自动归属 ）',
-            lambda: 'target（活动名称关键词，可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
+            lambda: 'target（活动名称关键词或活动 ID（纯数字，见卡片/列表上的 #N），可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
             'note 关键词唯一命中的进行中活动，都没有则记入「日常开支」）+ '
             'amount（金额，必填）+ '
             'tags（标签，字符串数组，可选，如 ["餐饮"]）+ '

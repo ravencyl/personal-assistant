@@ -4,6 +4,7 @@
     <div class="p-3">
         <div class="flex items-center justify-between gap-2">
             <a href="{{ card.detail_url }}" class="font-medium text-sm text-zinc-900 hover:text-zinc-600 truncate">{{ card.name }}</a>
+            <span class="shrink-0 text-[10px] text-zinc-400 tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ card.id }}</span>
             {% include "activities/_status_badge.html" with status=card.status label=card.status_label %}
         </div>
         <p class="mt-1 text-xs text-zinc-500">{{ card.date_range }}{% if card.expense_total %} · &#165;{{ card.expense_total|floatformat:"-2" }}{% endif %}</p>
@@ -24,6 +25,7 @@
             <div class="flex items-center gap-1.5 text-xs py-0.5">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
                 <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
+                <span class="text-[10px] text-zinc-400 tabular-nums">#{{ c.id }}</span>
                 {% if c.date_label %}<span class="text-zinc-400 ml-auto shrink-0 tabular-nums">{{ c.date_label }}</span>{% endif %}
             </div>
             {% endfor %}
@@ -35,6 +37,7 @@
                     <div class="flex items-center gap-1.5 text-xs py-0.5">
                         <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
                         <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
+                        <span class="text-[10px] text-zinc-400 tabular-nums">#{{ c.id }}</span>
                         {% if c.date_label %}<span class="text-zinc-400 ml-auto shrink-0 tabular-nums">{{ c.date_label }}</span>{% endif %}
                     </div>
                     {% endfor %}

@@ -28,6 +28,7 @@
         <a href="{% url 'activities:activity_detail' item.id %}" class="mt-1 block text-sm min-w-0">
             <div class="flex items-center gap-2">
                 <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</span>
+                <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums">#{{ item.id }}</span>
                 <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.date_range }}</span>
             </div>
             {% if item.tags %}

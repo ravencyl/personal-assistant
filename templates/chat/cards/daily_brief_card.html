@@ -29,6 +29,7 @@ sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
                 {% if item.blocked %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" title="被其他活动阻塞"></span>
                 {% else %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-300"></span>{% endif %}
                 <a href="{% url 'activities:activity_detail' item.id %}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
+                <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums">#{{ item.id }}</span>
                 <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{% if item.cost %}¥{{ item.cost|floatformat:0 }} · {% endif %}{{ item.meta }}</span>
             </div>
             {% endfor %}

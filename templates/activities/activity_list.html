@@ -305,6 +305,7 @@
                         <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %} hover:text-[var(--text-secondary)]">
                             {{ activity.name }}
                         </a>
+                        <span class="text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ activity.id }}</span>
                     </div>
                     {% if not tree_mode and activity.parent %}
                     <span class="ml-1 text-xs text-[var(--text-muted)]">└ {{ activity.parent.name }}</span>
@@ -361,6 +362,7 @@
                 {% endif %}
                 <a href="{% url 'activities:activity_detail' activity.id %}"
                    class="py-1 text-[15px] font-medium leading-snug {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %} break-words min-w-0">{{ activity.name }}</a>
+                <span class="shrink-0 text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ activity.id }}</span>
             </div>
             <span class="shrink-0 flex items-center gap-1.5">
                 {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}

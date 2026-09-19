@@ -377,6 +377,64 @@ class ParticipantAgentToolTest(TestCase):
         self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
 
 
+class ToolTargetNumericIdTest(TestCase):
+    """target 为纯数字时按活动 ID 直达（2026-09-19，卡片/列表展示 #ID 后配套）
+
+    用户看到 ID 后会说「为活动 3 添加费用」：按名称模糊匹配「3」必然误伤，
+    必须在 _resolve_single 里拦住纯数字 target 改走 ID 查询。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.tool = get_tool('activities.add_expense')
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_numeric_target_resolves_by_id_not_name(self):
+        """target=纯数字 ID 命中对应活动（名称里没有数字，模糊匹配永远命不中）"""
+        activity = Activity.objects.create(user=self.user, name='桐庐旅行')
+        self.tool['fn'](self.user, {'target': str(activity.id), 'amount': 66})
+        self.assertEqual(Expense.objects.get().activity_id, activity.id)
+
+    def test_numeric_target_missing_id_raises_tool_error(self):
+        with self.assertRaises(ToolError) as ctx:
+            self.tool['fn'](self.user, {'target': '999999', 'amount': 1})
+        self.assertIn('没有 ID 为 999999 的活动', str(ctx.exception))
+
+    def test_numeric_target_of_other_user_raises_tool_error(self):
+        """别人的活动 ID 不可见（可见性校验在 ID 分支同样生效）"""
+        other = User.objects.create_user('someone', password='test')
+        Activity.objects.create(user=other, name='别人的活动')
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {'target': str(Activity.objects.first().id), 'amount': 1})
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_name_target_with_digits_still_matches_by_name(self):
+        """名称含数字的正常路径不受影响（target 非纯数字才走名称匹配）"""
+        Activity.objects.create(user=self.user, name='项目2026')
+        self.tool['fn'](self.user, {'target': '项目2026', 'amount': 10})
+        self.assertEqual(Expense.objects.get().activity.name, '项目2026')
+
+
+class ActivityIdDisplayTest(SimpleTestCase):
+    """活动 ID 展示锁：对话卡片与列表页活动名旁都标 #N，供用户直接口述 ID 操作"""
+
+    EXPECTED = {
+        'templates/chat/cards/activity_card.html': ['#{{ card.id }}', '#{{ c.id }}'],
+        'templates/chat/cards/activity_list_card.html': ['#{{ item.id }}'],
+        'templates/chat/cards/candidates_card.html': ['#{{ item.id }}'],
+        'templates/chat/cards/daily_brief_card.html': ['#{{ item.id }}'],
+        'templates/chat/cards/today_brief_card.html': ['#{{ item.id }}'],
+        'templates/activities/activity_list.html': ['#{{ activity.id }}'],
+    }
+
+    def test_all_surfaces_render_activity_id(self):
+        root = Path(__file__).resolve().parent.parent
+        for rel, markers in self.EXPECTED.items():
+            html = (root / rel).read_text(encoding='utf-8')
+            for m in markers:
+                self.assertIn(m, html, f'{rel} 缺少活动 ID 标注 {m}')
+
+
 class ParticipantQuickEndpointTest(TestCase):
     """快速创建 / 一句话子任务：未命中的参与者跳过并在响应 note 中说明"""
 
