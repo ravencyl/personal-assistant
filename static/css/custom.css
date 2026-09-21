@@ -193,6 +193,29 @@ textarea {
     box-shadow: var(--shadow-lg), 0 24px 64px rgba(100, 120, 232, 0.28);
 }
 
+/* 问 AI 抽屉：活动详情页内嵌对话（2026-09-21）。
+   开关不依赖 Tailwind 的 hidden：display 只在这里定义一处，
+   .ask-drawer-open 加上才显示，避免 hidden 与 flex 同层冲突（turn_status 同款教训）。 */
+.ask-drawer {
+    display: none;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg), 0 24px 64px rgba(100, 120, 232, 0.22);
+}
+
+.ask-drawer.ask-drawer-open {
+    display: flex;
+    animation: ask-drawer-in 0.22s ease-out;
+}
+
+@keyframes ask-drawer-in {
+    from { transform: translateX(24px); opacity: 0.4; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ask-drawer.ask-drawer-open { animation: none; }
+}
+
 /* 主按钮（黑底白字）：微阴影 + hover 上浮，点按下收——按钮要有「物理感」 */
 .btn-accent {
     background-color: var(--accent) !important;

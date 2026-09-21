@@ -1312,6 +1312,102 @@ class ChatPinTest(TestCase):
         self.assertIn('新西兰旅游', html)
 
 
+class _CreateSessionFakeService(FakeQoderService):
+    """在 FakeQoderService 上补 create_session（真实链路建对话时要先开云端 session）"""
+
+    def create_session(self, agent_id, environment_id):
+        n = getattr(self, 'sessions_created', 0) + 1
+        self.sessions_created = n
+        return {'id': f'sess_act_{n}'}
+
+
+class ActivityConversationEndpointTest(TestCase):
+    """活动专属对话 create-or-get（详情页「问 AI」抽屉入口）
+
+    口径：每个活动同时最多一个活跃专属对话，按 pin_activity 定位；
+    复用 = 历史可回溯 + 钉选注入只建一次。越权/不存在返回 JSON 404
+    （不是 HTML 错误页 —— fetch 消费端拿 HTML 会炸 r.json()）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.other = User.objects.create_user('o', password='p')
+        self.client.force_login(self.user)
+        from agents.models import AgentConfig, EnvironmentConfig
+        AgentConfig.objects.create(
+            agent_id='agent_chat', name='对话', purpose='knowledge', is_active=True)
+        EnvironmentConfig.objects.create(
+            env_id='env_default', name='默认', is_default=True)
+        self.activity = Activity.objects.create(user=self.user, name='新西兰旅游')
+        self.foreign = Activity.objects.create(user=self.other, name='别人的活动')
+        self.url = f'/chat/for-activity/{self.activity.id}/'
+
+    def _get(self, service):
+        with patch('chat.views.get_service', return_value=service):
+            return self.client.get(self.url, HTTP_ACCEPT='application/json')
+
+    def test_creates_conversation_pinned_to_activity(self):
+        data = self._get(_CreateSessionFakeService()).json()
+        conv = Conversation.objects.get(id=data['conversation_id'])
+        self.assertEqual(conv.pin_activity_id, self.activity.id)
+        self.assertEqual(conv.user, self.user)
+        self.assertIn('新西兰旅游', conv.title)
+        self.assertTrue(data['created'])
+        self.assertEqual(data['activity_name'], '新西兰旅游')
+        # urls 四件套齐全（抽屉全靠它们挂 PaChatTurn）
+        base = f'/chat/{conv.id}'
+        self.assertEqual(data['urls'], {
+            'send': f'{base}/send/',
+            'poll': f'{base}/turn/',
+            'cancel': f'{base}/turn/cancel/',
+            'messages': f'{base}/widget-messages/',
+        })
+
+    def test_same_activity_reuses_the_same_conversation(self):
+        first = self._get(_CreateSessionFakeService()).json()['conversation_id']
+        second = self._get(_CreateSessionFakeService()).json()
+        self.assertEqual(second['conversation_id'], first)
+        self.assertFalse(second['created'])
+        self.assertEqual(Conversation.objects.filter(user=self.user).count(), 1)
+
+    def test_foreign_activity_returns_json_404(self):
+        resp = self.client.get(f'/chat/for-activity/{self.foreign.id}/',
+                               HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())   # JSON 而不是 HTML 错误页
+
+    def test_missing_activity_returns_json_404(self):
+        resp = self.client.get('/chat/for-activity/999999/',
+                               HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(self.url, HTTP_ACCEPT='application/json')
+        self.assertIn(resp.status_code, (302, 401))
+
+    def test_archived_conversation_is_not_reused(self):
+        """归档不复活：旧对话被归档后，本活动下次打开新建一个"""
+        service = _CreateSessionFakeService()
+        first_id = self._get(service).json()['conversation_id']
+        Conversation.objects.filter(id=first_id).update(status='archived')
+        data = self._get(service).json()
+        self.assertNotEqual(data['conversation_id'], first_id)
+        self.assertTrue(data['created'])
+
+    def test_manually_unpinned_conversation_is_not_reused(self):
+        """软策略（AGENTS.md 抽屉小节有记）：用户在聊天页手动取消钉/改钉到别的
+        活动后，原活动下次打开新建一个 —— 不做迁移，锁定这个行为防止有人顺手
+        「优化」成全局复用而丢掉钉选语义"""
+        service = _CreateSessionFakeService()
+        conv_id = self._get(service).json()['conversation_id']
+        Conversation.objects.filter(id=conv_id).update(pin_activity=None)
+        data = self._get(service).json()
+        self.assertNotEqual(data['conversation_id'], conv_id)
+        self.assertTrue(data['created'])
+
+
 class ChatPinWiringTest(SimpleTestCase):
     """钉选的前端接线：两个宿主各一份、状态随历史片段带出、不拼 HTML 字符串
 
@@ -1369,6 +1465,71 @@ class ChatPinWiringTest(SimpleTestCase):
         for cls in ('.pin-host', '.pin-bar', '.pin-chip', '.pin-candidates', '.pin-item'):
             self.assertIn(cls, self.css)
         self.assertEqual(self.css.count('{'), self.css.count('}'), '花括号不配对')
+
+
+class AskDrawerWiringTest(SimpleTestCase):
+    """活动详情页「问 AI」抽屉的静态接线锁
+
+    抽屉是 PaChatTurn 的第三个挂载点（详情页/分栏页之后），历史上第三个挂载
+    点（浮窗）就是因为边界条件难对齐被整体下线的 —— 这些锁保住「只复用不另写」。
+    所有锁都必须拿变异验证真的会响（本项目静态锁空跑踩过不止一次）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        detail = (root / 'templates' / 'activities' / 'activity_detail.html')\
+            .read_text(encoding='utf-8')
+        # 抽屉脚本自身是内联 JS：剔注释后再扫（注释里写「禁 hx-」自己含那个词）
+        cls.js_code = ChatTurnFlowJsTest._strip_js_comments(detail)
+        cls.detail_raw = detail
+        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html')\
+            .read_text(encoding='utf-8')
+        cls.turn_js = ChatTurnFlowJsTest._strip_js_comments(
+            (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8'))
+        cls.detail_views = (root / 'activities' / 'views' / 'detail_views.py')\
+            .read_text(encoding='utf-8')
+        cls.css = (root / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+
+    def test_drawer_dom_and_turn_mount_exist(self):
+        self.assertIn('id="ask-drawer"', self.detail_raw, '抽屉容器没了')
+        self.assertIn('id="ask-drawer-messages"', self.detail_raw)
+        self.assertIn('id="ask-drawer-form"', self.detail_raw)
+        self.assertIn('window.PaChatTurn({', self.js_code, '抽屉没挂 PaChatTurn')
+        self.assertIn('turn_status.html', self.detail_raw, '进度条必须 include 同一份模板')
+
+    def test_drawer_uses_only_native_fetch(self):
+        # 只扫抽屉自身的 DOM+脚本块：整页早有别的脚本/注释（如「禁挂 hx-*」的
+        # 说明文字），扫全页会把注释里的词当成违规 —— 先剔注释再扫，且切片必须非空
+        block = self.js_code[self.js_code.index('id="ask-drawer"'):
+                             self.js_code.rindex('{% endblock %}')]  # rindex：extra_head 也有一对 endblock
+        self.assertGreater(len(block.strip()), 2000, '切片切空了，这条锁就是假的')
+        self.assertNotIn('hx-', block, 'JSON/片段端点严禁 hx-*（会当纯文本插 DOM）')
+        self.assertIn("'Accept': 'application/json'", block)
+
+    def test_drawer_open_toggle_does_not_mix_display_utilities(self):
+        """hidden 与 flex 同层冲突（turn_status 教训）：开关只能走 .ask-drawer-open"""
+        self.assertIn("classList.add('ask-drawer-open')", self.js_code)
+        self.assertNotIn("drawer.classList.remove('hidden')", self.js_code)
+        self.assertIn('.ask-drawer-open', self.css)
+        self.assertIn('@keyframes ask-drawer-in', self.css)
+
+    def test_history_fragment_slot_is_known_to_chat_turn_js(self):
+        """insertLocalHtml 的回退链必须认得抽屉容器，否则局部卡片静默丢弃"""
+        self.assertIn("getElementById('ask-drawer-messages')", self.turn_js)
+
+    def test_no_js_fallback_deeplink_carries_pin(self):
+        """href 降级路径：深链必须带 pin 参数，聊天页 ?ask= 块要接住它"""
+        self.assertIn("'pin': activity.id", self.detail_views)
+        self.assertIn('pinActivityId', self.split)
+        self.assertIn("'/pin/'", self.split, '?ask= 块要调 pin 端点自动钉选')
+
+    def test_drawer_endpoints_go_through_the_create_or_get_outlet(self):
+        self.assertIn('activity_conversation', self.detail_raw,
+                      '抽屉必须走 create-or-get 端点，不许前端自己拼建对话请求')
+        self.assertIn('d.urls.messages', self.js_code,
+                      '历史片段端点由服务端下发，前端不得手拼')
 
 
 class ChatFollowUpRenderTest(TestCase):
@@ -1454,6 +1615,7 @@ class ChatFollowUpRenderTest(TestCase):
 # 这张表是唯一清单：新增 fetch 端点必须同时加在这里，否则下面两条锁会报出来。
 JSON_FETCH_ENDPOINTS = {
     'create_conversation': ('post', '/chat/create/'),
+    'activity_conversation': ('get', '/chat/for-activity/1/'),
     'send_message': ('post', '/chat/1/send/'),
     'turn_poll': ('get', '/chat/1/turn/'),
     'turn_cancel': ('post', '/chat/1/turn/cancel/'),

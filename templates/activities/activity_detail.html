@@ -25,8 +25,9 @@
                         {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
                         <!-- 编辑/删除：小 icon 圆钮，贴标题行右侧（长标题 flex-wrap 自动换行避让） -->
                         <div class="ml-auto flex items-center gap-1.5 shrink-0">
-                            <!-- 问 AI：深链到聊天页预填针对本活动的提问（只填不发，?ask= 由 chat 页处理） -->
-                            <a href="{{ chat_ask_url }}" title="问 AI" aria-label="问 AI"
+                            <!-- 问 AI：JS 可用时开详情页内嵌抽屉（活动专属会话，自动钉选）；
+                                 无 JS / 抽屉失败时整页深链到聊天页预填提问（?ask= + ?pin= 由 chat 页处理，只填不发） -->
+                            <a href="{{ chat_ask_url }}" id="ask-ai-btn" title="问 AI" aria-label="问 AI"
                                class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--accent)] transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                             </a>
@@ -845,6 +846,120 @@ function appendExpenseTag(name) {
             if (row) row.remove();
             setCount(listEl.querySelectorAll('[data-dep-id]').length);
         }).catch(function () { showError('网络异常，请重试'); });
+    });
+})();
+</script>
+
+<!-- 问 AI 抽屉：详情页内嵌真实对话（活动专属会话 create-or-get，服务端自动钉选）。
+     与浮窗的区别：只服务单会话、上下文就是本页活动，没有会话列表/切换逻辑——
+     这是浮窗当年被下线的三方共用复杂度，这里不再引入。JS 单实例，重复打开先 halt。 -->
+<div id="ask-drawer" class="ask-drawer fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[var(--bg-card)]"
+     role="dialog" aria-modal="true" aria-label="问 AI 对话" aria-hidden="true">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+        <span id="ask-drawer-title" class="font-medium text-sm text-[var(--text)] truncate min-w-0">问 AI</span>
+        <button type="button" id="ask-drawer-close"
+                class="tap-target shrink-0 text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-2" aria-label="关闭">&times;</button>
+    </div>
+    <div id="ask-drawer-messages" class="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
+        <p class="text-center text-sm text-[var(--text-muted)] py-6">正在打开对话…</p>
+    </div>
+    {% include "chat/partials/turn_status.html" %}
+    <form id="ask-drawer-form" class="p-3 border-t border-[var(--border)]">
+        {% csrf_token %}
+        <div class="flex items-end gap-2">
+            <textarea id="ask-drawer-input" rows="1" data-auto-grow placeholder="问点什么…（Enter 换行）"
+                class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+            <button type="submit"
+                class="tap-target rounded-xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-[var(--bg)] hover:opacity-90 transition-opacity">发送</button>
+        </div>
+    </form>
+</div>
+<script>
+(function () {
+    var btn = document.getElementById('ask-ai-btn');
+    var drawer = document.getElementById('ask-drawer');
+    if (!btn || !drawer) return;
+
+    var messagesEl = document.getElementById('ask-drawer-messages');
+    var form = document.getElementById('ask-drawer-form');
+    var input = document.getElementById('ask-drawer-input');
+    var titleEl = document.getElementById('ask-drawer-title');
+    var instance = null;   // PaChatTurn 单实例：重复打开先 halt 旧实例再重建（urls 指向新会话）
+    var loading = false;
+    var openedConvId = null;
+
+    function haltOld() {
+        if (instance) { instance.halt(); instance = null; }
+    }
+
+    function mount(urls) {
+        haltOld();
+        instance = window.PaChatTurn({
+            messagesEl: messagesEl,
+            statusEl: drawer.querySelector('[data-turn-status]'),
+            form: form,
+            input: input,
+            urls: function () { return urls; },
+            onActivityChanged: function () {
+                // 抽屉里的写操作（改预算/记费用）与详情页数据可能不一致，广播让列表页等自己刷
+                document.dispatchEvent(new CustomEvent('activities:changed'));
+            }
+        });
+        // 刷新续上：服务端片段渲染了 turn_resume 就说明上一轮还在跑，读一次即撤
+        var resumeEl = messagesEl.querySelector('[data-turn-resume]');
+        if (resumeEl) {
+            instance.resume(resumeEl.dataset.state, parseInt(resumeEl.dataset.ttl, 10));
+            resumeEl.remove();
+        }
+    }
+
+    function open() {
+        // 开关用 .ask-drawer-open（custom.css 定义 display），不用 hidden+flex——同层 display 工具类冲突（turn_status 同款教训）
+        drawer.classList.add('ask-drawer-open');
+        drawer.setAttribute('aria-hidden', 'false');
+        if (loading) return;
+        // 已开过同一会话且实例健在 → 只聚焦，不重建不重复拉历史
+        if (instance && openedConvId) { input.focus(); return; }
+        loading = true;
+        fetch('{% url "chat:activity_conversation" activity.id %}', {
+            headers: { 'Accept': 'application/json' }
+        }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, data: d }; });
+        }).then(function (res) {
+            if (!res.ok) { messagesEl.textContent = res.data.error || '打开失败，请稍后重试'; return; }
+            var d = res.data;
+            openedConvId = d.conversation_id;
+            titleEl.textContent = '问 AI · ' + d.activity_name;
+            // 历史片段：消息（复用 _message.html）+ turn_resume/error + 钉选挂载位一次拿齐
+            return fetch(d.urls.messages, { headers: { 'Accept': 'text/html' } })
+                .then(function (r) { return r.text(); })
+                .then(function (html) {
+                    // 片段来自服务端模板渲染（同一份 _message.html），不是拼用户数据
+                    messagesEl.innerHTML = html;
+                    mount({ send: d.urls.send, poll: d.urls.poll, cancel: d.urls.cancel });
+                    input.focus();
+                });
+        }).catch(function () {
+            messagesEl.textContent = '网络异常，请稍后重试';
+        }).finally(function () { loading = false; });
+    }
+
+    function close() {
+        // 只 halt（停轮询），不 stop：服务端本轮继续跑，下次打开靠 turn_resume 接上
+        haltOld();
+        drawer.classList.remove('ask-drawer-open');
+        drawer.setAttribute('aria-hidden', 'true');
+    }
+
+    btn.addEventListener('click', function (e) {
+        // 拦截默认深链跳转（href 保留作无 JS 降级）
+        e.preventDefault();
+        if (window.PaChatTurn) open();
+        // PaChatTurn 未加载（同步 script 失败等）→ 放行默认行为跳聊天页
+    });
+    document.getElementById('ask-drawer-close').addEventListener('click', close);
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && drawer.classList.contains('ask-drawer-open')) close();
     });
 })();
 </script>

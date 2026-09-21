@@ -412,6 +412,59 @@ def widget_messages(request, conversation_id):
 
 
 @json_login_required
+def activity_conversation(request, activity_id):
+    """活动专属对话 create-or-get：详情页「问 AI」抽屉的入口端点
+
+    会话按 pin_activity 定位：每个活动同时最多一个活跃专属对话（复用 = 历史
+    可回溯，钉选注入/活动标签知识注入也只建一次）。钉选状态在建会话时直接
+    赋值，不走 pin 端点二次调用。复用的对话若 turn 正在跑不特殊处理：
+    widget_messages 片段自带 turn_resume，前端 PaChatTurn 会自动接上轮询。
+
+    用户在聊天页手动把对话改钉到别的活动后，本活动下次打开会新建一个——
+    软策略，不做迁移（AGENTS.md 抽屉小节有记）。
+    """
+    from activities.models import Activity
+    # visible_qs 而不是 get_visible：后者抛 Http404，fetch 拿回 HTML 错误页会炸 r.json()（钉选同款口径）
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if not activity:
+        return JsonResponse({'error': '没找到这个活动（可能已删除或不属于你）'}, status=404)
+
+    conversation = (visible_qs(Conversation, request.user)
+                    .filter(pin_activity_id=activity.id)
+                    .exclude(status='archived')
+                    .order_by('-updated_at')
+                    .first())
+    created = False
+    if not conversation:
+        try:
+            conversation = _create_conversation_for_user(
+                request.user, title=f'关于「{activity.name[:40]}」')
+        except RuntimeError as e:
+            # Agent/Environment 缺配置是环境问题：与 create_conversation 同口径
+            return JsonResponse({'error': str(e)}, status=400)
+        except Exception as e:
+            logger.error(f'活动专属对话创建失败（活动 {activity.id}）: {e}')
+            return JsonResponse({'error': '创建对话失败，请稍后重试'}, status=500)
+        conversation.pin_activity = activity
+        conversation.save(update_fields=['pin_activity', 'updated_at'])
+        created = True
+
+    base = f'/chat/{conversation.id}'
+    return JsonResponse({
+        'conversation_id': conversation.id,
+        'title': conversation.title,
+        'activity_name': activity.name,
+        'created': created,
+        'urls': {
+            'send': f'{base}/send/',
+            'poll': f'{base}/turn/',
+            'cancel': f'{base}/turn/cancel/',
+            'messages': f'{base}/widget-messages/',
+        },
+    })
+
+
+@json_login_required
 @require_POST
 def create_conversation(request):
     """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）

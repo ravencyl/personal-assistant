@@ -85,7 +85,8 @@ def activity_detail(request, activity_id):
     chat_ask_url = (
         reverse('chat:conversation_list') + '?' +
         urlencode({'ask': f'帮我看看「{activity.name}」这个活动，'
-                          f'有什么要注意或建议的吗？'})
+                          f'有什么要注意或建议的吗？',
+                   'pin': activity.id})
     )
 
     return render(request, 'activities/activity_detail.html', {

@@ -569,7 +569,9 @@
     }
 
     function insertLocalHtml(html) {
-        var box = document.getElementById('split-messages') || document.getElementById('messages');
+        // 活动详情页的问 AI 抽屉也挂了消息容器（在 #messages 之前判：详情页没有 #messages，
+        // 但抽屉页不能落到不存在的槽里静默丢弃）
+        var box = document.getElementById('split-messages') || document.getElementById('ask-drawer-messages') || document.getElementById('messages');
         if (!box) return;
         box.insertAdjacentHTML('beforeend', html);
         box.scrollTop = box.scrollHeight;

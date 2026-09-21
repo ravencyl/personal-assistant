@@ -509,6 +509,9 @@
         var m = location.search.match(/[?&]ask=([^&]+)/);
         if (!m) return;
         var askText = decodeURIComponent(m[1].replace(/\+/g, ' '));
+        // 深链可带 ?pin=<activity_id>（活动详情页「问 AI」的 href 降级路径）：定位到对话后自动钉选
+        var pm = location.search.match(/[?&]pin=(\d+)/);
+        var pinActivityId = pm ? pm[1] : null;
         history.replaceState(null, '', '/chat/');
 
         // ── 周回顾特殊分支：服务端已创建回顾对话，直接跳转 ──
@@ -532,6 +535,31 @@
             }
         }
         input.focus();
+    
+        // 自动钉选：复用空对话时 currentId 已就位；走新建则是异步的（POST create
+        // 之后才 selectConversation），轮询等 currentId，拿不到（创建失败等）就静默
+        // 放弃——ask 文本本身已点名活动，钉选失败不阻断提问。
+        if (pinActivityId) {
+            var waited = 0;
+            var pinTimer = setInterval(function () {
+                if (!currentId) {
+                    if ((waited += 200) > 8000) clearInterval(pinTimer);
+                    return;
+                }
+                clearInterval(pinTimer);
+                fetch('/chat/' + currentId + '/pin/', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' },
+                    body: 'activity_id=' + encodeURIComponent(pinActivityId)
+                }).then(function (r) {
+                    if (!r.ok) return null;   // JSON 404（活动没了/越权）静默跳过
+                    return r.json();
+                }).then(function (data) {
+                    // 钉选条只有一份模板：用响应里的 pin_bar 片段刷槽，不前端拼字符串
+                    if (data && data.html && pinCtrl) pinCtrl.paint(data.html);
+                }).catch(function () {});
+            }, 200);
+        }
     })();
 
     // 暴露给外部（如归档/删除后需要清状态）

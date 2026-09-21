@@ -11,6 +11,8 @@ urlpatterns = [
     path('<int:conversation_id>/detail/', views.conversation_detail, name='conversation_detail'),
     path('<int:conversation_id>/widget-messages/', views.widget_messages, name='widget_messages'),
     path('create/', views.create_conversation, name='create_conversation'),
+    # 活动专属对话 create-or-get：详情页「问 AI」抽屉入口（JSON，原生 fetch，禁 hx-*）
+    path('for-activity/<int:activity_id>/', views.activity_conversation, name='activity_conversation'),
     path('<int:conversation_id>/send/', views.send_message, name='send_message'),
     # 非 AI 快捷卡片：点击 → 服务端直出（不碰 Qoder / turn 状态机，JSON 由原生 fetch 消费，禁挂 hx-*）
     path('<int:conversation_id>/local-card/', views.local_card_create, name='local_card_create'),
