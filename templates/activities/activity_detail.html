@@ -131,9 +131,12 @@
     </div>
     {% endif %}
 
-    <!-- 费用明细 -->
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">费用明细（{{ expenses|length }}）</h2>
+    <!-- 费用明细：details 默认折叠（用户要求页面不要太长）；summary 是 flex + justify-between，
+         计数连同文字必须包进同一个 span，裸文本会被拆成多个 flex 项铺满整行（前置依赖同款教训） -->
+    <details class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+            <span>费用明细（{{ expenses|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
         {% if expenses %}
         <div class="space-y-2">
             {% for e in expenses %}
@@ -201,11 +204,13 @@
                 <button type="button" onclick="cancelEdit()" class="hidden tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]" id="expense-cancel-btn">取消</button>
             </div>
         </form>
-    </div>
+    </details>
 
-    <!-- 子任务 -->
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">子任务（<span id="subtask-count">{{ children|length }}</span>）</h2>
+    <!-- 子任务：同样默认折叠 -->
+    <details class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+            <span>子任务（<span id="subtask-count">{{ children|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
         <!-- 快速记一笔：一句话解析后预览确认创建子任务 -->
         <div class="mb-4">
             <div class="flex gap-2">
@@ -298,13 +303,15 @@
         <div id="subtask-list">
             {% include "activities/_subactivity_items.html" %}
         </div>
-    </div>
+    </details>
 
     {% comment %}评论：追加式讨论时间线（正序），可见性跟随活动。
        AI 决策链路会经 activities.get / activities.comments 工具读取这里的评论，
        activities.add_comment 工具写入的评论同样出现在此列表。{% endcomment %}
-    <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">评论（{{ comments|length }}）</h2>
+    <details class="app-card p-4 sm:p-6">
+        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+            <span>评论（{{ comments|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        </summary>
         <form method="post" action="{% url 'activities:activity_comment_add' activity.id %}" class="flex items-end gap-2 mb-4">
             {% csrf_token %}
             <textarea name="content" rows="1" data-auto-grow maxlength="2000" required placeholder="追加评论…"
@@ -333,7 +340,7 @@
         {% empty %}
         <p class="text-sm text-[var(--text-muted)]">暂无评论，在上方写下第一条</p>
         {% endfor %}
-    </div>
+    </details>
 
     </div><!-- /左列 -->
 
@@ -592,6 +599,9 @@ function appendExpenseTag(name) {
             var t = JUMPS[btn.dataset.jump];
             var box = t && document.getElementById(t.box);
             if (!box) return;
+            // 目标卡现在是默认折叠的 details：先展开再滚动定位，否则跳过去什么都看不到
+            var hostDetails = box.closest('details');
+            if (hostDetails && !hostDetails.open) hostDetails.open = true;
             if (t.toggle) {
                 var toggle = document.getElementById(t.toggle);
                 if (toggle && box.classList.contains('hidden')) toggle.click();

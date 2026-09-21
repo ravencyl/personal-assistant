@@ -1474,6 +1474,24 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         for c in re.findall(r'<div class="[^"]*">', cols)[:2]:
             self.assertNotIn('hidden', c, '列容器加了显隐类会让移动端少一整列')
 
+    def test_left_column_long_cards_are_details_collapsed_by_default(self):
+        """左列三张长卡（费用明细/子任务/评论）用 details 默认折叠（2026-09-21 用户要求）
+
+        锁两层：① 必须是 details 而不是普通 div（可点击展开）；② 摘要标签后不得紧跟
+        open 属性（默认收起，页面才不会拉得太长）。已有 data-mobile-collapse 的
+        右列卡不受影响（那些是桌面展开、移动端 JS 收起的口径）。
+        """
+        for title in ('费用明细', '子任务', '评论'):
+            i = self.html.index(f'>{title}（')
+            summary_start = self.html.rindex('<summary', 0, i)
+            details_start = self.html.rindex('<details', 0, summary_start)
+            opening = self.html[details_start:summary_start]
+            self.assertIn('<details', opening, f'{title}卡必须是 details（可折叠）')
+            self.assertNotIn(' open', opening.split('>')[0],
+                             f'{title}卡应默认折叠，open 会让页面又变长')
+            summary = self.html[summary_start:self.html.index('</summary>', i)]
+            self.assertIn('justify-between', summary, f'{title}计数与箭头要分居两端')
+
     def test_quick_action_card_is_desktop_only_and_inside_right_column(self):
         cols = self._columns()
         right = cols.split(self.LEFT_END, 1)[1]
