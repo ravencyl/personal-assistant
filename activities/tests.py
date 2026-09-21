@@ -669,6 +669,93 @@ class QuickParseWiringTest(TestCase):
         self.assertNotIn('function getCookie', html, '页面仍在自己解析 cookie 取 CSRF')
 
 
+class FilterPanelUsabilityTest(TestCase):
+    """筛选面板可用性：激活摘要 chips（折叠时可读、可单项移除）+ 标签列表收敛
+
+    之前折叠条只有「N 项生效」，展开后 24+ 个标签 chip 铺三四行。
+    折叠条必须能一眼看出生效的是哪几项、每项能单独 × 掉；
+    标签区默认只露前 10 个（激活的标签无论排第几始终可见）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def _html(self, **params):
+        resp = self.client.get(reverse('activities:activity_list'), params or None)
+        self.assertEqual(resp.status_code, 200)
+        return resp.content.decode()
+
+    def _remove_hrefs(self, html):
+        return re.findall(r'href="(/activities/\?[^"]*)"[^>]*title="移除该筛选"', html)
+
+    @staticmethod
+    def _qs_dicts(hrefs):
+        # href 里的 & 在 HTML 里是 &amp;，解析前要反转义
+        from urllib.parse import parse_qsl, urlparse
+        return [dict(parse_qsl(urlparse(u.replace('&amp;', '&')).query))
+                for u in hrefs]
+
+    def test_no_active_filters_no_chips(self):
+        html = self._html()
+        self.assertNotIn('title="移除该筛选"', html, '无筛选时不应出现摘要 chips')
+
+    def test_active_chips_render_with_single_item_removal(self):
+        html = self._html(status='planned', tag='旅游', keyword='旅行')
+        for chip in ('状态：计划', '# 旅游', '关键词「旅行」'):
+            self.assertIn(chip, html, f'折叠条缺少激活摘要 {chip!r}')
+        # × 链接：去掉对应参数、保留其余筛选
+        qs_list = self._qs_dicts(self._remove_hrefs(html))
+        self.assertIn({'tag': '旅游', 'keyword': '旅行'}, qs_list,
+                      '移除状态后应保留 tag/keyword')
+        self.assertIn({'status': 'planned', 'keyword': '旅行'}, qs_list,
+                      '移除标签后应保留 status/keyword')
+        self.assertIn({'status': 'planned', 'tag': '旅游'}, qs_list,
+                      '移除关键词后应保留 status/tag')
+
+    def test_date_filter_removed_as_one_item(self):
+        html = self._html(date_from='2026-09-01', date_to='2026-09-21', status='planned')
+        self.assertIn('日期 2026-09-01 ~ 2026-09-21', html)
+        qs_list = self._qs_dicts(self._remove_hrefs(html))
+        self.assertIn({'status': 'planned'}, qs_list,
+                      '日期摘要应一次移除 date_from + date_to 两个参数')
+
+    def _seed_overflow_tags(self):
+        """造 20 个用过的标签（单活动受 MAX_TAGS_PER_OBJECT 限制，拆两个活动挂）"""
+        for i in (1, 2):
+            activity = Activity.objects.create(user=self.user, name=f'标签容器{i}')
+            apply_tags(activity, [f'标签{(i - 1) * 10 + j:02d}' for j in range(1, 11)])
+
+    def test_tag_list_capped_at_ten_with_more_toggle(self):
+        self._seed_overflow_tags()
+        html = self._html()
+        self.assertIn('更多 10 个标签', html)
+        # 计数只看「标签筛选」块内：活动卡片自身也会渲染 ?tag= 链接，不能全页数
+        tag_block = html.split('标签筛选', 1)[1]
+        visible, rest = tag_block.split('id="tag-more"', 1)
+        rest = rest.split('id="tag-more-toggle"', 1)[0]
+        self.assertEqual(visible.count('href="?tag='), 10, '可见区只应露 10 个标签')
+        self.assertEqual(rest.count('href="?tag='), 10, '其余应收进隐藏区')
+
+    def test_overflow_active_tag_always_visible(self):
+        """激活的标签即使排在第 11+ 位也不能被收进「更多」，否则用户看不出自己选了什么"""
+        self._seed_overflow_tags()
+        # 从无筛选页取隐藏区第一个标签名
+        html = self._html()
+        rest = html.split('id="tag-more"', 1)[1]
+        hidden_name = re.search(r'href="\?tag=([^&"]+)', rest).group(1)
+        from urllib.parse import unquote
+        tag_name = unquote(hidden_name)
+        html2 = self._html(tag=tag_name)
+        tag_block2 = html2.split('标签筛选', 1)[1]
+        visible2 = tag_block2.split('id="tag-more"', 1)[0]
+        self.assertIn(f'# {tag_name}', visible2, '激活的溢出标签必须在可见区')
+        hidden2 = tag_block2.split('id="tag-more"', 1)[1].split('id="tag-more-toggle"', 1)[0]
+        self.assertEqual(hidden2.count(f'tag={hidden_name}'), 0,
+                         '激活的溢出标签不应重复出现在隐藏区')
+
+
 @override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
 class AttachmentUploadTest(TestCase):
     """附件上传：详情页是整页 POST（无 hx-*），必须回跳而不是把 JSON 渲染成页面"""

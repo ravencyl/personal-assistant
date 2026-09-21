@@ -20,6 +20,8 @@ from ._common import _user_tag_names, _greeting
 
 # 活动列表每页顶级活动数（子活动跟随父活动，不计入）
 ACTIVITY_LIST_PAGE_SIZE = 20
+# 筛选面板标签区默认可见数（激活的标签不受此限）
+_TAGS_VISIBLE = 10
 
 
 def _page_window(current, total, span=2):
@@ -231,6 +233,49 @@ def activity_list(request):
     # 清除搜索链接：保留其他筛选参数（不含 keyword）
     search_clear_params = {k: v for k, v in tag_link_params.items() if k != 'keyword'}
     search_clear_qs = urlencode(search_clear_params)
+    all_tags = _user_tag_names(request.user)
+
+    # 激活筛选摘要（筛选折叠条上直接展示，每项可单独一键移除）。
+    # 之前折叠时只给「N 项生效」，用户不知道生效的是哪几项、要展开再找再清（可用性差）。
+    # remove_qs = 当前全部参数去掉该项（分页重置，其余筛选保留）。
+    base_params = {k: v for k, v in request.GET.items() if k != 'page'}
+
+    def _qs_without(*keys):
+        params = {k: v for k, v in base_params.items() if k not in keys}
+        return ('?' + urlencode(params)) if params else ''
+
+    status_labels = dict(Activity.STATUS_CHOICES)
+    active_filters = []
+    if date_from or date_to:
+        active_filters.append({
+            'label': f'日期 {date_from or "…"} ~ {date_to or "…"}',
+            'remove_qs': _qs_without('date_from', 'date_to'),
+        })
+    if status_filter:
+        active_filters.append({
+            'label': f'状态：{status_labels.get(status_filter, status_filter)}',
+            'remove_qs': _qs_without('status'),
+        })
+    if tag_filter:
+        active_filters.append({
+            'label': f'# {tag_filter}',
+            'remove_qs': _qs_without('tag'),
+        })
+    if participant_filter:
+        active_filters.append({
+            'label': f'参与者 {participant_filter}',
+            'remove_qs': _qs_without('participant'),
+        })
+    if keyword_filter:
+        active_filters.append({
+            'label': f'关键词「{keyword_filter}」',
+            'remove_qs': _qs_without('keyword'),
+        })
+    if sort:
+        active_filters.append({
+            'label': '排序 ' + ('↓' if sort.startswith('-') else '↑'),
+            'remove_qs': _qs_without('sort'),
+        })
 
     # 首页问候头部：时段问候 + 日期星期 + 今日摘要
     greeting = _greeting()
@@ -262,10 +307,14 @@ def activity_list(request):
         'keyword_filter': keyword_filter,
         'match_count': matched.count() if has_filter else 0,
         'search_clear_qs': search_clear_qs,
-        'all_tags': _user_tag_names(request.user),
+        'all_tags': all_tags,
+        # 溢出数在服务端算好（模板 |add 对字符串是拼接，不能拿来做算术）
+        'TAGS_VISIBLE': _TAGS_VISIBLE,
+        'tag_overflow': max(len(all_tags) - _TAGS_VISIBLE, 0),
         'tag_link_qs': tag_link_qs,
         'filters_active': filters_active,
         'active_filter_count': active_filter_count,
+        'active_filters': active_filters,
         'tree_mode': True,
         'expand_all': expand_all,
         'date_from': date_from,

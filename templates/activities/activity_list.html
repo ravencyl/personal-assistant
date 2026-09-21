@@ -118,17 +118,22 @@
 
 <!-- Filter panel（可折叠：URL 带筛选/排序参数时自动展开，否则默认折叠） -->
 <div class="app-card mb-5 overflow-hidden">
-    <button type="button" id="filter-toggle"
-            aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
-            class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
-        <span class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2 px-4 py-2.5">
+        <button type="button" id="filter-toggle"
+                aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
+                class="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
             筛选
-            {% if active_filter_count %}
-            <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{{ active_filter_count }} 项生效</span>
-            {% endif %}
+            <span id="filter-arrow" class="text-[var(--text-muted)]">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
+        </button>
+        {# 激活筛选摘要：折叠时也能一眼看到生效的是哪几项，× 单项一键移除（可用性：之前只有「N 项生效」） #}
+        {% for f in active_filters %}
+        <span class="inline-flex items-center gap-1 rounded-full bg-[var(--accent-light)] px-2.5 py-1 text-xs text-[var(--text-secondary)]">
+            {{ f.label }}
+            <a href="{% url 'activities:activity_list' %}{{ f.remove_qs }}"
+               class="text-[var(--text-muted)] hover:text-[var(--text)] font-semibold" title="移除该筛选">&times;</a>
         </span>
-        <span id="filter-arrow" class="text-[var(--text-muted)]">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
-    </button>
+        {% endfor %}
+    </div>
 
     <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-[var(--border)] px-3 py-3 space-y-3">
         <!-- Date filter -->
@@ -176,10 +181,21 @@
     <span class="text-sm text-[var(--text-secondary)]">标签筛选</span>
     <a href="{% url 'activities:activity_list' %}{% if tag_link_qs %}?{{ tag_link_qs }}{% endif %}"
        class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
-    {% for tag_name in all_tags %}
+    {# 默认只露前 {{ TAGS_VISIBLE }} 个（激活的标签始终可见），其余收进「更多」——24+ 个 chip 铺开是筛选区难用的主因 #}
+    {% for tag_name in all_tags %}{% if forloop.counter <= TAGS_VISIBLE or tag_filter == tag_name %}
     <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
        class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}"># {{ tag_name }}</a>
-    {% endfor %}
+    {% endif %}{% endfor %}
+    {% if tag_overflow %}
+    <span id="tag-more" class="hidden"><span class="flex flex-wrap items-center gap-2">
+        {% for tag_name in all_tags %}{% if forloop.counter > TAGS_VISIBLE and tag_filter != tag_name %}
+        <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
+           class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}"># {{ tag_name }}</a>
+        {% endif %}{% endfor %}
+    </span></span>
+    <button type="button" id="tag-more-toggle" data-count="{{ tag_overflow }}"
+            class="px-3 py-1 text-sm rounded-full text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">更多 {{ tag_overflow }} 个标签 &#9662;</button>
+    {% endif %}
         </div>
         {% endif %}
     </div>
@@ -244,6 +260,19 @@
         body.classList.toggle('hidden', expanded);
         arrow.innerHTML = expanded ? '&#9654;' : '&#9660;';
     });
+
+    // 「更多标签」展开/收起（激活标签永远在可见区，展开只是补齐剩下的）
+    var moreBtn = document.getElementById('tag-more-toggle');
+    if (moreBtn) {
+        var more = document.getElementById('tag-more');
+        moreBtn.addEventListener('click', function () {
+            var open = !more.classList.contains('hidden');
+            more.classList.toggle('hidden', open);
+            moreBtn.innerHTML = open
+                ? '更多 ' + moreBtn.getAttribute('data-count') + ' 个标签 &#9662;'
+                : '收起多余标签 &#9652;';
+        });
+    }
 })();
 </script>
 
