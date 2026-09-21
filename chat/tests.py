@@ -2774,19 +2774,22 @@ class ChatHomeTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/accounts/login/', resp['Location'])
 
-    def test_local_card_row_available_in_every_conversation(self):
-        """daily 按钮在所有对话可用（2026-09-19 扩大范围）：选中任一对话
-        即由 JS 撤掉 hidden；详情页也带同一份 partial"""
+    def test_local_card_entry_available_in_every_conversation(self):
+        """daily/工作台入口在所有对话可用（2026-09-21 起从独立按钮行改挂
+        头部 ⋯ 菜单/详情页操作行，入口不再随会话显隐）"""
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_d', agent_id='ag_d',
             title='普通对话')
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
         self.assertIn('data-local-card="daily_brief"', html)
         self.assertIn('data-local-card="today_brief"', html)
+        # 独立按钮行已删净：容器与撤 hidden 的旧机制都不应残留
+        self.assertNotIn('id="local-cards"', html)
         self.assertNotIn('data-daily-id', html, '旧的按会话 id 显隐机制应已删净')
-        # 详情页共用同一份 partial
+        # 详情页在头部操作行带同款入口
         detail = self.client.get(f'/chat/{conv.id}/detail/').content.decode()
         self.assertIn('data-local-card="daily_brief"', detail)
+        self.assertNotIn('id="local-cards"', detail)
 
     def test_nav_daily_page_retired(self):
         """/daily/ 页下线：导航不再有「今日」入口（移动 Tab 换快记 dock），
@@ -2962,9 +2965,9 @@ class DailyCardActionRowTest(SimpleTestCase):
         self.assertIn('application/x-www-form-urlencoded', self.js)
         # chatId 从 location.pathname 解析（分栏 replaceState 与详情页 /detail/ 都覆盖）
         self.assertIn('/\\/chat\\/(\\d+)/', self.js)
-        # 详情页没有分栏页的 updateLocalCards：onReady 必须统一撤掉按钮行初始 hidden
-        self.assertIn("getElementById('local-cards')", self.js)
-        self.assertIn("classList.remove('hidden')", self.js)
+        # 按钮行下线后 onReady 不应再引用 local-cards（残留则静默空跑；
+        # 不能顺带扫 classList.remove('hidden')：状态条等 legitimate 用途含该子串）
+        self.assertNotIn("getElementById('local-cards')", self.js)
 
 
 class WorkbenchCardTest(TestCase):
@@ -3026,19 +3029,28 @@ class WorkbenchCardTest(TestCase):
 
 
 class WorkbenchCardWiringTest(SimpleTestCase):
-    """工作台卡的静态接线锁：partial 双按钮 / _card 分发 / 卡模板操作行与页链接退场"""
+    """工作台卡的静态接线锁：入口按钮（分栏页菜单 + 详情页操作行）/
+    _card 分发 / 卡模板操作行与页链接 退场。
+
+    2026-09-21：partials/local_cards.html 已删（入口挪进头部），
+    锁改扫两个页面模板。"""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         base = Path(__file__).resolve().parent.parent
-        cls.partial = (base / 'templates' / 'chat' / 'partials' / 'local_cards.html').read_text(encoding='utf-8')
+        cls.split = (base / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
+        cls.detail = (base / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
         cls.dispatch = (base / 'templates' / 'chat' / 'cards' / '_card.html').read_text(encoding='utf-8')
         cls.card = (base / 'templates' / 'chat' / 'cards' / 'today_brief_card.html').read_text(encoding='utf-8')
 
     def test_partial_has_both_buttons(self):
-        self.assertIn('data-local-card="daily_brief"', self.partial)
-        self.assertIn('data-local-card="today_brief"', self.partial)
+        for tpl in (self.split, self.detail):
+            self.assertIn('data-local-card="daily_brief"', tpl)
+            self.assertIn('data-local-card="today_brief"', tpl)
+        # 旧 partial 已删，不能再有页面 include 它
+        self.assertNotIn('partials/local_cards.html', self.split)
+        self.assertNotIn('partials/local_cards.html', self.detail)
 
     def test_dispatch_includes_today_brief_card(self):
         self.assertIn("msg.payload.card == 'today_brief'", self.dispatch)

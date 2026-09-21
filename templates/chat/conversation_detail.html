@@ -8,7 +8,12 @@
         <a href="{% url 'chat:conversation_list_with_active' conversation.id %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回对话列表</a>
         <h1 class="text-xl font-bold text-[var(--text)] mt-1">{{ conversation.title }}</h1>
     </div>
-    <div class="flex items-center gap-3 text-sm">
+    <div class="flex items-center gap-3 text-sm flex-wrap">
+        {# 快捷卡片入口（原独立按钮行已下线，2026-09-21）：委托在 chat-turn.js #}
+        <button type="button" data-local-card="daily_brief"
+                class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">daily</button>
+        <button type="button" data-local-card="today_brief"
+                class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">工作台</button>
         {# 改名：inline form，提交后回到本页；空串视为不改 #}
         <form method="post" action="{% url 'chat:conversation_rename' conversation.id %}" class="flex items-center gap-1">
             {% csrf_token %}
@@ -48,8 +53,6 @@ Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_mes
 {% include "chat/partials/turn_status.html" %}
 
 {% include "chat/partials/pin_host.html" with host_id="message-pin" %}
-
-{% include "chat/partials/local_cards.html" %}
 
 {% comment %}收发走原生 fetch + 轮询（见 static/js/chat-turn.js），表单不挂任何 hx-*：
 send/turn/cancel 都是 JSON 端点，AGENTS.md 双协议约定严禁 hx-* 消费 JSON。
