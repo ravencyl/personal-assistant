@@ -39,9 +39,10 @@ Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_mes
   turn_resume → 「这一轮还在跑」的隐藏数据，JS 读到就接上轮询（刷新不丢本轮）
   turn_error  → 本轮中断的气泡 + 「重试」（原文带在 data-retry-text 里）{% endcomment %}
 <div id="messages" class="space-y-4 mb-2" data-turn-resume-host>
+    {% include "chat/partials/_history_older.html" %}
     {% for msg in chat_messages %}{% include "chat/partials/_message.html" %}{% empty %}
     <div class="text-center py-8 text-[var(--text-muted)]">
-        <p>发送消息开始对话</p>
+        <p>{% if older_count %}近 3 天没有新消息，点上方链接查看更早对话{% else %}发送消息开始对话{% endif %}</p>
     </div>
     {% endfor %}
     {% include "chat/partials/turn_resume.html" %}

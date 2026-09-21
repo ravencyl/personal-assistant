@@ -1,5 +1,6 @@
 import hmac
 import logging
+from datetime import timedelta
 
 import httpx
 
@@ -11,7 +12,8 @@ from django.db import models
 from django.utils import timezone
 
 from .models import (Conversation, Message, TURN_TTL_SECONDS,
-                     TURN_IDLE_GRACE_SECONDS, TURN_MAX_RETRIES)
+                     TURN_IDLE_GRACE_SECONDS, TURN_MAX_RETRIES,
+                     CHAT_HISTORY_DAYS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
@@ -25,6 +27,23 @@ from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_c
 from .local_cards import get_local_card
 
 logger = logging.getLogger(__name__)
+
+# 展示窗口口径 CHAT_HISTORY_DAYS 住 chat/models.py（cron 归档与展示层必须
+# 同源，不能两边各写一个 3）。
+
+
+def _history_window(conversation, show_all=False):
+    """返回 (窗口内消息 queryset, 窗口外的更早消息条数)
+
+    三个渲染口共用，保证「补发判据与展示口径」不会各自漂移。
+    """
+    msgs = conversation.messages.all()  # created_at 升序（模型 Meta）
+    cutoff = timezone.now() - timedelta(days=CHAT_HISTORY_DAYS)
+    older_count = msgs.filter(created_at__lt=cutoff).count()
+    if show_all or older_count == 0:
+        return msgs, 0
+    return msgs.filter(created_at__gte=cutoff), older_count
+
 
 # 等云端 AI 回一轮不再压在单个请求里（改走 turn 状态机 + 轮询）。
 # 下面两个时长都住在 chat/models.py：TURN_TTL_SECONDS（本轮上限）、
@@ -276,6 +295,12 @@ def conversation_list(request, conversation_id=None):
     conversations = visible_qs(Conversation, request.user)
     agents = AgentConfig.objects.filter(is_active=True)
 
+    # 归档对话默认不在列表（超 3 天没聊天的会被 archive_stale_conversations
+    # cron 自动归档）；?archived=1 切到归档区，搜索跟随当前分区。
+    show_archived = request.GET.get('archived') == '1'
+    conversations = conversations.exclude(status='archived') if not show_archived \
+        else conversations.filter(status='archived')
+
     # 搜索对话历史
     query = request.GET.get('q', '').strip()
     if query:
@@ -311,13 +336,18 @@ def conversation_list(request, conversation_id=None):
         filtered.append(conv)
     conversations = filtered
 
-    # 如果指定了 conversation_id，额外加载该对话的消息（右栏用）
+    # 如果指定了 conversation_id，额外加载该对话的消息（右栏用）。
+    # 展示层只取最近 3 天（_history_window），?history=all 展开全量。
     active_conversation = None
     chat_messages = []
+    older_count = 0
+    history_all_url = ''
     if conversation_id:
         try:
             active_conversation = get_visible(Conversation, request.user, id=conversation_id)
-            chat_messages = active_conversation.messages.all()
+            chat_messages, older_count = _history_window(
+                active_conversation, show_all=request.GET.get('history') == 'all')
+            history_all_url = f"/chat/{active_conversation.id}/?history=all"
         except Http404:
             pass  # 无权或不存在 → 右栏显示空状态
 
@@ -332,6 +362,9 @@ def conversation_list(request, conversation_id=None):
         'query': query,
         'active_conversation': active_conversation,
         'chat_messages': chat_messages,
+        'older_count': older_count,
+        'history_all_url': history_all_url,
+        'show_archived': show_archived,
         'turn_ttl': TURN_TTL_SECONDS,
         # 周回顾对话（非空时模板自动跳转）
         'weekly_review_conv': weekly_review_conv,
@@ -348,9 +381,13 @@ def conversation_detail(request, conversation_id):
     页面顶部，看起来像调试信息泄漏到线上（2026-08-31 用户截图反馈）。
     """
     conversation = get_visible(Conversation, request.user, id=conversation_id)
+    chat_messages, older_count = _history_window(
+        conversation, show_all=request.GET.get('history') == 'all')
     return render(request, 'chat/conversation_detail.html', {
         'conversation': conversation,
-        'chat_messages': conversation.messages.all(),
+        'chat_messages': chat_messages,
+        'older_count': older_count,
+        'history_all_url': f"/chat/{conversation.id}/detail/?history=all",
         'turn_ttl': TURN_TTL_SECONDS,
     })
 
@@ -363,8 +400,12 @@ def widget_messages(request, conversation_id):
     并接上轮询，不需要另开一个“查状态”的口子。
     """
     conversation = get_visible(Conversation, request.user, id=conversation_id)
+    widget_msgs, older_count = _history_window(
+        conversation, show_all=request.GET.get('history') == 'all')
     return render(request, 'chat/partials/widget_messages.html', {
-        'widget_messages': conversation.messages.all(),
+        'widget_messages': widget_msgs,
+        'older_count': older_count,
+        'history_all_url': f"/chat/{conversation.id}/?history=all",
         'conversation': conversation,
         'turn_ttl': TURN_TTL_SECONDS,
     })

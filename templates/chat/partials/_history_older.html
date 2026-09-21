@@ -1,0 +1,9 @@
+{% comment %}「显示更早消息」入口：三个渲染口（分栏初始 / widget-messages 片段 / 详情页）
+共用。history_all_url 由各视图拼好传入，older_count>0 才渲染。
+展示窗口口径见 chat.views.CHAT_HISTORY_DAYS / _history_window。{% endcomment %}
+{% if older_count %}
+<div class="text-center py-2">
+    <a href="{{ history_all_url }}"
+       class="inline-block text-xs text-[var(--text-secondary)] hover:text-[var(--text)] underline underline-offset-2">显示更早的 {{ older_count }} 条消息</a>
+</div>
+{% endif %}

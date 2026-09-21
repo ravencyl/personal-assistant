@@ -69,6 +69,9 @@ crontab -e
 
 # 每周日凌晨 3 点聚合记忆碎片（同类别 ≥5 条时调 AI 合成画像，幂等可重跑）
 0 3 * * 0 cd /path/to/个人助手 && source venv/bin/activate && python manage.py consolidate_memories >> /tmp/consolidate_memories.log 2>&1
+
+# 每天凌晨 3:15 归档超 3 天没聊天的对话（阈值同对话页展示窗口，幂等可重跑）
+15 3 * * * cd /path/to/个人助手 && source venv/bin/activate && python manage.py archive_stale_conversations >> /tmp/archive_stale.log 2>&1
 ```
 
 ### 定时任务说明
@@ -78,6 +81,7 @@ crontab -e
 | auto_start_activities | 每 30 分钟 | 将 start_date 已到的 planned 活动自动改为 in_progress |
 | generate_daily_insights | 每早 06:30 | 为活跃用户预生成个性化洞察（结合记忆与行为数据），展示在 Daily 页建议区顶部；当日已有洞察则跳过 |
 | consolidate_memories | 每周日 03:00 | 按 user+category 分组，≥5 条未聚合记忆时调 AI 合成为结构化画像；原始记忆标记 consolidated=True（不删除） |
+| archive_stale_conversations | 每天 03:15 | 归档超过 CHAT_HISTORY_DAYS（3）天没有消息的对话（空对话按创建时间计）；归档时同步沉淀记忆摘要、清 turn 状态、取消平台 session，幂等可重跑 |
 
 ## 配置说明（.env）
 

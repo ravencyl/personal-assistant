@@ -14,6 +14,11 @@ TURN_TTL_SECONDS = 180
 # 现在轮询跨请求了，拿时间代替计数器）。
 TURN_IDLE_GRACE_SECONDS = 12
 
+# 对话视图只展示最近 N 天的消息（用户 2026-09-21 要求）；超过 N 天没聊天的对话
+# 由 archive_stale_conversations cron 自动归档。只影响展示层与归档判定，
+# AI 上下文（turn_prompt 组装 / 引用池）仍读全量历史。
+CHAT_HISTORY_DAYS = 3
+
 # 自动重试上限：发送失败 / 超时未回 / 空回复时，自动重发同一份 turn_prompt 的
 # 次数（不计首次）。只敢是 1：重发会让模型重新执行一遍指令，若上一轮其实在
 # 平台侧活着并产出了写操作，就会执行两遍 —— 重发前会先 cancel 旧轮 + 抢救

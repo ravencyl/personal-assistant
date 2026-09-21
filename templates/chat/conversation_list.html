@@ -41,6 +41,12 @@
         {% if query %}
         <p class="text-xs text-[var(--text-muted)]">搜索「{{ query }}」的结果</p>
         {% endif %}
+        {# 归档分区开关：默认列表只看活跃对话，归档的（含 cron 自动归档的）在这入口里 #}
+        {% if show_archived %}
+        <p class="text-xs px-1"><a href="{% url 'chat:conversation_list' %}" class="text-[var(--accent)] hover:underline">← 返回对话列表</a><span class="text-[var(--text-muted)]"> · 正在查看已归档对话</span></p>
+        {% else %}
+        <p class="text-xs px-1"><a href="?archived=1" class="text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:underline">已归档对话</a></p>
+        {% endif %}
     </div>
 
     {% if not QODER_API_AVAILABLE %}
@@ -165,9 +171,10 @@
     {# --- 消息列表（始终渲染；空状态时显示引导文案，JS 切换对话时替换） --- #}
     <div id="split-messages" class="flex-1 overflow-y-auto p-4 space-y-4" data-turn-resume-host>
         {% if active_conversation %}
+        {% include "chat/partials/_history_older.html" %}
         {% for msg in chat_messages %}{% include "chat/partials/_message.html" %}{% empty %}
         <div class="text-center py-8 text-[var(--text-muted)]">
-            <p>发送消息开始对话</p>
+            <p>{% if older_count %}近 3 天没有新消息，点上方链接查看更早对话{% else %}发送消息开始对话{% endif %}</p>
         </div>
         {% endfor %}
         {% include "chat/partials/turn_resume.html" with conversation=active_conversation %}

@@ -3123,3 +3123,150 @@ class FollowUpCollapseTest(SimpleTestCase):
         tidy_body = self.js.split('window.paTidyFollowUps =')[1].split('window.PaChatTurn')[0]
         self.assertNotIn("'data-followup'", tidy_body.replace("'[data-followup]'", ''),
                          '收敛函数内部不得给任何元素挂 data-followup 属性')
+
+
+# ── 3 天展示窗口 + 超 3 天自动归档（2026-09-21 用户需求） ──
+
+class ChatHistoryWindowTest(TestCase):
+    """对话视图只渲染最近 CHAT_HISTORY_DAYS 天的消息，?history=all 展开全量
+
+    只是展示层窗口：AI 上下文与归档摘要仍读全量历史。三个渲染口
+    （分栏初始 / widget-messages 片段 / 详情页）都必须带「显示更早」入口，
+    且窗口内一条都没有时不得落成「发送消息开始对话」（对话不是空的）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('hw', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_hw', agent_id='ag_hw', title='历史窗口')
+        self.old = Message.objects.create(
+            conversation=self.conv, role='user', content='五天前的老消息')
+        self.new = Message.objects.create(
+            conversation=self.conv, role='assistant', content='今天的新消息')
+        cutoff = timezone.now() - timedelta(days=chat_views.CHAT_HISTORY_DAYS + 2)
+        Message.objects.filter(pk=self.old.pk).update(created_at=cutoff)
+
+    def test_list_shows_only_recent_with_older_entry(self):
+        resp = self.client.get(f'/chat/{self.conv.id}/')
+        html = resp.content.decode()
+        self.assertNotIn('五天前的老消息', html)
+        self.assertIn('今天的新消息', html)
+        self.assertIn('显示更早的 1 条消息', html)
+        self.assertIn('history=all', html)
+
+    def test_list_history_all_expands_full_history(self):
+        html = self.client.get(f'/chat/{self.conv.id}/?history=all').content.decode()
+        self.assertIn('五天前的老消息', html)
+        self.assertIn('今天的新消息', html)
+        self.assertNotIn('显示更早的', html)
+
+    def test_widget_fragment_windows_and_expands(self):
+        html = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
+        self.assertNotIn('五天前的老消息', html)
+        self.assertIn('显示更早的 1 条消息', html)
+        html = self.client.get(
+            f'/chat/{self.conv.id}/widget-messages/?history=all').content.decode()
+        self.assertIn('五天前的老消息', html)
+
+    def test_detail_page_windows(self):
+        html = self.client.get(f'/chat/{self.conv.id}/detail/').content.decode()
+        self.assertNotIn('五天前的老消息', html)
+        self.assertIn('显示更早的 1 条消息', html)
+
+    def test_all_old_conversation_does_not_show_empty_guide(self):
+        """整个对话都超过窗口期：不能显示「发送消息开始对话」（消息并没有丢）"""
+        Message.objects.filter(pk=self.new.pk).update(
+            created_at=timezone.now() - timedelta(days=chat_views.CHAT_HISTORY_DAYS + 1))
+        html = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
+        self.assertNotIn('发送消息开始对话', html)
+        self.assertIn('近 3 天没有新消息', html)
+        self.assertIn('显示更早的 2 条消息', html)
+
+    def test_recent_conversation_has_no_older_entry(self):
+        conv = Conversation.objects.create(
+            user=self.user, session_id='sess_hw2', agent_id='ag_hw2', title='新对话')
+        html = self.client.get(f'/chat/{conv.id}/').content.decode()
+        self.assertIn('发送消息开始对话', html)
+        self.assertNotIn('显示更早的', html)
+
+
+class AutoArchiveStaleConversationTest(TestCase):
+    """archive_stale_conversations：超 CHAT_HISTORY_DAYS 天没聊天的对话自动归档
+
+    与手工归档同一套口径（状态 + turn 清理 + 平台 cancel）；阈值与展示窗口
+    同源（chat.models.CHAT_HISTORY_DAYS），不能两边各写一个 3。
+    """
+
+    def setUp(self):
+        from io import StringIO
+        from django.core.management import call_command
+        self.call_command = call_command
+        self.out = StringIO
+        self.user = User.objects.create_user('aa', password='p')
+        self.client.force_login(self.user)
+        old = timezone.now() - timedelta(days=chat_views.CHAT_HISTORY_DAYS + 1)
+
+        self.fresh = Conversation.objects.create(
+            user=self.user, session_id='sess_f', agent_id='ag_f', title='活跃')
+        Message.objects.create(conversation=self.fresh, role='user', content='今天还在聊')
+
+        self.stale = Conversation.objects.create(
+            user=self.user, session_id='sess_s', agent_id='ag_s', title='超期')
+        Message.objects.create(conversation=self.stale, role='user', content='三天前的消息')
+        Message.objects.filter(conversation=self.stale).update(created_at=old)
+
+        self.empty_stale = Conversation.objects.create(
+            user=self.user, session_id='sess_e', agent_id='ag_e', title='空且超期')
+        Conversation.objects.filter(pk=self.empty_stale.pk).update(created_at=old)
+
+        self.already = Conversation.objects.create(
+            user=self.user, session_id='sess_a', agent_id='ag_a', title='已归档',
+            status='archived')
+
+    def test_archives_stale_only(self):
+        self.call_command('archive_stale_conversations')
+        self.fresh.refresh_from_db()
+        self.stale.refresh_from_db()
+        self.empty_stale.refresh_from_db()
+        self.already.refresh_from_db()
+        self.assertEqual(self.fresh.status, 'idle')
+        self.assertEqual(self.stale.status, 'archived')
+        self.assertEqual(self.empty_stale.status, 'archived', '空对话按创建时间计也要归档')
+        self.assertEqual(self.already.status, 'archived', '已归档的保持不动')
+
+    def test_dry_run_writes_nothing(self):
+        self.call_command('archive_stale_conversations', dry_run=True)
+        self.stale.refresh_from_db()
+        self.assertEqual(self.stale.status, 'idle')
+
+    def test_archived_conversations_hidden_from_default_list(self):
+        """归档后默认列表不再出现（否则自动归档等于没做），?archived=1 可查看"""
+        self.stale.status = 'archived'
+        self.stale.save(update_fields=['status'])
+        self.fresh.status = 'idle'
+        self.fresh.save(update_fields=['status'])
+        html = self.client.get('/chat/').content.decode()
+        self.assertIn('活跃', html)
+        self.assertNotIn('>超期<', html)
+        html = self.client.get('/chat/?archived=1').content.decode()
+        self.assertIn('超期', html)
+        self.assertNotIn('>活跃<', html)
+
+    def test_resets_active_turn_when_archiving(self):
+        self.stale.turn_state = Conversation.TURN_AWAITING
+        self.stale.turn_started_at = timezone.now()
+        self.stale.save(update_fields=['turn_state', 'turn_started_at'])
+        with patch('agents.services.get_service') as mock_svc:
+            self.call_command('archive_stale_conversations')
+        self.stale.refresh_from_db()
+        self.assertEqual(self.stale.turn_state, Conversation.TURN_NONE)
+        # cron 会把所有超期对话一并归档（本例 2 个），断言目标对话被 cancel 过即可
+        calls = [c.args[0] for c in mock_svc.return_value.cancel_session.call_args_list]
+        self.assertIn('sess_s', calls)
+
+    def test_threshold_follows_chat_history_days(self):
+        """--days 参数可调，默认值与展示窗口同源"""
+        self.call_command('archive_stale_conversations', days=30)
+        self.stale.refresh_from_db()
+        self.assertEqual(self.stale.status, 'idle', '30 天阈值下 4 天前消息不算超期')
