@@ -155,7 +155,7 @@ SUGGEST_TAG_LIMIT = 5
 _NAME_SIMILARITY_THRESHOLD = 0.5
 
 
-def suggest_tags(obj, limit=SUGGEST_TAG_LIMIT):
+def suggest_tags(obj, limit=SUGGEST_TAG_LIMIT, require_relevance=False, scope=None):
     """基于对象内容 + 用户历史标签习惯，推荐标签列表（top N）
 
     三层策略，按优先级叠加：
@@ -163,10 +163,16 @@ def suggest_tags(obj, limit=SUGGEST_TAG_LIMIT):
     2. 对象名称与已有标签名的 char_overlap_ratio 匹配
     3. 同标签下其他对象的名称与当前对象名称的相似度
 
+    require_relevance=True（AI 自动落库场景）时策略 1 不再无条件加分：
+    常用标签与当前内容无关，无脑塞高频标签是「AI 乱贴标签」的主要来源；
+    此时常用标签只有同时被策略 2/3 命中（内容相关）才会入选。
+    给人工挑选的建议 chips（表单页）保持 require_relevance=False。
+
     失败返回空列表（不阻断创建/编辑流程）。
     """
     try:
-        scope = _scope_of(obj)
+        # scope 未传时由对象类型反推；临时对象（未落库预览）无法反推，需显式传
+        scope = scope or _scope_of(obj)
         user = getattr(obj, 'user', None)
         if not user:
             return []
@@ -180,17 +186,19 @@ def suggest_tags(obj, limit=SUGGEST_TAG_LIMIT):
 
         candidates = {}  # tag_name → score
 
-        # 策略 1：用户最常用的标签（频率排序，权重 3）
         model = _scope_model(scope)
         user_qs = visible_qs(model, user)
-        freq_tags = (user_qs.values('tags__name')
-                     .exclude(tags__name__isnull=True)
-                     .annotate(cnt=Count('id'))
-                     .order_by('-cnt')[:10])
-        for row in freq_tags:
-            name = row['tags__name']
-            if name:
-                candidates[name] = candidates.get(name, 0) + 3
+
+        # 策略 1：用户最常用的标签（频率排序，权重 3；自动落库场景跳过）
+        if not require_relevance:
+            freq_tags = (user_qs.values('tags__name')
+                         .exclude(tags__name__isnull=True)
+                         .annotate(cnt=Count('id'))
+                         .order_by('-cnt')[:10])
+            for row in freq_tags:
+                name = row['tags__name']
+                if name:
+                    candidates[name] = candidates.get(name, 0) + 3
 
         # 策略 2：对象名称与标签名的相似度（权重 2）
         all_tags = list(Tag.objects.filter(scope=scope).values_list('name', flat=True))
@@ -219,6 +227,40 @@ def suggest_tags(obj, limit=SUGGEST_TAG_LIMIT):
 
     except Exception:
         return []
+
+
+def resolve_existing_tags(names, scope, user=None):
+    """AI 自动识别路径的标签写入守门：只匹配已有标签，匹配不到的丢弃
+
+    与 activities.resolve_participants 同口径——AI 推断不得自动新建标签，
+    否则模型编造的名字会永久污染标签列表。合法池 = 预建启用标签 +
+    该用户在此 scope 用过的标签（大小写不敏感，命中后落规范写法）。
+    返回 (matched Tag 实例列表, skipped 原始名字列表)。
+    """
+    allowed = {}
+    pool = list(active_tag_names(scope))
+    if user:
+        pool += list(used_tag_names(scope, user))
+    for n in pool:
+        if n:
+            allowed.setdefault(n.strip().lower(), n.strip())
+
+    matched, skipped, seen = [], [], set()
+    for raw in names or []:
+        name = str(raw).strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if key in allowed:
+            tag, _created = Tag.objects.get_or_create(
+                scope=scope, name=allowed[key], defaults={'is_active': True})
+            matched.append(tag)
+        else:
+            skipped.append(name)
+    return matched, skipped
 
 
 def _get_object_text(obj):

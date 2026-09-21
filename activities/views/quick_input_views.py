@@ -1,6 +1,7 @@
 """一句话快速输入：AI 解析（失败降级规则解析）与快速创建端点"""
 import json
 import logging
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -12,6 +13,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from core.ai import ai_round_trip, extract_json_dict
+from core.tags import resolve_existing_tags
 from core.utils import week_monday, WEEKDAY_LABELS
 
 from ..parsing import parse_quick_input
@@ -46,6 +48,17 @@ def parse_quick_input_view(request):
         return JsonResponse({
             'error': '未能识别出活动名称，请写得更具体些，例如「8月25到28日去上海出差 预算3000」',
         }, status=400)
+    if source == 'ai':
+        # AI 路径的标签守门（与参与者同口径：AI 推断不得自动新建标签）：
+        # 用户原文显式写的 #词 直接保留（可以新建），AI 自己推断的只匹配已有标签
+        explicit = re.findall(r'#([\w\u4e00-\u9fa5]+)', text)
+        inferred = [t for t in data.get('tags', []) if t not in explicit]
+        matched_tags, _skipped = resolve_existing_tags(inferred, 'activity', request.user)
+        merged = list(dict.fromkeys(explicit + [t.name for t in matched_tags]))[:10]
+        if merged:
+            data['tags'] = merged
+        else:
+            data.pop('tags', None)
     data['source'] = source
     return JsonResponse(data)
 
@@ -112,7 +125,9 @@ def _ai_parse(text, today):
             'start_time、end_time（HH:MM 24 小时制，如 14:00、15:30；用户写「下午3点」换算为 15:00、「上午9点半」换算为 09:30，只识别有明确上下午/词头或钟表格式的时间，未写时间则不出现在 JSON 中）、'
             'cost（数字，单位元，指已经花掉的钱）、'
             'status（planned/in_progress/done/cancelled 之一）、'
-            'tags（字符串数组）、participants（字符串数组）。\n'
+            'tags（字符串数组；仅当用户输入里显式写了 #标签 或明确说要打某个标签时才输出，'
+            '禁止自行推断或编造标签名，无法判断就不要输出 tags 字段）、'
+            'participants（字符串数组）。\n'
             f'无法识别的字段不要出现在 JSON 中。用户输入："""{text}"""'
         )
         return extract_json_dict(ai_round_trip(prompt, timeout=20, purpose='general'))

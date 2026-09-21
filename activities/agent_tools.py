@@ -18,7 +18,7 @@ from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
                                  parse_pick_index)
 from core.utils import get_visible, visible_qs
 
-from core.tags import apply_tags, tag_names, suggest_tags
+from core.tags import apply_tags, tag_names, suggest_tags, resolve_existing_tags
 from chat.models import Message
 from .models import Activity, Expense, ActivityComment
 from .services import (InputError, add_expense, change_activity_status,
@@ -268,7 +268,8 @@ def tool_set_status(user, params):
 
 @agent_tool('activities.create', '创建一个新活动',
             'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元，将创建为费用条目）、'
-            'status、tags（字符串数组）、participants（字符串数组）、parent（父活动名称，可选）')
+            'status、tags（字符串数组，可选；只写用户明确提到的标签，没有就整个省略，'
+            '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）')
 def tool_create(user, params):
     data = normalize_input(params, timezone.localdate())
     if not data.get('name'):
@@ -279,8 +280,13 @@ def tool_create(user, params):
     if parent_name:
         parent = visible_qs(Activity, user).filter(name__icontains=parent_name).first()
 
-    # 智能标签建议：用户未指定标签时，基于内容 + 历史习惯自动推荐
-    if not data.get('tags'):
+    # 标签守门（与参与者同口径）：模型给的标签只匹配已有，编造的名字丢弃；
+    # 用户未指定时不让规则无脑推荐常用标签（与内容无关），只采纳内容相关的建议
+    tag_skipped = []
+    if data.get('tags'):
+        matched_tags, tag_skipped = resolve_existing_tags(data['tags'], 'activity', user)
+        data['tags'] = [t.name for t in matched_tags]
+    else:
         # 构造一个临时对象用于 suggest_tags（不需要落库）
         class _TempActivity:
             def __init__(self, user, name, description):
@@ -288,7 +294,9 @@ def tool_create(user, params):
                 self.name = name
                 self.description = description
         temp = _TempActivity(user, data.get('name', ''), data.get('description', ''))
-        suggested = suggest_tags(temp)
+        # 临时对象无法被 _scope_of 反推 scope，必须显式传（之前静默返回空，
+        # 兑底建议从未生效过）
+        suggested = suggest_tags(temp, limit=3, require_relevance=True, scope='activity')
         if suggested:
             data['tags'] = suggested
 
@@ -325,7 +333,8 @@ def tool_create(user, params):
         blocked_note = f'，前置依赖：{"、".join(blocked_names)}'
     return {
         'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}{tag_note}{blocked_note}'
-                 + _participant_skip_note(result['skipped']),
+                 + _participant_skip_note(result['skipped'])
+                 + _tag_skip_note(tag_skipped),
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
@@ -425,6 +434,14 @@ def _participant_skip_note(skipped):
             '需要的话可在活动页手动添加。')
 
 
+def _tag_skip_note(skipped):
+    """自动识别未命中的标签提示（不阻断流程，仅附在回复末尾）"""
+    if not skipped:
+        return ''
+    return (f"\n\n⚠️ 标签「{'、'.join(skipped)}」不在你的标签库中，未添加；"
+            '需要的话可在活动页手动输入创建。')
+
+
 def _update_preview(user, params):
     """预览阶段：定位目标 + 清洗参数 + 生成变更 diff（不写库）"""
     activity = _resolve_single(user, params.get('target') or params.get('name'),
@@ -455,10 +472,16 @@ def _update_preview(user, params):
                         'old': fmt_field(field, old_v), 'new': fmt_field(field, data[field])})
 
     participant_skipped = []
+    tag_skipped = []
     for key, label in (('tags', '标签'), ('participants', '参与者')):
         if key in data:
             old_set = set(tag_names(activity)) if key == 'tags' else \
                 set(activity.participants.values_list('name', flat=True))
+            if key == 'tags':
+                # 与 participants 对称：AI 推断的标签只匹配已有（编造的在预览阶段丢弃），
+                # 全部未命中时保持原标签不变（「未找到」不等于「清空」）
+                matched_tags, tag_skipped = resolve_existing_tags(data[key], 'activity', user)
+                data[key] = [t.name for t in matched_tags] if matched_tags else list(old_set)
             if key == 'participants':
                 # 预览就要反映真实结果：未命中的名字不会出现，全部未命中时保持原参与者不变
                 matched, participant_skipped, _created = resolve_participants(user, data[key])
@@ -477,7 +500,7 @@ def _update_preview(user, params):
                 changes.append({'field': key, 'label': label,
                                 'old': '、'.join(sorted(old_set)) or '空',
                                 'new': new_desc + f"（{' '.join(detail)}）"})
-    return activity, data, changes, participant_skipped
+    return activity, data, changes, participant_skipped, tag_skipped
 
 
 def apply_update(user, params):
@@ -491,8 +514,12 @@ def apply_update(user, params):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()
+    tag_skipped = []
     if 'tags' in data:
-        apply_tags(activity, data['tags'])
+        # 与预览同口径：AI 推断的标签只匹配已有，全部未命中时保持原标签不变
+        matched_tags, tag_skipped = resolve_existing_tags(data['tags'], 'activity', user)
+        if matched_tags:
+            apply_tags(activity, [t.name for t in matched_tags])
     skipped_participants = []
     if 'participants' in data:
         participants, skipped_participants, _created = resolve_participants(user, data['participants'])
@@ -505,7 +532,8 @@ def apply_update(user, params):
     log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
     return {
         'reply': f'已更新「{activity.name}」：{summary}'
-                 + _participant_skip_note(skipped_participants),
+                 + _participant_skip_note(skipped_participants)
+                 + _tag_skip_note(tag_skipped),
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
@@ -521,17 +549,18 @@ def apply_update(user, params):
             '整段替换需再传 description_mode="replace"）；先出预览，用户确认后生效',
             apply_fn=apply_update)
 def tool_update(user, params):
-    activity, data, changes, skipped = _update_preview(user, params)
+    activity, data, changes, skipped, tag_skipped = _update_preview(user, params)
     if not changes:
         return {
             'reply': f'没有识别到「{activity.name}」需要修改的内容，请告诉我要改哪些字段'
-                     + _participant_skip_note(skipped),
+                     + _participant_skip_note(skipped) + _tag_skip_note(tag_skipped),
             'card': 'activity',
             'activity_ids': [activity.id],
             'card_data': _activity_card_data(activity),
         }
     return {
-        'reply': f'我准备对「{activity.name}」做以下修改，请确认：' + _participant_skip_note(skipped),
+        'reply': f'我准备对「{activity.name}」做以下修改，请确认：'
+                 + _participant_skip_note(skipped) + _tag_skip_note(tag_skipped),
         'card': 'confirm',
         'activity_ids': [activity.id],
         'card_data': {'kind': 'update', 'name': activity.name,

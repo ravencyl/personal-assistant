@@ -2700,3 +2700,124 @@ class DependencyGraphJsTest(SimpleTestCase):
         self.assertIn('textContent', code)   # 活动名走 textContent
         self.assertIn('aria-label', code)    # 节点可访问名
         self.assertIn("createElementNS(NS, 'title')", code)  # SVG hover 全名
+
+
+class AiTagGuardTest(TestCase):
+    """AI 创建/更新活动的标签守门（2026-09-21）
+
+    之前模型自由编造标签直接落库（apply_tags 对新名字 get_or_create），
+    加上 suggest_tags 兜底无脑塞高频常用标签，导致「AI 乱贴标签」。
+    修复口径与参与者一致：AI 推断只匹配已有标签，编造的丢弃并告知；
+    无用户指定时的兜底建议只采纳内容相关的（require_relevance=True）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def _seed(self):
+        """预建「出差」「餐饮」标签 + 一个带「出差」标签的历史活动"""
+        from core.models import Tag
+        Tag.objects.get_or_create(scope='activity', name='出差', defaults={'is_active': True})
+        Tag.objects.get_or_create(scope='activity', name='餐饮', defaults={'is_active': True})
+        base = Activity.objects.create(user=self.user, name='上海出差三天')
+        apply_tags(base, ['出差'])
+        return base
+
+    def test_resolve_existing_tags_drops_invented(self):
+        from core.models import Tag
+        from core.tags import resolve_existing_tags
+        self._seed()
+        matched, skipped = resolve_existing_tags(['出差', '编造标签'], 'activity', self.user)
+        self.assertEqual([t.name for t in matched], ['出差'])
+        self.assertEqual(skipped, ['编造标签'])
+        self.assertFalse(Tag.objects.filter(name='编造标签').exists(),
+                         'AI 编造的标签不得新建 Tag 行')
+
+    def test_create_tool_drops_invented_tags(self):
+        from core.agent_registry import get_tool
+        self._seed()
+        result = get_tool('activities.create')['fn'](self.user, {
+            'name': '去上海出差', 'tags': ['出差', '编造标签']})
+        activity = Activity.objects.get(id=result['activity_ids'][0])
+        self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
+        self.assertIn('编造标签', result['reply'])
+        self.assertIn('未添加', result['reply'])
+
+    def test_create_fallback_suggests_only_relevant_tags(self):
+        """无用户指定时：内容无关的高频常用标签不再被无脑塞上"""
+        from core.agent_registry import get_tool
+        self._seed()
+        # 历史上「出差」用得最多，但新活动内容与之无关
+        for i in range(3):
+            act = Activity.objects.create(user=self.user, name=f'出差事项{i}')
+            apply_tags(act, ['出差'])
+        result = get_tool('activities.create')['fn'](self.user, {'name': '超市买菜'})
+        activity = Activity.objects.get(id=result['activity_ids'][0])
+        self.assertEqual(list(activity.tags.values_list('name', flat=True)), [],
+                         '无关活动不应被贴上高频常用标签')
+
+    def test_create_fallback_suggests_content_relevant_tag(self):
+        """同类历史活动（名称相似）的标签仍会自动带上"""
+        from core.agent_registry import get_tool
+        self._seed()
+        result = get_tool('activities.create')['fn'](self.user, {'name': '去上海出差'})
+        activity = Activity.objects.get(id=result['activity_ids'][0])
+        self.assertIn('出差', list(activity.tags.values_list('name', flat=True)))
+
+    def test_update_preview_and_apply_filter_invented_tags(self):
+        from core.agent_registry import get_tool
+        from core.models import Tag
+        self._seed()
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        apply_tags(activity, ['出差'])
+        tool = get_tool('activities.update')
+
+        preview = tool['fn'](self.user, {'target': '周末游', 'tags': ['出差', '编造标签']})
+        self.assertIn('编造标签', preview['reply'])
+        self.assertIn('未添加', preview['reply'])
+
+        tool['apply'](self.user, {'target_id': activity.id, 'tags': ['出差', '编造标签']})
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
+        self.assertFalse(Tag.objects.filter(name='编造标签').exists())
+
+    def test_update_all_invented_keeps_original_tags(self):
+        """全部未命中时保持原标签不变（「未找到」不等于「清空」），不产生变更项"""
+        from core.agent_registry import get_tool
+        self._seed()
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        apply_tags(activity, ['出差'])
+        tool = get_tool('activities.update')
+        preview = tool['fn'](self.user, {'target': '周末游', 'tags': ['编造标签']})
+        # 全部未命中 → 无变更项、不出确认卡（标签保持原样）
+        self.assertEqual(preview['card'], 'activity')
+        self.assertIn('没有识别到', preview['reply'])
+        tool['apply'](self.user, {'target_id': activity.id, 'tags': ['编造标签']})
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
+
+    def test_quick_parse_ai_tags_gate(self):
+        """快速输入 AI 解析：原文显式 #词 保留，AI 编造的丢弃"""
+        from unittest.mock import patch
+        from activities.views import quick_input_views as qiv
+        self._seed()
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+        # 显式 #餐饮 保留；AI 自己推断的「编造标签」被丢弃
+        with patch.object(qiv, '_ai_parse',
+                          return_value={'name': '周五聚餐', 'tags': ['餐饮', '编造标签']}):
+            resp = self.client.post(reverse('activities:parse_quick_input'),
+                                    {'text': '周五聚餐 #餐饮'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['tags'], ['餐饮'])
+        from core.models import Tag
+        self.assertFalse(Tag.objects.filter(name='编造标签').exists())
+
+        # 没有显式 # 且全是编造：tags 字段整个消失
+        with patch.object(qiv, '_ai_parse',
+                          return_value={'name': '周五聚餐', 'tags': ['编造标签']}):
+            resp = self.client.post(reverse('activities:parse_quick_input'),
+                                    {'text': '周五聚餐'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('tags', resp.json())
