@@ -84,7 +84,6 @@ TEMPLATES = [
                 'core.context_processors.qoder_context',
                 'core.context_processors.site_brand',
                 'core.context_processors.push_context',
-                'core.context_processors.expense_tag_suggestions',
             ],
         },
     },

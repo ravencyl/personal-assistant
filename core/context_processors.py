@@ -24,14 +24,3 @@ def push_context(request):
         'vapid_public_key': settings.VAPID_PUBLIC_KEY,
     }
 
-
-def expense_tag_suggestions(request):
-    """向全站模板注入费用标签建议（快记面板 datalist 用）。
-
-    登录前不查库；core.tags 延迟 import 避免应用启动期依赖。
-    """
-    if not request.user.is_authenticated:
-        return {'expense_tag_suggestions': []}
-    from .tags import tag_suggestions
-    return {'expense_tag_suggestions': tag_suggestions('expense', request.user)}
-

@@ -2945,9 +2945,10 @@ class DailyCardActionRowTest(SimpleTestCase):
         cls.js = (base / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
 
     def test_card_action_row_tabs(self):
-        """新建活动 / 记一笔走快记面板（不跳页）；日历 / 费用报告保留页面链接"""
+        """新建活动走快记面板（不跳页）；日历 / 费用报告保留页面链接；
+        「记一笔」已删（2026-09-21，费用必关联活动，统一走详情页费用表单）"""
         self.assertIn('data-quick-open="activity"', self.card)
-        self.assertIn('data-quick-open="expense"', self.card)
+        self.assertNotIn('data-quick-open="expense"', self.card)
         self.assertIn("url 'activities:activity_calendar'", self.card)
         self.assertIn("url 'activities:expense_report'", self.card)
 
@@ -3014,8 +3015,9 @@ class WorkbenchCardTest(TestCase):
         self.assertIn('今日待办', html)
         self.assertIn('今天要买年糕', html)
         self.assertIn('今日焦点', html)
-        for key in ('activity', 'note', 'expense'):
+        for key in ('activity', 'note'):
             self.assertIn(f'data-quick-open="{key}"', html)
+        self.assertNotIn('data-quick-open="expense"', html)
 
     def test_today_brief_does_not_touch_turn_or_qoder(self):
         service = FakeQoderService()
@@ -3057,10 +3059,10 @@ class WorkbenchCardWiringTest(SimpleTestCase):
         self.assertIn('today_brief_card.html', self.dispatch)
 
     def test_card_action_row_and_no_retired_link(self):
-        """卡内操作行走快记面板；下线页链接不得残留"""
+        """卡内操作行走快记面板；「记一笔」已删（费用必关联活动）；下线页链接不得残留"""
         self.assertIn('data-quick-open="activity"', self.card)
         self.assertIn('data-quick-open="note"', self.card)
-        self.assertIn('data-quick-open="expense"', self.card)
+        self.assertNotIn('data-quick-open="expense"', self.card)
         self.assertIn("url 'activities:activity_list'", self.card)
         self.assertNotIn("url 'today'", self.card)
         self.assertNotIn('core/today.html', self.card)

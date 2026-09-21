@@ -43,14 +43,13 @@ sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
         {% for tip in card.insights %}<p class="mt-0.5 text-xs text-zinc-600">{{ tip }}</p>{% endfor %}
     </div>
     {% endif %}
-{% comment %}后续操作行：Daily 页已下线，建/记/看的能力直接挂在卡片上。
-   新建与记一笔走快记面板（data-quick-open，chat-turn.js 委托调 paQuickOpen）；
+{% comment %}后续操作行：Daily 页已下线，建/看的能力直接挂在卡片上。
+   新建走快记面板（data-quick-open，chat-turn.js 委托调 paQuickOpen）；
+   「记一笔」已删（2026-09-21）：费用一定关联活动，统一走活动详情页的费用表单；
    日历/费用报告保留原页面（宽表不适合塞进气泡）。{% endcomment %}
     <div class="mt-2 pt-2 border-t border-zinc-100 flex flex-wrap items-center gap-1.5">
         <button type="button" data-quick-open="activity"
                 class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] hover:opacity-90">＋ 新建活动</button>
-        <button type="button" data-quick-open="expense"
-                class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-zinc-600 hover:bg-[var(--accent-light)]">记一笔</button>
         <a href="{% url 'activities:activity_calendar' %}"
            class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-zinc-600 hover:bg-[var(--accent-light)]">日历</a>
         <a href="{% url 'activities:expense_report' %}"

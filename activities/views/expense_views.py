@@ -6,15 +6,15 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_POST
 from django.db.models import Count, Sum
 
 from core.tags import apply_tags, tag_names
-from core.utils import get_visible, visible_qs, week_monday, pct_change, daily_totals, WEEKDAY_LABELS
+from core.utils import get_visible, week_monday, pct_change, daily_totals, WEEKDAY_LABELS
 
 from ..models import Activity, Expense
 from ..services import (InputError, add_expense, clean_amount, clean_paid_at)
-from ..utils import daily_bucket_q, get_daily_bucket, log_activity
+from ..utils import log_activity
 
 
 @login_required
@@ -55,74 +55,6 @@ def expense_create(request, activity_id):
 
 
 @login_required
-@require_GET
-def expense_quick_candidates(request):
-    """快记费用的归属候选：所有「计划」和「进行中」的未归档活动（JSON 端点）
-
-    供快记面板提交金额后的选择卡消费；「日常开支」桶不进列表——它由前端
-    作为独立的兑底按钮提供，不与真实活动混在一起。q 参数过滤名称。
-    """
-    qs = (visible_qs(Activity, request.user)
-          .filter(status__in=['planned', 'in_progress'], archived_at__isnull=True)
-          .exclude(daily_bucket_q()))
-    q = (request.GET.get('q') or '').strip()
-    if q:
-        qs = qs.filter(name__icontains=q)
-    items = list(qs[:100])
-    # 进行中优先，同级按最近更新；个人活动量级下 Python 排序足够
-    items.sort(key=lambda a: (a.status != 'in_progress', -a.updated_at.timestamp()))
-    labels = dict(Activity.STATUS_CHOICES)
-    return JsonResponse({'success': True, 'items': [
-        {'id': a.id, 'name': a.name, 'status': a.status,
-         'status_label': labels.get(a.status, a.status)}
-        for a in items]})
-
-
-@login_required
-@require_POST
-def expense_quick_create(request):
-    """全局快记：一键记一笔费用（JSON 端点，由原生 fetch 消费）
-
-    活动 id 可选；缺省记入「日常开支」归属桶。快记面板的两步流会先让
-    用户从候选里选归属（expense_quick_candidates），点选后带着 id 提交；
-    直接入桶只剩「日常开支」兑底按钮一条路。校验逻辑与 expense_create 一致。
-    """
-    activity_id = (request.POST.get('activity_id') or '').strip()
-    if activity_id:
-        activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
-        if not activity:
-            return JsonResponse({'error': '活动不存在或无权访问'}, status=400)
-    else:
-        activity = get_daily_bucket(request.user)
-
-    try:
-        expense = add_expense(
-            activity, request.user,
-            request.POST.get('amount'),
-            paid_at=request.POST.get('paid_at'),
-            note=request.POST.get('note'),
-            positive=True,
-            tags=request.POST.get('tags'),
-        )
-        if expense is None:
-            raise InputError('费用金额不能为空')
-    except InputError as e:
-        return JsonResponse({'error': str(e)}, status=400)
-    log_activity(request.user, activity, 'edited',
-                 f'快记费用 ¥{expense.amount}'
-                 + (f' {expense.note}' if expense.note else ''))
-
-    agg = activity.expenses.aggregate(total=Sum('amount'), cnt=Count('id'))
-    return JsonResponse({
-        'success': True,
-        'amount': float(expense.amount),
-        'tags': ', '.join(tag_names(expense)),
-        'activity_name': activity.name,
-        'expense_total': float(agg['total'] or 0),
-        'expense_count': agg['cnt'] or 0,
-    })
-
-
 @login_required
 @require_POST
 def expense_edit(request, expense_id):

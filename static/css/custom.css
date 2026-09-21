@@ -185,6 +185,14 @@ textarea {
     box-shadow: var(--shadow-md), var(--card-inner-glow);
 }
 
+/* 快记浮层表面：比普通 panel 醒目一档（淡 accent 顶部渐变 + accent 描边 + 高投影）——
+   浮层要一眼读出「这是弹层」，否则淡白底点了像没点（2026-09-21 用户反馈） */
+.quick-panel-surface {
+    background: linear-gradient(180deg, var(--accent-light) 0%, var(--bg-card) 38%);
+    border: 1.5px solid var(--accent);
+    box-shadow: var(--shadow-lg), 0 24px 64px rgba(100, 120, 232, 0.28);
+}
+
 /* 主按钮（黑底白字）：微阴影 + hover 上浮，点按下收——按钮要有「物理感」 */
 .btn-accent {
     background-color: var(--accent) !important;
