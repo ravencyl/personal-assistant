@@ -549,7 +549,10 @@
                 clearInterval(pinTimer);
                 fetch('/chat/' + currentId + '/pin/', {
                     method: 'POST',
-                    headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' },
+                    // Content-Type 必须显式给：fetch 发字符串 body 默认是 text/plain，
+                    // Django 不解析 → activity_id 落空 → 被当成「取消钉选」（真机踩过）
+                    headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json',
+                               'Content-Type': 'application/x-www-form-urlencoded' },
                     body: 'activity_id=' + encodeURIComponent(pinActivityId)
                 }).then(function (r) {
                     if (!r.ok) return null;   // JSON 404（活动没了/越权）静默跳过

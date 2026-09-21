@@ -1524,6 +1524,12 @@ class AskDrawerWiringTest(SimpleTestCase):
         self.assertIn("'pin': activity.id", self.detail_views)
         self.assertIn('pinActivityId', self.split)
         self.assertIn("'/pin/'", self.split, '?ask= 块要调 pin 端点自动钉选')
+        # form body 必须显式给 Content-Type：fetch 默认 text/plain，Django 不解析，
+        # activity_id 落空会被 pin 端点当成「取消钉选」（真机踩过）
+        pin_block = self.split[self.split.index('pinActivityId'):
+                               self.split.index('window.paSplitChat')]
+        self.assertGreater(len(pin_block.strip()), 300, '切片切空了，这条锁就是假的')
+        self.assertIn("'Content-Type': 'application/x-www-form-urlencoded'", pin_block)
 
     def test_drawer_endpoints_go_through_the_create_or_get_outlet(self):
         self.assertIn('activity_conversation', self.detail_raw,
