@@ -574,6 +574,5 @@
 })();
 </script>
 
-{# 底部预留空间：避开移动端底部 Tab 栏与快记 FAB #}
-<div class="h-20 md:h-0" aria-hidden="true"></div>
+{# 底部避让由 main 的 pb-28 统一承担（base.html 默认口径），这里不再叠加占位 —— 曾因双份预留导致移动端输入框下多出 80px 空白（2026-09-21 删） #}
 {% endblock %}
