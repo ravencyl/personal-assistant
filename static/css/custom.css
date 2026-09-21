@@ -557,6 +557,14 @@ a.bg-\[var\(--accent\)\]:active {
         font-size: 16px !important;
     }
 
+    /* 紧凑输入补偿：16px !important 会把小号输入框（如 ⋯ 菜单里的改名框）撑大一圈。
+       zoom 缩的是整盒（布局尺寸跟着缩，不像 transform:scale 留占位空隙、不破坏
+       paFitTextarea 的 scrollHeight 拟合），渲染字号变小但 computed font-size 仍是
+       16px，iOS 聚焦判定不会触发自动放大。只给明确挂了本类的紧凑输入用，勿全局加。 */
+    .input-compact {
+        zoom: 0.75;
+    }
+
     /* iOS 的 <input type="date"> 按完整日期格式预留极大的固有宽度
        （min-width:0 也压不住 min-content，随字号 16px 更大），会把弹窗/表单
        撑出横向滚动（真机截图实证）。移动端统一 appearance:none 退化为普通
