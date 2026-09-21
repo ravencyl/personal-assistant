@@ -224,6 +224,12 @@ none → queued → awaiting → finalizing → done
 
 回归锁：`chat/tests.py::ChatPinTest`（12 条，含越权必须 JSON 404、注入不得污染历史、对话页模板语法泄漏）、`ChatPinWiringTest`（6 条）、`ChatFollowUpRenderTest`（7 条，含工具文案顶掉模型 reply 时 chips 仍要活）、`core/tests.py::FollowUpLineTest`（9 条）、`memory/tests.py::ArchiveSummaryMemoryTest`（10 条）。变异反证 11 项（M20-M30）全需被抓到；**JS 侧的 @ 判据与候选渲染没有变异反证**（只能靠真机），改它们时必须浏览器实测。
 
+## 快记面板口径（2026-09-21）
+
+- **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来
+- 历史简报卡片（daily/today_brief）里的「记一笔」按钮已同步删除；`paQuickOpen(name)` 对**已删 Tab 名做回退到「备忘」**而不是把面板切成全隐藏——存量消息 payload 里可能还残留 `data-quick-open="expense"`，前端必须兜住
+- 浮层表面 `.quick-panel-surface`（淡 accent 顶部渐变 + accent 描边 + 高投影）比普通 panel 醒目一档：浮层要一眼读出「这是弹层」，淡白底点了像没点（用户反馈）。新增浮层容器时复用这个类，不要回退到普通 `.panel`
+
 ## 参与者写入规则
 
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
