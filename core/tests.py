@@ -1734,6 +1734,24 @@ class WebPushTest(TestCase):
         self.assertEqual(kwargs['vapid_claims']['sub'], settings.VAPID_SUBJECT)
 
     @override_settings(**VAPID_DUMMY)
+    def test_send_push_has_explicit_timeout(self):
+        """webpush 必须显式传 timeout：pywebpush 默认 10000（被当秒传给
+        requests），endpoint 不可达时挂满 gunicorn 180s 被 WORKER TIMEOUT
+        杀掉，3 个 worker 少 1 个，全站请求排队（2026-09-21 线上实锤）"""
+        from unittest.mock import patch
+
+        from core.models import PushSubscription
+        from core.push import send_push_to_user
+        PushSubscription.objects.create(
+            user=self.user, endpoint=self.ENDPOINT,
+            p256dh='k' * 40, auth='a' * 20)
+        with patch('core.push.webpush') as mock_webpush:
+            send_push_to_user(self.user, {'title': 't', 'body': 'b'})
+        timeout = mock_webpush.call_args.kwargs.get('timeout')
+        self.assertIsNotNone(timeout)
+        self.assertLessEqual(timeout, 30)
+
+    @override_settings(**VAPID_DUMMY)
     def test_send_push_410_cleans_expired_subscription(self):
         """404/410 = 订阅已失效（清了浏览器数据/取消授权），自动删记录"""
         from types import SimpleNamespace

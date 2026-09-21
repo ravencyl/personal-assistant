@@ -309,6 +309,12 @@ def _send_one(sub, payload):
             data=json.dumps(payload),
             vapid_private_key=settings.VAPID_PRIVATE_KEY,
             vapid_claims={'sub': settings.VAPID_SUBJECT},
+            # 显式超时：pywebpush 的默认值是 10000，它把这个数当秒传给
+            # requests（作者原意应是毫秒），endpoint 不可达时 TCP 挂到内核
+            # 放弃（约 127s+），请求跑满 gunicorn --timeout 180 直接被
+            # WORKER TIMEOUT 杀掉 —— 3 个 worker 少 1 个，其他请求排队
+            # 变慢，表现为「服务器未响应」（2026-09-21 线上排查实锤）。
+            timeout=15,
         )
         return 'ok'
     except WebPushException as exc:
