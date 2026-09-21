@@ -114,23 +114,23 @@
 <!-- ====== 右栏：聊天窗口 ====== -->
 <section class="chat-main">
     {# --- 聊天头部（始终渲染，空状态时隐藏操作按钮） --- #}
-    <div class="flex-none flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
+    <div class="flex-none flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)]">
         {# 移动端返回按钮 #}
         <button type="button" id="split-back-btn"
-                class="tap-target md:hidden w-11 h-11 -my-1.5 -ml-2 rounded-full items-center justify-center text-lg text-[var(--text-secondary)] hover:text-[var(--text)]" title="返回列表">
+                class="tap-target md:hidden w-10 h-10 -my-1 -ml-1.5 rounded-full items-center justify-center text-lg text-[var(--text-secondary)] hover:text-[var(--text)]" title="返回列表">
             &larr;
         </button>
-        <h2 class="text-base font-bold text-[var(--text)] truncate flex-1" id="split-chat-title">
+        <h2 class="text-sm font-bold text-[var(--text)] truncate flex-1" id="split-chat-title">
             {{ active_conversation.title|default:'' }}
         </h2>
         {# 桌面端侧栏折叠：把空间还给消息流（状态存 localStorage，移动端不显示） #}
         <button type="button" id="sidebar-toggle" data-sidebar-toggle aria-expanded="true" aria-controls="chat-layout"
                 title="折叠 / 展开会话列表"
-                class="tap-target hidden md:flex w-9 h-9 shrink-0 rounded-full items-center justify-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)]">&#9776;</button>
+                class="tap-target hidden md:flex w-8 h-8 shrink-0 rounded-full items-center justify-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)]">&#9776;</button>
         {# 聊天头瘦身：改名/归档/删除收进 ⋯ 菜单；三个 form 保留原 id，selectConversation 更新 action 的既有逻辑不受影响 #}
         <div id="split-actions" class="shrink-0{% if not active_conversation %} hidden{% endif %}">
             <details class="conv-menu relative">
-                <summary class="tap-target w-10 h-10 rounded-full items-center justify-center text-base text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>
+                <summary class="tap-target w-9 h-9 rounded-full items-center justify-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>
                 <div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-40">
                     <form id="split-rename-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_rename' active_conversation.id %}{% endif %}">
                         {% csrf_token %}

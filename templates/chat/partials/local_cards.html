@@ -1,18 +1,18 @@
 {% comment %}非 AI 快捷卡片行：点击 → 服务端直出卡片（不碰 Qoder / 不耗 token / 不占 turn）。
    分栏页与详情页共用（include 两处）；点击委托与失败提示在 chat-turn.js（一份实现）。
    目前两张：daily 简报 + 工作台；选中任一对话后由 JS 撤掉 hidden（无激活对话时按钮无意义）。{% endcomment %}
-<div id="local-cards" class="flex-none px-4 pb-2 hidden">
-    <div class="flex items-center gap-1.5">
+<div id="local-cards" class="flex-none px-3 pb-1 hidden">
+    <div class="flex items-center gap-1">
         <button type="button" data-local-card="daily_brief" aria-label="插入今日简报卡片"
-                class="tap-target inline-flex items-center gap-1 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                class="tap-target inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             daily
         </button>
         <button type="button" data-local-card="today_brief" aria-label="插入工作台卡片"
-                class="tap-target inline-flex items-center gap-1 rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                class="tap-target inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/>
             </svg>
             工作台

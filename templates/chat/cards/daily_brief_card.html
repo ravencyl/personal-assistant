@@ -7,31 +7,31 @@ sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
 {% endcomment %}
 <div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
     <div class="flex items-center justify-between gap-2">
-        <span class="text-xs font-medium text-zinc-500">{{ card.today_display }} · 今日概览</span>
+        <span class="text-sm font-medium text-zinc-700">{{ card.today_display }} · 今日概览</span>
     </div>
     <div class="mt-2 flex flex-wrap gap-1.5 text-xs">
-        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600">进行中 {{ card.counts.ongoing }}</span>
-        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600">长期 {{ card.counts.in_progress }}</span>
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">进行中 {{ card.counts.ongoing }}</span>
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">长期 {{ card.counts.in_progress }}</span>
         {% if card.counts.overdue %}<span class="rounded-full bg-zinc-100 px-2 py-0.5 text-red-700">逾期 {{ card.counts.overdue }}</span>{% endif %}
         {% if card.counts.conflict %}<span class="rounded-full bg-zinc-100 px-2 py-0.5 text-red-700">时间冲突 {{ card.counts.conflict }}</span>{% endif %}
-        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600 tabular-nums">今日 ¥{{ card.expenses.today|floatformat:0 }}</span>
-        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-600 tabular-nums">本周 ¥{{ card.expenses.week|floatformat:0 }}</span>
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700 tabular-nums">今日 ¥{{ card.expenses.today|floatformat:0 }}</span>
+        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700 tabular-nums">本周 ¥{{ card.expenses.week|floatformat:0 }}</span>
     </div>
     {% if card.ai_suggestion %}
-    <p class="mt-2 text-xs text-[var(--text-secondary)]">建议：{{ card.ai_suggestion }}</p>
+    <p class="mt-2 text-xs text-zinc-700">建议：{{ card.ai_suggestion }}</p>
     {% endif %}
     {% for section in card.sections %}
     <div class="mt-2 pt-2 border-t border-zinc-100">
-        <p class="text-xs font-medium text-zinc-500">{{ section.title }}{% if section.total > section.items|length %} · 共 {{ section.total }} 条{% endif %}</p>
+        <p class="text-xs font-medium text-zinc-600">{{ section.title }}{% if section.total > section.items|length %} · 共 {{ section.total }} 条{% endif %}</p>
         <div class="mt-1 space-y-1">
             {% for item in section.items %}
             <div class="flex items-center gap-2 text-sm min-w-0 flex-wrap">
                 {% if item.blocked %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" title="被其他活动阻塞"></span>
                 {% else %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-300"></span>{% endif %}
                 <a href="{% url 'activities:activity_detail' item.id %}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
-                <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums">#{{ item.id }}</span>
+                <span class="text-[10px] text-zinc-500 shrink-0 tabular-nums">#{{ item.id }}</span>
                 {# 手机上 meta（费用+状态+日期段）很长且不缩，活动名会被 truncate 挤没：换行整行展示，桌面保持右对齐 #}
-                <span class="text-[10px] sm:text-xs text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3.5 sm:pl-0">{% if item.cost %}¥{{ item.cost|floatformat:0 }} · {% endif %}{{ item.meta }}</span>
+                <span class="text-[11px] sm:text-xs text-zinc-500 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3.5 sm:pl-0">{% if item.cost %}¥{{ item.cost|floatformat:0 }} · {% endif %}{{ item.meta }}</span>
             </div>
             {% endfor %}
         </div>
@@ -39,8 +39,8 @@ sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
     {% endfor %}
     {% if card.insights %}
     <div class="mt-2 pt-2 border-t border-zinc-100">
-        <p class="text-xs font-medium text-zinc-500">行为洞察</p>
-        {% for tip in card.insights %}<p class="mt-0.5 text-xs text-zinc-500">{{ tip }}</p>{% endfor %}
+        <p class="text-xs font-medium text-zinc-600">行为洞察</p>
+        {% for tip in card.insights %}<p class="mt-0.5 text-xs text-zinc-600">{{ tip }}</p>{% endfor %}
     </div>
     {% endif %}
 {% comment %}后续操作行：Daily 页已下线，建/记/看的能力直接挂在卡片上。
