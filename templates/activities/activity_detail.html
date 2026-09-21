@@ -444,7 +444,8 @@
     <!-- 前置依赖：手动配置 blocked_by（与 AI 对话同字段）；搜索/添加/移除均为原生 fetch + JSON，禁挂 hx-* -->
     <details data-mobile-collapse open class="app-card p-4 sm:p-6">
         <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
-            前置依赖（<span id="dep-count">{{ blocked_deps|length }}</span>）<span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+            {# 计数 span 必须连同文字包在同一个 span 里：summary 是 flex + justify-between，裸文本会被拆成多个 flex 项铺满整行 #}
+            <span>前置依赖（<span id="dep-count">{{ blocked_deps|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         <div id="dep-list" class="space-y-2">
             {% for dep in blocked_deps %}
