@@ -230,6 +230,18 @@ none → queued → awaiting → finalizing → done
 - 历史简报卡片（daily/today_brief）里的「记一笔」按钮已同步删除；`paQuickOpen(name)` 对**已删 Tab 名做回退到「备忘」**而不是把面板切成全隐藏——存量消息 payload 里可能还残留 `data-quick-open="expense"`，前端必须兜住
 - 浮层表面 `.quick-panel-surface`（淡 accent 顶部渐变 + accent 描边 + 高投影）比普通 panel 醒目一档：浮层要一眼读出「这是弹层」，淡白底点了像没点（用户反馈）。新增浮层容器时复用这个类，不要回退到普通 `.panel`
 
+## 详情页「问 AI」抽屉（2026-09-21，PaChatTurn 第三个挂载点）
+
+活动详情页「问 AI」按钮打开右侧滑出抽屉（`activity_detail.html` 内联脚本），内嵌真实异步对话。与已下线浮窗的关键区别：只服务单会话、上下文就是本页活动，没有会话列表/切换逻辑——浮窗当年被下线的就是三方共用复杂度，这里不再引入。
+
+- **入口是 create-or-get 而不是「每次新建」**：`GET /chat/for-activity/<id>/`（`activity_conversation`）按 `pin_activity` 找该用户非归档的最新对话复用，没有才 `_create_conversation_for_user()` 新建并直接赋 `pin_activity`（不走 pin 端点二次调用）。会话策略「每活动一个活跃专属对话」；用户在聊天页手动改钉/取消钉后，原活动下次打开会**新建**（软策略，不做迁移，`ActivityConversationEndpointTest` 锁住这个行为防止被「优化」成全局复用）
+- **越权/不存在返 JSON 404**（`visible_qs` + 手工 404，不用 `get_visible`——它抛 Http404，fetch 拿回 HTML 错误页会炸 `r.json()`，钉选端点同款口径）
+- **历史片段只有 `widget_messages` 一个端点**：消息 + `turn_resume`/error + 钉选挂载位一次拿齐；前端拿片段塞 `#ask-drawer-messages` 后手动 `resume()`。`chat-turn.js::insertLocalHtml` 的回退链必须认得 `ask-drawer-messages`，否则局部卡片在抽屉里静默丢弃
+- **单实例 halt 纪律**：重复打开先 `instance.halt()` 再重建（urls 指向新会话）；关闭只 `halt()`（停轮询不取消服务端本轮），下次打开靠片段里的 `turn_resume` 接上。「问 AI」按钮的 `href` 深链（`?ask=…&pin=<id>`）保留作无 JS 降级，JS 可用时 `preventDefault` 拦截
+- **深链自动钉选的 Content-Type 红线**：`conversation_list.html` 的 `?ask=` 块里 POST `/chat/<id>/pin/` 发 form body 时**必须显式给 `'Content-Type': 'application/x-www-form-urlencoded'`**——fetch 发字符串 body 默认是 `text/plain`，Django 不解析，`activity_id` 落空会被 pin 端点当成「取消钉选」（真机踩过一次：钉选条永远显示未钉）。`AskDrawerWiringTest` 有静态锁
+- **开关类不与 Tailwind display 工具类同层**：抽屉显示/隐藏只走 `.ask-drawer-open`（custom.css 定义 display），不得 `hidden`+`flex` 混用（`turn_status.html` 同款教训）
+- 抽屉内的写操作成功会广播 `activities:changed`，详情页自身数据可能已过时；顺带修正过一个存量 bug：空对话复用判断原来是 `=== ' 暂无消息'`（带前导空格），与 `trim()` 结果永不匹配，导致深链每次都新建对话
+
 ## 参与者写入规则
 
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
