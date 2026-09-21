@@ -21,7 +21,8 @@
         sent: '已发送，正在等 AI…',
         idle_grace: '正在整理回复…',
         finalizing: '正在落地结果…',
-        poll_error: '网络抖动，重试中…'
+        poll_error: '网络抖动，重试中…',
+        auto_retry: '回应慢了，自动重试中…'
     };
 
     var ACTIVE_STATES = ['queued', 'awaiting', 'finalizing'];
@@ -213,7 +214,13 @@
                     ticking = false;
                     if (d.state === 'processing') {
                         setPhase(d.phase);
-                        // ceiling 只在 start() 里算一次：它是「服务端一直不裁决」的兜底，
+                        // 自动重试（服务端把本轮拉回 queued 重发）：预算重算 ——
+                        // 重试是服务端显式裁决的续期，享有完整 TTL；与服务端一直
+                        // 不裁决时 ceiling 慢慢减到 0 的兕底不冲突
+                        if (d.phase === 'auto_retry') {
+                            ceiling = Math.ceil(((d.ttl || 180) + 60) / (intervalMs / 1000));
+                        }
+                        // ceiling 只在 start() 里算一次：它是「服务端一直不裁决」的兕底，
                         // 每拍重算就永远达不到（服务端只要还在应答，它总会在 TTL 到时给出 error）
                         if (--ceiling > 0) { schedule(); return; }
                         // 兜底：服务端一直没裁决（理论上不会）就停止轮询，交给下次刷新恢复

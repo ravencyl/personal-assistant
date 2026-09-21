@@ -406,14 +406,21 @@ class FakeQoderService:
     调用就会 AttributeError 让测试当场炸掉 —— 这比断言「没被调用」更硬。
     """
 
-    def __init__(self, send_raises=None, poll_script=None):
+    def __init__(self, send_raises=None, poll_script=None, send_script=None):
         self.sent = []
         self.cancelled = 0
         self.poll_calls = 0
         self._send_raises = send_raises
         self.poll_script = list(poll_script or [])
+        # send_script: 逐个弹出；是 Exception 就抛，否则本次发送成功。
+        # 用于「首发失败、重发成功」的自动重试场景
+        self.send_script = list(send_script or [])
 
     def send_message(self, session_id, text):
+        if self.send_script:
+            action = self.send_script.pop(0)
+            if isinstance(action, Exception):
+                raise action
         if self._send_raises:
             raise self._send_raises
         self.sent.append(text)
@@ -545,13 +552,16 @@ class ChatSendAsyncTest(TestCase):
         self.assertEqual(resp.json()['turn_state'], Conversation.TURN_QUEUED)
         self.assertEqual(self.conv.messages.filter(role='user').count(), 1)
 
-    def test_hard_send_failure_marks_the_turn_errored(self):
+    def test_hard_send_failure_auto_retries_once(self):
+        """首发失败不再立刻报错：回 queued 自动重发一次（重试用尽才中断，
+        见 AutoRetryTurnTest）"""
         service = FakeQoderService(send_raises=http_error(500))
         resp = self._post(service)
-        self.assertEqual(resp.status_code, 502)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['state'], 'processing')
         self.conv.refresh_from_db()
-        self.assertEqual(self.conv.turn_state, Conversation.TURN_ERROR)
-        self.assertEqual(self.conv.status, 'idle')
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_QUEUED)
+        self.assertEqual(self.conv.turn_retries, 1)
 
     def test_plain_form_post_redirects_back_instead_of_dumping_json(self):
         """无 JS 的表单提交（不带 Accept: application/json）要带回对话页，不能把 JSON 甩给用户"""
@@ -646,7 +656,10 @@ class ChatTurnPollTest(TestCase):
         self.assertEqual(d2['state'], 'processing')
         self.assertEqual(self.conv.messages.filter(role='assistant').count(), 0)
 
-    def test_empty_reply_after_grace_lands_a_readable_note(self):
+    def test_empty_reply_after_retries_exhausted_lands_a_readable_note(self):
+        """重试用尽后的空回复仍要落一条占位消息（否则历史里留着一条没人回应的提问）；
+        未用尽时会先自动重发，见 AutoRetryTurnTest"""
+        self.conv.turn_retries = 1
         self.conv.turn_idle_at = timezone.now() - timedelta(seconds=models_GRACE + 1)
         self.conv.save()
         _, data = self._poll(FakeQoderService(poll_script=[{'state': 'empty', 'text': ''}]))
@@ -656,6 +669,8 @@ class ChatTurnPollTest(TestCase):
         self.assertIn('没有返回内容', note.content)
 
     def test_expired_turn_becomes_error_with_a_retry_bubble(self):
+        """重试用尽后的超时才落中断气泡；未用尽时先自动重试，见 AutoRetryTurnTest"""
+        self.conv.turn_retries = 1
         self.conv.turn_started_at = timezone.now() - timedelta(seconds=models_TTL + 5)
         self.conv.save()
         _, data = self._poll(FakeQoderService())
@@ -703,6 +718,139 @@ class ChatTurnPollTest(TestCase):
         other = User.objects.create_user('o', password='p')
         self.client.force_login(other)
         self.assertEqual(self.client.get(self.url, HTTP_ACCEPT='application/json').status_code, 404)
+
+
+class AutoRetryTurnTest(TestCase):
+    """自动重试（2026-09-21）：发送失败 / TTL 超时 / 空回复时自动重发同一份
+    turn_prompt，用户不再需要手动点「重试」
+
+    三条安全边界：
+    - 上限 TURN_MAX_RETRIES = 1：重发会让模型重新执行指令，多一次就可能重复落库
+    - TTL 超时先「抢救」：平台可能已经回了只是没取到，抢到就直接收尾不重发
+    - 发送失败绝不抢救：指令根本没到平台，poll_turn 取到的是上一轮的回复
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_r', agent_id='ag_r', title='新对话',
+            status='processing', turn_state=Conversation.TURN_AWAITING,
+            turn_started_at=timezone.now(), turn_retries=0)
+        self.msg = Message.objects.create(conversation=self.conv, role='user', content='查一下活动')
+        self.conv.turn_message = self.msg
+        self.conv.turn_prompt = '完整组装文本'
+        self.conv.save()
+        self.url = f'/chat/{self.conv.id}/turn/'
+
+    def _poll(self, service):
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.get(self.url, HTTP_ACCEPT='application/json')
+        return resp.status_code, (resp.json() if resp.status_code == 200 else {})
+
+    def _make_expired(self):
+        # 只改 started_at：全字段 save 会把内存里的旧 turn_state/turn_retries 写回库，
+        # 覆盖掉第一次 poll 已落库的重试状态
+        self.conv.refresh_from_db()
+        self.conv.turn_started_at = timezone.now() - timedelta(
+            seconds=models_TTL + 5)
+        self.conv.save(update_fields=['turn_started_at'])
+
+    def test_expired_turn_is_rescued_when_platform_already_replied(self):
+        """超时但平台其实已回：直接收尾，不重发（重发会把指令重新执行一遍）"""
+        self._make_expired()
+        service = FakeQoderService(
+            poll_script=[{'state': 'ready', 'text': '找到了 3 个活动'}])
+        _, data = self._poll(service)
+        self.assertEqual(data['state'], 'done')
+        self.assertEqual(service.sent, [], '抢救到了回复就绝不重发')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_DONE)
+        self.assertEqual(self.conv.turn_retries, 0)
+
+    def test_expired_turn_auto_retries_once(self):
+        """超时且平台没产出：回 queued 自动重发同一份 turn_prompt"""
+        self._make_expired()
+        service = FakeQoderService(poll_script=[{'state': 'processing', 'text': ''}])
+        _, data = self._poll(service)
+        self.assertEqual(data['state'], 'processing')
+        self.assertEqual(data['phase'], 'auto_retry')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_QUEUED)
+        self.assertEqual(self.conv.turn_retries, 1)
+        self.assertLess(timezone.now() - self.conv.turn_started_at,
+                        timedelta(seconds=10), 'started_at 必须刷新，否则下一拍立刻又超时')
+        self.assertEqual(service.cancelled, 1, '重发前要先 cancel 旧轮，否则必撞 409')
+        # 下一拍轮询把 queued 的轮次重发出去
+        _, data2 = self._poll(service)
+        self.assertEqual(data2['phase'], 'sent')
+        self.assertEqual(service.sent, ['完整组装文本'])
+
+    def test_second_timeout_after_retry_becomes_error(self):
+        """重试后再超时：用尽，落中断气泡（保留手动重试按钮）"""
+        self._make_expired()
+        service = FakeQoderService()
+        _, data = self._poll(service)
+        self.assertEqual(data['phase'], 'auto_retry')
+        self._make_expired()
+        _, data = self._poll(service)
+        self.assertEqual(data['state'], 'error')
+        self.assertIn('data-retry-text', data['html'])
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_ERROR)
+
+    def test_send_failure_then_poll_redelivery_succeeds(self):
+        """端到端：send 首发失败 → 自动回 queued（retries=1）→ 轮询下一拍重发成功"""
+        # 上一轮的 error 残留不算活跃，新发送可以直接开新一轮
+        self.conv.turn_state = Conversation.TURN_ERROR
+        self.conv.save(update_fields=['turn_state'])
+        service = FakeQoderService(send_script=[http_error(502)])
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.post(f'/chat/{self.conv.id}/send/',
+                                    {'content': '新问题'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['state'], 'processing')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_QUEUED)
+        self.assertEqual(service.sent, [], '失败的那次不会把指令送出去')
+        _, data = self._poll(service)
+        self.assertEqual(data['phase'], 'sent')
+        self.assertEqual(service.sent, ['新问题'], '重发的是同一份 turn_prompt，且只发一份')
+
+    def test_delivery_failure_after_retries_exhausted_errors(self):
+        """首发 + 自动重发都失败：中断气泡（不再无限重试）"""
+        self.conv.turn_retries = 1
+        self.conv.turn_state = Conversation.TURN_QUEUED
+        self.conv.save()
+        service = FakeQoderService(send_raises=http_error(500))
+        _, data = self._poll(service)
+        self.assertEqual(data['state'], 'error')
+        self.assertIn('发送失败', data['message'])
+
+    def test_empty_reply_auto_retries_before_landing_note(self):
+        """空回复先自动重发；重试用尽才落占位消息"""
+        self.conv.turn_idle_at = timezone.now() - timedelta(seconds=models_GRACE + 1)
+        self.conv.save()
+        service = FakeQoderService(poll_script=[{'state': 'empty', 'text': ''}])
+        _, data = self._poll(service)
+        self.assertEqual(data['phase'], 'auto_retry')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_retries, 1)
+        self.assertEqual(self.conv.messages.filter(role='assistant').count(), 0)
+
+    def test_new_send_resets_retry_count(self):
+        """上一轮的失败重试计数不能带到下一轮"""
+        self.conv.turn_retries = 1
+        self.conv.turn_state = Conversation.TURN_ERROR
+        self.conv.save()
+        with patch('chat.views.get_service', return_value=FakeQoderService()):
+            resp = self.client.post(f'/chat/{self.conv.id}/send/',
+                                    {'content': '新问题'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_retries, 0)
 
 
 class ChatTurnCancelTest(TestCase):

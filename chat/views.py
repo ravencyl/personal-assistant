@@ -11,7 +11,7 @@ from django.db import models
 from django.utils import timezone
 
 from .models import (Conversation, Message, TURN_TTL_SECONDS,
-                     TURN_IDLE_GRACE_SECONDS)
+                     TURN_IDLE_GRACE_SECONDS, TURN_MAX_RETRIES)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
@@ -37,12 +37,13 @@ TURN_EMPTY_NOTE = '（AI 这轮没有返回内容，可能已超时。可以再�
 TURN_CANCELLED_NOTE = '（已停止这一轮的回答。）'
 TURN_TIMEOUT_NOTE = f'这轮超过 {TURN_TTL_SECONDS} 秒还没回完，已停止等待。'
 TURN_INTERRUPTED_NOTE = '上一轮没有完成，可以再问一次。'
+TURN_SEND_FAILED_NOTE = '发送失败，请重试'
 
 # 不是「正文」的 assistant 消息：占位文案 + 修复前落库的协议残骸。它们不能参与
 # $LAST_REPLY 的取值，也不能用来判断本轮有没有东西可引用（见 _referenceable_reply）。
 PLACEHOLDER_REPLIES = {TURN_EMPTY_NOTE, TURN_CANCELLED_NOTE, TURN_TIMEOUT_NOTE,
-                       TURN_INTERRUPTED_NOTE, PROTOCOL_TRUNCATED_NOTE,
-                       TOOL_FAILURE_REPLY}
+                       TURN_INTERRUPTED_NOTE, TURN_SEND_FAILED_NOTE,
+                       PROTOCOL_TRUNCATED_NOTE, TOOL_FAILURE_REPLY}
 
 # 已经写进过历史库、但后来改了词的文案（识别靠开头签名，改开头就得同时补一行）。
 LEGACY_NOTE_TEXTS = (
@@ -474,23 +475,23 @@ def send_message(request, conversation_id):
     conversation.turn_state = Conversation.TURN_QUEUED
     conversation.turn_started_at = timezone.now()
     conversation.turn_idle_at = None
+    conversation.turn_retries = 0
     conversation.turn_message = user_msg
     conversation.turn_prompt = ai_content
     conversation.status = 'processing'
     conversation.save(update_fields=['turn_state', 'turn_started_at', 'turn_idle_at',
-                                     'turn_message', 'turn_prompt', 'status', 'updated_at'])
+                                     'turn_retries', 'turn_message', 'turn_prompt',
+                                     'status', 'updated_at'])
 
     # 先在本请求里试发一次（一次 HTTP 往返，通常百多毫秒）：
     #   sent → awaiting；busy（首帧协议还在跑）→ 保持 queued，由轮询重试发送
     outcome = _deliver(get_service(), conversation)
     if outcome == 'failed':
-        conversation.turn_state = Conversation.TURN_ERROR
-        conversation.status = 'idle'
-        conversation.save(update_fields=['turn_state', 'status', 'updated_at'])
-        return _turn_response(request, conversation, {
-            'error': '发送失败，请重试', 'state': 'error',
-            'retry_text': content, 'ttl': TURN_TTL_SECONDS,
-        }, status=502)
+        # 不立刻报错：回到 queued，由轮询下一拍自动重发（重试预算见
+        # turn_poll 的 failed 分支；网络抖动通常秒级恢复，没必要让用户手点）
+        conversation.turn_retries = 1
+        conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_QUEUED)
+        conversation.save(update_fields=['turn_retries', 'updated_at'])
 
     return _turn_response(request, conversation, {
         'state': 'processing',
@@ -764,14 +765,19 @@ def turn_poll(request, conversation_id):
         return _poll_json({'state': 'done'})
     if conversation.turn_state == Conversation.TURN_ERROR:
         return _turn_error_json(request, conversation, TURN_INTERRUPTED_NOTE)
-    if conversation.turn_expired():
-        conversation.claim_turn(conversation.turn_state, Conversation.TURN_ERROR)
-        conversation.status = 'idle'
-        conversation.save(update_fields=['status', 'updated_at'])
-        logger.info(f'对话 {conversation.id} 本轮超过 {TURN_TTL_SECONDS}s，定为中断')
-        return _turn_error_json(request, conversation, TURN_TIMEOUT_NOTE)
 
     service = get_service()
+
+    if conversation.turn_expired():
+        # 先抢救：平台可能已经回了、只是到点才来取（抢到就直接收尾，不重发）。
+        # 抢救不到再自动重试一次；重试用尽才落中断气泡。
+        rescued = _rescue_ready_reply(request, conversation, service)
+        if rescued is not None:
+            return rescued
+        if _retry_turn(conversation, service):
+            return _poll_json({'phase': 'auto_retry'})
+        logger.info(f'对话 {conversation.id} 本轮超过 {TURN_TTL_SECONDS}s，定为中断')
+        return _interrupt_turn(request, conversation, TURN_TIMEOUT_NOTE)
 
     if conversation.turn_state == Conversation.TURN_QUEUED:
         # 需要（重）发：抢到发送权，避免两个标签页各发一遍（Qoder 会收到两条同样的消息）
@@ -782,10 +788,12 @@ def turn_poll(request, conversation_id):
             conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_QUEUED)
             return _poll_json({'phase': 'session_busy'})
         if outcome == 'failed':
-            conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_ERROR)
-            conversation.status = 'idle'
-            conversation.save(update_fields=['status', 'updated_at'])
-            return _turn_error_json(request, conversation, '发送失败，请重试')
+            # 发送失败自动重发一次（_retry_turn 会把 started_at 刷新，重试同样
+            # 享完整 TTL）；用尽才中断。此处绝不走「抢救」：本轮指令根本没到
+            # 平台，poll_turn 取到的是上一轮的回复，执行它就是张冠李戴。
+            if _retry_turn(conversation, service):
+                return _poll_json({'phase': 'auto_retry'})
+            return _interrupt_turn(request, conversation, TURN_SEND_FAILED_NOTE)
         return _poll_json({'phase': 'sent'})
 
     # awaiting：读一次平台状态（与上面不同，这一步无副作用，不需要抢锁）
@@ -811,6 +819,10 @@ def turn_poll(request, conversation_id):
             return _poll_json({'phase': 'idle_grace'})
         text = ''
 
+    if not text and _retry_turn(conversation, service):
+        # 平台这轮真的没产出：自动重发一次，而不是立刻落「空回复」占位气泡
+        return _poll_json({'phase': 'auto_retry'})
+
     if not conversation.claim_turn(Conversation.TURN_AWAITING, Conversation.TURN_FINALIZING):
         return _poll_json({'phase': 'finalizing'})
 
@@ -821,6 +833,60 @@ def turn_poll(request, conversation_id):
         'changed': changed,
         'message_id': msg.id,
     })
+
+
+def _rescue_ready_reply(request, conversation, service):
+    """TTL 超时先抢救：平台可能已经回了，只是我们到点才来取
+
+    抢到回复直接收尾（不重发 —— 重发会让模型把指令重新执行一遍），返回
+    done JSON；没抢到或被别的标签页抢先收尾，返回 None 让调用方继续走重试。
+    """
+    try:
+        r = service.poll_turn(conversation.session_id)
+    except Exception as e:
+        logger.warning(f'抢救本轮回复失败（对话 {conversation.id}）: {e}')
+        return None
+    if not (r and r.get('state') == 'ready' and (r.get('text') or '').strip()):
+        return None
+    if not conversation.claim_turn(conversation.turn_state, Conversation.TURN_FINALIZING):
+        return _poll_json({'phase': 'finalizing'})
+    msg, changed = _finalize_turn(conversation, r['text'])
+    return _poll_json({'state': 'done', 'html': _message_fragment(request, msg),
+                       'changed': changed, 'message_id': msg.id})
+
+
+def _retry_turn(conversation, service):
+    """自动重试：回到 queued 让轮询下一拍重发同一份 turn_prompt
+
+    上限 TURN_MAX_RETRIES（turn_retries 记已用次数），用完返回 False。
+    turn_started_at 必须刷新，否则下一拍立刻又判 TTL 超时。重试前 best-effort
+    cancel 旧轮：旧轮还活着的话重发必撞 409，会把本轮吊死在 session busy 上。
+    """
+    if conversation.turn_retries >= TURN_MAX_RETRIES:
+        return False
+    if not conversation.claim_turn(conversation.turn_state, Conversation.TURN_QUEUED):
+        return False
+    conversation.turn_retries += 1
+    conversation.turn_started_at = timezone.now()
+    conversation.turn_idle_at = None
+    conversation.save(update_fields=['turn_retries', 'turn_started_at', 'turn_idle_at',
+                                     'updated_at'])
+    try:
+        service.cancel_session(conversation.session_id)
+    except Exception as e:
+        logger.info(f'重试前取消旧轮失败（多数是平台已自行结束）: {e}')
+    logger.info(f'对话 {conversation.id} 本轮受挫，自动重试 '
+                f'{conversation.turn_retries}/{TURN_MAX_RETRIES}')
+    return True
+
+
+def _interrupt_turn(request, conversation, note):
+    """重试用尽：真正中断，落 error 气泡（手动重试按钮仍可用）"""
+    conversation.claim_turn(conversation.turn_state, Conversation.TURN_ERROR)
+    conversation.status = 'idle'
+    conversation.save(update_fields=['status', 'updated_at'])
+    logger.info(f'对话 {conversation.id} 本轮失败且自动重试用尽: {note}')
+    return _turn_error_json(request, conversation, note)
 
 
 def _poll_json(payload):
@@ -937,8 +1003,10 @@ def _finalize_turn(conversation, assistant_text, note=None):
 
     conversation.turn_state = Conversation.TURN_DONE
     conversation.turn_idle_at = None
+    conversation.turn_retries = 0
     conversation.status = 'idle'
-    conversation.save(update_fields=['turn_state', 'turn_idle_at', 'status', 'updated_at'])
+    conversation.save(update_fields=['turn_state', 'turn_idle_at', 'turn_retries',
+                                     'status', 'updated_at'])
 
     # 更新标题（如果是第一条消息）
     if conversation.title == '新对话':

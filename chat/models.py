@@ -14,6 +14,12 @@ TURN_TTL_SECONDS = 180
 # 现在轮询跨请求了，拿时间代替计数器）。
 TURN_IDLE_GRACE_SECONDS = 12
 
+# 自动重试上限：发送失败 / 超时未回 / 空回复时，自动重发同一份 turn_prompt 的
+# 次数（不计首次）。只敢是 1：重发会让模型重新执行一遍指令，若上一轮其实在
+# 平台侧活着并产出了写操作，就会执行两遍 —— 重发前会先 cancel 旧轮 + 抢救
+# 未取走的回复，但无法完全排除竞态。重试用尽才落 error 气泡（手动重试仍可用）。
+TURN_MAX_RETRIES = 1
+
 
 class Conversation(models.Model):
     """AI 对话"""
@@ -62,6 +68,11 @@ class Conversation(models.Model):
                                            help_text='本轮开始时间，TTL 超时判定用')
     turn_idle_at = models.DateTimeField(null=True, blank=True,
                                         help_text='首次观察到“已 idle 但无本轮文本”的时刻，宽限期判定用')
+    turn_retries = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='本轮已用的自动重试次数（发送失败/超时/空回复时自动重发同一份 turn_prompt，'
+                  '上限 chat.models.TURN_MAX_RETRIES）。新发送时清零',
+    )
     turn_message = models.ForeignKey(
         'chat.Message', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+',
@@ -132,10 +143,11 @@ class Conversation(models.Model):
         self.turn_state = self.TURN_NONE
         self.turn_started_at = None
         self.turn_idle_at = None
+        self.turn_retries = 0
         self.turn_message = None
         self.turn_prompt = ''
         self.save(update_fields=['turn_state', 'turn_started_at', 'turn_prompt',
-                                 'turn_idle_at', 'turn_message', 'updated_at'])
+                                 'turn_idle_at', 'turn_retries', 'turn_message', 'updated_at'])
 
     # ── 续聊提醒：AI 最后回复含待办暗示词时标记 ──
     # 对话超过 FOLLOW_UP_STALE_DAYS 天无新消息且最后 assistant 消息含
