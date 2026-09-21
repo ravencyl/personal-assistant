@@ -25,12 +25,13 @@ sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
         <p class="text-xs font-medium text-zinc-500">{{ section.title }}{% if section.total > section.items|length %} · 共 {{ section.total }} 条{% endif %}</p>
         <div class="mt-1 space-y-1">
             {% for item in section.items %}
-            <div class="flex items-center gap-2 text-sm min-w-0">
+            <div class="flex items-center gap-2 text-sm min-w-0 flex-wrap">
                 {% if item.blocked %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" title="被其他活动阻塞"></span>
                 {% else %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-300"></span>{% endif %}
                 <a href="{% url 'activities:activity_detail' item.id %}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
                 <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums">#{{ item.id }}</span>
-                <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{% if item.cost %}¥{{ item.cost|floatformat:0 }} · {% endif %}{{ item.meta }}</span>
+                {# 手机上 meta（费用+状态+日期段）很长且不缩，活动名会被 truncate 挤没：换行整行展示，桌面保持右对齐 #}
+                <span class="text-[10px] sm:text-xs text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3.5 sm:pl-0">{% if item.cost %}¥{{ item.cost|floatformat:0 }} · {% endif %}{{ item.meta }}</span>
             </div>
             {% endfor %}
         </div>

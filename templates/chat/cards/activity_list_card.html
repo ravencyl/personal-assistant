@@ -2,12 +2,12 @@
 <div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
     <div class="space-y-1.5">
         {% for item in card.items %}
-        <div class="flex items-center gap-2 text-sm min-w-0">
+        <div class="flex items-center gap-2 text-sm min-w-0 flex-wrap">
             <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ item.status }}"></span>
             <a href="{{ item.detail_url }}" class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</a>
             <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ item.id }}</span>
             <span class="text-xs text-zinc-400 shrink-0">{{ item.status_label }}</span>
-            <span class="text-xs text-zinc-400 shrink-0 ml-auto tabular-nums">{{ item.date_label }}</span>
+            <span class="text-[10px] sm:text-xs text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3.5 sm:pl-0">{{ item.date_label }}</span>
         </div>
         {% endfor %}
     </div>

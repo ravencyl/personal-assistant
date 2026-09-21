@@ -13,10 +13,10 @@
     <div class="mt-2 pt-1">
         <p class="text-xs font-medium text-zinc-500">今日焦点</p>
         {% for item in card.focus_items %}
-        <a href="{{ item.url }}" class="mt-1 flex items-center gap-2 text-sm min-w-0">
+        <a href="{{ item.url }}" class="mt-1 flex items-center gap-2 text-sm min-w-0 flex-wrap">
             <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--accent)]"></span>
             <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</span>
-            <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.reason }}</span>
+            <span class="text-[10px] sm:text-xs text-zinc-400 w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3.5 sm:pl-0">{{ item.reason }}</span>
         </a>
         {% endfor %}
     </div>
@@ -26,10 +26,10 @@
         <p class="text-xs font-medium text-zinc-500">今日活动</p>
         {% for item in card.today_activities %}
         <a href="{% url 'activities:activity_detail' item.id %}" class="mt-1 block text-sm min-w-0">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.name }}</span>
                 <span class="text-[10px] text-zinc-400 shrink-0 tabular-nums">#{{ item.id }}</span>
-                <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.date_range }}</span>
+                <span class="text-[10px] sm:text-xs text-zinc-400 w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3.5 sm:pl-0">{{ item.date_range }}</span>
             </div>
             {% if item.tags %}
             <div class="mt-0.5 flex flex-wrap gap-1">
@@ -48,7 +48,7 @@
     <div class="mt-2 pt-2 border-t border-zinc-100">
         <p class="text-xs font-medium text-zinc-500">近期笔记</p>
         {% for item in card.recent_notes %}
-        <a href="{% url 'notes:note_edit' item.id %}" class="mt-1 flex items-center gap-2 text-sm min-w-0">
+        <a href="{% url 'notes:note_edit' item.id %}" class="mt-1 flex items-center gap-2 text-sm min-w-0 flex-wrap">
             <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.excerpt }}</span>
             <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.ago }}</span>
         </a>
@@ -59,7 +59,7 @@
     <div class="mt-2 pt-2 border-t border-zinc-100">
         <p class="text-xs font-medium text-zinc-500">近期知识</p>
         {% for item in card.recent_articles %}
-        <a href="{% url 'knowledge:article_detail' slug=item.slug %}" class="mt-1 flex items-center gap-2 text-sm min-w-0">
+        <a href="{% url 'knowledge:article_detail' slug=item.slug %}" class="mt-1 flex items-center gap-2 text-sm min-w-0 flex-wrap">
             <span class="text-zinc-900 hover:text-zinc-600 truncate">{{ item.title }}</span>
             <span class="text-xs text-zinc-400 shrink-0 ml-auto">{{ item.ago }}</span>
         </a>

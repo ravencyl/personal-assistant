@@ -16,7 +16,12 @@
     <!-- 头部：新建按钮 + 搜索 -->
     <div class="flex-none px-4 py-3 border-b border-[var(--border)] space-y-2">
         <div class="flex items-center justify-between gap-2">
-            <h1 class="text-lg font-bold text-[var(--text)]">AI 对话</h1>
+            <div class="flex items-center gap-1 min-w-0">
+                <button type="button" data-sidebar-toggle aria-expanded="true" aria-controls="chat-layout"
+                        title="收起会话列表"
+                        class="tap-target hidden md:flex w-8 h-8 shrink-0 rounded-full items-center justify-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)]">&#9776;</button>
+                <h1 class="text-lg font-bold text-[var(--text)] truncate">AI 对话</h1>
+            </div>
             <form method="post" action="{% url 'chat:create_conversation' %}" class="shrink-0">
                 {% csrf_token %}
                 <button type="submit" id="split-new-btn"
@@ -119,7 +124,7 @@
             {{ active_conversation.title|default:'' }}
         </h2>
         {# 桌面端侧栏折叠：把空间还给消息流（状态存 localStorage，移动端不显示） #}
-        <button type="button" id="sidebar-toggle" aria-expanded="true" aria-controls="chat-layout"
+        <button type="button" id="sidebar-toggle" data-sidebar-toggle aria-expanded="true" aria-controls="chat-layout"
                 title="折叠 / 展开会话列表"
                 class="tap-target hidden md:flex w-9 h-9 shrink-0 rounded-full items-center justify-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)]">&#9776;</button>
         {# 聊天头瘦身：改名/归档/删除收进 ⋯ 菜单；三个 form 保留原 id，selectConversation 更新 action 的既有逻辑不受影响 #}
@@ -363,19 +368,25 @@
     }
 
     // ── 桌面端侧栏折叠（状态存 localStorage；移动端本来就用 data-view 切换） ──
-    var sidebarToggle = document.getElementById('sidebar-toggle');
+    // 两个入口都能折：右栏头部的 ☰ 与左栏标题旁的同款（用户总在列表区找开关）
+    var sidebarToggles = Array.prototype.slice.call(
+        document.querySelectorAll('[data-sidebar-toggle]'));
     function applySidebar(collapsed) {
         layoutEl.classList.toggle('sidebar-collapsed', collapsed);
-        if (sidebarToggle) sidebarToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        sidebarToggles.forEach(function (btn) {
+            btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
     }
-    if (sidebarToggle) {
+    if (sidebarToggles.length) {
         var savedSidebar = null;
         try { savedSidebar = localStorage.getItem('pa-chat-sidebar'); } catch (err) { /* 隐私模式等存不了就用默认展开 */ }
         applySidebar(savedSidebar === 'collapsed');
-        sidebarToggle.addEventListener('click', function () {
-            var collapsed = !layoutEl.classList.contains('sidebar-collapsed');
-            applySidebar(collapsed);
-            try { localStorage.setItem('pa-chat-sidebar', collapsed ? 'collapsed' : ''); } catch (err) { /* 同上，静默降级 */ }
+        sidebarToggles.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var collapsed = !layoutEl.classList.contains('sidebar-collapsed');
+                applySidebar(collapsed);
+                try { localStorage.setItem('pa-chat-sidebar', collapsed ? 'collapsed' : ''); } catch (err) { /* 同上，静默降级 */ }
+            });
         });
     }
 

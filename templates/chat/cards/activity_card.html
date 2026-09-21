@@ -22,11 +22,11 @@
         <div class="mt-2 border-t border-zinc-100 pt-2">
             {% if card.children_count <= 3 %}
             {% for c in card.children %}
-            <div class="flex items-center gap-1.5 text-xs py-0.5">
+            <div class="flex items-center gap-1.5 text-xs py-0.5 flex-wrap">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
                 <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
                 <span class="text-[10px] text-zinc-400 tabular-nums">#{{ c.id }}</span>
-                {% if c.date_label %}<span class="text-zinc-400 ml-auto shrink-0 tabular-nums">{{ c.date_label }}</span>{% endif %}
+                {% if c.date_label %}<span class="text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3 sm:pl-0 text-[10px]">{{ c.date_label }}</span>{% endif %}
             </div>
             {% endfor %}
             {% else %}
@@ -34,11 +34,11 @@
                 <summary class="text-xs text-zinc-500 cursor-pointer select-none hover:text-zinc-800">子任务（{{ card.children_count }}）</summary>
                 <div class="mt-1">
                     {% for c in card.children %}
-                    <div class="flex items-center gap-1.5 text-xs py-0.5">
+                    <div class="flex items-center gap-1.5 text-xs py-0.5 flex-wrap">
                         <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
                         <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
                         <span class="text-[10px] text-zinc-400 tabular-nums">#{{ c.id }}</span>
-                        {% if c.date_label %}<span class="text-zinc-400 ml-auto shrink-0 tabular-nums">{{ c.date_label }}</span>{% endif %}
+                        {% if c.date_label %}<span class="text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3 sm:pl-0 text-[10px]">{{ c.date_label }}</span>{% endif %}
                     </div>
                     {% endfor %}
                     <a href="{{ card.detail_url }}" class="text-xs text-zinc-400 hover:text-zinc-700">查看全部 →</a>
