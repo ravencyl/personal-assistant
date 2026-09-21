@@ -1515,6 +1515,17 @@ class AskDrawerWiringTest(SimpleTestCase):
         self.assertIn('.ask-drawer-open', self.css)
         self.assertIn('@keyframes ask-drawer-in', self.css)
 
+    def test_backdrop_click_closes_back_to_the_activity_page(self):
+        """弹窗语义：点抽屉外区域（backdrop）关闭回到活动详情页，不是跳页。
+        开关类必须由 JS 显式同步（backdrop 在抽屉 DOM 之前，CSS 兄弟选择器不命中）"""
+        self.assertIn('id="ask-drawer-backdrop"', self.detail_raw)
+        self.assertIn("getElementById('ask-drawer-backdrop').addEventListener('click', close)", self.js_code)
+        self.assertIn("backdrop.classList.add('ask-drawer-backdrop-open')", self.js_code)
+        self.assertIn("backdrop.classList.remove('ask-drawer-backdrop-open')", self.js_code)
+        self.assertIn('.ask-drawer-backdrop-open', self.css)
+        self.assertNotIn('.ask-drawer-open ~', self.css,
+                         'backdrop 在抽屉之前，兄弟选择器是永不命中的死代码')
+
     def test_history_fragment_slot_is_known_to_chat_turn_js(self):
         """insertLocalHtml 的回退链必须认得抽屉容器，否则局部卡片静默丢弃"""
         self.assertIn("getElementById('ask-drawer-messages')", self.turn_js)

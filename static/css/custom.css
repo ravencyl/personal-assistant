@@ -216,6 +216,21 @@ textarea {
     .ask-drawer.ask-drawer-open { animation: none; }
 }
 
+/* 抽屉背板：点抽屉外任意处即关闭（回到活动详情页）。显隐也只在这里定义——
+   visibility + pointer-events 而不是 display，避免同层工具类冲突（同上教训）。 */
+.ask-drawer-backdrop {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease-out;
+}
+
+.ask-drawer-backdrop.ask-drawer-backdrop-open {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+}
+
 /* 主按钮（黑底白字）：微阴影 + hover 上浮，点按下收——按钮要有「物理感」 */
 .btn-accent {
     background-color: var(--accent) !important;

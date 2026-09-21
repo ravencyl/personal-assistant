@@ -853,6 +853,9 @@ function appendExpenseTag(name) {
 <!-- 问 AI 抽屉：详情页内嵌真实对话（活动专属会话 create-or-get，服务端自动钉选）。
      与浮窗的区别：只服务单会话、上下文就是本页活动，没有会话列表/切换逻辑——
      这是浮窗当年被下线的三方共用复杂度，这里不再引入。JS 单实例，重复打开先 halt。 -->
+{# 点击抽屉外的区域关闭（用户口中的「弹窗回到活动页」）：backdrop 在抽屉之下、详情页之上，#}
+{# Django 模板注释不支持跨行，本段每行单独一对 #}
+<div id="ask-drawer-backdrop" class="ask-drawer-backdrop fixed inset-0 z-40 bg-black/25" aria-hidden="true"></div>
 <div id="ask-drawer" class="ask-drawer fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[var(--bg-card)]"
      role="dialog" aria-modal="true" aria-label="问 AI 对话" aria-hidden="true">
     <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -878,6 +881,7 @@ function appendExpenseTag(name) {
 (function () {
     var btn = document.getElementById('ask-ai-btn');
     var drawer = document.getElementById('ask-drawer');
+    var backdrop = document.getElementById('ask-drawer-backdrop');
     if (!btn || !drawer) return;
 
     var messagesEl = document.getElementById('ask-drawer-messages');
@@ -917,6 +921,7 @@ function appendExpenseTag(name) {
         // 开关用 .ask-drawer-open（custom.css 定义 display），不用 hidden+flex——同层 display 工具类冲突（turn_status 同款教训）
         drawer.classList.add('ask-drawer-open');
         drawer.setAttribute('aria-hidden', 'false');
+        if (backdrop) backdrop.classList.add('ask-drawer-backdrop-open');
         if (loading) return;
         // 已开过同一会话且实例健在 → 只聚焦，不重建不重复拉历史
         if (instance && openedConvId) { input.focus(); return; }
@@ -949,6 +954,7 @@ function appendExpenseTag(name) {
         haltOld();
         drawer.classList.remove('ask-drawer-open');
         drawer.setAttribute('aria-hidden', 'true');
+        if (backdrop) backdrop.classList.remove('ask-drawer-backdrop-open');
     }
 
     btn.addEventListener('click', function (e) {
@@ -958,6 +964,8 @@ function appendExpenseTag(name) {
         // PaChatTurn 未加载（同步 script 失败等）→ 放行默认行为跳聊天页
     });
     document.getElementById('ask-drawer-close').addEventListener('click', close);
+    // 点抽屉外面（backdrop）也关闭：活动详情页一直在下面，这就是「弹窗」而非跳页
+    document.getElementById('ask-drawer-backdrop').addEventListener('click', close);
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && drawer.classList.contains('ask-drawer-open')) close();
     });
