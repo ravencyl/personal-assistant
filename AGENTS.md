@@ -242,6 +242,16 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 - 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）；写法不同的同人（如 `Joe` → `Joe Yan`）用 `--map "别名:保留名"` 显式合并，保留名不存在直接报错，绝不静默新建
 - **名字相似不构成合并依据**：只有用户明确确认“是同一个人”才能写 `--map`。已确认的反例：线上 `id=28「Joey」` 与 `id=9「Joe Yan」` 是两个不同的人，不得处理
 
+## 标签写入规则（AI 路径，2026-09-21）
+
+AI（对话 `activities.create` / `activities.update`、快速输入 AI 解析）推断的标签一律走 `core/tags.py::resolve_existing_tags(names, scope, user)` 守门：只匹配「预建启用标签 + 该用户在此 scope 用过的标签」（大小写不敏感，命中后落规范写法），**匹配不到的丢弃并在 reply/JSON 中告知，绝不新建 Tag**——否则模型编造的标签名会永久污染标签列表（线上「乱贴标签」事故的根因之一）。与 `resolve_participants` 完全同口径：
+
+- **快速输入里用户原文显式写的 `#词` 直接保留**（可以新建），AI 自己推断的部分才守门（`quick_input_views.py` 里先分离 explicit/inferred 再 resolve）
+- `activities.update` 的 tags 分支与 participants 对称：全部未命中时保持原标签不变（「未找到」不等于「清空」），预览卡与 `apply_update` 两阶段都要守门且口径一致
+- 无用户指定时的兑底建议用 `suggest_tags(obj, limit=3, require_relevance=True, scope='activity')`：`require_relevance=True` 会关掉「无脑塞高频常用标签」的策略 1（与内容无关的高频标签是乱贴主因之二）；表单页给人挑的建议 chips 保持默认 `require_relevance=False`
+- `suggest_tags` 的临时对象（未落库预览）无法被 `_scope_of` 反推 scope，**必须显式传 `scope=`**，否则异常被吞、静默返回空（此路径曾因此从未生效过）
+- 回归锁：`activities/tests.py::AiTagGuardTest`（7 条）
+
 ## 前端约定
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
