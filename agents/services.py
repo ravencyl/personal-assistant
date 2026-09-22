@@ -88,8 +88,8 @@ class QoderAgentService:
         response.raise_for_status()
         return response.json()
 
-    # 以下三个（get_session / get_session_events / extract_assistant_text）无外部调用者，
-    # 但都被 wait_for_response 组合使用，不属于可删的死代码。
+    # 以下方法（get_session / send_message / cancel_session）无外部调用者，
+    # 但都是 session 生命周期管理的基础原语，不属于可删的死代码。
     def get_session(self, session_id: str) -> dict:
         """获取 Session 详情"""
         response = self._get_client().get(f'/sessions/{session_id}')
@@ -118,14 +118,48 @@ class QoderAgentService:
         response.raise_for_status()
         return response.json()
 
-    def get_session_events(self, session_id: str, limit: int = 100) -> list:
-        """获取 Session 的事件历史"""
-        response = self._get_client().get(
-            f'/sessions/{session_id}/events',
-            params={'limit': limit}
-        )
-        response.raise_for_status()
-        return response.json().get('data', [])
+    def get_recent_events(self, session_id: str, limit: int = 100,
+                          max_walks: int = 50) -> list:
+        """取「最新在前」的事件窗口（平台支持 order=desc，2026-09-22 实测）
+
+        聊天轮询只需要最近一轮：本轮回复一定比本轮用户消息新，从最新往旧
+        找到第一条 user.message 即可收口。正常情况一页（100 条，平台上限）
+        必含完整本轮，**与会话总长度无关**。
+
+        事件历史接口只能从最旧往新翻（第一页永远从会话创建事件开始），
+        那条路曾在老会话上出过线上故障：事件总数超过 100 后窗口停在历史里，
+        最近几轮的回复全落在窗外，对话 42 连续多轮「AI 这轮没有返回内容」
+        （模型其实每轮都在平台上回了）。所以这里永远走 desc：新事件在前，
+        老会话多长都不会把本轮裁掉。
+
+        病态情况（窗口里居然没有 user.message，说明一轮产生的事件比一页还
+        多）才继续按游标向更旧翻，直到找到本轮的用户消息为止；max_walks
+        只是防平台游标异常死循环的保险丝，正常永远用不到。
+        """
+        events: list = []
+        page = None
+        for _ in range(max_walks):
+            params = {'limit': limit, 'order': 'desc'}
+            if page:
+                params['page'] = page
+            response = self._get_client().get(
+                f'/sessions/{session_id}/events',
+                params=params
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get('data', [])
+            events.extend(data)
+            if any(isinstance(e, dict) and e.get('type') == 'user.message'
+                   for e in data):
+                break
+            if not payload.get('has_more'):
+                break
+            next_page = payload.get('next_page')
+            if not next_page or next_page == page:
+                break  # 游标不前进 = 平台异常，宁可返回窗口内事件也不死循环
+            page = next_page
+        return events
 
     # ==================== 高级方法 ====================
 
@@ -141,8 +175,8 @@ class QoderAgentService:
         while time.time() - start < timeout:
             info = self.get_session(session_id)
             if info.get('status') == 'idle':
-                events = self.get_session_events(session_id, limit=100)
-                text = self.extract_assistant_text(events)
+                events = self.get_recent_events(session_id)
+                text = self.extract_latest_reply(events)
                 if text:
                     return text
                 # idle 但尚未提取到回复：状态可能还未同步，连续多次仍无则放弃
@@ -170,31 +204,38 @@ class QoderAgentService:
         info = self.get_session(session_id)
         if info.get('status') != 'idle':
             return {'state': 'processing', 'text': ''}
-        events = self.get_session_events(session_id, limit=100)
-        text = self.extract_assistant_text(events)
+        events = self.get_recent_events(session_id)
+        text = self.extract_latest_reply(events)
         return {'state': 'ready' if text else 'empty', 'text': text}
 
     @staticmethod
-    def extract_assistant_text(events: list) -> str:
-        """从事件列表中提取本轮 assistant 文本（仅取最后一条用户消息之后的内容）"""
-        if not isinstance(events, list):
+    def extract_latest_reply(events_desc: list) -> str:
+        """从「最新在前」的事件窗口提取本轮回复（extract_assistant_text 的 desc 版）
+
+        从最新事件往旧收集 assistant 文本，遇到最近一条 user.message 就停：
+        它们之间的就是本轮回复。窗口里没有 user.message 时返回空串——
+        宁可把这轮判成无回复，也不能把更早轮次的回复顶给用户。
+        """
+        if not isinstance(events_desc, list):
             return ''
 
-        last_user_idx = -1
-        for i, event in enumerate(events):
-            if isinstance(event, dict) and event.get('type', '') == 'user.message':
-                last_user_idx = i
-
         texts = []
-        for event in events[last_user_idx + 1:]:
+        seen_user_message = False
+        for event in events_desc:
             if not isinstance(event, dict):
                 continue
             event_type = event.get('type', '')
+            if event_type == 'user.message':
+                seen_user_message = True
+                break
             if 'assistant' in event_type or event_type == 'agent.message':
                 for c in event.get('content', []):
                     if isinstance(c, dict) and c.get('type') == 'text':
                         texts.append(c.get('text', ''))
-        return '\n'.join(texts)
+        if not seen_user_message:
+            return ''
+        # 收集顺序是新→旧，反转回阅读顺序
+        return '\n'.join(reversed(texts))
 
     def verify_connection(self) -> bool:
         """验证 API 连接是否正常"""
