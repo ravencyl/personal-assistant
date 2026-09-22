@@ -294,6 +294,22 @@ class SubactivityManualCreateTest(TestCase):
         self.assertIn('已有子任务', content)
         self.assertIn('sub-manual-tag-options', content)  # 标签 autocomplete 建议
 
+    def test_subtask_timeline_sorts_by_start_date_descending(self):
+        """时间轴按可用日期倒序（2026-09-22 用户要求：最近的排最上面），无日期仍排最后"""
+        Activity.objects.create(user=self.user, parent=self.parent, name='旧',
+                                start_date=date(2026, 1, 5))
+        Activity.objects.create(user=self.user, parent=self.parent, name='新',
+                                start_date=date(2026, 9, 20))
+        Activity.objects.create(user=self.user, parent=self.parent, name='没日期')
+        resp = self.client.get(f'/activities/{self.parent.id}/')
+        content = resp.content.decode()
+        # 只看子任务时间轴区块：「未设定」等字样在页面其它卡（如前置依赖）也会出现
+        block = content[content.index('id="subtask-list"'):]
+        self.assertLess(block.index('>新<'), block.index('>旧<'),
+                        '时间轴应从晚到早：新任务在旧任务前面')
+        self.assertLess(block.index('>旧<'), block.index('未设定'),
+                        '无日期的仍排最后')
+
 
 class ResolveParticipantsTest(TestCase):
     """参与者解析：大小写不敏感匹配已有名单，自动识别路径不新建"""

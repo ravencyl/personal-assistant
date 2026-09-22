@@ -27,13 +27,15 @@ from ._common import _participant_skip_text, _user_tag_names, attach_costs
 
 
 def _subactivity_timeline(activity):
-    """子任务时间轴数据：按可用日期（开始优先，其次结束）从早到晚，无日期排最后
+    """子任务时间轴数据：按可用日期（开始优先，其次结束）从晚到早倒序，无日期排最后
 
-    详情页首次渲染与内联手动创建端点的局部刷新共用。
+    倒序是用户要求（2026-09-22）：最近的排最上面。详情页首次渲染与内联手动
+    创建端点的局部刷新共用。
     """
     children = list(activity.children.prefetch_related('tags', 'participants').all())
+    # 倒序用负序号实现，仍与「无日期排最后」同一个稳定排序，不引入两次 sort
     children.sort(key=lambda c: ((c.start_date or c.end_date) is None,
-                                 c.start_date or c.end_date or date.min))
+                                 -(c.start_date or c.end_date or date.min).toordinal()))
     for child in children:
         d = child.start_date or child.end_date
         child.timeline_label = d.strftime('%m-%d') if d else '未设定'
