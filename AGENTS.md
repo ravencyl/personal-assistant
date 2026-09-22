@@ -171,8 +171,9 @@ none → queued → awaiting → finalizing → done
 - **取消/超时/空回复都要落一条 assistant 消息**，否则历史里留下一条永远没有回应的提问；但取消**不得**广播 `activities:changed`（没改数据却弹「活动数据已更新」，实测踩过）
 - **聊天退出超时链**：`nginx(180) ≥ gunicorn(180) > 请求内 ai_round_trip(最大90)` 仍然成立，但聊天不再在这条链上（`TURN_TTL_SECONDS` 只是浏览器轮询预算）。`AiTimeoutChainTest` 会扫全仓库 `ai_round_trip(..., timeout=N)` 取最大值对照 DEPLOY.md，并断言 `chat/views.py` 里没有 `wait_for_response` / `sleep`
 - **测试替身 `FakeQoderService` 故意不提供 `wait_for_response`**：视图一旦回退成同步等待会直接 AttributeError 炸掉，比“断言没被调用”更硬。静态扫 JS/模板的禁用词锁必须先剔注释（`_strip_js_comments` / `core.layout_asserts.code_only`）——注释里写的“禁止调 htmx.process”自己包含那个词，不剔就是假失败（本项目已踩三次）
+- **平台事件接口从最新取本轮，不从最旧翻页找（2026-09-22 线上故障）**：`GET /sessions/{id}/events` 实测契约——`limit` 上限 100；不传 `order` 时第一页**永远从会话创建事件开始**（最旧优先），`order=desc` 可用（最新在前）；翻页参数是 `page=<next_page 游标>`，`after`/`starting_after` 均无效。旧实现固定 limit=100 只拿到最旧 100 条，老会话事件总数超过后本轮回复全在窗外，`poll_turn` 永远 empty（对话 42 连续多轮「AI 这轮没有返回内容」，模型其实每轮都回了）。现在 `agents/services.py::get_recent_events` 永远 `order=desc`：从最新往旧找到本轮 `user.message` 即收口，正常一页必含完整本轮，**与会话总长度无关**——不要改成「向前翻页 + 页数上限」，按页数赌上限是错误的形状（上限终归会被够长的对话顶穿，50 页和 1000 页只是赌注大小不同）。病态（一轮事件比一页还多）才向更旧翻，防死循环靠「游标必须前进」守卫 + `max_walks` 保险丝；窗口里找不到 `user.message` 时 `extract_latest_reply` 返回空串，绝不把更早轮次的回复顶给用户
 
-回归锁：`chat/tests.py` 的 `ChatTurnModelTest` / `ChatSendAsyncTest` / `ChatTurnPollTest` / `ChatTurnCancelTest` / `ChatTurnTemplateWiringTest` / `ChatTurnFlowJsTest`（共 38 条，含 12 项变异反证；注意静态锁曾因切片切空而**空跑**，新增此类锁时必须拿变异验证它真的会响）。
+回归锁：`chat/tests.py` 的 `ChatTurnModelTest` / `ChatSendAsyncTest` / `ChatTurnPollTest` / `ChatTurnCancelTest` / `ChatTurnTemplateWiringTest` / `ChatTurnFlowJsTest`（共 38 条，含 12 项变异反证；注意静态锁曾因切片切空而**空跑**，新增此类锁时必须拿变异验证它真的会响）+ `agents/tests.py::EventPaginationTest`（desc 窗口语义 6 条：超长会话一页收口、旧轮回复不串、片段按阅读顺序拼接、病态跨页收口、无 `user.message` 返回空串、游标不前进熔断；假客户端收到非 desc 请求直接断言失败）。
 
 ## AI 回复是服务端 Markdown（改渲染前必读）
 
