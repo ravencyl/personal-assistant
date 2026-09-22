@@ -1087,13 +1087,6 @@ def _finalize_turn(conversation, assistant_text, note=None):
         payload['action']['token'] = make_action_token(
             conversation.user, assistant_msg.id, 'confirm')
         assistant_msg.save(update_fields=['payload'])
-    # 回填对话创建的活动来源消息（哪条消息创建了哪个活动）
-    if payload and payload.get('created_activity_ids'):
-        from activities.models import Activity
-        Activity.objects.filter(
-            id__in=payload['created_activity_ids'],
-            user=conversation.user,
-        ).update(source_message=assistant_msg)
 
     conversation.turn_state = Conversation.TURN_DONE
     conversation.turn_idle_at = None
@@ -1155,11 +1148,6 @@ def confirm_action(request, message_id):
         action['resolved'] = 'confirmed'
         action['result'] = result.get('reply') or '操作完成'
         action['changed'] = bool(result.get('changed'))
-        # 创建类动作确认生效后回填来源消息（与直连路径 _finalize_turn 同口径）
-        if result.get('created') and result.get('activity_ids'):
-            from activities.models import Activity
-            Activity.objects.filter(id__in=result['activity_ids'],
-                                    user=request.user).update(source_message=message)
     except Exception as e:
         logger.error(f'确认动作执行失败（消息 {message.id}）: {e}')
         action['resolved'] = 'failed'

@@ -894,14 +894,20 @@ def _auto_expense_target(user, note):
     return get_daily_bucket(user), 'bucket'
 
 
-@agent_tool('activities.add_expense', '为活动添加一笔费用（目标可省略，自动归属 ）',
-            lambda: 'target（活动名称关键词或活动 ID（纯数字，见卡片/列表上的 #N），可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
-            'note 关键词唯一命中的进行中活动，都没有则记入「日常开支」）+ '
-            'amount（金额，必填）+ '
-            'tags（标签，字符串数组，可选，如 ["餐饮"]）+ '
-            'note（备注，可选，也参与归属匹配）+ paid_at（消费日期 YYYY-MM-DD， 可选；'
-            '相对日期需换算：“今天”用当前日期，“昨天”用当前日期减一天）')
-def tool_add_expense(user, params):
+_EXPENSE_REASON_LABELS = {
+    'target': '你指定的活动',
+    'date': '当日进行中自动归属',
+    'keyword': '按备注关键词匹配',
+    'bucket': '未匹配到活动，记入日常开支',
+}
+
+
+def _expense_plan(user, params):
+    """预览与确认执行**共用**的解析（单一口径，避免两边算出不同结果）
+
+    归属链与金额校验都在预览阶段跑完，错误（目标不唯一/金额非法）直接抛，
+    不出确认卡；apply_fn 拿同一份 params 确定性重放。
+    """
     target = str(params.get('target') or params.get('name') or '').strip()
     if target:
         # 有 target：行为与原来完全一致（0 条报错，多条抛候选）
@@ -912,36 +918,91 @@ def tool_add_expense(user, params):
     else:
         activity, reason = _auto_expense_target(user, params.get('note'))
     amount = _require_positive_amount(params.get('amount'), '费用金额')
-
     note = str(params.get('note') or '').strip()
-    # 写库统一走 services.add_expense：未传/空/非法日期一律落今天（与其他「记一笔」入口同口径）
-    expense = add_expense(
-        activity, user, amount,
-        paid_at=params.get('paid_at'),
-        note=note,
-        tags=params.get('tags'),
-    )
-    log_activity(user, activity, 'edited',
-                 f'添加费用 ¥{expense.amount}'
-                 + (f' {note}' if note else '') + '（通过 AI 对话）')
+    return {'activity': activity, 'reason': reason, 'amount': amount,
+            'note': note, 'paid_at': params.get('paid_at'),
+            'tags': params.get('tags')}
 
+
+def _expense_fields(plan):
+    """预览卡上要展示的字段列表（预览阶段实际会发生什么，就展示什么）"""
+    activity = plan['activity']
+    fields = [{'label': '归属', 'value':
+               f'{activity.name}（{_EXPENSE_REASON_LABELS[plan["reason"]]}）'}]
+    cost_label = ('%.2f' % plan['amount']).rstrip('0').rstrip('.')
+    fields.append({'label': '金额', 'value': f'¥{cost_label}'})
+    # paid_at 的相对词换算在 services.clean_paid_at，预览只展示原样，
+    # 未传时写明默认口径（与执行一致：空/非法落今天）
+    paid = str(plan['paid_at'] or '').strip()
+    fields.append({'label': '日期', 'value': paid if paid else '今天（默认）'})
+    if plan['note']:
+        fields.append({'label': '备注', 'value': plan['note']})
+    tags = plan['tags']
+    if tags:
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(',') if t.strip()]
+        fields.append({'label': '标签', 'value': '、'.join(str(t) for t in tags)})
+    return fields
+
+
+def _expense_result(plan, expense):
+    """确认执行后的结果卡与文案（reason 归属说明保留）"""
+    activity = plan['activity']
     display = f'¥{expense.amount}'
     tag_suffix = ''.join(f'（{t}）' for t in tag_names(expense))
-    if reason == 'target':
+    if plan['reason'] == 'target':
         reply = f'已为「{activity.name}」添加费用 {display}{tag_suffix}'
-    elif reason == 'date':
+    elif plan['reason'] == 'date':
         reply = f'已自动归入当日进行中的活动「{activity.name}」，添加费用 {display}{tag_suffix}'
-    elif reason == 'keyword':
+    elif plan['reason'] == 'keyword':
         reply = f'已根据备注匹配到活动「{activity.name}」，添加费用 {display}{tag_suffix}'
     else:
         reply = f'未找到明确归属的活动，已记入「{activity.name}」：费用 {display}{tag_suffix}'
-
     return {
         'reply': reply,
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
         'changed': True,
+    }
+
+
+def apply_add_expense(user, params):
+    """确认后执行：记费用 → 打标签 → 写日志（与视图快速入口同一份实现）"""
+    plan = _expense_plan(user, params)
+    activity = plan['activity']
+    # 写库统一走 services.add_expense：未传/空/非法日期一律落今天（与其他「记一笔」入口同口径）
+    expense = add_expense(
+        activity, user, plan['amount'],
+        paid_at=plan['paid_at'],
+        note=plan['note'],
+        tags=plan['tags'],
+    )
+    log_activity(user, activity, 'edited',
+                 f'添加费用 ¥{expense.amount}'
+                 + (f' {plan["note"]}' if plan['note'] else '') + '（通过 AI 对话）')
+    return _expense_result(plan, expense)
+
+
+@agent_tool('activities.add_expense',
+            '为活动添加一笔费用（先出预览确认卡，用户点确认后才会真正记账；目标可省略，自动归属）',
+            lambda: 'target（活动名称关键词或活动 ID（纯数字，见卡片/列表上的 #N），可省略：省略时依次尝试当日/昨日进行中的唯一活动、'
+            'note 关键词唯一命中的进行中活动，都没有则记入「日常开支」）+ '
+            'amount（金额，必填）+ '
+            'tags（标签，字符串数组，可选，如 ["餐饮"]）+ '
+            'note（备注，可选，也参与归属匹配）+ paid_at（消费日期 YYYY-MM-DD， 可选；'
+            '相对日期需换算：“今天”用当前日期，“昨天”用当前日期减一天）',
+            apply_fn=apply_add_expense)
+def tool_add_expense(user, params):
+    plan = _expense_plan(user, params)
+    activity = plan['activity']
+    return {
+        'reply': (f'我准备为「{activity.name}」添加费用 ¥{plan["amount"]}，请确认：'),
+        'card': 'confirm',
+        'card_data': {'kind': 'expense', 'name': activity.name,
+                      'detail_url': reverse('activities:activity_detail', args=[activity.id]),
+                      'fields': _expense_fields(plan)},
+        'action': {'tool': 'activities.add_expense', 'params': params},
     }
 
 

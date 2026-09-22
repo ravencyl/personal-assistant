@@ -578,9 +578,6 @@ class ChatOrchestrator:
             if 'action' in result:
                 # 待确认动作：token 由消息落库后回填（令牌含 message_id）
                 payload['action'] = result['action']
-        if result.get('created'):
-            payload = payload or {'card': '', 'activity_ids': []}
-            payload['created_activity_ids'] = result.get('activity_ids', [])
 
         return result.get('reply') or reply, payload, bool(result.get('changed'))
 

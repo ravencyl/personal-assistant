@@ -144,13 +144,14 @@ def query_activities(user, params):
 | `activities.update` + `description` | `update` | 只属于某个活动的备注、结论、待定项 |
 
 - **覆盖型写入必须显式声明**：`activities.update` 的 `description` **默认追加**到原描述末尾，整段替换要传 `description_mode="replace"`。因为模型看不到活动原描述全文，给它一个默认覆盖等于给了一个“一句话冲掉用户长文本”的按钮（预览卡上追加会写明“保留原文”）
-- **活动创建也必须确认（2026-09-22）**：`activities.create` 走与 `update` / `delete` 同一套“预览 → `apply_fn` 确认执行”两步流（预览不落库，`_create_plan` 是预览与确认共用口径）。起因：网络卡顿时模型连发几十条 create，同名空活动被静默批量落库；用户明确要求“所有活动创建都要点确认”。工具描述里写明“不要连发多条”；`knowledge.create` 不在此列（文章无批量风险）
+- **写钱包的动作必须确认（2026-09-22）**：`activities.create` 与 `activities.add_expense` 都走与 `update` / `delete` 同一套“预览 → `apply_fn` 确认执行”两步流（预览不落库；`_create_plan` / `_expense_plan` 分别是预览与确认共用口径，确定性重放）。起因：网络卡顿时模型连发几十条 create，同名空活动被静默批量落库；用户随后又发现“添加费用”也是直接落库，明确要求“先出确认卡再执行”。费用确认卡必须写明**归属与归属理由**（指定 / 日期自动 / 备注关键词 / 日常开支兑底）。工具描述里写明“不要连发多条”；`knowledge.create` 不在此列（文章无批量风险）
 - 描述变更要进 `ActivityLog`，所以 `fmt_field('description', ...)` **截断到 40 字**；新增长文本字段上日志同理，整段贴进时间线会爆布局
+- **Activity.source_message 已随四字段删除重构（61b96b1）下线**：不要在视图或工具里再写 `update(source_message=...)`——字段不存在，一旦执行直接 FieldError（2026-09-22 在 add_expense 确认流实施中发现 f41c719 的确认回填段踩了这雷，已连 `created_activity_ids` 回填链一起拆除）
 - AI 回复正文走 `{{ msg.content|ai_markdown }}`（见下节「AI 回复是服务端 Markdown」），但**链接的可读性仍要靠服务端拼好**：给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 在气泡里是一串 `%E7%BE%8E...`，排不排版都一样难看
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
 - **“汇总”不等于“重抄”**：正文是本轮已出现过的长内容时，`content` 写 `$LAST_REPLY`（见上节协议规则 10），不得让模型重贴全文 —— 它一重抄就必然撞上单条回复长度上限，整条指令被截断后既不会落库也不会报错
 
-回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，9 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`PartialProtocolSalvageTest`（`params` 完整但 `reply` 坏掉的半条指令必须照样执行，14 条 + 10 项变异反证，含「未闭合绝不救」与「没工具又没文字就降级」两条安全边界）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`。
+回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，9 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`PartialProtocolSalvageTest`（`params` 完整但 `reply` 坏掉的半条指令必须照样执行，14 条 + 10 项变异反证，含「未闭合绝不救」与「没工具又没文字就降级」两条安全边界）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`、`activities/tests.py::ActivityCreateConfirmFlowTest` + `ExpenseConfirmFlowTest`（创建/记费用预览不落库、apply 确定性重放、salvage 不绕确认）、`activities/tests.py::AddExpenseAutoTargetTest`（预览 → apply 两步）+ `ToolTargetNumericIdTest`（ID 直达同样走两步）。
 
 ## 对话收发是异步 turn（改聊天前必读）
 

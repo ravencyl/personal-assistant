@@ -46,9 +46,18 @@ class AddExpenseAutoTargetTest(TestCase):
         self.user = User.objects.create_user('testuser', password='test')
         self.today = timezone.localdate()
 
+    def _confirm(self, params):
+        """预览 → 确认执行两步；顺带锁「预览阶段绝不落库」"""
+        preview = self.tool['fn'](self.user, params)
+        self.assertEqual(preview['card'], 'confirm',
+                         'add_expense 预览必须出确认卡（2026-09-22 两步流）')
+        self.assertFalse(Expense.objects.filter(user=self.user).exists(),
+                         '预览阶段就落了库，确认流形同虚设')
+        return self.tool['apply'](self.user, params)
+
     def test_no_target_fallback_to_daily_bucket(self):
         """无 target 且无可归属活动时，费用记入「日常开支」归属桶"""
-        result = self.tool['fn'](self.user, {'amount': 25, 'tags': ['餐饮'], 'note': '午饭'})
+        result = self._confirm({'amount': 25, 'tags': ['餐饮'], 'note': '午饭'})
         bucket = get_daily_bucket(self.user)
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity_id, bucket.id)
@@ -64,7 +73,7 @@ class AddExpenseAutoTargetTest(TestCase):
             start_date=self.today - timedelta(days=30),
             end_date=self.today - timedelta(days=25),
         )
-        result = self.tool['fn'](self.user, {'amount': 30, 'tags': ['交通'], 'note': '上海 打车 35'})
+        result = self._confirm({'amount': 30, 'tags': ['交通'], 'note': '上海 打车 35'})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity.name, '出差上海')
         self.assertIn('出差上海', result['reply'])
@@ -72,12 +81,12 @@ class AddExpenseAutoTargetTest(TestCase):
     def test_with_target_original_path(self):
         """有 target 时走原匹配路径，行为不变"""
         activity = Activity.objects.create(user=self.user, name='周末露营')
-        result = self.tool['fn'](self.user, {'target': '露营', 'amount': 120, 'tags': ['购物']})
+        result = self._confirm({'target': '露营', 'amount': 120, 'tags': ['购物']})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity_id, activity.id)
         # 标签随费用落库，回复里带上标签后缀
         self.assertEqual(tag_names(expense), ['购物'])
-        self.assertEqual(result['reply'], f'已为「周末露营」添加费用 ¥120.00（购物）')
+        self.assertEqual(result['reply'], '已为「周末露营」添加费用 ¥120.00（购物）')
 
     def test_no_target_date_overlap_unique(self):
         """无 target 时当日/昨日日期重叠的唯一进行中活动优先命中"""
@@ -86,14 +95,14 @@ class AddExpenseAutoTargetTest(TestCase):
             start_date=self.today - timedelta(days=1),
             end_date=self.today + timedelta(days=1),
         )
-        result = self.tool['fn'](self.user, {'amount': 66, 'tags': ['餐饮']})
+        result = self._confirm({'amount': 66, 'tags': ['餐饮']})
         expense = Expense.objects.get(user=self.user)
         self.assertEqual(expense.activity.name, '桐庐旅行')
         self.assertIn('桐庐旅行', result['reply'])
 
     def test_bucket_hidden_from_activity_list_page(self):
         """归属桶不出现在活动列表页，但费用统计口径包含桶内费用"""
-        self.tool['fn'](self.user, {'amount': 10})
+        self._confirm({'amount': 10})
         client = Client()
         client.login(username='testuser', password='test')
         response = client.get('/activities/')
@@ -446,9 +455,71 @@ class ActivityCreateConfirmFlowTest(TestCase):
         self.assertFalse(Activity.objects.filter(name='不存在的父活动').exists())
 
     def test_preview_without_name_raises_tool_error(self):
-        from core.agent_registry import ToolError
         with self.assertRaises(ToolError):
             self.tool['fn'](self.user, {'start_date': '2026-10-01'})
+
+
+class ExpenseConfirmFlowTest(TestCase):
+    """activities.add_expense 两步确认流（2026-09-22，用户要求：记费用也先确认）
+
+    起因：用户发现「添加一个费用 测试 30元」直接落库，与 create 的确认流
+    口径不一致。之后 add_expense 与 create/update/delete 同一套 confirm
+    流：预览卡展示归属（含归属理由）与金额，apply 复用 _expense_plan
+    单一口径确定性重放。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.tool = get_tool('activities.add_expense')
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_preview_records_nothing_and_returns_confirm_card(self):
+        activity = Activity.objects.create(user=self.user, name='约一个')
+        result = self.tool['fn'](self.user, {
+            'target': '约一个', 'amount': 30, 'note': '测试',
+            'paid_at': '2026-09-22', 'tags': ['餐饮']})
+        self.assertEqual(result['card'], 'confirm')
+        self.assertEqual(result['card_data']['kind'], 'expense')
+        self.assertEqual(result['action']['tool'], 'activities.add_expense')
+        self.assertEqual(result['action']['params']['amount'], 30)
+        self.assertFalse(Expense.objects.exists(), '预览阶段不得落库')
+        fields = {f['label']: f['value'] for f in result['card_data']['fields']}
+        self.assertIn('约一个', fields['归属'])
+        self.assertIn('你指定的活动', fields['归属'], '预览必须写明归属理由')
+        self.assertEqual(fields['金额'], '¥30')
+        self.assertEqual(fields['日期'], '2026-09-22')
+        self.assertEqual(fields['备注'], '测试')
+        self.assertEqual(fields['标签'], '餐饮')
+        self.assertIn('请确认', result['reply'])
+        self.assertIsNotNone(activity)
+
+    def test_apply_after_confirm_records_expense(self):
+        activity = Activity.objects.create(user=self.user, name='约一个')
+        params = {'target': '约一个', 'amount': 30, 'note': '测试',
+                  'paid_at': '2026-09-22', 'tags': '餐饮'}
+        self.tool['fn'](self.user, params)
+        result = self.tool['apply'](self.user, params)
+        expense = Expense.objects.get()
+        self.assertEqual(expense.activity_id, activity.id)
+        self.assertEqual(expense.amount, Decimal('30'))
+        self.assertEqual(expense.paid_at.isoformat(), '2026-09-22')
+        self.assertEqual(tag_names(expense), ['餐饮'])
+        self.assertTrue(result['changed'])
+        # 语义锁：加费用不是创建活动，不宣称 created（预防将来有人误接回填逻辑）
+        self.assertNotIn('created', result)
+
+    def test_missing_amount_raises_in_preview_and_records_nothing(self):
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {'amount': ''})
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_auto_target_preview_and_apply_replay_same_bucket(self):
+        """无 target 时预览与 apply 确定性重放同一归属（单一口径）"""
+        self.tool['fn'](self.user, {'amount': 25, 'note': '午饭'})
+        preview_bucket = get_daily_bucket(self.user)
+        self.assertEqual(Expense.objects.count(), 0)
+        self.tool['apply'](self.user, {'amount': 25, 'note': '午饭'})
+        self.assertEqual(Expense.objects.get().activity_id, preview_bucket.id)
 
 
 class ToolTargetNumericIdTest(TestCase):
@@ -466,7 +537,10 @@ class ToolTargetNumericIdTest(TestCase):
     def test_numeric_target_resolves_by_id_not_name(self):
         """target=纯数字 ID 命中对应活动（名称里没有数字，模糊匹配永远命不中）"""
         activity = Activity.objects.create(user=self.user, name='桐庐旅行')
-        self.tool['fn'](self.user, {'target': str(activity.id), 'amount': 66})
+        preview = self.tool['fn'](self.user, {'target': str(activity.id), 'amount': 66})
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertEqual(Expense.objects.count(), 0, '预览阶段不得落库')
+        self.tool['apply'](self.user, {'target': str(activity.id), 'amount': 66})
         self.assertEqual(Expense.objects.get().activity_id, activity.id)
 
     def test_numeric_target_missing_id_raises_tool_error(self):
@@ -485,7 +559,7 @@ class ToolTargetNumericIdTest(TestCase):
     def test_name_target_with_digits_still_matches_by_name(self):
         """名称含数字的正常路径不受影响（target 非纯数字才走名称匹配）"""
         Activity.objects.create(user=self.user, name='项目2026')
-        self.tool['fn'](self.user, {'target': '项目2026', 'amount': 10})
+        self.tool['apply'](self.user, {'target': '项目2026', 'amount': 10})
         self.assertEqual(Expense.objects.get().activity.name, '项目2026')
 
 

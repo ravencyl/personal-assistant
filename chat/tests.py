@@ -2541,6 +2541,20 @@ class PartialProtocolSalvageTest(TestCase):
         self.assertFalse(changed)
         self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE)
 
+    def test_salvaged_add_expense_needs_confirmation(self):
+        """add_expense 的 salvage 同样只出确认卡（2026-09-22 记费用也走确认流）"""
+        self.Activity.objects.create(user=self.user, name='交接流程落地')
+        half = ('{"intent":"add_expense","params":{"target":"交接流程落地",'
+                '"amount":30,"note":"测试"},"reply":"好的，这就记')
+        self.assertIsNone(extract_intent(half))
+        from activities.models import Expense
+        content, payload, changed = orchestrator.process(self.user, half)
+        self.assertEqual(Expense.objects.count(), 0,
+                         'salvage 不得绕过确认直接记账')
+        self.assertIn('请确认', content)
+        self.assertFalse(changed)
+        self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE)
+
     def test_params_never_closed_is_not_salvaged(self):
         """安全边界：正文没抄完的那类（线上 msg 64）绝不救 —— 执行它等于拿半篇内容落库"""
         self.assertIsNone(salvage_partial_protocol(TRUNCATED_PROTOCOL))
