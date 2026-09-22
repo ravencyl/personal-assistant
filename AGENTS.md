@@ -144,7 +144,7 @@ def query_activities(user, params):
 | `activities.update` + `description` | `update` | 只属于某个活动的备注、结论、待定项 |
 
 - **覆盖型写入必须显式声明**：`activities.update` 的 `description` **默认追加**到原描述末尾，整段替换要传 `description_mode="replace"`。因为模型看不到活动原描述全文，给它一个默认覆盖等于给了一个“一句话冲掉用户长文本”的按钮（预览卡上追加会写明“保留原文”）
-- 创建类工具（`*.create`）**立即生效**，不出确认卡；`update` / `delete` 这类会改或毁已有数据的必须走“预览 → `apply_fn` 确认执行”两步流（见 `activities` 的 P1 区）
+- **活动创建也必须确认（2026-09-22）**：`activities.create` 走与 `update` / `delete` 同一套“预览 → `apply_fn` 确认执行”两步流（预览不落库，`_create_plan` 是预览与确认共用口径）。起因：网络卡顿时模型连发几十条 create，同名空活动被静默批量落库；用户明确要求“所有活动创建都要点确认”。工具描述里写明“不要连发多条”；`knowledge.create` 不在此列（文章无批量风险）
 - 描述变更要进 `ActivityLog`，所以 `fmt_field('description', ...)` **截断到 40 字**；新增长文本字段上日志同理，整段贴进时间线会爆布局
 - AI 回复正文走 `{{ msg.content|ai_markdown }}`（见下节「AI 回复是服务端 Markdown」），但**链接的可读性仍要靠服务端拼好**：给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 在气泡里是一串 `%E7%BE%8E...`，排不排版都一样难看
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来

@@ -266,11 +266,12 @@ def tool_set_status(user, params):
     }
 
 
-@agent_tool('activities.create', '创建一个新活动',
-            'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元，将创建为费用条目）、'
-            'status、tags（字符串数组，可选；只写用户明确提到的标签，没有就整个省略，'
-            '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）')
-def tool_create(user, params):
+def _create_plan(user, params):
+    """创建预览与确认执行**共用**的解析与守门（不写库；与 update 的 _update_data 同思路）
+
+    参与者/标签只匹配已有（同守门口径），命中结果回写进 data；apply 阶段
+    create_activity_from_parsed 再解析一遍是确定性重放，两边算出的结果一致。
+    """
     data = normalize_input(params, timezone.localdate())
     if not data.get('name'):
         raise ToolError('未能识别出活动名称，请写得更具体些')
@@ -315,31 +316,100 @@ def tool_create(user, params):
             if blocker:
                 blocked_by_ids.append(blocker.id)
 
-    # 建对象 → 记费用 → 打标签 → 解析参与者 → 写日志，全部走 services（与视图快速入口同一份实现）
-    # 自动识别只填已有参与者（大小写不敏感），匹配不到不新建，避免 yyx/YYX 这类重复联系人
-    result = create_activity_from_parsed(user, data, parent=parent, source='AI 对话')
+    # 参与者预解析：只匹配已有（大小写不敏感），匹配不到不新建；
+    # 未命中的名字不进 data，预览与回复都要明说（不静默丢弃）
+    participant_skipped = []
+    if data.get('participants'):
+        matched, participant_skipped, _created = resolve_participants(
+            parent.user if parent else user, data['participants'])
+        data['participants'] = [p.name for p in matched]
+
+    return {'data': data, 'parent': parent, 'blocked_by_ids': blocked_by_ids,
+            'tag_skipped': tag_skipped, 'participant_skipped': participant_skipped}
+
+
+def apply_create(user, params):
+    """确认后执行：建对象 → 记费用 → 打标签 → 解析参与者 → 写日志（与视图快速入口同一份实现）"""
+    plan = _create_plan(user, params)
+    result = create_activity_from_parsed(user, plan['data'], parent=plan['parent'],
+                                         source='AI 对话')
     activity = result['activity']
 
-    # 设置前置依赖
-    if blocked_by_ids:
+    if plan['blocked_by_ids']:
         # 环检测：新建活动还没 ID 关联，不会形成环，但保险起见检查
-        activity.blocked_by.set(blocked_by_ids)
+        activity.blocked_by.set(plan['blocked_by_ids'])
 
-    suffix = f'，归属于「{parent.name}」' if parent else ''
-    tag_note = '，自动添加标签：' + '、'.join(tag_names(activity)) if tag_names(activity) else ''
+    suffix = f'，归属于「{plan["parent"].name}」' if plan['parent'] else ''
+    tag_note = ('，自动添加标签：' + '、'.join(tag_names(activity))
+                if tag_names(activity) else '')
     blocked_note = ''
-    if blocked_by_ids:
-        blocked_names = list(Activity.objects.filter(id__in=blocked_by_ids).values_list('name', flat=True))
+    if plan['blocked_by_ids']:
+        blocked_names = list(Activity.objects.filter(
+            id__in=plan['blocked_by_ids']).values_list('name', flat=True))
         blocked_note = f'，前置依赖：{"、".join(blocked_names)}'
     return {
         'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}{tag_note}{blocked_note}'
                  + _participant_skip_note(result['skipped'])
-                 + _tag_skip_note(tag_skipped),
+                 + _tag_skip_note(plan['tag_skipped']),
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
         'changed': True,
         'created': True,
+    }
+
+
+def _create_fields(user, plan):
+    """预览卡上要展示的字段列表（预览阶段实际会发生什么，就展示什么）"""
+    data = plan['data']
+    fields = []
+    when = ' ~ '.join(x for x in (data.get('start_date'), data.get('end_date')) if x)
+    if data.get('start_time'):
+        when = f'{when} {data["start_time"]}' if when else data['start_time']
+    if when:
+        fields.append({'label': '日期', 'value': when})
+    fields.append({'label': '状态', 'value': STATUS_LABELS.get(data.get('status', 'planned'))})
+    if data.get('cost') is not None:
+        # 去尾零：3000.0 → 3000，120.50 → 120.5（与活动卡费用展示同风格）
+        cost_label = ('%.2f' % data['cost']).rstrip('0').rstrip('.')
+        fields.append({'label': '费用', 'value': f'¥{cost_label}'})
+    if plan['parent']:
+        fields.append({'label': '归属', 'value': plan['parent'].name})
+    if data.get('tags'):
+        fields.append({'label': '标签', 'value': '、'.join(data['tags'])})
+    if data.get('participants'):
+        fields.append({'label': '参与者', 'value': '、'.join(data['participants'])})
+    if plan['blocked_by_ids']:
+        names = list(Activity.objects.filter(
+            id__in=plan['blocked_by_ids']).values_list('name', flat=True))
+        fields.append({'label': '前置依赖', 'value': '、'.join(names)})
+    return fields
+
+
+@agent_tool('activities.create', '创建一个新活动（先出预览确认卡，用户点确认后才会真正创建；不要连发多条）',
+            'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元，将创建为费用条目）、'
+            'status、tags（字符串数组，可选；只写用户明确提到的标签，没有就整个省略，'
+            '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）',
+            apply_fn=apply_create)
+def tool_create(user, params):
+    plan = _create_plan(user, params)
+    data = plan['data']
+
+    notes = []
+    if plan['participant_skipped']:
+        notes.append(_participant_skip_note(plan['participant_skipped']))
+    if plan['tag_skipped']:
+        notes.append(_tag_skip_note(plan['tag_skipped']))
+    parent_name = str(params.get('parent') or '').strip()
+    if parent_name and not plan['parent']:
+        notes.append(f'\n\n⚠️ 没找到叫「{parent_name}」的活动，将创建为独立活动。')
+
+    return {
+        'reply': f'我准备创建活动「{data["name"]}」，请确认：' + ''.join(notes),
+        'card': 'confirm',
+        'card_data': {'kind': 'create', 'name': data['name'],
+                      'fields': _create_fields(user, plan)},
+        'action': {'tool': 'activities.create', 'params': params},
     }
 
 

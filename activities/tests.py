@@ -360,13 +360,18 @@ class ParticipantAgentToolTest(TestCase):
 
     def test_create_tool_skips_unknown_participant(self):
         from core.agent_registry import get_tool
-        result = get_tool('activities.create')['fn'](self.user, {
-            'name': '和 yyx 吃饭', 'participants': ['yyx', '路人甲']})
+        tool = get_tool('activities.create')
+        params = {'name': '和 yyx 吃饭', 'participants': ['yyx', '路人甲']}
+        # 两步确认流：预览不落库，确认后才创建
+        preview = tool['fn'](self.user, params)
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertFalse(Activity.objects.filter(name='和 yyx 吃饭').exists())
+        self.assertIn('路人甲', preview['reply'])
+        self.assertIn('未添加', preview['reply'])
+        result = tool['apply'](self.user, params)
         activity = Activity.objects.get(id=result['activity_ids'][0])
         self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
         self.assertFalse(Participant.objects.filter(name='路人甲').exists())
-        self.assertIn('路人甲', result['reply'])
-        self.assertIn('未添加', result['reply'])
 
     def test_update_tool_does_not_clear_when_nothing_matches(self):
         activity = Activity.objects.create(user=self.user, name='周末游')
@@ -391,6 +396,59 @@ class ParticipantAgentToolTest(TestCase):
         tool['apply'](self.user, {'target_id': activity.id, 'participants': ['yyx']})
         activity.refresh_from_db()
         self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
+
+
+class ActivityCreateConfirmFlowTest(TestCase):
+    """activities.create 两步确认流（2026-09-22，用户要求：创建必须出确认卡）
+
+    起因：网络卡顿时模型连发几十条 create，同名空活动被静默批量落库。
+    之后 create 一律先出预览确认卡，用户点确认才真正创建（与 update/delete 同一
+    套 confirm_action 端点，apply 复用 _create_plan 单一口径）。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.tool = get_tool('activities.create')
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_preview_creates_nothing_and_returns_confirm_card(self):
+        result = self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'start_date': '2026-10-01', 'cost': 3000})
+        self.assertEqual(result['card'], 'confirm')
+        self.assertEqual(result['card_data']['kind'], 'create')
+        self.assertEqual(result['action']['tool'], 'activities.create')
+        self.assertEqual(result['action']['params']['name'], '去杭州团建')
+        self.assertFalse(Activity.objects.exists(), '预览阶段不得落库')
+        fields = {f['label']: f['value'] for f in result['card_data']['fields']}
+        self.assertEqual(fields['日期'], '2026-10-01')
+        self.assertEqual(fields['费用'], '¥3000')
+        self.assertIn('请确认', result['reply'])
+
+    def test_apply_after_confirm_creates_with_same_fields(self):
+        params = {'name': '去杭州团建', 'start_date': '2026-10-01', 'cost': 3000}
+        self.tool['fn'](self.user, params)
+        result = self.tool['apply'](self.user, params)
+        activity = Activity.objects.get(id=result['activity_ids'][0])
+        self.assertEqual(activity.name, '去杭州团建')
+        self.assertEqual(activity.start_date.isoformat(), '2026-10-01')
+        self.assertEqual(activity.expenses.count(), 1)
+        self.assertTrue(result['created'])
+        self.assertIn('已创建', result['reply'])
+
+    def test_cancel_path_writes_nothing(self):
+        """确认卡上点取消只是标记 resolved，不调 apply 就没有任何写入"""
+        self.tool['fn'](self.user, {'name': '不想建的活动'})
+        self.assertFalse(Activity.objects.exists())
+
+    def test_parent_not_found_is_surfaced_in_preview(self):
+        result = self.tool['fn'](self.user, {'name': '买机票', 'parent': '不存在的父活动'})
+        self.assertIn('没找到', result['reply'])
+        self.assertFalse(Activity.objects.filter(name='不存在的父活动').exists())
+
+    def test_preview_without_name_raises_tool_error(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {'start_date': '2026-10-01'})
 
 
 class ToolTargetNumericIdTest(TestCase):
@@ -2672,12 +2730,17 @@ class AiTagGuardTest(TestCase):
     def test_create_tool_drops_invented_tags(self):
         from core.agent_registry import get_tool
         self._seed()
-        result = get_tool('activities.create')['fn'](self.user, {
-            'name': '去上海出差', 'tags': ['出差', '编造标签']})
+        tool = get_tool('activities.create')
+        params = {'name': '去上海出差', 'tags': ['出差', '编造标签']}
+        preview = tool['fn'](self.user, params)
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertIn('编造标签', preview['reply'])
+        self.assertIn('未添加', preview['reply'])
+        result = tool['apply'](self.user, params)
         activity = Activity.objects.get(id=result['activity_ids'][0])
         self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
-        self.assertIn('编造标签', result['reply'])
-        self.assertIn('未添加', result['reply'])
+        self.assertFalse(Tag.objects.filter(name='编造标签').exists(),
+                         'AI 编造的标签不得新建 Tag 行')
 
     def test_create_fallback_suggests_only_relevant_tags(self):
         """无用户指定时：内容无关的高频常用标签不再被无脑塞上"""
@@ -2687,7 +2750,8 @@ class AiTagGuardTest(TestCase):
         for i in range(3):
             act = Activity.objects.create(user=self.user, name=f'出差事项{i}')
             apply_tags(act, ['出差'])
-        result = get_tool('activities.create')['fn'](self.user, {'name': '超市买菜'})
+        tool = get_tool('activities.create')
+        result = tool['apply'](self.user, {'name': '超市买菜'})
         activity = Activity.objects.get(id=result['activity_ids'][0])
         self.assertEqual(list(activity.tags.values_list('name', flat=True)), [],
                          '无关活动不应被贴上高频常用标签')
@@ -2696,7 +2760,7 @@ class AiTagGuardTest(TestCase):
         """同类历史活动（名称相似）的标签仍会自动带上"""
         from core.agent_registry import get_tool
         self._seed()
-        result = get_tool('activities.create')['fn'](self.user, {'name': '去上海出差'})
+        result = get_tool('activities.create')['apply'](self.user, {'name': '去上海出差'})
         activity = Activity.objects.get(id=result['activity_ids'][0])
         self.assertIn('出差', list(activity.tags.values_list('name', flat=True)))
 

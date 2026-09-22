@@ -1155,6 +1155,11 @@ def confirm_action(request, message_id):
         action['resolved'] = 'confirmed'
         action['result'] = result.get('reply') or '操作完成'
         action['changed'] = bool(result.get('changed'))
+        # 创建类动作确认生效后回填来源消息（与直连路径 _finalize_turn 同口径）
+        if result.get('created') and result.get('activity_ids'):
+            from activities.models import Activity
+            Activity.objects.filter(id__in=result['activity_ids'],
+                                    user=request.user).update(source_message=message)
     except Exception as e:
         logger.error(f'确认动作执行失败（消息 {message.id}）: {e}')
         action['resolved'] = 'failed'

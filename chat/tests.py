@@ -2512,15 +2512,33 @@ class PartialProtocolSalvageTest(TestCase):
         self.assertFalse(changed)
 
     def test_salvage_executes_write_operations(self):
-        """写操作形状：params 完整时必须落库，不能只在读路径上生效"""
+        """写操作形状：params 完整时必须真的走到工具，不能只在读路径上生效
+    
+        2026-09-22 起 create 走两步确认流，salvage 到的 create 只出确认卡不落库
+        （另见 test_salvaged_create_needs_confirmation）；这里用仍立即生效的
+        set_status 保住「写操作 salvage 后必须真的写库」这条锁。
+        """
+        act = self.Activity.objects.create(user=self.user, name='交接流程落地')
+        half = ('{"intent":"status_change","params":{"target":"交接流程落地",'
+                '"status":"in_progress"},"reply":"好的，这就改')
+        self.assertIsNone(extract_intent(half))
+        content, payload, changed = orchestrator.process(self.user, half)
+        act.refresh_from_db()
+        self.assertEqual(act.status, 'in_progress', '写操作 salvage 后没落库')
+        self.assertTrue(changed)
+        self.assertIn('已将「交接流程落地」的状态', content)
+        self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE)
+    
+    def test_salvaged_create_needs_confirmation(self):
+        """create 的 salvage 只出确认卡：救援不得绕过确认流直接落库（2026-09-22）"""
         half = ('{"intent":"create","params":{"name":"交接流程落地",'
                 '"start_date":"2026-09-14","end_date":"2026-09-14"},"reply":"好的，正在为你建')
         self.assertIsNone(extract_intent(half))
         content, payload, changed = orchestrator.process(self.user, half)
-        activity = self.Activity.objects.get(name='交接流程落地')
-        self.assertEqual(str(activity.start_date), '2026-09-14', '日期没按 params 落库')
-        self.assertTrue(changed)
-        self.assertIn('已创建活动', content)
+        self.assertFalse(self.Activity.objects.filter(name='交接流程落地').exists(),
+                         'salvage 不得绕过确认直接创建活动')
+        self.assertIn('请确认', content)
+        self.assertFalse(changed)
         self.assertNotEqual(content, PROTOCOL_TRUNCATED_NOTE)
 
     def test_params_never_closed_is_not_salvaged(self):
@@ -2559,16 +2577,20 @@ class PartialProtocolSalvageTest(TestCase):
         self.assertEqual(data['params']['title'], '他说"结束}"就走了')
 
     def test_tool_runs_even_when_reply_is_empty(self):
-        """动作数据齐全但模型一个字都没写给用户看：照样执行，由工具的回复顶上"""
+        """动作数据齐全但模型一个字都没写给用户看：工具照样被执行，由工具的回复顶上
+
+        create 现在走确认流，顶上的是预览文案，且不得落库（2026-09-22）。
+        """
         half = '{"intent":"create","params":{"name":"空话活动","start_date":"2026-09-20"},"reply":"'
         data = salvage_partial_protocol(half)
         self.assertIsNotNone(data)
         self.assertEqual(data['reply'], '', '样本不该带出 reply 文字')
         content, _, changed = orchestrator.process(self.user, half)
-        self.assertEqual(content, '已创建活动「空话活动」（2026-09-20）')
-        self.assertTrue(changed)
-        self.assertEqual(self.Activity.objects.get(name='空话活动').start_date.isoformat(),
-                         '2026-09-20')
+        self.assertEqual(content, '我准备创建活动「空话活动」，请确认：',
+                         '工具没被执行（工具的预览回复没有顶上）')
+        self.assertFalse(changed)
+        self.assertFalse(self.Activity.objects.filter(name='空话活动').exists(),
+                         '确认前不得创建活动')
 
     def test_chitchat_residue_shows_the_recovered_words(self):
         """线上第四种形状（本次真机复测实测到）：模型把话说完了，只是漏了收尾的引号括号
