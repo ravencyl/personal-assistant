@@ -1,15 +1,18 @@
-"""活动列表页（树形 + 筛选 + 排序 + 分页）"""
+"""活动列表页（树形 + 筛选 + 排序 + 分页 + 置顶）"""
+import json
 from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_POST
 
-from core.utils import visible_qs, week_monday, WEEKDAY_LABELS
+from core.utils import get_visible, visible_qs, week_monday, WEEKDAY_LABELS
 
 from ..forms import ActivityForm
 from ..models import Activity, Participant
@@ -139,7 +142,56 @@ def activity_list(request):
 
     walk(None, 0)
 
-    # 筛选时保留命中活动及其祖先链（维持树形），并自动展开全部
+    # ── 置顶组：pinned 活动无视筛选/排序/分页，固定展示在列表最前（2026-09-23）──
+    # 顶级置顶活动连同其后代树整体上移（后代跟父不留在树区）；置顶的子活动
+    # 独立提取到顶部（depth 归 0），不再出现在其父的树里。
+    pinned_rows = []
+
+    def walk_group(root, depth):
+        """置顶组整棵子树都标 is_pinned（渲染同一行模板，整组高亮）"""
+        root.depth = depth
+        root.has_children = bool(children_map.get(root.id))
+        root.is_pinned = True
+        pinned_rows.append(root)
+        for child in children_map.get(root.id, []):
+            walk_group(child, depth + 1)
+
+    # 顶级置顶（连同后代树），最新的置顶排最前
+    pinned_tops = sorted(
+        (a for a in children_map.get(None, []) if a.pinned),
+        key=lambda a: a.pinned_at or a.created_at, reverse=True)
+    for top in pinned_tops:
+        walk_group(top, 0)
+
+    # 置顶的子活动：从父树里挖出来单独置顶（最新置顶在前）
+    pinned_subs = []
+    for parent_id, siblings in list(children_map.items()):
+        if parent_id is None:
+            continue
+        extracted = [a for a in siblings if a.pinned]
+        if extracted:
+            children_map[parent_id] = [a for a in siblings if not a.pinned]
+            pinned_subs.extend(sorted(
+                extracted, key=lambda a: a.pinned_at or a.created_at, reverse=True))
+    for sub in pinned_subs:
+        walk_group(sub, 0)
+
+    pinned_ids = {a.id for a in pinned_rows}
+
+    # 树区：剔除置顶组（整组上移了，不能两处重复出现）
+    def strip_pinned(parent_id, depth):
+        kept = []
+        for a in children_map.get(parent_id, []):
+            if a.id in pinned_ids:
+                continue
+            a.depth = depth
+            a.has_children = bool(children_map.get(a.id))
+            a.is_pinned = False
+            kept.append(a)
+            kept.extend(strip_pinned(a.id, depth + 1))
+        return kept
+
+    rows = strip_pinned(None, 0)
     if has_filter:
         matched_ids = set(matched.values_list('id', flat=True))
         by_id = {a.id: a for a in all_activities}
@@ -159,6 +211,7 @@ def activity_list(request):
         expand_all = False
 
     # ── 分页：按「顶级活动」分页，子活动跟随父活动同页、不计入每页条数（2026-09-13）──
+    # 置顶组不参与分页，每页都固定显示在最前
     top_groups = []
     for a in rows:
         if not a.depth:
@@ -174,6 +227,8 @@ def activity_list(request):
         page_num = 1  # 非法/越界页码静默回退第 1 页
     page_obj = paginator.page(page_num)
     page_rows = [a for group in page_obj.object_list for a in group]
+    # 渲染循环单口：置顶组拼在每页最前（含第 2 页起），模板无需第二套行渲染
+    page_rows = pinned_rows + page_rows
 
     # 翻页链接基准：保留全部查询参数（含 sort），仅去掉 page
     page_params = request.GET.copy()
@@ -290,6 +345,7 @@ def activity_list(request):
 
     return render(request, 'activities/activity_list.html', {
         'activities': page_rows,
+        'pinned_count': len(pinned_rows),
         'page_obj': page_obj,
         'page_numbers': page_numbers,
         'total_activities': len(rows),
@@ -329,3 +385,18 @@ def activity_list(request):
         'filter_qs': filter_qs,
         'date_qs': date_qs,
     })
+
+
+@login_required
+@require_POST
+def activity_pin_toggle(request, activity_id):
+    """置顶/取消置顶（JSON）：置顶活动无视筛选条件固定在列表最前（2026-09-23）
+
+    状态存在 Activity.pinned / pinned_at（pinned_at 决定多个置顶间的先后）。
+    原生 fetch 专用端点：越权/不存在走 get_visible 的统一 404。
+    """
+    activity = get_visible(Activity, request.user, id=activity_id)
+    activity.pinned = not activity.pinned
+    activity.pinned_at = timezone.now() if activity.pinned else None
+    activity.save(update_fields=['pinned', 'pinned_at'])
+    return JsonResponse({'id': activity.id, 'pinned': activity.pinned})

@@ -266,6 +266,54 @@ def tool_set_status(user, params):
     }
 
 
+@agent_tool('activities.pin', '置顶或取消置顶活动（置顶后无视筛选条件固定在活动列表最前）',
+            'target（目标活动名称关键词）、pinned（可选 true/false，不传则在当前状态间切换）')
+def tool_pin(user, params):
+    # activity_id：Daily 建议动作等已知目标 id 的调用方精确锁定，避免名称歧义
+    activity_id = params.get('activity_id')
+    if activity_id:
+        try:
+            activity = visible_qs(Activity, user).get(id=activity_id)
+        except Activity.DoesNotExist:
+            raise ToolError('没有找到目标任务，可能已被删除')
+    else:
+        activity = _resolve_single(user, params.get('target') or params.get('name'),
+                                   target_id=params.get('target_id'), pick=params.get('pick'))
+    # pinned 允许字符串布尔（协议 JSON 里模型常传 "true"）
+    raw = params.get('pinned')
+    if raw is None or raw == '':
+        pinned = not activity.pinned
+    elif isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered in ('true', '1', 'yes', '是'):
+            pinned = True
+        elif lowered in ('false', '0', 'no', '否'):
+            pinned = False
+        else:
+            raise ToolError('pinned 只能是 true 或 false，不传则自动切换')
+    else:
+        pinned = bool(raw)
+    if activity.pinned == pinned:
+        return {
+            'reply': f'「{activity.name}」{"已经在置顶里" if pinned else "本来就没置顶"}',
+            'card': 'activity',
+            'activity_ids': [activity.id],
+            'card_data': _activity_card_data(activity),
+        }
+    activity.pinned = pinned
+    activity.pinned_at = timezone.now() if pinned else None
+    activity.save(update_fields=['pinned', 'pinned_at'])
+    log_activity(user, activity, 'edited', '置顶' if pinned else '取消置顶')
+    return {
+        'reply': (f'已置顶「{activity.name}」，会固定在活动列表最前（无视筛选条件）'
+                  if pinned else f'已取消「{activity.name}」的置顶'),
+        'card': 'activity',
+        'activity_ids': [activity.id],
+        'card_data': _activity_card_data(activity),
+        'changed': True,
+    }
+
+
 def _create_plan(user, params):
     """创建预览与确认执行**共用**的解析与守门（不写库；与 update 的 _update_data 同思路）
 

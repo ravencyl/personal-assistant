@@ -84,6 +84,9 @@ class Activity(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived_at = models.DateTimeField('归档时间', null=True, blank=True)
+    # 列表置顶：pinned 活动无视筛选/分页固定展示在列表最前（2026-09-23）
+    pinned = models.BooleanField('置顶', default=False, db_index=True)
+    pinned_at = models.DateTimeField('置顶时间', null=True, blank=True)
 
     class Meta:
         ordering = ['-start_date', '-created_at']

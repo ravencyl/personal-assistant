@@ -44,6 +44,8 @@ INTENT_TOOL_MAP = {
     # 归档：已完成/已取消/长期无变动的活动从列表隐藏，数据保留
     'archive': 'activities.archive',
     'unarchive': 'activities.unarchive',
+    # 置顶：无视筛选条件固定在活动列表最前（与 @ 钉选是两回事，那是会话上下文）
+    'pin': 'activities.pin',
     # 活动评论：追加讨论/备注，后续决策可读（get 卡片快照也带最近评论）
     'add_comment': 'activities.add_comment',
     'list_comments': 'activities.comments',

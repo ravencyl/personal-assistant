@@ -2895,3 +2895,103 @@ class AiTagGuardTest(TestCase):
                                     {'text': '周五聚餐'})
         self.assertEqual(resp.status_code, 200)
         self.assertNotIn('tags', resp.json())
+
+
+class ActivityPinTest(TestCase):
+    """活动置顶（2026-09-23）：pinned 活动无视筛选/分页固定在列表最前
+
+    端点 POST /activities/<id>/pin/ 为 toggle（JSON，原生 fetch 专用）；
+    列表视图把置顶组（顶级连同后代树 / 置顶子活动独立提取）固定拼在每页最前，
+    并从树区剔除避免重复出现。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def test_pin_toggle_roundtrip(self):
+        a = Activity.objects.create(user=self.user, name='团建')
+        resp = self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {'id': a.id, 'pinned': True})
+        a.refresh_from_db()
+        self.assertTrue(a.pinned)
+        self.assertIsNotNone(a.pinned_at)
+        resp = self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
+        self.assertEqual(resp.json()['pinned'], False)
+        a.refresh_from_db()
+        self.assertFalse(a.pinned)
+        self.assertIsNone(a.pinned_at)
+
+    def test_pin_endpoint_rejects_get_and_stranger(self):
+        """GET 拒绝（toggle 只能 POST）；别人的活动 404（统一无权口径）"""
+        a = Activity.objects.create(user=self.user, name='团建')
+        self.assertEqual(
+            self.client.get(reverse('activities:activity_pin_toggle', args=[a.id])).status_code, 405)
+        other = User.objects.create_user('other', password='test')
+        stranger_a = Activity.objects.create(user=other, name='别人的')
+        self.assertEqual(
+            self.client.post(reverse('activities:activity_pin_toggle', args=[stranger_a.id])).status_code, 404)
+
+    def test_pinned_ignores_filters_and_stays_first(self):
+        """置顶的核心诉求：筛选条件筛不中它也要显示在最前"""
+        hit = Activity.objects.create(user=self.user, name='团建策划')
+        miss = Activity.objects.create(user=self.user, name='理发')
+        self.client.post(reverse('activities:activity_pin_toggle', args=[miss.id]))
+        resp = self.client.get(reverse('activities:activity_list'), {'keyword': '团建'})
+        rows = list(resp.context['activities'])
+        self.assertEqual([a.name for a in rows], ['理发', '团建策划'])
+        self.assertTrue(rows[0].is_pinned)
+        self.assertFalse(rows[1].is_pinned)
+
+    def test_pinned_sub_extracted_from_parent_tree(self):
+        """置顶的子活动独立提取到顶部（depth 归 0），父树里不再出现"""
+        parent = Activity.objects.create(user=self.user, name='杭州之行')
+        child = Activity.objects.create(user=self.user, name='订酒店', parent=parent)
+        self.client.post(reverse('activities:activity_pin_toggle', args=[child.id]))
+        resp = self.client.get(reverse('activities:activity_list'))
+        rows = list(resp.context['activities'])
+        self.assertEqual([a.name for a in rows], ['订酒店', '杭州之行'])
+        self.assertEqual(rows[0].depth, 0)
+        self.assertTrue(rows[0].is_pinned)
+        self.assertFalse(rows[1].has_children)
+
+    def test_pinned_order_latest_first(self):
+        a = Activity.objects.create(user=self.user, name='甲')
+        b = Activity.objects.create(user=self.user, name='乙')
+        self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
+        self.client.post(reverse('activities:activity_pin_toggle', args=[b.id]))
+        resp = self.client.get(reverse('activities:activity_list'))
+        self.assertEqual([x.name for x in resp.context['activities']][:2], ['乙', '甲'])
+
+
+class ActivityPinAgentToolTest(TestCase):
+    """activities.pin：对话里「把 XX 置顶 / 取消置顶」"""
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.tool = get_tool('activities.pin')
+        self.user = User.objects.create_user('testuser', password='test')
+
+    def test_pin_by_target_and_string_boolean(self):
+        a = Activity.objects.create(user=self.user, name='团建')
+        result = self.tool['fn'](self.user, {'target': '团建', 'pinned': 'true'})
+        self.assertIn('已置顶', result['reply'])
+        a.refresh_from_db()
+        self.assertTrue(a.pinned)
+        result = self.tool['fn'](self.user, {'target': '团建', 'pinned': 'false'})
+        self.assertIn('已取消', result['reply'])
+        a.refresh_from_db()
+        self.assertFalse(a.pinned)
+
+    def test_pin_toggle_without_flag_is_noop_when_same(self):
+        a = Activity.objects.create(user=self.user, name='团建')
+        self.assertIn('已置顶', self.tool['fn'](self.user, {'target': '团建'})['reply'])
+        result = self.tool['fn'](self.user, {'target': '团建', 'pinned': True})
+        self.assertIn('已经在置顶里', result['reply'])
+
+    def test_pin_requires_target(self):
+        from core.agent_registry import ToolError
+        with self.assertRaises(ToolError):
+            self.tool['fn'](self.user, {})

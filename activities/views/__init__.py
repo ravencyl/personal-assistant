@@ -22,7 +22,7 @@ from .quick_input_views import (  # noqa: F401
     ocr_receipt_view,
     parse_quick_input_view,
 )
-from .list_views import activity_list  # noqa: F401
+from .list_views import activity_list, activity_pin_toggle  # noqa: F401
 from .detail_views import (  # noqa: F401
     _parse_date_input,
     _split_name_input,

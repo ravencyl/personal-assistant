@@ -16,6 +16,7 @@ urlpatterns = [
     path('quick-create/', views.activity_quick_create, name='activity_quick_create'),
     path('<int:activity_id>/', views.activity_detail, name='activity_detail'),
     path('<int:activity_id>/status/', views.activity_set_status, name='activity_set_status'),
+    path('<int:activity_id>/pin/', views.activity_pin_toggle, name='activity_pin_toggle'),
     path('<int:activity_id>/edit/', views.activity_edit, name='activity_edit'),
     path('<int:activity_id>/subactivities/', views.add_subactivity, name='add_subactivity'),
     path('<int:activity_id>/quick-sub/', views.activity_quick_sub, name='activity_quick_sub'),
