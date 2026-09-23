@@ -276,6 +276,36 @@
 })();
 </script>
 
+<!-- 已置顶区：pin 的活动固定在此，与主列表分开（无视筛选/分页，桌面与移动共用同一份紧凑卡片） -->
+{% if pinned_activities %}
+<div class="mb-4 fade-in">
+    <div class="flex items-center gap-1.5 mb-2 text-xs font-medium text-[var(--accent)]">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 1 0 0-4H8a2 2 0 1 0 0 4h1z"/>
+        </svg>
+        已置顶
+        <span class="font-normal text-[var(--text-muted)]">· 固定在此，无视筛选条件</span>
+    </div>
+    <div class="space-y-2">
+        {% for activity in pinned_activities %}
+        <div class="app-card px-3 py-2.5 flex items-center gap-2 flex-wrap" data-id="{{ activity.id }}">
+            <button type="button" class="pin-toggle shrink-0 rounded-full p-1 text-[var(--accent)] hover:text-[var(--text)] active:bg-[var(--accent-light)]"
+                    data-activity-id="{{ activity.id }}" title="取消置顶">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 1 0 0-4H8a2 2 0 1 0 0 4h1z"/>
+                </svg>
+            </button>
+            {% if activity.depth %}<span class="text-[var(--text-muted)] select-none" style="margin-left: {% widthratio activity.depth 1 1 %}em">&#9492;</span>{% endif %}
+            <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-[var(--text)] hover:text-[var(--text-secondary)] break-words min-w-0">{{ activity.name }}</a>
+            {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
+            <span class="ml-auto shrink-0 text-xs text-[var(--text-secondary)] whitespace-nowrap">{{ activity.date_range }}</span>
+            <span class="shrink-0 text-xs tabular-nums text-[var(--text-secondary)]">¥{{ activity.show_cost|floatformat:"-2" }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Activity table (md+) / 卡片列表（移动端） -->
 {% if activities %}
 <div id="activity-list" class="hidden md:block app-card overflow-hidden">
@@ -309,7 +339,7 @@
         </thead>
         <tbody class="divide-y divide-[var(--border)]">
             {% for activity in activities %}
-            <tr class="hover:bg-[var(--accent-light)] tree-row {% if activity.is_pinned %}bg-[var(--accent-light)]{% endif %}" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}" data-pinned="{% if activity.is_pinned %}1{% else %}0{% endif %}"
+            <tr class="hover:bg-[var(--accent-light)] tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
                 {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
@@ -347,9 +377,9 @@
                 </td>
                 <td class="px-3 py-3 text-center">
                     <div class="flex items-center justify-center gap-1">
-                        <button type="button" class="pin-toggle inline-flex items-center justify-center w-7 h-7 rounded-md {% if activity.is_pinned %}text-[var(--accent)]{% else %}text-[var(--text-muted)] hover:text-[var(--text)]{% endif %} hover:bg-[var(--accent-light)]"
-                                data-activity-id="{{ activity.id }}" data-pinned="{% if activity.is_pinned %}1{% else %}0{% endif %}"
-                                title="{% if activity.is_pinned %}取消置顶{% else %}置顶（无视筛选固定在最前）{% endif %}">
+                        <button type="button" class="pin-toggle inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)]"
+                                data-activity-id="{{ activity.id }}"
+                                title="置顶（固定在列表上方区域，无视筛选）">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 1 0 0-4H8a2 2 0 1 0 0 4h1z"/>
                             </svg>
@@ -373,7 +403,7 @@
      卡内只有树形展开/编辑/标签筛选是独立触点 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
-    <div class="tree-row app-card p-3 {% if activity.is_pinned %}!bg-[var(--accent-light)]{% endif %}" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}" data-pinned="{% if activity.is_pinned %}1{% else %}0{% endif %}"
+    <div class="tree-row app-card p-3" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <div class="flex items-center justify-between gap-3 mb-1.5">
             <div class="flex items-center gap-1.5 min-w-0" style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">
@@ -389,9 +419,9 @@
                 <span class="shrink-0 text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ activity.id }}</span>
             </div>
             <span class="shrink-0 flex items-center gap-1.5">
-                <button type="button" class="pin-toggle tap-target shrink-0 -ml-1 rounded-full {% if activity.is_pinned %}text-[var(--accent)]{% else %}text-[var(--text-muted)]{% endif %} hover:text-[var(--text)] active:bg-[var(--accent-light)]"
-                        data-activity-id="{{ activity.id }}" data-pinned="{% if activity.is_pinned %}1{% else %}0{% endif %}"
-                        title="{% if activity.is_pinned %}取消置顶{% else %}置顶（无视筛选固定在最前）{% endif %}">
+                <button type="button" class="pin-toggle tap-target shrink-0 -ml-1 rounded-full text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)]"
+                        data-activity-id="{{ activity.id }}"
+                        title="置顶（固定在列表上方区域，无视筛选）">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 1 0 0-4H8a2 2 0 1 0 0 4h1z"/>
                     </svg>
@@ -453,7 +483,7 @@
     <p class="text-xs text-[var(--text-muted)]">共 {{ total_activities }} 条 · 第 {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} 页</p>
 </div>
 {% endif %}
-{% else %}
+{% elif not pinned_activities %}
 <!-- 友好空状态 -->
 <div class="text-center py-16 fade-in">
     <div class="text-6xl mb-4">📝</div>

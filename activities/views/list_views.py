@@ -226,8 +226,7 @@ def activity_list(request):
         page_num = 1  # 非法/越界页码静默回退第 1 页
     page_obj = paginator.page(page_num)
     page_rows = [a for group in page_obj.object_list for a in group]
-    # 渲染循环单口：置顶组拼在每页最前（含第 2 页起），模板无需第二套行渲染
-    page_rows = pinned_rows + page_rows
+    # 置顶组不进主列表，单独传给模板上方的「已置顶」区域（2026-09-23）
 
     # 翻页链接基准：保留全部查询参数（含 sort），仅去掉 page
     page_params = request.GET.copy()
@@ -344,7 +343,7 @@ def activity_list(request):
 
     return render(request, 'activities/activity_list.html', {
         'activities': page_rows,
-        'pinned_count': len(pinned_rows),
+        'pinned_activities': pinned_rows,
         'page_obj': page_obj,
         'page_numbers': page_numbers,
         'total_activities': len(rows),

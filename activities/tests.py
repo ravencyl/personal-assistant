@@ -2899,11 +2899,12 @@ class AiTagGuardTest(TestCase):
 
 
 class ActivityPinTest(TestCase):
-    """活动置顶（2026-09-23）：pinned 活动无视筛选/分页固定在列表最前
+    """活动置顶（2026-09-23）：pinned 活动单独渲染在列表上方的「已置顶」区域，
+    与主列表分开，无视筛选/分页。
 
     端点 POST /activities/<id>/pin/ 为 toggle（JSON，原生 fetch 专用）；
-    列表视图把置顶组（顶级连同后代树 / 置顶子活动独立提取）固定拼在每页最前，
-    并从树区剔除避免重复出现。
+    列表视图把置顶组（顶级连同后代树 / 置顶子活动独立提取）放进
+    pinned_activities 上下文，主列表剔除避免重复出现。
     """
 
     def setUp(self):
@@ -2935,28 +2936,30 @@ class ActivityPinTest(TestCase):
         self.assertEqual(
             self.client.post(reverse('activities:activity_pin_toggle', args=[stranger_a.id])).status_code, 404)
 
-    def test_pinned_ignores_filters_and_stays_first(self):
-        """置顶的核心诉求：筛选条件筛不中它也要显示在最前"""
+    def test_pinned_ignores_filters_and_shows_in_section(self):
+        """置顶的核心诉求：筛选条件筛不中它也照样出现在上方置顶区"""
         hit = Activity.objects.create(user=self.user, name='团建策划')
         miss = Activity.objects.create(user=self.user, name='理发')
         self.client.post(reverse('activities:activity_pin_toggle', args=[miss.id]))
         resp = self.client.get(reverse('activities:activity_list'), {'keyword': '团建'})
         rows = list(resp.context['activities'])
-        self.assertEqual([a.name for a in rows], ['理发', '团建策划'])
-        self.assertTrue(rows[0].is_pinned)
-        self.assertFalse(rows[1].is_pinned)
+        self.assertEqual([a.name for a in rows], ['团建策划'])
+        pinned = list(resp.context['pinned_activities'])
+        self.assertEqual([a.name for a in pinned], ['理发'])
+        self.assertIn('已置顶', resp.content.decode())
 
     def test_pinned_sub_extracted_from_parent_tree(self):
-        """置顶的子活动独立提取到顶部（depth 归 0），父树里不再出现"""
+        """置顶的子活动独立进上方区域（depth 归 0），父树里不再出现"""
         parent = Activity.objects.create(user=self.user, name='杭州之行')
         child = Activity.objects.create(user=self.user, name='订酒店', parent=parent)
         self.client.post(reverse('activities:activity_pin_toggle', args=[child.id]))
         resp = self.client.get(reverse('activities:activity_list'))
         rows = list(resp.context['activities'])
-        self.assertEqual([a.name for a in rows], ['订酒店', '杭州之行'])
-        self.assertEqual(rows[0].depth, 0)
-        self.assertTrue(rows[0].is_pinned)
-        self.assertFalse(rows[1].has_children)
+        self.assertEqual([a.name for a in rows], ['杭州之行'])
+        self.assertFalse(rows[0].has_children)
+        pinned = list(resp.context['pinned_activities'])
+        self.assertEqual([a.name for a in pinned], ['订酒店'])
+        self.assertEqual(pinned[0].depth, 0)
 
     def test_pinned_order_latest_first(self):
         a = Activity.objects.create(user=self.user, name='甲')
@@ -2964,7 +2967,22 @@ class ActivityPinTest(TestCase):
         self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
         self.client.post(reverse('activities:activity_pin_toggle', args=[b.id]))
         resp = self.client.get(reverse('activities:activity_list'))
-        self.assertEqual([x.name for x in resp.context['activities']][:2], ['乙', '甲'])
+        self.assertEqual([x.name for x in resp.context['pinned_activities']][:2], ['乙', '甲'])
+
+    def test_pinned_appears_only_in_distinct_section(self):
+        """置顶活动只渲染在上方区域一次，不得同时残留在主列表里"""
+        a = Activity.objects.create(user=self.user, name='置顶目标')
+        self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
+        resp = self.client.get(reverse('activities:activity_list'))
+        html = resp.content.decode()
+        self.assertEqual(html.count('置顶目标'), 1)
+        self.assertIn('已置顶', html)
+        self.assertIn('取消置顶', html)
+        # 无置顶时不渲染区域头（断言前剔掉 HTML 注释，避免模板静态注释误命中）
+        self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
+        resp2 = self.client.get(reverse('activities:activity_list'))
+        html2 = re.sub(r'<!--.*?-->', '', resp2.content.decode(), flags=re.S)
+        self.assertNotIn('已置顶', html2)
 
 
 class ActivityPinAgentToolTest(TestCase):
