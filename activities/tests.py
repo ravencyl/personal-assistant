@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from core.tags import apply_tags, tag_names
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
@@ -2995,3 +2996,21 @@ class ActivityPinAgentToolTest(TestCase):
         from core.agent_registry import ToolError
         with self.assertRaises(ToolError):
             self.tool['fn'](self.user, {})
+
+
+class BatchOpsRemovedTest(SimpleTestCase):
+    """活动列表多选 + 批量操作已整体下线（2026-09-23，用户要求：使用率低、
+    真实场景不这么用；对话里的 activities.batch_status 不受影响）。防复活静态锁。"""
+
+    def test_list_template_has_no_batch_ui(self):
+        src = (Path(__file__).resolve().parent.parent
+               / 'templates' / 'activities' / 'activity_list.html').read_text()
+        self.assertNotIn('batch-check', src)
+        self.assertNotIn('batch-bar', src)
+        self.assertNotIn('batch-select-all', src)
+        self.assertNotIn('batch-ops.js', src)
+
+    def test_batch_route_and_module_removed(self):
+        with self.assertRaises(NoReverseMatch):
+            reverse('activities:batch_update')
+        self.assertIsNone(importlib.util.find_spec('activities.views.batch_views'))

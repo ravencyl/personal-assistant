@@ -50,6 +50,5 @@ urlpatterns = [
     path('templates/create/', views.template_create, name='template_create'),
     path('templates/<int:template_id>/use/', views.template_use, name='template_use'),
     path('<int:pk>/move-date/', views.move_date_view, name='move_date'),
-    path('batch-update/', views.batch_update_view, name='batch_update'),
     path('dependency-data/', views.dependency_data, name='dependency_data'),
 ]

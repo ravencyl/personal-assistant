@@ -283,9 +283,6 @@
     <table class="min-w-[760px] w-full text-sm">
         <thead class="border-b border-[var(--border)]">
             <tr>
-                <th class="px-2 py-3 w-8">
-                    <input type="checkbox" id="batch-select-all" class="rounded border-zinc-300">
-                </th>
                 <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'name' %}-name{% else %}name{% endif %}" class="hover:text-[var(--text)] {% if sort == 'name' or sort == '-name' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         活动名称{% if sort == 'name' %} ▲{% elif sort == '-name' %} ▼{% endif %}
@@ -320,9 +317,6 @@
             {% for activity in activities %}
             <tr class="hover:bg-[var(--accent-light)] tree-row {% if activity.is_pinned %}bg-[var(--accent-light)]{% endif %}" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}" data-pinned="{% if activity.is_pinned %}1{% else %}0{% endif %}"
                 {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
-                <td class="px-2 py-3">
-                    {% if not activity.depth %}<input type="checkbox" class="batch-check rounded border-zinc-300" value="{{ activity.id }}">{% endif %}
-                </td>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
                         {% if tree_mode and activity.has_children %}
@@ -571,15 +565,5 @@
 })();
 </script>
 
-<!-- 批量操作栏 -->
-<div id="batch-bar" class="hidden fixed bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border)] px-4 py-3 flex items-center justify-between gap-3 z-50 shadow-lg">
-    <span class="text-sm text-[var(--text)]">已选 <span id="batch-count" class="font-bold text-[var(--accent)]">0</span> 项</span>
-    <div class="flex gap-2">
-        <button data-batch-action="status" class="px-3 py-1.5 rounded-md bg-[var(--accent-light)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white">改状态</button>
-        <button data-batch-action="tags" class="px-3 py-1.5 rounded-md bg-[var(--accent-light)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white">改标签</button>
-        <button data-batch-action="date" class="px-3 py-1.5 rounded-md bg-[var(--accent-light)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white">改日期</button>
-    </div>
-</div>
 <script src="{% staticv 'js/pin-toggle.js' %}" defer></script>
-<script src="{% staticv 'js/batch-ops.js' %}" defer></script>
 {% endblock %}
