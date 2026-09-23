@@ -280,7 +280,7 @@
 {% if activities %}
 <div id="activity-list" class="hidden md:block app-card overflow-hidden">
     <div class="overflow-x-auto">
-    <table class="min-w-[760px] w-full text-sm">
+    <table class="min-w-[640px] w-full text-sm">
         <thead class="border-b border-[var(--border)]">
             <tr>
                 <th class="px-4 py-3 text-left text-xs text-[var(--text-muted)] font-medium">
@@ -302,12 +302,6 @@
                 <th class="px-4 py-3 text-right text-xs text-[var(--text-muted)] font-medium">
                     <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}" class="hover:text-[var(--text)] {% if sort == 'cost' or sort == '-cost' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
                         费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
-                    </a>
-                </th>
-                <th class="px-4 py-3 text-center text-xs text-[var(--text-muted)] font-medium">笔数</th>
-                <th class="px-4 py-3 text-center text-xs text-[var(--text-muted)] font-medium">
-                    <a href="?{% if filter_qs %}{{ filter_qs }}&{% endif %}sort={% if sort == 'sub_count' %}-sub_count{% else %}sub_count{% endif %}" class="hover:text-[var(--text)] {% if sort == 'sub_count' or sort == '-sub_count' %}text-[var(--text)]{% else %}text-[var(--text-secondary)]{% endif %}">
-                        子活动{% if sort == 'sub_count' %} ▲{% elif sort == '-sub_count' %} ▼{% endif %}
                     </a>
                 </th>
                 <th class="w-12 px-3 py-3"></th>
@@ -351,8 +345,6 @@
                     ¥{{ activity.show_cost|floatformat:"-2" }}
                     {% if activity.sub_count %}<span class="text-xs text-[var(--text-muted)]">含子活动</span>{% endif %}
                 </td>
-                <td class="px-4 py-3 text-center text-[var(--text-secondary)]">{{ activity.expense_count }}</td>
-                <td class="px-4 py-3 text-center text-[var(--text-secondary)]">{{ activity.sub_count }}</td>
                 <td class="px-3 py-3 text-center">
                     <div class="flex items-center justify-center gap-1">
                         <button type="button" class="pin-toggle inline-flex items-center justify-center w-7 h-7 rounded-md {% if activity.is_pinned %}text-[var(--accent)]{% else %}text-[var(--text-muted)] hover:text-[var(--text)]{% endif %} hover:bg-[var(--accent-light)]"
@@ -413,18 +405,11 @@
                 </a>
             </span>
         </div>
-        {# meta 结构化：日期居左、金额居右成两列；笔数/子活动降为次行弱化信息 #}
+        {# meta 结构化：日期居左、金额居右成两列 #}
         <div class="mt-1 flex items-baseline justify-between gap-3 text-xs">
             <span class="min-w-0 truncate text-[var(--text-secondary)]">{{ activity.date_range }}</span>
             <span class="shrink-0 tabular-nums text-[var(--text-secondary)]">¥{{ activity.show_cost|floatformat:"-2" }}</span>
         </div>
-        {% if activity.expense_count or activity.sub_count %}
-        <p class="mt-0.5 text-xs text-[var(--text-muted)]">
-            {% if activity.expense_count %}{{ activity.expense_count }} 笔费用{% endif %}
-            {% if activity.expense_count and activity.sub_count %} · {% endif %}
-            {% if activity.sub_count %}子活动 {{ activity.sub_count }}{% endif %}
-        </p>
-        {% endif %}
         {% if activity.tags.all %}
         <div class="flex flex-wrap gap-1 mt-2">
             {% for tag in activity.tags.all %}

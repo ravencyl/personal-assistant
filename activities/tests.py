@@ -3014,3 +3014,17 @@ class BatchOpsRemovedTest(SimpleTestCase):
         with self.assertRaises(NoReverseMatch):
             reverse('activities:batch_update')
         self.assertIsNone(importlib.util.find_spec('activities.views.batch_views'))
+
+
+class ListCountColumnsRemovedTest(SimpleTestCase):
+    """活动列表「笔数」「子活动」列已下线（2026-09-23，用户要求不展示）。
+    费用格的「含子活动」标注保留（说明累计口径）。防复活静态锁。"""
+
+    def test_template_has_no_count_columns(self):
+        src = (Path(__file__).resolve().parent.parent
+               / 'templates' / 'activities' / 'activity_list.html').read_text()
+        self.assertNotIn('笔数', src)
+        self.assertNotIn('笔费用', src)
+        self.assertNotIn('expense_count', src)
+        self.assertNotIn('sort=sub_count', src)
+        self.assertNotIn('{{ activity.sub_count }}', src)

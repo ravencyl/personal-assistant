@@ -65,16 +65,15 @@ def activity_list(request):
         'status': 'status',
         'start_date': 'start_date',
         'cost': 'cost',
-        'sub_count': 'sub_count',
     }
 
-    # 一次性聚合子活动数量和费用数量，避免 N+1；预取标签（超级用户可见全部数据）
+    # 一次性聚合子活动数量，避免 N+1；预取标签（超级用户可见全部数据）
     # 「日常开支」归属桶为系统常驻活动，不展示在活动列表中（费用统计仍包含）
+    # （笔数/子活动列已下线，sub_count 仅剩费用单元格的「含子活动」标注在用）
     all_activities = list(exclude_daily_bucket(
         visible_qs(Activity, request.user)
     ).prefetch_related('tags').annotate(
         sub_count=Count('children', distinct=True),
-        expense_count=Count('expenses', distinct=True),
     ))
 
     # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
