@@ -4,7 +4,7 @@
 {% block title %}AI 对话 · {{ SITE_NAME }}{% endblock %}
 
 {# 对话是默认界面，把屏幕还给消息流：加宽容器、压小留白（base.html main 的 main_class 钩子） #}
-{% block main_class %}mx-auto max-w-[1700px] px-2 sm:px-4 lg:px-6 py-3 sm:py-4 pb-28 md:pb-4{% endblock %}
+{% block main_class %}mx-auto max-w-[1700px] px-2 sm:px-4 lg:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-28 sm:py-4 md:pb-4{% endblock %}
 
 {% block content %}
 {# 分栏布局容器：桌面端左右两栏同屏；移动端靠 data-view 在列表/聊天视图间切换 #}

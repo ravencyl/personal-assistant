@@ -8,13 +8,15 @@
  * iOS 限制：16.4+ 仅在添加到主屏幕（standalone 模式）后才允许推送授权，
  * 检测到 iOS Safari 普通标签页时引导先添加主屏幕，而不是让授权静默失败。
  *
- * 事件驱动脚本，defer 加载；无 #push-toggle-btn（未配置 VAPID）时静默退出。
+ * 事件驱动脚本，defer 加载；无 [data-push-toggle]（未配置 VAPID）时静默退出。
+ * 2026-10-08 顶栏合并后铃铛可能出现在两处（桌面顶栏 / dashboard 移动端头部），
+ * 改为按钮组：querySelectorAll 按 data-push-toggle 绑定，状态同步刷所有实例。
  */
 (function () {
     'use strict';
 
-    var btn = document.getElementById('push-toggle-btn');
-    if (!btn) return;
+    var btns = Array.prototype.slice.call(document.querySelectorAll('[data-push-toggle]'));
+    if (!btns.length) return;
 
     var keyMeta = document.querySelector('meta[name="vapid-key"]');
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
@@ -74,8 +76,10 @@
     }
 
     function mark(on) {
-        btn.classList.toggle('push-on', !!on);
-        btn.title = on ? '已开启每日推送，点按关闭' : '开启每日推送';
+        btns.forEach(function (btn) {
+            btn.classList.toggle('push-on', !!on);
+            btn.title = on ? '已开启每日推送，点按关闭' : '开启每日推送';
+        });
     }
 
     function subscribe(reg) {
@@ -106,27 +110,29 @@
         }).then(function () { mark(false); });
     }
 
-    btn.addEventListener('click', function () {
-        getRegistration().then(function (reg) {
-            return reg.pushManager.getSubscription().then(function (sub) {
-                if (sub) {
-                    // 已订阅：先确认再退订，避免误点一次就静默关掉早报
-                    if (!window.confirm('已开启每日推送，确定要关闭吗？\n关闭后每天 8 点的早报将不再推送。')) return null;
-                    return unsubscribe(reg);
-                }
-                if (isIOS() && !isStandalone()) {
-                    alert('iPhone 上接收推送需要先把本站添加到主屏幕：\n\nSafari 底部分享按钮 → 「添加到主屏幕」，然后从主屏幕打开再点铃铛。');
-                    return null;
-                }
-                return subscribe(reg);
+    btns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            getRegistration().then(function (reg) {
+                return reg.pushManager.getSubscription().then(function (sub) {
+                    if (sub) {
+                        // 已订阅：先确认再退订，避免误点一次就静默关掉早报
+                        if (!window.confirm('已开启每日推送，确定要关闭吗？\n关闭后每天 8 点的早报将不再推送。')) return null;
+                        return unsubscribe(reg);
+                    }
+                    if (isIOS() && !isStandalone()) {
+                        alert('iPhone 上接收推送需要先把本站添加到主屏幕：\n\nSafari 底部分享按钮 → 「添加到主屏幕」，然后从主屏幕打开再点铃铛。');
+                        return null;
+                    }
+                    return subscribe(reg);
+                });
+            }).catch(function (err) {
+                var msg = {
+                    'denied': '推送权限被拒绝。请在系统设置 → Safari/浏览器 → 通知 里重新允许。',
+                    'unsupported': '当前浏览器不支持 Web Push。',
+                    'no-sw': 'Service Worker 尚未就绪，请刷新页面后重试。',
+                }[err && err.message] || '开启失败：' + (err && err.message ? err.message : '未知错误');
+                alert(msg);
             });
-        }).catch(function (err) {
-            var msg = {
-                'denied': '推送权限被拒绝。请在系统设置 → Safari/浏览器 → 通知 里重新允许。',
-                'unsupported': '当前浏览器不支持 Web Push。',
-                'no-sw': 'Service Worker 尚未就绪，请刷新页面后重试。',
-            }[err && err.message] || '开启失败：' + (err && err.message ? err.message : '未知错误');
-            alert(msg);
         });
     });
 

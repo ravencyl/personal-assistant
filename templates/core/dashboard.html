@@ -8,10 +8,24 @@
 {% endblock %}
 
 {% block content %}
-<!-- 问候头部 -->
-<div class="mb-6">
-    <h1 class="text-2xl font-semibold text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
-    <p class="text-sm text-[var(--text-secondary)] mt-1">{{ today_display }}</p>
+<!-- 问候头部（右侧操作组仅移动端：顶栏已合并进 Tab 栏（2026-10-08），
+     推送/退出落点在这里；桌面端顶栏仍有同功能入口，md:hidden 避免重复。
+     铃铛不带 id 只带 data-push-toggle，与顶栏按钮同进 push.js 的按钮组） -->
+<div class="mb-6 flex items-start justify-between gap-2">
+    <div>
+        <h1 class="text-2xl font-semibold text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
+        <p class="text-sm text-[var(--text-secondary)] mt-1">{{ today_display }}</p>
+    </div>
+    <div class="flex items-center shrink-0 md:hidden">
+        {% if push_ready %}
+        <button type="button" data-push-toggle class="tap-target p-2 -mx-1 text-[var(--text-secondary)] hover:text-[var(--text)]" title="开启每日推送">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+            </svg>
+        </button>
+        {% endif %}
+        <a href="{% url 'logout' %}" class="tap-target px-2 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">退出</a>
+    </div>
 </div>
 
 {% comment %}
