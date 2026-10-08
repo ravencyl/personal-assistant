@@ -594,7 +594,8 @@ class PrimaryNavTest(TestCase):
     # /today/ 页下线移除，信息走对话里的 daily/工作台快捷卡）
     DESKTOP = ['活动记录', 'AI 对话', '备忘', '知识库', '记忆']
     # 移动底栏：比顶栏少「记忆」（用户定的口径 —— 手机上不读记忆，使用频率也不占位）；
-    # 「今日」同样随页下线移除，原位置换成快记 dock（button，不算导航条目）
+    # 「今日」同样随页下线移除，原位置换成快记 dock（button，不算导航条目）。
+    # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里
     MOBILE = ['活动', '对话', '备忘', '知识']
     # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
 
@@ -631,14 +632,16 @@ class PrimaryNavTest(TestCase):
                          '顶栏条目变了：若是有意调整，同步这里的清单与下方注释')
 
     def test_mobile_tab_lists_exactly_the_first_level_modules(self):
-        self.assertEqual(self._labels(self._mobile_block()), self.MOBILE)
+        """胶囊栏纯图标（2026-10-08）：条目名称只能从 aria-label 里锁"""
+        labels = re.findall(r'<a\b[^>]*aria-label="([^"]+)"', self._mobile_block())
+        self.assertEqual(labels, self.MOBILE)
 
     def test_mobile_tab_items_match_the_module_count(self):
         """胶囊栏（2026-09-13 改自 grid 栏）条目数必须等于清单数 ——
         flex 布局下多余/缺失的 <a> 会把胶囊撑歪或留空"""
         block = self._mobile_block()
         items = re.findall(r'<a\b', block)
-        self.assertEqual(len(items), len(self._labels(block)),
+        self.assertEqual(len(items), len(re.findall(r'<a\b[^>]*aria-label="', block)),
                          '底栏 <a> 数与条目清单不一致：会有空位或孤立图标')
 
 
