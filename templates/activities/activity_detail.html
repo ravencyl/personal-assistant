@@ -133,8 +133,8 @@
 
     <!-- 费用明细：details 默认折叠（用户要求页面不要太长）；summary 是 flex + justify-between，
          计数连同文字必须包进同一个 span，裸文本会被拆成多个 flex 项铺满整行（前置依赖同款教训） -->
-    <details class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+    <details class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>费用明细（{{ expenses|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         {% if expenses %}
@@ -207,8 +207,8 @@
     </details>
 
     <!-- 活动安排：同样默认折叠 -->
-    <details class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+    <details class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>活动安排（<span id="subtask-count">{{ children|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         <!-- 快速记一笔：一句话解析后预览确认创建活动安排 -->
@@ -308,8 +308,8 @@
     {% comment %}评论：追加式讨论时间线（正序），可见性跟随活动。
        AI 决策链路会经 activities.get / activities.comments 工具读取这里的评论，
        activities.add_comment 工具写入的评论同样出现在此列表。{% endcomment %}
-    <details class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+    <details class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>评论（{{ comments|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         <form method="post" action="{% url 'activities:activity_comment_add' activity.id %}" class="flex items-end gap-2 mb-4">
@@ -362,8 +362,8 @@
         </section>
 
         <!-- 附件区域：data-mobile-collapse 由页尾脚本在移动端收起（模板保留 open 供桌面/无 JS 展开） -->
-    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center gap-2 cursor-pointer select-none list-none">
+    <details data-mobile-collapse open class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center gap-2 cursor-pointer select-none list-none">
             <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
             </svg>
@@ -433,8 +433,8 @@
 
     <!-- 参与者 -->
     {% if participants %}
-    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+    <details data-mobile-collapse open class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             参与者（{{ participants|length }}）<span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         <div class="flex flex-wrap gap-2">
@@ -450,8 +450,8 @@
     {% endif %}
 
     <!-- 前置依赖：手动配置 blocked_by（与 AI 对话同字段）；搜索/添加/移除均为原生 fetch + JSON，禁挂 hx-* -->
-    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+    <details data-mobile-collapse open class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             {# 计数 span 必须连同文字包在同一个 span 里：summary 是 flex + justify-between，裸文本会被拆成多个 flex 项铺满整行 #}
             <span>前置依赖（<span id="dep-count">{{ blocked_deps|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
@@ -489,8 +489,8 @@
 
     <!-- 相关知识与笔记 -->
     {% if related_articles or related_notes %}
-    <details data-mobile-collapse open class="app-card p-4 sm:p-6">
-        <summary class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3 flex items-center justify-between cursor-pointer select-none list-none">
+    <details data-mobile-collapse open class="fold-card app-card px-4 py-2.5 sm:px-6">
+        <summary class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide flex items-center justify-between cursor-pointer select-none list-none">
             相关知识与笔记<span class="text-xs normal-case tracking-normal text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         {# 本块只出现在桌面端 320px 右列（移动端整宽），所以内部不再分两栏 #}

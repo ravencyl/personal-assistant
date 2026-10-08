@@ -177,6 +177,15 @@ textarea {
     transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
+/* 折叠卡（活动详情页的 details.app-card）：折叠态就是一行标题，别让上下留白占大头
+   （2026-10-08 用户反馈「每一个折叠都太高」）。模板里上下留白已压到 py-2.5，
+   summary 的展开态下边距在这里补 —— 折叠时 summary 是 details 唯一可见内容，
+   它的下边距也计入 details 高度，写在模板 mb-* 里会把折叠条凭空顶高一截。
+   操作历史那个 details 不是 fold-card（自带 px-6 py-3 紧凑 summary），不受影响。 */
+.fold-card[open] > summary {
+    margin-bottom: 0.75rem;
+}
+
 /* 面板：浮层容器，阴影比卡片高一档 */
 .panel {
     background: var(--bg-card);
