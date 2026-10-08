@@ -2785,6 +2785,48 @@ class CsvExportTest(TestCase):
         self.assertEqual(resp.status_code, 302)
 
 
+class AdminExportActionTest(TestCase):
+    """admin 批量导出（2026-10-08 前台导出入口下线后，admin 是唯一导出入口）
+
+    列口径必须与前台 CSV 下载同一份（activity_csv_rows / expense_csv_rows），
+    带同样 BOM；只导 action 勾选的行，不是全量。
+    """
+
+    def setUp(self):
+        self.superuser = User.objects.create_superuser(
+            'admin', 'admin@example.com', password='test')
+        self.user = User.objects.create_user('raven', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='意大利旅游')
+        self.other_activity = Activity.objects.create(user=self.user, name='不勾选的活动')
+        self.expense = Expense.objects.create(
+            activity=self.activity, user=self.user, amount=Decimal('120.50'),
+            paid_at=timezone.localdate(), note='机票')
+        self.client.force_login(self.superuser)
+
+    def test_activity_admin_action_exports_only_selected(self):
+        resp = self.client.post(reverse('admin:activities_activity_changelist'), {
+            'action': 'export_selected_csv',
+            '_selected_action': [str(self.activity.id)],
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('text/csv', resp['Content-Type'])
+        body = resp.content.decode('utf-8')
+        self.assertTrue(body.startswith('\ufeff'))
+        self.assertIn('意大利旅游', body)
+        self.assertNotIn('不勾选的活动', body)
+
+    def test_expense_admin_action_exports_selected_rows(self):
+        resp = self.client.post(reverse('admin:activities_expense_changelist'), {
+            'action': 'export_selected_csv',
+            '_selected_action': [str(self.expense.id)],
+        })
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        self.assertTrue(body.startswith('\ufeff'))
+        self.assertIn('120.5', body)
+        self.assertIn('机票', body)
+
+
 class DependencyGraphJsTest(SimpleTestCase):
     """⑨ 依赖图升级：SVG 必须用 DOM API 构建，禁止 innerHTML 拼用户数据
 
@@ -3089,14 +3131,21 @@ class ActivityPinTest(TestCase):
         self.assertEqual([x.name for x in resp.context['pinned_activities']][:2], ['乙', '甲'])
 
     def test_pinned_appears_only_in_distinct_section(self):
-        """置顶活动只渲染在上方区域一次，不得同时残留在主列表里"""
+        """置顶活动只渲染在上方区域一次，不得同时残留在主列表里；
+        pin 开关只在详情页（2026-10-08 用户要求列表不展示 pin）"""
         a = Activity.objects.create(user=self.user, name='置顶目标')
         self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
         resp = self.client.get(reverse('activities:activity_list'))
         html = resp.content.decode()
         self.assertEqual(html.count('置顶目标'), 1)
         self.assertIn('已置顶', html)
-        self.assertIn('取消置顶', html)
+        # 列表不再有任何 pin 开关（剔掉正文注释再断，免得下线说明里的字面量误命中）
+        html_no_comments = re.sub(r'<!--.*?-->', '', html, flags=re.S)
+        self.assertNotIn('pin-toggle', html_no_comments)
+        # 开关挪到详情页：已置顶的活动在详情页标题行显示为取消置顶态
+        detail = self.client.get(reverse('activities:activity_detail', args=[a.id]))
+        self.assertIn('pin-toggle', detail.content.decode())
+        self.assertIn('取消置顶', detail.content.decode())
         # 无置顶时不渲染区域头（断言前剔掉 HTML 注释，避免模板静态注释误命中）
         self.client.post(reverse('activities:activity_pin_toggle', args=[a.id]))
         resp2 = self.client.get(reverse('activities:activity_list'))

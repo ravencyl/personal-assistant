@@ -22,23 +22,20 @@ def _csv_response(filename):
     return resp
 
 
+ACTIVITY_CSV_HEADER = ['名称', '状态', '开始日期', '结束日期', '开始时间', '结束时间',
+                       '标签', '参与者', '累计费用', '描述']
+EXPENSE_CSV_HEADER = ['活动名称', '金额', '消费日期', '标签', '备注']
+
+
 def _fmt(v):
     return '' if v is None else str(v)
 
 
-@login_required
-def activity_export_csv(request):
-    """导出活动清单 CSV：名称/状态/起止/时间/标签/参与者/累计费用/描述"""
-    resp = _csv_response('activities.csv')
-    writer = csv.writer(resp)
-    writer.writerow(['名称', '状态', '开始日期', '结束日期', '开始时间', '结束时间',
-                     '标签', '参与者', '累计费用', '描述'])
-    qs = (visible_qs(Activity, request.user)
-          .prefetch_related('tags', 'participants', 'expenses')
-          .order_by('-start_date', '-id'))
+def activity_csv_rows(qs):
+    """活动清单行拼装：CSV 下载视图与 admin 导出 action 共用同一份口径"""
     for a in qs:
         total = a.expenses.aggregate(t=Sum('amount'))['t']
-        writer.writerow([
+        yield [
             a.name,
             a.get_status_display(),
             _fmt(a.start_date),
@@ -49,7 +46,31 @@ def activity_export_csv(request):
             ' '.join(p.name for p in a.participants.all()),
             _fmt(total),
             (a.description or '').replace('\r\n', '\n'),
-        ])
+        ]
+
+
+def expense_csv_rows(qs):
+    """费用清单行拼装：CSV 下载视图与 admin 导出 action 共用同一份口径"""
+    for e in qs:
+        yield [
+            e.activity.name if e.activity else '',
+            e.amount,
+            _fmt(e.paid_at),
+            ' '.join(t.name for t in e.tags.all()),
+            e.note,
+        ]
+
+
+@login_required
+def activity_export_csv(request):
+    """导出活动清单 CSV：名称/状态/起止/时间/标签/参与者/累计费用/描述"""
+    resp = _csv_response('activities.csv')
+    writer = csv.writer(resp)
+    writer.writerow(ACTIVITY_CSV_HEADER)
+    qs = (visible_qs(Activity, request.user)
+          .prefetch_related('tags', 'participants', 'expenses')
+          .order_by('-start_date', '-id'))
+    writer.writerows(activity_csv_rows(qs))
     return resp
 
 
@@ -58,17 +79,10 @@ def expense_export_csv(request):
     """导出费用清单 CSV：活动/金额/日期/标签/备注"""
     resp = _csv_response('expenses.csv')
     writer = csv.writer(resp)
-    writer.writerow(['活动名称', '金额', '消费日期', '标签', '备注'])
+    writer.writerow(EXPENSE_CSV_HEADER)
     qs = (visible_qs(Expense, request.user)
           .select_related('activity')
           .prefetch_related('tags')
           .order_by('-paid_at', '-created_at'))
-    for e in qs:
-        writer.writerow([
-            e.activity.name if e.activity else '',
-            e.amount,
-            _fmt(e.paid_at),
-            ' '.join(t.name for t in e.tags.all()),
-            e.note,
-        ])
+    writer.writerows(expense_csv_rows(qs))
     return resp

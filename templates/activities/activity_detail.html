@@ -25,6 +25,15 @@
                         {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
                         <!-- 编辑/删除：小 icon 圆钮，贴标题行右侧（长标题 flex-wrap 自动换行避让） -->
                         <div class="ml-auto flex items-center gap-1.5 shrink-0">
+                            {# Pin 开关只在详情页（2026-10-08 用户要求列表不展示 pin）；#}
+                            {# pin-toggle.js 点击后整页刷新，初始态随 activity.pinned 渲染 #}
+                            <button type="button" class="pin-toggle tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors {% if activity.pinned %}border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]{% endif %}"
+                                    data-activity-id="{{ activity.id }}"
+                                    title="{% if activity.pinned %}取消置顶{% else %}置顶（固定在列表上方区域，无视筛选）{% endif %}" aria-label="置顶">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 1 0 0-4H8a2 2 0 1 0 0 4h1z"/>
+                                </svg>
+                            </button>
                             <!-- 问 AI：JS 可用时开详情页内嵌抽屉（活动专属会话，自动钉选）；
                                  无 JS / 抽屉失败时整页深链到聊天页预填提问（?ask= + ?pin= 由 chat 页处理，只填不发） -->
                             <a href="{{ chat_ask_url }}" id="ask-ai-btn" title="问 AI" aria-label="问 AI"
@@ -486,6 +495,8 @@
     <div id="dependency-graph" class="hidden mt-3 app-card p-4" data-toggle="#toggle-dep-graph"
          data-url="{% url 'activities:dependency_data' %}?activity={{ activity.id }}"></div>
     <script src="{% staticv 'js/dependency-graph.js' %}" defer></script>
+    {# 置顶开关：列表页不再有 pin 钮，唯一入口在详情页标题行 #}
+    <script src="{% staticv 'js/pin-toggle.js' %}" defer></script>
 
     <!-- 相关知识与笔记 -->
     {% if related_articles or related_notes %}

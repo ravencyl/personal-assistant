@@ -1,8 +1,24 @@
+import csv
+
 from django.contrib import admin
+from django.http import HttpResponse
 
 from core.models import Tag
 
 from .models import Activity, Participant, Expense
+from .views.export_views import (ACTIVITY_CSV_HEADER, EXPENSE_CSV_HEADER,
+                                 activity_csv_rows, expense_csv_rows)
+
+
+def _csv_attachment(resp_name, header, rows):
+    """admin 批量导出 CSV（带 BOM，Excel 打开中文不乱码），与前台下载同一份列口径"""
+    resp = HttpResponse(content_type='text/csv; charset=utf-8')
+    resp['Content-Disposition'] = f'attachment; filename="{resp_name}"'
+    resp.write('\ufeff')
+    writer = csv.writer(resp)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return resp
 
 
 @admin.register(Participant)
@@ -43,6 +59,13 @@ class ActivityAdmin(admin.ModelAdmin):
             obj.user = request.user
         super().save_model(request, obj, form, change)
 
+    @admin.action(description='导出所选活动为 CSV（Excel 兼容）')
+    def export_selected_csv(self, request, queryset):
+        # 前台导出入口已下线（2026-10-08 用户要求），admin 是唯一导出入口
+        return _csv_attachment(
+            'activities-selected.csv', ACTIVITY_CSV_HEADER,
+            activity_csv_rows(queryset.prefetch_related('tags', 'participants', 'expenses')))
+
 
 class ExpenseInline(admin.TabularInline):
     model = Expense
@@ -58,6 +81,7 @@ class ExpenseInline(admin.TabularInline):
 
 
 ActivityAdmin.inlines = [ExpenseInline]
+ActivityAdmin.actions = ['export_selected_csv']
 
 
 class ExpenseTagFilter(admin.SimpleListFilter):
@@ -107,3 +131,12 @@ class ExpenseAdmin(admin.ModelAdmin):
         if not change:
             obj.user = request.user
         super().save_model(request, obj, form, change)
+
+    @admin.action(description='导出所选费用为 CSV（Excel 兼容）')
+    def export_selected_csv(self, request, queryset):
+        return _csv_attachment(
+            'expenses-selected.csv', EXPENSE_CSV_HEADER,
+            expense_csv_rows(queryset.select_related('activity').prefetch_related('tags')))
+
+
+ExpenseAdmin.actions = ['export_selected_csv']
