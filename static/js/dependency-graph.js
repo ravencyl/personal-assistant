@@ -1,6 +1,6 @@
 /* 活动依赖关系图：SVG 力导向布局
  *
- * 从 /activities/dependency-data/ API 获取 {nodes, edges}，
+ * 从 data-url（默认 /activities/dependency-data/）获取 {nodes, edges}，
  * 纯 JS 实现力导向布局（初始位置按依赖深度分层，前置在左、后续在右），
  * 节点颜色按状态，点击跳转详情。
  *
@@ -31,30 +31,56 @@
     var R = 13;
     var NAME_LIMIT = 8;
 
-    fetch('/activities/dependency-data/')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            if (!data.nodes || data.nodes.length === 0) {
+    // data-toggle：懒加载模式（详情页）——点按钮才展开 + 首次取数；
+    // 没配 data-toggle 则脚本加载即取数（旧行为，向后兼容）。
+    // URL 由容器的 data-url 提供（详情页传 ?activity=<id> 只取本活动的依赖子图）
+    var fetched = false;
+    function load() {
+        if (fetched) return;
+        fetched = true;
+        var url = container.getAttribute('data-url') || '/activities/dependency-data/';
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.nodes || data.nodes.length === 0) {
+                    container.textContent = '';
+                    var p = document.createElement('p');
+                    p.className = 'text-sm text-[var(--text-muted)] text-center py-8';
+                    p.textContent = '本活动还没有依赖关系。';
+                    var hint = document.createElement('span');
+                    hint.className = 'block text-xs';
+                    hint.textContent = '在 AI 对话里说「创建活动 X，前置依赖 Y」即可建立依赖';
+                    p.appendChild(hint);
+                    container.appendChild(p);
+                    return;
+                }
+                render(data.nodes, data.edges);
+            })
+            .catch(function () {
                 container.textContent = '';
                 var p = document.createElement('p');
-                p.className = 'text-sm text-[var(--text-muted)] text-center py-8';
-                p.textContent = '还没有配置活动依赖关系。';
-                var hint = document.createElement('span');
-                hint.className = 'block text-xs';
-                hint.textContent = '在 AI 对话里说「创建活动 X，前置依赖 Y」即可建立依赖';
-                p.appendChild(hint);
+                p.className = 'text-sm text-red-500 text-center py-8';
+                p.textContent = '加载失败';
                 container.appendChild(p);
-                return;
-            }
-            render(data.nodes, data.edges);
-        })
-        .catch(function () {
-            container.textContent = '';
-            var p = document.createElement('p');
-            p.className = 'text-sm text-red-500 text-center py-8';
-            p.textContent = '加载失败';
-            container.appendChild(p);
-        });
+            });
+    }
+
+    var toggleSel = container.getAttribute('data-toggle');
+    if (toggleSel) {
+        var btn = document.querySelector(toggleSel);
+        if (btn) {
+            btn.addEventListener('click', function () {
+                var hidden = container.classList.toggle('hidden');
+                if (!hidden) {
+                    // 图卡在页面下方，展开后必须滚过去，否则看起来像「点了没反应」
+                    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    load();
+                }
+            });
+        }
+    } else {
+        load();
+    }
 
     // 最长前置链深度（DAG 分层）：用于初始 x 坐标，力导向只做局部微调。
     // 比纯圆形初始分布收敛更快、成图「前置在左、后续在右」更易读。

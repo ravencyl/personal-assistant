@@ -35,9 +35,6 @@
             <a href="{% url 'activities:timeline' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="时间线">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </a>
-            <button type="button" id="toggle-dep-graph" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="依赖图">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-            </button>
             <a href="{% url 'activities:activity_export' %}" class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] shadow-sm border border-[var(--border)] text-[var(--text-secondary)]" title="导出活动 CSV">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17v2a2 2 0 002 2h14a2 2 0 002-2v-2M3 7V5a2 2 0 012-2h14a2 2 0 012 2v2"/></svg>
             </a>
@@ -366,7 +363,7 @@
      卡内只有树形展开/编辑/标签筛选是独立触点 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
-    <div class="tree-row app-card p-3" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+    <div class="tree-row app-card px-3 py-2.5" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <div class="flex items-center justify-between gap-3 mb-1.5">
             <div class="flex items-center gap-1.5 min-w-0" style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">
@@ -398,20 +395,16 @@
                 </a>
             </span>
         </div>
-        {# meta 结构化：日期居左、金额居右成两列 #}
-        <div class="mt-1 flex items-baseline justify-between gap-3 text-xs">
-            <span class="min-w-0 truncate text-[var(--text-secondary)]">{{ activity.date_range }}</span>
+        {# meta 一行化（2026-10-08 用户反馈卡太高）：日期 · 金额 · 标签同排换行，卡压到 2 行 #}
+        <div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+            <span class="text-[var(--text-secondary)]">{{ activity.date_range }}</span>
             <span class="shrink-0 tabular-nums text-[var(--text-secondary)]">¥{{ activity.show_cost|floatformat:"-2" }}</span>
-        </div>
-        {% if activity.tags.all %}
-        <div class="flex flex-wrap gap-1 mt-2">
             {% for tag in activity.tags.all %}
             <a href="?tag={{ tag.name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
                title="筛选标签「{{ tag.name }}」"
-               class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] active:bg-zinc-200"># {{ tag.name }}</a>
+               class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]"># {{ tag.name }}</a>
             {% endfor %}
         </div>
-        {% endif %}
     </div>
     {% endfor %}
 </div>
@@ -519,29 +512,6 @@
 })();
 </script>
 {% endif %}
-
-<!-- 依赖关系图（默认隐藏，点击按钮切换） -->
-<div id="dependency-graph" class="hidden mt-6 app-card p-4"></div>
-<script>
-(function(){
-    var btn = document.getElementById('toggle-dep-graph');
-    var graph = document.getElementById('dependency-graph');
-    if (!btn || !graph) return;
-    btn.addEventListener('click', function(){
-        graph.classList.toggle('hidden');
-        if (!graph.classList.contains('hidden')) {
-            // 手机上图卡在长列表底部，展开后必须滚过去，否则看起来像「点了没反应」
-            graph.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            if (!graph.dataset.loaded) {
-                graph.dataset.loaded = '1';
-                var s = document.createElement('script');
-                s.src = '{% staticv "js/dependency-graph.js" %}';
-                document.body.appendChild(s);
-            }
-        }
-    });
-})();
-</script>
 
 <script src="{% staticv 'js/pin-toggle.js' %}" defer></script>
 {% endblock %}

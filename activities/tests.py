@@ -2767,6 +2767,63 @@ class DependencyGraphJsTest(SimpleTestCase):
         self.assertIn("createElementNS(NS, 'title')", code)  # SVG hover 全名
 
 
+class DependencyGraphLocationTest(TestCase):
+    """依赖图只活在详情页（2026-10-08 用户反馈：图是绑定活动的，在列表页出现很奇怪）
+
+    - 列表页不得再有入口按钮与图容器；
+    - 详情页按钮 + 容器接线（data-url 带 ?activity=<id>）；
+    - API ?activity= 只返回与该活动连通的依赖子图（双向 BFS），
+      无关活动/越权 id 返回空图。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def test_list_page_has_no_dependency_graph(self):
+        Activity.objects.create(user=self.user, name='普通活动')
+        html = self.client.get(reverse('activities:activity_list')).content.decode()
+        self.assertNotIn('toggle-dep-graph', html)
+        self.assertNotIn('dependency-graph', html)
+
+    def test_detail_page_has_lazy_graph_wired_to_activity(self):
+        a = Activity.objects.create(user=self.user, name='本活动')
+        html = self.client.get(reverse('activities:activity_detail', args=[a.id])).content.decode()
+        self.assertIn('id="toggle-dep-graph"', html)
+        self.assertIn('id="dependency-graph"', html)
+        self.assertIn(f'data-url="/activities/dependency-data/?activity={a.id}"', html)
+
+    def test_api_activity_param_returns_connected_subgraph(self):
+        a = Activity.objects.create(user=self.user, name='本活动')
+        pre = Activity.objects.create(user=self.user, name='前置')
+        prepre = Activity.objects.create(user=self.user, name='前置的前置')
+        post = Activity.objects.create(user=self.user, name='后续')
+        a.blocked_by.set([pre])
+        pre.blocked_by.set([prepre])
+        post.blocked_by.set([a])
+        stranger = Activity.objects.create(user=self.user, name='无关活动')
+
+        resp = self.client.get(reverse('activities:dependency_data'), {'activity': a.id})
+        data = resp.json()
+        names = {n['name'] for n in data['nodes']}
+        self.assertEqual(names, {'本活动', '前置', '前置的前置', '后续'},
+                         '应含双向连通的依赖网络，不含无关活动')
+        self.assertEqual(len(data['edges']), 3)
+
+        # 没有任何依赖关系的活动：空图（前端显示空态而不是孤点）
+        resp2 = self.client.get(reverse('activities:dependency_data'), {'activity': stranger.id})
+        self.assertEqual(resp2.json()['nodes'], [])
+
+        # 非法/越权 id：同样给空图（消费方是 fetch 组件只认 JSON）
+        resp3 = self.client.get(reverse('activities:dependency_data'), {'activity': 'abc'})
+        self.assertEqual(resp3.json()['nodes'], [])
+        other = User.objects.create_user('other', password='p')
+        foreign = Activity.objects.create(user=other, name='别人的活动')
+        resp4 = self.client.get(reverse('activities:dependency_data'), {'activity': foreign.id})
+        self.assertEqual(resp4.json()['nodes'], [])
+
+
 class AiTagGuardTest(TestCase):
     """AI 标签守门与「AI 自动加标签」下线（2026-09-21 守门 / 2026-10-08 下线）
 

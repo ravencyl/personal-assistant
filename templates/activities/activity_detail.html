@@ -477,6 +477,16 @@
         </div>
     </details>
 
+    <!-- 依赖关系图（2026-10-08 从活动列表页搬来：图是绑定活动的，只在详情页出现）；
+         点按钮展开懒加载，API 只返回本活动连通的依赖子图（data-url 带 ?activity=） -->
+    <button type="button" id="toggle-dep-graph"
+            class="tap-target inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--border-strong)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
+        查看依赖关系图
+    </button>
+    <div id="dependency-graph" class="hidden mt-3 app-card p-4" data-toggle="#toggle-dep-graph"
+         data-url="{% url 'activities:dependency_data' %}?activity={{ activity.id }}"></div>
+    <script src="{% staticv 'js/dependency-graph.js' %}" defer></script>
+
     <!-- 相关知识与笔记 -->
     {% if related_articles or related_notes %}
     <details data-mobile-collapse open class="app-card p-4 sm:p-6">
