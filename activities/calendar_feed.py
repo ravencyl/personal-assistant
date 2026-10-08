@@ -5,7 +5,7 @@ CalDAV 需要完整协议栈（PROPFIND/REPORT/etag 同步、鉴权挑战）与�
 而 Apple 日历对订阅源会自行定期刷新，足够覆盖「不错过截止时间」的诉求。
 
 导出范围与映射约定：
-- 只导出 planned / in_progress 且能落到具体日期的活动（含匹配条件的子任务）；
+- 只导出 planned / in_progress 且能落到具体日期的活动（含匹配条件的活动安排）；
   done / cancelled 不进日历，保持日历干净。
 - 全天事件：DTSTART/DTEND 用 DATE 值；RFC 5545 规定 DTEND 为排他日期，
   故跨天活动导出为 end_date + 1 天。
@@ -118,7 +118,7 @@ def _event_lines(activity, base_url):
     desc_parts.append(f'详情: {detail_url}')
     desc_parts.append(f'状态: {status_label}')
     if activity.parent_id:
-        desc_parts.append(f'子任务，父活动: {activity.parent.name}')
+        desc_parts.append(f'活动安排，父活动: {activity.parent.name}')
 
     # 注意：表达式内不能含反斜杠（线上 Python 3.11 的 f-string 不支持）
     description = _escape_text('\n'.join(desc_parts))

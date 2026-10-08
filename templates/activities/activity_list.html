@@ -135,7 +135,15 @@
         {% endfor %}
     </div>
 
-    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-[var(--border)] px-3 py-3 space-y-3">
+    <!-- Status filter（常驻不折叠：状态是高频筛选，2026-10-08 从 filter-body 拉出来；标签筛选已按用户要求下线，标签只能点活动卡上的 #词 进入） -->
+    <div class="flex flex-wrap gap-2 px-4 pb-3">
+        <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}{% if keyword_filter %}{% if not date_qs %}?{% else %}&{% endif %}keyword={{ keyword_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
+        {% for value, label in status_choices %}
+        <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ label }}</a>
+        {% endfor %}
+    </div>
+
+    <div id="filter-body" class="{% if not filters_active %}hidden {% endif %}border-t border-[var(--border)] px-3 py-3">
         <!-- Date filter -->
         <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-[var(--text-secondary)]">日期筛选</span>
@@ -166,38 +174,6 @@
                class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == '30d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近一个月</a>
         </div>
         </form>
-
-        <!-- Status filter -->
-        <div class="flex flex-wrap gap-2">
-    <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}{% if keyword_filter %}{% if not date_qs %}?{% else %}&{% endif %}keyword={{ keyword_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
-    {% for value, label in status_choices %}
-    <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ label }}</a>
-    {% endfor %}
-        </div>
-
-        <!-- Tag filter -->
-        {% if all_tags %}
-        <div class="flex flex-wrap items-center gap-2">
-    <span class="text-sm text-[var(--text-secondary)]">标签筛选</span>
-    <a href="{% url 'activities:activity_list' %}{% if tag_link_qs %}?{{ tag_link_qs }}{% endif %}"
-       class="px-3 py-1 text-sm rounded-full {% if not tag_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
-    {# 默认只露前 {{ TAGS_VISIBLE }} 个（激活的标签始终可见），其余收进「更多」——24+ 个 chip 铺开是筛选区难用的主因 #}
-    {% for tag_name in all_tags %}{% if forloop.counter <= TAGS_VISIBLE or tag_filter == tag_name %}
-    <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
-       class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}"># {{ tag_name }}</a>
-    {% endif %}{% endfor %}
-    {% if tag_overflow %}
-    <span id="tag-more" class="hidden"><span class="flex flex-wrap items-center gap-2">
-        {% for tag_name in all_tags %}{% if forloop.counter > TAGS_VISIBLE and tag_filter != tag_name %}
-        <a href="?tag={{ tag_name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-full {% if tag_filter == tag_name %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}"># {{ tag_name }}</a>
-        {% endif %}{% endfor %}
-    </span></span>
-    <button type="button" id="tag-more-toggle" data-count="{{ tag_overflow }}"
-            class="px-3 py-1 text-sm rounded-full text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">更多 {{ tag_overflow }} 个标签 &#9662;</button>
-    {% endif %}
-        </div>
-        {% endif %}
     </div>
 </div>
 
@@ -260,19 +236,6 @@
         body.classList.toggle('hidden', expanded);
         arrow.innerHTML = expanded ? '&#9654;' : '&#9660;';
     });
-
-    // 「更多标签」展开/收起（激活标签永远在可见区，展开只是补齐剩下的）
-    var moreBtn = document.getElementById('tag-more-toggle');
-    if (moreBtn) {
-        var more = document.getElementById('tag-more');
-        moreBtn.addEventListener('click', function () {
-            var open = !more.classList.contains('hidden');
-            more.classList.toggle('hidden', open);
-            moreBtn.innerHTML = open
-                ? '更多 ' + moreBtn.getAttribute('data-count') + ' 个标签 &#9662;'
-                : '收起多余标签 &#9652;';
-        });
-    }
 })();
 </script>
 

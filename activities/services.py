@@ -4,7 +4,7 @@
 渲染，字段清洗 → 建对象 → 记费用 → 打标签 → 解析参与者 → 写日志 的顺序只保留这一份。
 
 收敛前各路径口径不同（金额有的走 float 有的走 Decimal、非法日期三种回落方式、
-空金额一处建 0 元费用一处返回 400、子任务费用一处记在父活动一处记在子任务），
+空金额一处建 0 元费用一处返回 400、活动安排费用一处记在父活动一处记在活动安排），
 这类差异正是「同一件事在不同入口结果不一样」的来源。
 """
 import logging
@@ -119,7 +119,7 @@ def record_parsed_cost(activity, user, cost, *, note='快速输入创建'):
 
 def create_activity_from_parsed(user, data, *, parent=None, source='',
                                 create_missing_participants=False, cost_note=None):
-    """按已 normalize 的解析结果创建活动（快速创建 / 快速子任务 / Agent 工具共用）
+    """按已 normalize 的解析结果创建活动（快速创建 / 快速活动安排 / Agent 工具共用）
 
     参数：
     - data: `utils.normalize_input` 的输出（字段已清洗，日期是 ISO 字符串）
@@ -127,7 +127,7 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
     - source: 日志与提示文案里的来源说明，如「快速输入」「AI 对话」
     - create_missing_participants: 自动识别路径 False（只匹配已有联系人），
       用户显式填写路径 True
-    - cost_note: 费用备注；缺省时子任务用「子任务「x」费用」，顶级用「{source}创建」
+    - cost_note: 费用备注；缺省时活动安排用「活动安排「x」费用」，顶级用「{source}创建」
 
     返回 dict：{activity, expense, skipped, created}。名称非法由调用方提前挡住
     （normalize_input 已丢弃非法字段），本函数不抛 InputError。
@@ -145,7 +145,7 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
     )
 
     if cost_note is None:
-        cost_note = (f'子任务「{activity.name}」费用' if parent
+        cost_note = (f'活动安排「{activity.name}」费用' if parent
                      else f'{source}创建' if source else '快速输入创建')
     expense = record_parsed_cost(activity, owner, data.get('cost'), note=cost_note)
 
@@ -160,7 +160,7 @@ def create_activity_from_parsed(user, data, *, parent=None, source='',
             activity.participants.set(participants)
 
     if parent:
-        log_activity(user, parent, 'sub_created', f'创建子任务「{activity.name}」')
+        log_activity(user, parent, 'sub_created', f'创建活动安排「{activity.name}」')
     log_activity(user, activity, 'created',
                  (f'在父活动「{parent.name}」下创建' if parent
                   else f'通过{source}创建' if source else '创建'))

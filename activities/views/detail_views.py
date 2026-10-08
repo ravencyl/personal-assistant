@@ -1,4 +1,4 @@
-"""活动详情页及其子资源端点（子任务 / 评论 / 状态 / 附件）"""
+"""活动详情页及其子资源端点（活动安排 / 评论 / 状态 / 附件）"""
 import json
 import re
 from datetime import date
@@ -27,7 +27,7 @@ from ._common import _participant_skip_text, _user_tag_names, attach_costs
 
 
 def _subactivity_timeline(activity):
-    """子任务时间轴数据：按可用日期（开始优先，其次结束）从晚到早倒序，无日期排最后
+    """活动安排时间轴数据：按可用日期（开始优先，其次结束）从晚到早倒序，无日期排最后
 
     倒序是用户要求（2026-09-22）：最近的排最上面。详情页首次渲染与内联手动
     创建端点的局部刷新共用。
@@ -47,7 +47,7 @@ def _subactivity_timeline(activity):
 
 @login_required
 def activity_detail(request, activity_id):
-    """活动详情（含子任务时间轴、费用明细与操作日志）"""
+    """活动详情（含活动安排时间轴、费用明细与操作日志）"""
     # 到期活动自动转进行中（与 cron 同一份判定，见 services.start_due_activities）
     start_due_activities(request.user)
     activity = get_visible(Activity, request.user, id=activity_id)
@@ -69,7 +69,7 @@ def activity_detail(request, activity_id):
     # 附件
     attachments = list(activity.attachments.all())
 
-    # 子任务完成度（详情页统计卡进度条）
+    # 活动安排完成度（详情页统计卡进度条）
     subtask_done_count = sum(1 for c in children if c.status == 'done')
 
     # 跨模块关联推荐
@@ -108,7 +108,7 @@ def activity_detail(request, activity_id):
         'blocked_deps': blocked_deps,
         'related_articles': related.get('articles', []),
         'related_notes': related.get('notes', []),
-        # 手动内联创建子任务表单的 autocomplete 建议（scope=activity）
+        # 手动内联创建活动安排表单的 autocomplete 建议（scope=activity）
         'tag_suggestions': _user_tag_names(request.user),
         # 费用表单的 autocomplete 建议（scope=expense，与活动标签隔离）
         'expense_tag_suggestions': tag_suggestions('expense', request.user),
@@ -159,7 +159,7 @@ def add_subactivity(request, activity_id):
         messages.error(request, '子活动名称不能为空')
     else:
         # 与其余创建路径走同一个 services（仅多一个「今天结束」的默认值），
-        # 子任务创建与双条日志（sub_created + created）由 services 统一发出
+        # 活动安排创建与双条日志（sub_created + created）由 services 统一发出
         result = create_activity_from_parsed(
             request.user, {'name': name, 'end_date': timezone.localdate()},
             parent=activity)
@@ -202,7 +202,7 @@ def activity_comment_delete(request, comment_id):
 @login_required
 @require_POST
 def activity_quick_sub(request, activity_id):
-    """详情页快速创建子任务（解析后预览确认；归属当前活动）"""
+    """详情页快速创建活动安排（解析后预览确认；归属当前活动）"""
     activity = get_visible(Activity, request.user, id=activity_id)
     try:
         data = json.loads(request.body or '{}')
@@ -210,9 +210,9 @@ def activity_quick_sub(request, activity_id):
         return JsonResponse({'error': '请求数据格式错误'}, status=400)
     data = normalize_input(data, timezone.localdate())
     if not data.get('name'):
-        return JsonResponse({'error': '子任务名称不能为空'}, status=400)
+        return JsonResponse({'error': '活动安排名称不能为空'}, status=400)
 
-    # 与手动内联表单同口径：花费记在子任务自己名下（时间轴按子任务展示费用），
+    # 与手动内联表单同口径：花费记在活动安排自己名下（时间轴按活动安排展示费用），
     # 而不是记到父活动上；一句创建属自动识别，不新建参与者。
     result = create_activity_from_parsed(request.user, data, parent=activity,
                                         source='一句话创建')
@@ -254,10 +254,10 @@ def _parse_date_input(value):
 @login_required
 @require_POST
 def subactivity_manual_create(request, activity_id):
-    """详情页内联手动表单创建子任务（JSON，支持日期/状态/费用/标签/参与者）
+    """详情页内联手动表单创建活动安排（JSON，支持日期/状态/费用/标签/参与者）
 
     与 AI 快速入口 activity_quick_sub 的区别：字段由用户显式填写，校验失败返回
-    400 + 友好文案（不静默丢弃），费用记在子任务自己名下便于时间轴直接展示。
+    400 + 友好文案（不静默丢弃），费用记在活动安排自己名下便于时间轴直接展示。
     """
     activity = get_visible(Activity, request.user, id=activity_id)
     try:
@@ -269,7 +269,7 @@ def subactivity_manual_create(request, activity_id):
 
     name = str(data.get('name') or '').strip()
     if not name:
-        return JsonResponse({'error': '子任务名称不能为空'}, status=400)
+        return JsonResponse({'error': '活动安排名称不能为空'}, status=400)
 
     try:
         start_date = _parse_date_input(data.get('start_date'))
@@ -300,7 +300,7 @@ def subactivity_manual_create(request, activity_id):
     )
     if amount:
         # 0 与空值同样视为「本次没花钱」，不建 0 元记录
-        add_expense(child, activity.user, amount, note=f'子任务「{child.name}」费用')
+        add_expense(child, activity.user, amount, note=f'活动安排「{child.name}」费用')
     tags = _split_name_input(data.get('tags'))
     if tags:
         apply_tags(child, tags)
@@ -312,10 +312,10 @@ def subactivity_manual_create(request, activity_id):
             activity.user, participant_names, create_missing=True)
         child.participants.set(participants)
 
-    log_activity(request.user, activity, 'sub_created', f'创建子任务「{child.name}」')
+    log_activity(request.user, activity, 'sub_created', f'创建活动安排「{child.name}」')
     log_activity(request.user, child, 'created', f'在父活动「{activity.name}」下创建')
 
-    # 返回重渲染后的子任务列表片段，供前端局部刷新（避开整页重载闪烁）
+    # 返回重渲染后的活动安排列表片段，供前端局部刷新（避开整页重载闪烁）
     children = _subactivity_timeline(activity)
     return JsonResponse({
         'id': child.id,

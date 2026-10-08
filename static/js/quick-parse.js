@@ -6,7 +6,7 @@
  *
  * 消费方：
  * - templates/activities/_activity_create_modal.html 快速建活动弹窗（列表页与 Daily 页共用，带 onEdit 就地回填）
- * - templates/activities/activity_detail.html 快速记子任务
+ * - templates/activities/activity_detail.html 快速记活动安排
  * - templates/activities/activity_form.html   解析后回填表单（只用 PaQuickParse.parse）
  */
 (function () {
@@ -54,7 +54,7 @@
      *   input, parseBtn, confirmBtn, closeBtn, preview, previewBody, errEl, sourceEl  —— 元素 id
      *   parseUrl, submitUrl                                                           —— 必填端点
      *   confirmText    确认按钮空闲文案（默认「确认创建」）
-     *   createdLabel   成功提示前缀（默认「已创建」，子任务页传「已创建子任务」）
+     *   createdLabel   成功提示前缀（默认「已创建」，活动安排页传「已创建活动安排」）
      *   editBtn, editUrl              可选「编辑详情」跳转（存草稿后跳表单页）；传 onEdit 则就地回调（弹窗内填入表单）
      * }
      */

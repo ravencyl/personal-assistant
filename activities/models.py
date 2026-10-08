@@ -180,12 +180,12 @@ class Activity(models.Model):
 
 
 class ActivityLog(models.Model):
-    """活动操作日志（创建/编辑/删除/子任务/状态变更）"""
+    """活动操作日志（创建/编辑/删除/活动安排/状态变更）"""
     ACTION_CHOICES = [
         ('created', '创建了活动'),
         ('edited', '编辑了活动'),
         ('deleted', '删除了活动'),
-        ('sub_created', '创建了子任务'),
+        ('sub_created', '创建了活动安排'),
         ('status_changed', '修改了状态'),
         ('commented', '评论了活动'),
     ]

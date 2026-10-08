@@ -1,5 +1,5 @@
 {% comment %}
-子任务时间轴列表片段。
+活动安排时间轴列表片段。
 活动详情页首次渲染与内联手动创建端点（subactivity_manual_create）局部刷新共用，
 上下文：children（已由 _subactivity_timeline 填充 timeline_label / expenses_total）。
 {% endcomment %}
@@ -46,5 +46,5 @@
     </ol>
 </div>
 {% else %}
-<p class="text-sm text-[var(--text-muted)]">暂无子任务，可用上方「一句话创建」或「手动添加子任务」</p>
+<p class="text-sm text-[var(--text-muted)]">暂无活动安排，可用上方「一句话创建」或「手动添加活动安排」</p>
 {% endif %}

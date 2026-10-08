@@ -274,14 +274,14 @@ def refresh_suggestion(request):
 def next_actions(request):
     """下一步行动：未来 7 天内开始的计划活动，按日期排序（只读）
 
-    子活动与顶层活动同口径混排（用户定策：子任务也是活动，一样处理，
-    不再单独设「待处理的子任务」分组）；卡片对子活动标注归属父活动。
+    子活动与顶层活动同口径混排（用户定策：活动安排也是活动，一样处理，
+    不再单独设「待处理的活动安排」分组）；卡片对子活动标注归属父活动。
     「日常开支」等系统归属桶统一排除。
     """
     today = timezone.localdate()
     base_qs = visible_qs(Activity, request.user)
 
-    # 子活动与顶层活动同口径处理（用户定策：子任务也是活动，不单独分组），
+    # 子活动与顶层活动同口径处理（用户定策：活动安排也是活动，不单独分组），
     # 按开始日期自然混排；select_related('parent') 供卡片展示归属父活动
     upcoming = list(exclude_daily_bucket(
         base_qs.filter(

@@ -1,6 +1,6 @@
 {# 活动表单字段（不含 form 标签与提交按钮），独立创建/编辑页与列表页弹窗共用；弹窗无 activity 变量走创建模式分支（显示 new_children/parsed_cost） #}
 {# 布局原则（2026-09-17 收紧）：高频字段平铺（名称/日期/时间开关/状态/费用/标签/参与者） #}
-{# 低频字段（描述/父活动/子任务）收进「更多选项」details 折叠区——不删功能，只降视觉高度 #}
+{# 低频字段（描述/父活动/活动安排）收进「更多选项」details 折叠区——不删功能，只降视觉高度 #}
 {# 具体时间默认隐藏，点「具体时间」开关展开（展开逻辑在 activity-form.js initWidgets） #}
 {# a11y：label 必须 for 关联到 input（Django 自动 id 为 id_<field>），否则屏幕阅读器读不到字段名 #}
 <div>
@@ -93,10 +93,10 @@
     {% if form.participants_input.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
 </div>
 
-{# 低频字段折叠区：描述/父活动/子任务收进来，默认收起（编辑已有描述时自动展开防误以为丢失）；弹窗无 parent（hide_parent）、编辑页无 new_children #}
+{# 低频字段折叠区：描述/父活动/活动安排收进来，默认收起（编辑已有描述时自动展开防误以为丢失）；弹窗无 parent（hide_parent）、编辑页无 new_children #}
 <details class="rounded-md border border-[var(--border)] bg-[var(--bg-card)]" {% if form.description.value %}open{% endif %}>
     <summary class="px-3 py-2 text-sm font-medium text-[var(--text-secondary)] cursor-pointer select-none list-none hover:bg-[var(--accent-light)] rounded-md">
-        更多选项<span class="text-xs font-normal text-[var(--text-muted)]">（描述{% if not hide_parent %}、父活动{% endif %}{% if not activity %}、子任务{% endif %}）</span>
+        更多选项<span class="text-xs font-normal text-[var(--text-muted)]">（描述{% if not hide_parent %}、父活动{% endif %}{% if not activity %}、活动安排{% endif %}）</span>
     </summary>
     <div class="px-3 pb-3 pt-1 space-y-4">
         <div>

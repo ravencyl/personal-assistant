@@ -19,12 +19,10 @@ from ..models import Activity, Participant
 from ..services import start_due_activities
 from ..utils import (filter_activities, get_filter_params, exclude_daily_bucket,
                      expense_totals_map)
-from ._common import _user_tag_names, _greeting
+from ._common import _greeting
 
 # 活动列表每页顶级活动数（子活动跟随父活动，不计入）
 ACTIVITY_LIST_PAGE_SIZE = 20
-# 筛选面板标签区默认可见数（激活的标签不受此限）
-_TAGS_VISIBLE = 10
 
 
 def _page_window(current, total, span=2):
@@ -263,11 +261,12 @@ def activity_list(request):
         date_params['date_to'] = date_to
     date_qs = urlencode(date_params)
 
-    # 筛选面板默认折叠；URL 带任一筛选/排序参数时自动展开
-    filters_active = bool(status_filter or tag_filter or date_from or date_to or sort
+    # 筛选面板默认折叠；URL 带任一筛选/排序参数时自动展开。
+    # tag 不算：标签筛选块已下线（2026-10-08），URL 里的 tag 只在折叠条摘要里展示
+    filters_active = bool(status_filter or date_from or date_to or sort
                           or participant_filter or keyword_filter)
     active_filter_count = sum([
-        bool(status_filter), bool(tag_filter), bool(date_from or date_to), bool(sort),
+        bool(status_filter), bool(date_from or date_to), bool(sort),
         bool(participant_filter or keyword_filter),
     ])
 
@@ -282,11 +281,11 @@ def activity_list(request):
     if keyword_filter:
         tag_link_params['keyword'] = keyword_filter
     tag_link_qs = urlencode(tag_link_params)
-
     # 清除搜索链接：保留其他筛选参数（不含 keyword）
     search_clear_params = {k: v for k, v in tag_link_params.items() if k != 'keyword'}
     search_clear_qs = urlencode(search_clear_params)
-    all_tags = _user_tag_names(request.user)
+    # tag_link_qs 仍由活动卡上的 #词 链接消费（点标签仍是进筛选的入口），
+    # 只是筛选面板里的标签筛选块已下线
 
     # 激活筛选摘要（筛选折叠条上直接展示，每项可单独一键移除）。
     # 之前折叠时只给「N 项生效」，用户不知道生效的是哪几项、要展开再找再清（可用性差）。
@@ -361,10 +360,6 @@ def activity_list(request):
         'keyword_filter': keyword_filter,
         'match_count': matched.count() if has_filter else 0,
         'search_clear_qs': search_clear_qs,
-        'all_tags': all_tags,
-        # 溢出数在服务端算好（模板 |add 对字符串是拼接，不能拿来做算术）
-        'TAGS_VISIBLE': _TAGS_VISIBLE,
-        'tag_overflow': max(len(all_tags) - _TAGS_VISIBLE, 0),
         'tag_link_qs': tag_link_qs,
         'filters_active': filters_active,
         'active_filter_count': active_filter_count,

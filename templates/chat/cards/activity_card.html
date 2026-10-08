@@ -31,7 +31,7 @@
             {% endfor %}
             {% else %}
             <details>
-                <summary class="text-xs text-zinc-500 cursor-pointer select-none hover:text-zinc-800">子任务（{{ card.children_count }}）</summary>
+                <summary class="text-xs text-zinc-500 cursor-pointer select-none hover:text-zinc-800">活动安排（{{ card.children_count }}）</summary>
                 <div class="mt-1">
                     {% for c in card.children %}
                     <div class="flex items-center gap-1.5 text-xs py-0.5 flex-wrap">

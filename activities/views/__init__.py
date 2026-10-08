@@ -4,7 +4,7 @@
 - _common            视图层共享小工具（标签建议 / 问候语 / 费用标注）
 - quick_input_views  一句话快速输入（AI 解析 + 降级规则）与快速创建
 - list_views         活动列表（树形 + 筛选 + 排序 + 分页）
-- detail_views       活动详情及其子资源（子任务 / 评论 / 状态 / 附件）
+- detail_views       活动详情及其子资源（活动安排 / 评论 / 状态 / 附件）
 - form_views         独立创建 / 编辑 / 删除
 - expense_views      费用记一笔 / 编辑 / 删除 / 报告 / 图表
 - calendar_views     日历页面 / 数据 API / ICS 订阅源

@@ -65,12 +65,12 @@
         </form>
 
         {% if activity %}
-        <!-- 子任务快捷管理（仅编辑模式） -->
+        <!-- 活动安排快捷管理（仅编辑模式） -->
         <div class="mt-6 pt-4 border-t border-[var(--border-strong)]">
-            <h2 class="text-sm font-medium text-[var(--text)] mb-2">子任务（{{ children|length }}）</h2>
+            <h2 class="text-sm font-medium text-[var(--text)] mb-2">活动安排（{{ children|length }}）</h2>
             <form method="post" action="{% url 'activities:add_subactivity' activity.id %}" class="flex gap-2 mb-3">
                 {% csrf_token %}
-                <input type="text" name="name" placeholder="输入子任务名称，回车添加"
+                <input type="text" name="name" placeholder="输入活动安排名称，回车添加"
                        autocomplete="off"
                        class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
                 <button type="submit" class="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">+ 添加</button>
@@ -88,7 +88,7 @@
                 {% endfor %}
             </div>
             {% else %}
-            <p class="text-xs text-[var(--text-muted)]">暂无子任务，可在上方输入名称快速添加</p>
+            <p class="text-xs text-[var(--text-muted)]">暂无活动安排，可在上方输入名称快速添加</p>
             {% endif %}
         </div>
         {% endif %}

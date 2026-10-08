@@ -69,13 +69,13 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
         widget=forms.HiddenInput,
     )
     new_children = forms.CharField(
-        label='子任务',
+        label='活动安排',
         required=False,
         widget=forms.TextInput(attrs={
             'class': INPUT_CLS,
             'placeholder': '多个名称用逗号分隔，将随活动一并创建（可选）',
         }),
-        help_text='输入子任务名称，保存时自动创建为子活动',
+        help_text='输入活动安排名称，保存时自动创建为子活动',
     )
     # 从一句话里识别出的已花金额，保存时记为一笔支出
     parsed_cost = forms.DecimalField(

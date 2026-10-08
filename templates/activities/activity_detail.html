@@ -4,7 +4,7 @@
 {% block title %}{{ activity.name }} · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
-<!-- 快速记子任务共用实现（原生 fetch + JSON，禁挂 hx-*） -->
+<!-- 快速记活动安排共用实现（原生 fetch + JSON，禁挂 hx-*） -->
 <script src="{% staticv 'js/quick-parse.js' %}"></script>
 {% endblock %}
 
@@ -98,11 +98,11 @@
             <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ expenses|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">笔</span></p>
         </div>
         <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-[var(--text-secondary)]">子任务</p>
+            <p class="text-xs text-[var(--text-secondary)]">活动安排</p>
             <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
             {% if children|length %}
-            {# 完成度进度条：仅看个数读不出推到哪了；新建子任务后靠刷新页面跟上（JS 只更新计数） #}
-            <div class="mt-2 h-1 bg-zinc-100 rounded-full overflow-hidden" title="子任务完成度 {{ subtask_done_count }}/{{ children|length }}">
+            {# 完成度进度条：仅看个数读不出推到哪了；新建活动安排后靠刷新页面跟上（JS 只更新计数） #}
+            <div class="mt-2 h-1 bg-zinc-100 rounded-full overflow-hidden" title="活动安排完成度 {{ subtask_done_count }}/{{ children|length }}">
                 <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
             </div>
             {% endif %}
@@ -116,8 +116,8 @@
     {% comment %}
     桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）；
     移动端两个列容器只是普通块，纵向顺序 = 下面的 DOM 顺序。
-    左列 = 主内容流（描述 · 费用 · 子任务），右列 = 辅助信息（附件 · 参与者 · 关联）。
-    右列整体排在左列之后，因此移动端相对旧版只有一处变化：子任务从页面底部提到费用之后。
+    左列 = 主内容流（描述 · 费用 · 活动安排），右列 = 辅助信息（附件 · 参与者 · 关联）。
+    右列整体排在左列之后，因此移动端相对旧版只有一处变化：活动安排从页面底部提到费用之后。
     {% endcomment %}
     <div class="page-cols space-y-4 sm:space-y-6 md:space-y-0">
     <!-- 左列：主内容流 -->
@@ -206,16 +206,16 @@
         </form>
     </details>
 
-    <!-- 子任务：同样默认折叠 -->
+    <!-- 活动安排：同样默认折叠 -->
     <details class="app-card p-4 sm:p-6">
         <summary class="text-sm font-medium text-[var(--text)] mb-3 flex items-center justify-between cursor-pointer select-none list-none">
-            <span>子任务（<span id="subtask-count">{{ children|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+            <span>活动安排（<span id="subtask-count">{{ children|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
-        <!-- 快速记一笔：一句话解析后预览确认创建子任务 -->
+        <!-- 快速记一笔：一句话解析后预览确认创建活动安排 -->
         <div class="mb-4">
             <div class="flex gap-2">
-                <input type="text" id="sub-quick-input" maxlength="500" aria-label="快速记一笔子任务"
-                       placeholder="快速记一笔子任务，如：下周三去杭州团建 #团建 @小王"
+                <input type="text" id="sub-quick-input" maxlength="500" aria-label="快速记一笔活动安排"
+                       placeholder="快速记一笔活动安排，如：下周三去杭州团建 #团建 @小王"
                        autocomplete="off"
                        class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
                 <button type="button" id="sub-quick-parse-btn"
@@ -228,17 +228,17 @@
                 <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]"></div>
                 <div class="flex flex-wrap items-center gap-2 mt-3">
                     <button type="button" id="sub-quick-confirm-btn"
-                            class="btn-accent rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">确认创建子任务</button>
+                            class="btn-accent rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">确认创建活动安排</button>
                     <button type="button" id="sub-quick-close-btn" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1" title="收起">&#10005;</button>
                     <span id="sub-quick-source" class="ml-auto text-xs text-[var(--text-muted)]"></span>
                 </div>
             </div>
         </div>
-        <!-- 手动创建子任务：内联展开/收起，与上方「一句话创建」AI 入口并存 -->
+        <!-- 手动创建活动安排：内联展开/收起，与上方「一句话创建」AI 入口并存 -->
         <div class="mb-4">
             <button type="button" id="sub-manual-toggle"
                     class="tap-target inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--border-strong)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
-                <span id="sub-manual-toggle-icon">+</span> 手动添加子任务
+                <span id="sub-manual-toggle-icon">+</span> 手动添加活动安排
             </button>
             <p id="sub-manual-ok" class="hidden mt-2 text-xs text-[var(--text-secondary)]"></p>
             <!-- novalidate：关掉浏览器原生必填气泡，改由下方行内错误提示接管（required 仅作为语义标记） -->
@@ -246,22 +246,22 @@
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3">
                     <div class="md:col-span-2">
                         <label for="sub-manual-name" class="block text-xs text-[var(--text-muted)] mb-1">名称 <span class="text-[var(--text-secondary)]">*</span></label>
-                        <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="子任务名称" autocomplete="off" aria-label="子任务名称"
+                        <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="活动安排名称" autocomplete="off" aria-label="活动安排名称"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-start" class="block text-xs text-[var(--text-muted)] mb-1">开始日期</label>
-                        <input type="date" id="sub-manual-start" name="start_date" aria-label="子任务开始日期"
+                        <input type="date" id="sub-manual-start" name="start_date" aria-label="活动安排开始日期"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-end" class="block text-xs text-[var(--text-muted)] mb-1">结束日期</label>
-                        <input type="date" id="sub-manual-end" name="end_date" aria-label="子任务结束日期"
+                        <input type="date" id="sub-manual-end" name="end_date" aria-label="活动安排结束日期"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-status" class="block text-xs text-[var(--text-muted)] mb-1">状态</label>
-                        <select id="sub-manual-status" name="status" aria-label="子任务状态"
+                        <select id="sub-manual-status" name="status" aria-label="活动安排状态"
                                 class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
                             {% for value, label in status_choices %}
                             <option value="{{ value }}" {% if value == 'planned' %}selected{% endif %}>{{ label }}</option>
@@ -270,12 +270,12 @@
                     </div>
                     <div>
                         <label for="sub-manual-amount" class="block text-xs text-[var(--text-muted)] mb-1">费用金额</label>
-                        <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选" aria-label="子任务金额（可选）"
+                        <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选" aria-label="活动安排金额（可选）"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                     </div>
                     <div>
                         <label for="sub-manual-tags" class="block text-xs text-[var(--text-muted)] mb-1">标签</label>
-                        <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="子任务标签"
+                        <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排标签"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                         <datalist id="sub-manual-tag-options">
                             {% for tag_name in tag_suggestions %}<option value="{{ tag_name }}"></option>{% endfor %}
@@ -283,7 +283,7 @@
                     </div>
                     <div>
                         <label for="sub-manual-participants" class="block text-xs text-[var(--text-muted)] mb-1">参与者</label>
-                        <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="子任务参与者"
+                        <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排参与者"
                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
                         <datalist id="sub-manual-participant-options">
                             {% for p_name in participant_suggestions %}<option value="{{ p_name }}"></option>{% endfor %}
@@ -291,7 +291,7 @@
                     </div>
                     <div class="md:col-span-4 flex items-center gap-2">
                         <button type="submit" id="sub-manual-submit"
-                                class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">创建子任务</button>
+                                class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">创建活动安排</button>
                         <button type="button" id="sub-manual-cancel"
                                 class="tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">取消</button>
                     </div>
@@ -355,7 +355,7 @@
                 <button type="button" data-jump="expense"
                         class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">记一笔费用</button>
                 <button type="button" data-jump="subtask"
-                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">添加子任务</button>
+                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">添加活动安排</button>
                 <button type="button" data-jump="attachment"
                         class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">上传附件</button>
             </div>
@@ -587,7 +587,7 @@ function appendExpenseTag(name) {
 }
 
 // ==================== 右列粘性快捷操作 → 定位到页内对应入口并聚焦 ====================
-// 子任务走 #sub-manual-toggle 的 click，保证与内联表单自己的展开/聚焦逻辑一致，不另开一套路
+// 活动安排走 #sub-manual-toggle 的 click，保证与内联表单自己的展开/聚焦逻辑一致，不另开一套路
 (function () {
     var JUMPS = {
         expense: { box: 'expense-form', focus: '[name="amount"]' },
@@ -627,13 +627,13 @@ function appendExpenseTag(name) {
         sourceEl: 'sub-quick-source',
         parseUrl: '{% url "activities:parse_quick_input" %}',
         submitUrl: '{% url "activities:activity_quick_sub" activity.id %}',
-        confirmText: '确认创建子任务',
-        createdLabel: '已创建子任务',
+        confirmText: '确认创建活动安排',
+        createdLabel: '已创建活动安排',
     });
 })();
 
 (function () {
-    // ==================== 手动内联创建子任务（原生 fetch + JSON，无 hx-*）====================
+    // ==================== 手动内联创建活动安排（原生 fetch + JSON，无 hx-*）====================
     var form = document.getElementById('sub-manual-form');
     if (!form) return;
     var toggleBtn = document.getElementById('sub-manual-toggle');
@@ -662,7 +662,7 @@ function appendExpenseTag(name) {
 
     function resetSubmitBtn() {
         submitBtn.disabled = false;
-        submitBtn.textContent = '创建子任务';
+        submitBtn.textContent = '创建活动安排';
     }
 
     toggleBtn.addEventListener('click', function () {
@@ -676,7 +676,7 @@ function appendExpenseTag(name) {
         hideMessages();
         var name = field('name').value.trim();
         // 前端先拦一道空名称（后端同样校验）
-        if (!name) { showError('请填写子任务名称'); field('name').focus(); return; }
+        if (!name) { showError('请填写活动安排名称'); field('name').focus(); return; }
         var payload = {
             name: name,
             start_date: field('start_date').value,
@@ -704,14 +704,14 @@ function appendExpenseTag(name) {
         }).then(function (res) {
             resetSubmitBtn();
             if (!res.ok) { showError(res.data.error || '创建失败，请稍后重试'); return; }
-            // 局部刷新子任务列表与计数，避开整页重载闪烁
+            // 局部刷新活动安排列表与计数，避开整页重载闪烁
             if (res.data.children_html) listEl.innerHTML = res.data.children_html;
             if (countEl) countEl.textContent = res.data.children_count;
             if (statEl) statEl.textContent = res.data.children_count;
             form.reset();
             field('status').value = 'planned';
             setOpen(false);
-            showOk('已创建子任务「' + res.data.name + '」' + (res.data.note ? '（' + res.data.note + '）' : ''));
+            showOk('已创建活动安排「' + res.data.name + '」' + (res.data.note ? '（' + res.data.note + '）' : ''));
         }).catch(function () {
             resetSubmitBtn();
             showError('网络异常，请重试');

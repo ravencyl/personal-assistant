@@ -198,7 +198,7 @@ class ActivitySearchTest(TestCase):
 
 
 class SubactivityManualCreateTest(TestCase):
-    """活动详情页内联手动创建子任务（subactivity_manual_create 端点）"""
+    """活动详情页内联手动创建活动安排（subactivity_manual_create 端点）"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -269,7 +269,7 @@ class SubactivityManualCreateTest(TestCase):
         self.assertFalse(Activity.objects.filter(name='插不进去').exists())
 
     def test_ownership_inherits_parent(self):
-        """超管创建子任务，归属仍是父活动 owner（子活动继承父活动 user）"""
+        """超管创建活动安排，归属仍是父活动 owner（子活动继承父活动 user）"""
         User.objects.create_superuser('root', password='root')
         admin_client = Client()
         admin_client.login(username='root', password='root')
@@ -293,15 +293,15 @@ class SubactivityManualCreateTest(TestCase):
 
     def test_detail_page_renders_collapsed_manual_form(self):
         """详情页渲染内联表单（默认折叠）且与 AI 快速入口并存"""
-        Activity.objects.create(user=self.user, name='已有子任务', parent=self.parent)
+        Activity.objects.create(user=self.user, name='已有活动安排', parent=self.parent)
         resp = self.client.get(f'/activities/{self.parent.id}/')
         self.assertEqual(resp.status_code, 200)
         content = resp.content.decode()
-        self.assertIn('手动添加子任务', content)
+        self.assertIn('手动添加活动安排', content)
         self.assertIn('id="sub-manual-form" class="hidden', content)
         self.assertIn('novalidate', content)  # 行内错误接管浏览器原生必填气泡
-        self.assertIn('快速记一笔子任务', content)   # AI 入口保留
-        self.assertIn('已有子任务', content)
+        self.assertIn('快速记一笔活动安排', content)   # AI 入口保留
+        self.assertIn('已有活动安排', content)
         self.assertIn('sub-manual-tag-options', content)  # 标签 autocomplete 建议
 
     def test_subtask_timeline_sorts_by_start_date_descending(self):
@@ -313,7 +313,7 @@ class SubactivityManualCreateTest(TestCase):
         Activity.objects.create(user=self.user, parent=self.parent, name='没日期')
         resp = self.client.get(f'/activities/{self.parent.id}/')
         content = resp.content.decode()
-        # 只看子任务时间轴区块：「未设定」等字样在页面其它卡（如前置依赖）也会出现
+        # 只看活动安排时间轴区块：「未设定」等字样在页面其它卡（如前置依赖）也会出现
         block = content[content.index('id="subtask-list"'):]
         self.assertLess(block.index('>新<'), block.index('>旧<'),
                         '时间轴应从晚到早：新任务在旧任务前面')
@@ -585,7 +585,7 @@ class ActivityIdDisplayTest(SimpleTestCase):
 
 
 class ParticipantQuickEndpointTest(TestCase):
-    """快速创建 / 一句话子任务：未命中的参与者跳过并在响应 note 中说明"""
+    """快速创建 / 一句话活动安排：未命中的参与者跳过并在响应 note 中说明"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -819,11 +819,13 @@ class QuickParseWiringTest(TestCase):
 
 
 class FilterPanelUsabilityTest(TestCase):
-    """筛选面板可用性：激活摘要 chips（折叠时可读、可单项移除）+ 标签列表收敛
+    """筛选面板可用性：激活摘要 chips（折叠时可读、可单项移除）+ 状态常驻 + 标签块下线
 
     之前折叠条只有「N 项生效」，展开后 24+ 个标签 chip 铺三四行。
-    折叠条必须能一眼看出生效的是哪几项、每项能单独 × 掉；
-    标签区默认只露前 10 个（激活的标签无论排第几始终可见）。
+    折叠条必须能一眼看出生效的是哪几项、每项能单独 × 掉。
+    2026-10-08 用户定策：状态筛选（全部/计划/进行中/已完成）拉出折叠区常驻；
+    折叠区里的标签筛选块整个下线（使用率太低），折叠区只留日期筛选——
+    标签只能点活动卡上的 #词 进入筛选。
     """
 
     def setUp(self):
@@ -876,33 +878,27 @@ class FilterPanelUsabilityTest(TestCase):
             activity = Activity.objects.create(user=self.user, name=f'标签容器{i}')
             apply_tags(activity, [f'标签{(i - 1) * 10 + j:02d}' for j in range(1, 11)])
 
-    def test_tag_list_capped_at_ten_with_more_toggle(self):
-        self._seed_overflow_tags()
+    def test_status_chips_outside_collapsible_body(self):
+        """状态 chips 必须常驻在 filter-body 之外：折叠状态下（无筛选参数）也要可见"""
         html = self._html()
-        self.assertIn('更多 10 个标签', html)
-        # 计数只看「标签筛选」块内：活动卡片自身也会渲染 ?tag= 链接，不能全页数
-        tag_block = html.split('标签筛选', 1)[1]
-        visible, rest = tag_block.split('id="tag-more"', 1)
-        rest = rest.split('id="tag-more-toggle"', 1)[0]
-        self.assertEqual(visible.count('href="?tag='), 10, '可见区只应露 10 个标签')
-        self.assertEqual(rest.count('href="?tag='), 10, '其余应收进隐藏区')
+        body = html.split('id="filter-body"', 1)
+        self.assertEqual(len(body), 2)
+        self.assertIn('>全部</a>', body[0], '状态「全部」应在折叠区之外常驻')
+        for label in ('计划', '进行中', '已完成'):
+            self.assertIn(label, body[0], f'状态筛选 {label} 应常驻可见')
 
-    def test_overflow_active_tag_always_visible(self):
-        """激活的标签即使排在第 11+ 位也不能被收进「更多」，否则用户看不出自己选了什么"""
+    def test_tag_filter_block_removed_from_panel(self):
+        """折叠区不再有标签筛选块（含「更多 N 个标签」折叠件）；URL tag 仍生效且摘要可移除"""
         self._seed_overflow_tags()
-        # 从无筛选页取隐藏区第一个标签名
-        html = self._html()
-        rest = html.split('id="tag-more"', 1)[1]
-        hidden_name = re.search(r'href="\?tag=([^&"]+)', rest).group(1)
-        from urllib.parse import unquote
-        tag_name = unquote(hidden_name)
-        html2 = self._html(tag=tag_name)
-        tag_block2 = html2.split('标签筛选', 1)[1]
-        visible2 = tag_block2.split('id="tag-more"', 1)[0]
-        self.assertIn(f'# {tag_name}', visible2, '激活的溢出标签必须在可见区')
-        hidden2 = tag_block2.split('id="tag-more"', 1)[1].split('id="tag-more-toggle"', 1)[0]
-        self.assertEqual(hidden2.count(f'tag={hidden_name}'), 0,
-                         '激活的溢出标签不应重复出现在隐藏区')
+        html = re.sub(r'<!--.*?-->', '', self._html(), flags=re.S)  # 剔模板注释，避免静态文案误命中
+        self.assertNotIn('标签筛选', html)
+        self.assertNotIn('id="tag-more"', html)
+        self.assertNotIn('tag-more-toggle', html)
+        # URL 带 tag 仍能筛选，且折叠条摘要展示并可单独移除
+        html2 = self._html(tag='标签01', status='planned')
+        self.assertIn('# 标签01', html2)
+        qs_list = self._qs_dicts(self._remove_hrefs(html2))
+        self.assertIn({'status': 'planned'}, qs_list, '移除标签后应保留其他筛选')
 
 
 @override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
@@ -1329,7 +1325,7 @@ class WritePathServiceTest(TestCase):
         self.assertIn((child.id, 'created', self.admin.id), logged)
 
     def test_quick_sub_cost_lands_on_child_not_parent(self):
-        """一句话建子任务：花费记在子任务名下（与内联手动表单同口径）"""
+        """一句话建活动安排：花费记在活动安排名下（与内联手动表单同口径）"""
         parent = Activity.objects.create(user=self.user, name='新西兰之旅')
         self.client.login(username='testuser', password='test')
         resp = self.client.post(
@@ -1343,7 +1339,7 @@ class WritePathServiceTest(TestCase):
         self.assertEqual(Expense.objects.get(activity=child).amount, Decimal('350.00'))
 
     def test_add_subactivity_endpoint_keeps_both_logs(self):
-        """快捷建子任务改走 services 后，仍要写父+子两条日志且只建一个对象"""
+        """快捷建活动安排改走 services 后，仍要写父+子两条日志且只建一个对象"""
         parent = Activity.objects.create(user=self.user, name='意大利之旅')
         self.client.login(username='testuser', password='test')
         resp = self.client.post(reverse('activities:add_subactivity', args=[parent.id]),
@@ -1605,7 +1601,7 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         cols = self._columns()
         left, right = cols.split(self.LEFT_END, 1)
         for anchor, desc in [('活动描述', '描述'), ('id="expense-form"', '记一笔表单'),
-                             ('id="subtask-list"', '子任务时间轴')]:
+                             ('id="subtask-list"', '活动安排时间轴')]:
             self.assertIn(anchor, left, f'{desc}应在左列主内容流')
             self.assertNotIn(anchor, right, f'{desc}不该出现在右列')
         for anchor, desc in [('id="attachment-form"', '附件'), ('参与者（', '参与者'),
@@ -1618,19 +1614,19 @@ class ActivityDetailDesktopLayoutTest(TestCase):
                    'id="attachment-form"', '参与者（', '相关知识与笔记', '操作历史（']
         positions = [self.html.index(a) for a in anchors]
         self.assertEqual(positions, sorted(positions),
-                         '移动端单列顺序变了（子任务应紧跟费用明细，右列整体在其后）')
+                         '移动端单列顺序变了（活动安排应紧跟费用明细，右列整体在其后）')
         cols = self._columns()
         for c in re.findall(r'<div class="[^"]*">', cols)[:2]:
             self.assertNotIn('hidden', c, '列容器加了显隐类会让移动端少一整列')
 
     def test_left_column_long_cards_are_details_collapsed_by_default(self):
-        """左列三张长卡（费用明细/子任务/评论）用 details 默认折叠（2026-09-21 用户要求）
+        """左列三张长卡（费用明细/活动安排/评论）用 details 默认折叠（2026-09-21 用户要求）
 
         锁两层：① 必须是 details 而不是普通 div（可点击展开）；② 摘要标签后不得紧跟
         open 属性（默认收起，页面才不会拉得太长）。已有 data-mobile-collapse 的
         右列卡不受影响（那些是桌面展开、移动端 JS 收起的口径）。
         """
-        for title in ('费用明细', '子任务', '评论'):
+        for title in ('费用明细', '活动安排', '评论'):
             i = self.html.index(f'>{title}（')
             summary_start = self.html.rindex('<summary', 0, i)
             details_start = self.html.rindex('<details', 0, summary_start)
@@ -1647,7 +1643,7 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         card = right[:right.index('附件区域')]
         self.assertIn('hidden md:block', card,
                       '快捷操作卡必须只在桌面端出现，否则移动端白占高度')
-        self.assertEqual(card.count('data-jump='), 3, '记一笔/加子任务/传附件三个入口缺一')
+        self.assertEqual(card.count('data-jump='), 3, '记一笔/加活动安排/传附件三个入口缺一')
 
     def test_no_structural_sm_breakpoint_in_template(self):
         """分端只允许 md:（768px）；sm: 仅可作纯尺寸渐进（p/gap/text/space/w-[calc]）"""
@@ -1673,8 +1669,8 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         self.assertIn('max-height', rail[0]['body'], '矮视口下右列需列内滚动，否则底部信息看不到')
 
     def test_subtask_progress_rendered(self):
-        """概览增强：子任务完成度进度条"""
-        self.assertIn('title="子任务完成度 1/2"', self.html)
+        """概览增强：活动安排完成度进度条"""
+        self.assertIn('title="活动安排完成度 1/2"', self.html)
         self.assertIn('width: 50%', self.html)
 
 
@@ -2289,13 +2285,13 @@ class CalendarFeedTest(TestCase):
         self.assertIn('定点活动', body)
 
     def test_subtask_exported(self):
-        """符合条件的子任务也进日历，描述里带父活动名"""
+        """符合条件的活动安排也进日历，描述里带父活动名"""
         parent = self._mk(name='父活动')
-        child = Activity.objects.create(user=self.user, name='子任务', parent=parent,
+        child = Activity.objects.create(user=self.user, name='活动安排', parent=parent,
                                         status='planned', start_date=self.today,
                                         end_date=self.today)
         body = self.client.get(self._feed_url()).content.decode()
-        self.assertIn('子任务', body)
+        self.assertIn('活动安排', body)
         self.assertIn('父活动: 父活动', body)
 
     def test_escaping_and_line_folding(self):
@@ -2391,17 +2387,17 @@ class ActivityListPaginationTest(TestCase):
     def test_children_follow_parent_and_not_counted(self):
         """子活动跟随父活动出现在同一页，不跨页断裂、不计入每页条数"""
         tops = self._create_tops(25)
-        child = Activity.objects.create(user=self.user, name='边界子任务',
+        child = Activity.objects.create(user=self.user, name='边界活动安排',
                                         parent=tops[-1])
         r1 = self.client.get('/activities/')
         self.assertEqual(self._top_level_count(r1), 20)
-        self.assertNotIn('边界子任务', r1.content.decode())  # 子活动留在父活动所在页
+        self.assertNotIn('边界活动安排', r1.content.decode())  # 子活动留在父活动所在页
 
         r2 = self.client.get('/activities/?page=2')
         self.assertEqual(self._top_level_count(r2), 5)  # 子活动不计入
         c2 = r2.content.decode()
         self.assertIn('活动25', c2)
-        self.assertIn('边界子任务', c2)  # 与父活动同页
+        self.assertIn('边界活动安排', c2)  # 与父活动同页
 
     def test_invalid_or_out_of_range_page_falls_back_to_first(self):
         """page=abc / 越界 / 负数 / 小数均静默回退第 1 页"""

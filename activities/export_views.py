@@ -64,7 +64,7 @@ def export_csv(request):
 
 
 def _activity_to_dict(activity, expense_totals, children_map):
-    """将活动对象序列化为字典（含嵌套子任务）"""
+    """将活动对象序列化为字典（含嵌套活动安排）"""
     tags = list(activity.tags.values_list('name', flat=True))
     participants = list(activity.participants.values_list('name', flat=True))
     expense_total = float(expense_totals.get(activity.id, 0) or 0)
@@ -88,7 +88,7 @@ def _activity_to_dict(activity, expense_totals, children_map):
 
 @login_required
 def export_json(request):
-    """导出活动列表为 JSON（含子任务层级）"""
+    """导出活动列表为 JSON（含活动安排层级）"""
     qs = _get_filtered_activities(request).prefetch_related('tags', 'participants')
     activities = list(qs)
     activity_ids = [a.id for a in activities]
@@ -99,7 +99,7 @@ def export_json(request):
     for a in activities:
         children_map.setdefault(a.parent_id, []).append(a)
 
-    # 只输出顶级活动（parent=None），子任务通过 children 嵌套
+    # 只输出顶级活动（parent=None），活动安排通过 children 嵌套
     top_level = [a for a in activities if a.parent_id is None]
     result = []
     for a in top_level:
