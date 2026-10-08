@@ -2990,14 +2990,19 @@ class ChatHomeTest(TestCase):
         self.assertIn('/accounts/login/', resp['Location'])
 
     def test_local_card_entry_available_in_every_conversation(self):
-        """daily/工作台入口在所有对话可用（2026-09-21 起从独立按钮行改挂
-        头部 ⋯ 菜单/详情页操作行，入口不再随会话显隐）"""
+        """daily/工作台入口在所有对话可用。daily 简报 2026-10-08 起从头部 ⋯ 菜单
+        振到输入框上方小按钮（用户要求常用操作放明面）；工作台卡仍在菜单里"""
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_d', agent_id='ag_d',
             title='普通对话')
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
         self.assertIn('data-local-card="daily_brief"', html)
         self.assertIn('data-local-card="today_brief"', html)
+        # daily 简报在输入框上方（split-form 内），不在 ⋯ 菜单里
+        form_zone = html.split('id="split-form"', 1)[1]
+        self.assertIn('data-local-card="daily_brief"', form_zone)
+        menu_zone = html.split('class="conv-menu', 1)[1].split('</details>', 1)[0]
+        self.assertNotIn('daily_brief', menu_zone, '⋯ 菜单里不应再有 daily 简报入口')
         # 独立按钮行已删净：容器与撤 hidden 的旧机制都不应残留
         self.assertNotIn('id="local-cards"', html)
         self.assertNotIn('data-daily-id', html, '旧的按会话 id 显隐机制应已删净')

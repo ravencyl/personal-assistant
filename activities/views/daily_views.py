@@ -214,7 +214,8 @@ def daily_brief_payload(user):
         _section('ongoing', '今日进行中', [*data['ongoing'], *data['starting_today']]),
         _section('ending_today', '今日结束', data['ending_today']),
         _section('upcoming', '即将开始（7 天内）', data['upcoming']),
-        _section('recently_done', '近期完成', data['recently_done']),
+        # 近期完成不进简报卡（2026-10-08 用户要求）：已完成的事不需要再提醒，
+        # gather_daily 里仍算它（行为洞察/建议还要用）
         _section('in_progress', '长期进行中', data['in_progress']),
         _section('overdue', '已过期待处理', data['overdue_rolled_in']),
     ]

@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.db.models import Sum
 
 from activities.models import Activity, ActivityLog, Attachment, Expense, Participant, CalendarFeed
-from activities.views.daily_views import gather_daily
+from activities.views.daily_views import daily_brief_payload, gather_daily
 from notes.models import Note
 from activities.parsing import parse_quick_input
 from core.agent_registry import CandidateToolError, ToolError
@@ -733,6 +733,17 @@ class DailyGatherStatusTest(TestCase):
                                 status='in_progress')
         data = self._gather()
         self.assertEqual([a.name for a in data['ongoing']], ['新西兰之旅'])
+
+    def test_brief_payload_excludes_recently_done_section(self):
+        """简报卡不展示「近期完成」（2026-10-08 用户要求：已完成的事不需要再提醒）。
+        gather_daily 仍算 recently_done（行为洞察要用），只在 payload 分区里剔除"""
+        Activity.objects.create(user=self.user, name='今日已打卡',
+                                start_date=self.today, status='done')
+        payload = daily_brief_payload(self.user)
+        self.assertNotIn(
+            'recently_done', [s['key'] for s in payload['sections']],
+            '简报卡分区不应再包含近期完成')
+        self.assertNotIn('近期完成', [s['title'] for s in payload['sections']])
 
 
 class DailyPageRetiredTest(TestCase):

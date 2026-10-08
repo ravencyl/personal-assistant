@@ -139,10 +139,9 @@
             <details class="conv-menu relative">
                 <summary class="inline-flex w-5 h-5 rounded-full items-center justify-center text-xs text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>
                 <div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-40">
-                    {# 快捷卡片入口（独立按钮行已下线）：委托在 chat-turn.js，点击后由本页底部监听收起菜单 #}
+                    {# 快捷卡片入口：daily 简报已振到输入框上方小按钮（2026-10-08 用户要求），#}
+                    {# 菜单里只剩工作台卡；委托在 chat-turn.js，点击后由本页底部监听收起菜单 #}
                     <p class="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--text-muted)]">插入卡片</p>
-                    <button type="button" data-local-card="daily_brief"
-                            class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">daily 简报</button>
                     <button type="button" data-local-card="today_brief"
                             class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">工作台卡</button>
                     <div class="my-1 border-t border-[var(--border)]"></div>
@@ -196,6 +195,14 @@
     {# --- 发送表单（始终渲染；action 由 JS 在切换对话时更新） --- #}
     <form id="split-form" method="post" action="{% if active_conversation %}{% url 'chat:send_message' active_conversation.id %}{% endif %}" class="flex-none px-4 py-3 border-t border-[var(--border)]">
         {% csrf_token %}
+        {% if active_conversation %}
+        {# daily 简报入口：输入框上方小按钮（2026-10-08 从头部 ⋯ 菜单振上来，常用操作放明面）；#}
+        {# chatId 由 location.pathname 解析，切对话 replaceState 后天然跟随；无会话时不渲染 #}
+        <div class="mb-2">
+            <button type="button" data-local-card="daily_brief"
+                    class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">daily 简报</button>
+        </div>
+        {% endif %}
         <div class="flex items-end gap-2">
             <textarea name="content" id="split-input" rows="1" data-auto-grow autofocus
                 placeholder="输入消息…（Enter 换行）"
