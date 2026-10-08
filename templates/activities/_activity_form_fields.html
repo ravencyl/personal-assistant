@@ -72,7 +72,7 @@
         <div id="tag-suggest"
              class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
     </div>
-    <p class="mt-1 text-xs text-[var(--text-muted)]">可从下方建议中选择（支持拼音），或直接输入新标签回车添加</p>
+    <p class="mt-1 text-xs text-[var(--text-muted)]">点输入框从已有标签中选择（支持拼音），或输入新标签回车添加</p>
     {{ form.tags }}
     {% if form.tags.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.tags.errors.0 }}</p>{% endif %}
 </div>
@@ -88,7 +88,7 @@
         <div id="participant-suggest"
              class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-md shadow-lg max-h-40 overflow-y-auto"></div>
     </div>
-    <p class="mt-1 text-xs text-[var(--text-muted)]">可从下方提示中选择，或直接输入新姓名回车添加（新姓名保存时自动创建）</p>
+    <p class="mt-1 text-xs text-[var(--text-muted)]">点输入框从已有联系人中选择，或输入新姓名回车添加（保存时自动创建）</p>
     {{ form.participants_input }}
     {% if form.participants_input.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
 </div>

@@ -32,7 +32,10 @@
 
             <form id="create-activity-form" class="space-y-4">
                 {% csrf_token %}
-                <div id="create-modal-body">
+                {# space-y-4 必须包在自己身上：字段 partial 的顶层 div 是这里的直接子元素，#}
+                {# form 上的 space-y-4 隔着包裹层传不进来（2026-10-08 真机：弹窗内块与块紧贴）；#}
+                {# 422 换体后片段直接成为本层子元素，同样吃这个间距 #}
+                <div id="create-modal-body" class="space-y-4">
                     {% include "activities/_activity_form_modal_body.html" %}
                 </div>
                 <div class="flex gap-3 pt-2">

@@ -17,6 +17,7 @@ from core.utils import get_visible, visible_qs, week_monday, WEEKDAY_LABELS
 from ..forms import ActivityForm
 from ..models import Activity, Participant
 from ..services import start_due_activities
+from ._common import _user_tag_names
 from ..utils import (filter_activities, get_filter_params, exclude_daily_bucket,
                      expense_totals_map)
 from ._common import _greeting
@@ -347,9 +348,11 @@ def activity_list(request):
         'page_numbers': page_numbers,
         'total_activities': len(rows),
         'page_base_qs': page_base_qs,
-        # 弹窗用的空白表单与 chips 联想数据（字段 partial 与独立创建页共用同一模板）
+        # 弹窗用的空白表单与 chips 联想数据（字段 partial 与独立创建页共用同一模板）；
+        # all_tags 漏传过：标签候选下拉在弹窗里永远是空的，提示文案成了空话（2026-10-08）
         'form': ActivityForm(user=request.user),
         'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
+        'all_tags': _user_tag_names(request.user),
         'greeting': greeting,
         'today_display': today_display,
         'ongoing_count': ongoing_count,

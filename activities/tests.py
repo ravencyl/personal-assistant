@@ -901,6 +901,44 @@ class FilterPanelUsabilityTest(TestCase):
         self.assertIn({'status': 'planned'}, qs_list, '移除标签后应保留其他筛选')
 
 
+class ActivityCreateModalFormTest(TestCase):
+    """新建活动弹窗表单体（2026-10-08 真机反馈两处）
+
+    - 块间距：字段 partial 的顶层 div 是 #create-modal-body 的直接子元素，
+      form.space-y-4 隔着包裹层传不进来，包裹层必须自带 space-y-4（否则块与块紧贴）；
+    - chips 联想数据：列表页视图漏传 all_tags 时弹窗里标签候选永远是空的，
+      「可从下方建议中选择」的提示成了空话——标签/参与者候选必须都在。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def _html(self):
+        resp = self.client.get(reverse('activities:activity_list'))
+        self.assertEqual(resp.status_code, 200)
+        return resp.content.decode()
+
+    def test_modal_body_carries_its_own_spacing(self):
+        html = self._html()
+        self.assertRegex(html, r'<div id="create-modal-body" class="[^"]*space-y-4')
+        # 字段块的父层有间距类还不够，得确认 form.space-y-4 与包裹层同时存在
+        self.assertIn('class="space-y-4"', html)
+
+    def test_modal_has_tag_and_participant_options(self):
+        act = Activity.objects.create(user=self.user, name='候选容器')
+        apply_tags(act, ['差旅'])
+        Participant.objects.create(user=self.user, name='YYX')
+        html = self._html()
+        m = re.search(r'<script id="tag-options" type="application/json">(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('差旅', json.loads(m.group(1)), '弹窗标签候选应含已有标签')
+        m2 = re.search(r'<script id="participant-options" type="application/json">(.*?)</script>', html, re.S)
+        self.assertIsNotNone(m2)
+        self.assertIn('YYX', json.loads(m2.group(1)), '弹窗参与者候选应含已有联系人')
+
+
 @override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
 class AttachmentUploadTest(TestCase):
     """附件上传：详情页是整页 POST（无 hx-*），必须回跳而不是把 JSON 渲染成页面"""
