@@ -2772,12 +2772,13 @@ class DependencyGraphJsTest(SimpleTestCase):
 
 
 class AiTagGuardTest(TestCase):
-    """AI 创建/更新活动的标签守门（2026-09-21）
+    """AI 标签守门与「AI 自动加标签」下线（2026-09-21 守门 / 2026-10-08 下线）
 
     之前模型自由编造标签直接落库（apply_tags 对新名字 get_or_create），
-    加上 suggest_tags 兜底无脑塞高频常用标签，导致「AI 乱贴标签」。
-    修复口径与参与者一致：AI 推断只匹配已有标签，编造的丢弃并告知；
-    无用户指定时的兜底建议只采纳内容相关的（require_relevance=True）。
+    加上 suggest_tags 兑底无脑塞高频常用标签，导致「AI 乱贴标签」。
+    第一阶段修复：AI 推断只匹配已有标签，编造的丢弃并告知。
+    第二阶段（用户仍不满意）：自动加标签整体下线——用户没显式要求标签时
+    什么都不贴，suggest_tags 函数连同三个调用入口一并拆除。
     """
 
     def setUp(self):
@@ -2832,12 +2833,13 @@ class AiTagGuardTest(TestCase):
                          '无关活动不应被贴上高频常用标签')
 
     def test_create_fallback_suggests_content_relevant_tag(self):
-        """同类历史活动（名称相似）的标签仍会自动带上"""
+        """自动加标签已整体下线：即使名称高度相似、标签库里就有对应标签，
+        用户没显式要求也一个标签都不贴（2026-10-08）"""
         from core.agent_registry import get_tool
         self._seed()
-        result = get_tool('activities.create')['apply'](self.user, {'name': '去上海出差'})
+        result = get_tool('activities.create')['apply'](self.user, {'name': '去 上海出差'})
         activity = Activity.objects.get(id=result['activity_ids'][0])
-        self.assertIn('出差', list(activity.tags.values_list('name', flat=True)))
+        self.assertEqual(list(activity.tags.values_list('name', flat=True)), [])
 
     def test_update_preview_and_apply_filter_invented_tags(self):
         from core.agent_registry import get_tool
@@ -2872,7 +2874,8 @@ class AiTagGuardTest(TestCase):
         self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
 
     def test_quick_parse_ai_tags_gate(self):
-        """快速输入 AI 解析：原文显式 #词 保留，AI 编造的丢弃"""
+        """快速输入 AI 解析：只保留原文显式 #词，AI 推断的一律丢弃
+        （哪怕命中已有标签，2026-10-08 自动加标签下线）"""
         from unittest.mock import patch
         from activities.views import quick_input_views as qiv
         self._seed()
@@ -2889,13 +2892,27 @@ class AiTagGuardTest(TestCase):
         from core.models import Tag
         self.assertFalse(Tag.objects.filter(name='编造标签').exists())
 
-        # 没有显式 # 且全是编造：tags 字段整个消失
+        # AI 推断的标签哪怕命中已有标签（出差）也被丢弃：tags 字段整个消失
         with patch.object(qiv, '_ai_parse',
-                          return_value={'name': '周五聚餐', 'tags': ['编造标签']}):
+                          return_value={'name': '去上海出差', 'tags': ['出差']}):
             resp = self.client.post(reverse('activities:parse_quick_input'),
                                     {'text': '周五聚餐'})
         self.assertEqual(resp.status_code, 200)
         self.assertNotIn('tags', resp.json())
+
+
+class AiAutoTagRemovedTest(SimpleTestCase):
+    """「AI 自动加标签」已按用户要求整体下线（2026-10-08）：
+    suggest_tags 兑底推荐函数与三个调用入口（表单创建 / 对话创建 / 快速输入推断）
+    全部拆除。防复活静态锁（不扫 knowledge，那里的建议按钮是用户主动点击）。"""
+
+    def test_no_auto_suggest_code_paths(self):
+        base = Path(__file__).resolve().parent.parent
+        for rel in ('core/tags.py',
+                    'activities/views/form_views.py',
+                    'activities/agent_tools.py',
+                    'activities/views/quick_input_views.py'):
+            self.assertNotIn('suggest_tags', (base / rel).read_text(), rel)
 
 
 class ActivityPinTest(TestCase):

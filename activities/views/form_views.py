@@ -6,7 +6,7 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from core.tags import apply_tags, suggest_tags
+from core.tags import apply_tags
 from core.utils import get_visible, visible_qs
 
 from ..forms import ActivityForm
@@ -25,15 +25,10 @@ def activity_create(request):
             activity.user = request.user
             activity.save()
             form.save_m2m()
-            # tags 已改为普通文本字段（core.Tag M2M），ModelForm 不再代管，视图落库
-            tags = form.cleaned_data.get('tags')
-            # 智能标签建议：用户未填标签时，基于内容 + 历史习惯自动推荐
-            if not tags:
-                suggested = suggest_tags(activity)
-                if suggested:
-                    tags = suggested
-                    messages.info(request, f'已自动添加标签：{"、".join(suggested)}')
-            apply_tags(activity, tags)
+            # tags 已改为普通文本字段（core.Tag M2M），ModelForm 不再代管，视图落库。
+            # 智能标签自动推荐已按用户要求整体下线（2026-10-08）：不填就不贴，
+            # 标签只能由用户显式输入（AI 自动加标签的三个入口同批拆除）
+            apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
             form.save_blocked_by(activity)
             children = form.save_children(activity)

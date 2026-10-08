@@ -18,7 +18,7 @@ from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
                                  parse_pick_index)
 from core.utils import get_visible, visible_qs
 
-from core.tags import apply_tags, tag_names, suggest_tags, resolve_existing_tags
+from core.tags import apply_tags, tag_names, resolve_existing_tags
 from chat.models import Message
 from .models import Activity, Expense, ActivityComment
 from .services import (InputError, add_expense, change_activity_status,
@@ -329,25 +329,13 @@ def _create_plan(user, params):
     if parent_name:
         parent = visible_qs(Activity, user).filter(name__icontains=parent_name).first()
 
-    # 标签守门（与参与者同口径）：模型给的标签只匹配已有，编造的名字丢弃；
-    # 用户未指定时不让规则无脑推荐常用标签（与内容无关），只采纳内容相关的建议
+    # 标签守门（与参与者同口径）：模型给的标签只匹配已有，编造的名字丢弃。
+    # 用户没提标签时什么都不贴——智能标签兜底推荐已按用户要求下线
+    # （2026-10-08，「AI 乱加标签」），标签只能由用户在对话里明确要求
     tag_skipped = []
     if data.get('tags'):
         matched_tags, tag_skipped = resolve_existing_tags(data['tags'], 'activity', user)
         data['tags'] = [t.name for t in matched_tags]
-    else:
-        # 构造一个临时对象用于 suggest_tags（不需要落库）
-        class _TempActivity:
-            def __init__(self, user, name, description):
-                self.user = user
-                self.name = name
-                self.description = description
-        temp = _TempActivity(user, data.get('name', ''), data.get('description', ''))
-        # 临时对象无法被 _scope_of 反推 scope，必须显式传（之前静默返回空，
-        # 兑底建议从未生效过）
-        suggested = suggest_tags(temp, limit=3, require_relevance=True, scope='activity')
-        if suggested:
-            data['tags'] = suggested
 
     # 解析前置依赖（blocked_by）：传前置活动名称列表
     blocked_by_ids = []

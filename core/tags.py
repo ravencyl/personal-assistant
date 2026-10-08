@@ -16,8 +16,6 @@ core 不顶层依赖业务 app：模型映射在函数内延迟 import（与 cro
 """
 import re
 
-from django.db.models import Count
-
 from .models import Tag
 
 # 用户输入的分隔符口径（中文逗号/英文逗号/顿号），与历史 taggit 时代一致
@@ -146,89 +144,6 @@ def _scope_model(scope):
     return getattr(import_module(module_path), model_name)
 
 
-# ── 智能标签建议 ──
-
-# 建议标签数量上限（不超过 MAX_TAGS_PER_OBJECT）
-SUGGEST_TAG_LIMIT = 5
-
-# 名称相似度阈值（char_overlap_ratio）
-_NAME_SIMILARITY_THRESHOLD = 0.5
-
-
-def suggest_tags(obj, limit=SUGGEST_TAG_LIMIT, require_relevance=False, scope=None):
-    """基于对象内容 + 用户历史标签习惯，推荐标签列表（top N）
-
-    三层策略，按优先级叠加：
-    1. 用户在该 scope 最常用的标签（频率排序）
-    2. 对象名称与已有标签名的 char_overlap_ratio 匹配
-    3. 同标签下其他对象的名称与当前对象名称的相似度
-
-    require_relevance=True（AI 自动落库场景）时策略 1 不再无条件加分：
-    常用标签与当前内容无关，无脑塞高频标签是「AI 乱贴标签」的主要来源；
-    此时常用标签只有同时被策略 2/3 命中（内容相关）才会入选。
-    给人工挑选的建议 chips（表单页）保持 require_relevance=False。
-
-    失败返回空列表（不阻断创建/编辑流程）。
-    """
-    try:
-        # scope 未传时由对象类型反推；临时对象（未落库预览）无法反推，需显式传
-        scope = scope or _scope_of(obj)
-        user = getattr(obj, 'user', None)
-        if not user:
-            return []
-
-        # 获取对象的可搜索文本
-        text = _get_object_text(obj)
-        if not text:
-            return []
-
-        from core.utils import visible_qs, char_overlap_ratio
-
-        candidates = {}  # tag_name → score
-
-        model = _scope_model(scope)
-        user_qs = visible_qs(model, user)
-
-        # 策略 1：用户最常用的标签（频率排序，权重 3；自动落库场景跳过）
-        if not require_relevance:
-            freq_tags = (user_qs.values('tags__name')
-                         .exclude(tags__name__isnull=True)
-                         .annotate(cnt=Count('id'))
-                         .order_by('-cnt')[:10])
-            for row in freq_tags:
-                name = row['tags__name']
-                if name:
-                    candidates[name] = candidates.get(name, 0) + 3
-
-        # 策略 2：对象名称与标签名的相似度（权重 2）
-        all_tags = list(Tag.objects.filter(scope=scope).values_list('name', flat=True))
-        obj_name = getattr(obj, 'name', '') or getattr(obj, 'title', '') or ''
-        if obj_name:
-            for tag_name in all_tags:
-                ratio = char_overlap_ratio(obj_name, tag_name, mode='contains')
-                if ratio >= _NAME_SIMILARITY_THRESHOLD:
-                    candidates[tag_name] = candidates.get(tag_name, 0) + 2
-
-        # 策略 3：同标签下其他对象的名称相似度（权重 1）
-        if obj_name and len(obj_name) >= 2:
-            for tag_name in all_tags[:30]:  # 只检查前 30 个标签，避免查询过多
-                similar_objs = (user_qs.filter(tags__name=tag_name)
-                                .values_list('name', flat=True)[:5])
-                for other_name in similar_objs:
-                    if other_name and other_name != obj_name:
-                        ratio = char_overlap_ratio(obj_name, other_name, mode='contains')
-                        if ratio >= _NAME_SIMILARITY_THRESHOLD:
-                            candidates[tag_name] = candidates.get(tag_name, 0) + 1
-                            break  # 这个标签只要有一个相似对象就够了
-
-        # 按分数排序，取 top N
-        sorted_tags = sorted(candidates.items(), key=lambda x: -x[1])
-        return [name for name, _score in sorted_tags[:limit]]
-
-    except Exception:
-        return []
-
-
 def resolve_existing_tags(names, scope, user=None):
     """AI 自动识别路径的标签写入守门：只匹配已有标签，匹配不到的丢弃
 
@@ -261,15 +176,3 @@ def resolve_existing_tags(names, scope, user=None):
         else:
             skipped.append(name)
     return matched, skipped
-
-
-def _get_object_text(obj):
-    """提取对象的可搜索文本（用于标签建议）"""
-    parts = []
-    name = getattr(obj, 'name', '') or getattr(obj, 'title', '') or ''
-    if name:
-        parts.append(name)
-    desc = getattr(obj, 'description', '') or getattr(obj, 'content', '') or ''
-    if desc:
-        parts.append(desc[:200])
-    return ' '.join(parts)

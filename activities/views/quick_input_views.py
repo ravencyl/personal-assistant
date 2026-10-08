@@ -13,7 +13,6 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from core.ai import ai_round_trip, extract_json_dict
-from core.tags import resolve_existing_tags
 from core.utils import week_monday, WEEKDAY_LABELS
 
 from ..parsing import parse_quick_input
@@ -49,14 +48,11 @@ def parse_quick_input_view(request):
             'error': '未能识别出活动名称，请写得更具体些，例如「8月25到28日去上海出差 预算3000」',
         }, status=400)
     if source == 'ai':
-        # AI 路径的标签守门（与参与者同口径：AI 推断不得自动新建标签）：
-        # 用户原文显式写的 #词 直接保留（可以新建），AI 自己推断的只匹配已有标签
+        # AI 自动加标签已整体下线（2026-10-08，用户要求）：只保留用户原文
+        # 显式写的 #词（可新建）；AI 自己推断的标签一律丢弃，哪怕命中已有标签
         explicit = re.findall(r'#([\w\u4e00-\u9fa5]+)', text)
-        inferred = [t for t in data.get('tags', []) if t not in explicit]
-        matched_tags, _skipped = resolve_existing_tags(inferred, 'activity', request.user)
-        merged = list(dict.fromkeys(explicit + [t.name for t in matched_tags]))[:10]
-        if merged:
-            data['tags'] = merged
+        if explicit:
+            data['tags'] = list(dict.fromkeys(explicit))[:10]
         else:
             data.pop('tags', None)
     data['source'] = source
