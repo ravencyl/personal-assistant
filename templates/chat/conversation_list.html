@@ -168,7 +168,7 @@
     </div>
 
     {# --- 消息列表（始终渲染；空状态时显示引导文案，JS 切换对话时替换） --- #}
-    <div id="split-messages" class="flex-1 overflow-y-auto p-4 space-y-4" data-turn-resume-host>
+    <div id="split-messages" class="flex-1 overflow-y-auto py-4 space-y-4" data-turn-resume-host>
         {% if active_conversation %}
         {% include "chat/partials/_history_older.html" %}
         {% for msg in chat_messages %}{% include "chat/partials/_message.html" %}{% empty %}
@@ -200,7 +200,7 @@
         {# chatId 由 location.pathname 解析，切对话 replaceState 后天然跟随；无会话时不渲染 #}
         <div class="mb-2">
             <button type="button" data-local-card="daily_brief"
-                    class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">daily 简报</button>
+                    class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">每日简报</button>
         </div>
         {% endif %}
         <div class="flex items-end gap-2">

@@ -21,9 +21,12 @@
         </div>
         {% if msg.role == 'assistant' %}
         {# AI 回复走 Markdown 渲染；容器不能带 whitespace-pre-wrap，否则与渲染出的 #}
-        {# <br>/块级元素叠加成双倍行距。用户/系统消息保持字面纯文本（本地卡片是 #}
-        {# 服务端直出的快照，卡片本体在下面的 payload 分支，正文只是一行标签） #}
+        {# <br>/块级元素叠加成双倍行距。用户消息保持字面纯文本（输入什么显示什么） #}
         <div class="markdown-content md-body text-sm text-[var(--text)]">{{ msg.content|ai_markdown }}</div>
+        {% elif msg.role == 'system' %}
+        {# 系统消息的正文只是本地卡片的模块标题（落库时用 label 当 content），#}
+        {# 加粗放大当区块标题看，不参与 Markdown（2026-10-08 用户要求显眼一点） #}
+        <div class="text-base font-semibold text-[var(--text)]">{{ msg.content }}</div>
         {% else %}
         <div class="markdown-content text-sm text-[var(--text)] whitespace-pre-wrap">{{ msg.content }}</div>
         {% endif %}

@@ -40,7 +40,7 @@ def _register_defaults():
     from activities.views.daily_views import daily_brief_payload
     from core.views import today_brief_payload
 
-    register_local_card('daily_brief', 'daily', daily_brief_payload)
+    register_local_card('daily_brief', '每日简报', daily_brief_payload)
     register_local_card('today_brief', '工作台', today_brief_payload)
 
 
