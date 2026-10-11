@@ -82,7 +82,7 @@
             <input type="search" name="keyword" value="{{ keyword_filter }}" maxlength="100"
                    placeholder="搜索活动：标题 / 描述 / 参与者 / 标签"
                    autocomplete="off"
-                   class="w-full rounded-full bg-[var(--bg-card)] border border-[var(--border)] pl-10 pr-12 md:pr-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent focus:outline-none shadow-sm">
+                   class="w-full rounded-full bg-[var(--bg-card)] border border-[var(--border)] pl-10 pr-14 md:pr-3 py-2.5 text-sm text-[var(--text)] truncate placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent focus:outline-none shadow-sm">
             {# 移动端收纳：搜索按钮收进输入框内成图标（原独立文字按钮占一整列），回车/go 键同样可提交 #}
             <button type="submit" title="搜索"
                     class="md:hidden absolute right-0.5 top-1/2 -translate-y-1/2 tap-target w-10 h-10 rounded-full bg-[var(--accent)] text-[var(--bg)] flex items-center justify-center">
