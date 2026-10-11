@@ -78,7 +78,8 @@
 </div>
 
 <!-- 最近活动 + 最近对话 -->
-<div class="grid md:grid-cols-2 gap-4">
+{# 基态必须写 grid-cols-1 而不是留隐式轨道：auto 轨道的最小值是 min-content，长对话标题（nowrap 文本在内在尺寸里不缩到 0）会把整列顶破屏（2026-10-11 线上实锤：398px 视口下卡片 708 宽）。grid-cols-1 = minmax(0,1fr)，与 .page-cols 桌面列同一口径。 #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <!-- 最近活动 -->
     <div class="app-card p-4">
         <div class="flex items-center justify-between mb-3">

@@ -2152,3 +2152,44 @@ class TemplateCommentLineTest(SimpleTestCase):
         self.assertEqual(self._offenders('<p>a</p>{# 第一行\n第二行 #}<p>b</p>'), [1])
         self.assertEqual(self._offenders('{# 单行 #}文字{# 又一行 #}'), [])
         self.assertEqual(self._offenders('正常文本里没有注释'), [])
+
+
+class ImplicitGridTrackTest(SimpleTestCase):
+    """`class="grid md:grid-cols-2"` 在移动端是**没有列模板的 grid**：隐式轨道
+    取 auto，最小值 = min-content，一条 nowrap 的长标题就能把整列顶破屏
+    （2026-10-11 线上仪表盘「最近活动/最近对话」双卡溢出，398px 视口下 708 宽）。
+    基态必须显式写 `grid-cols-N`（= minmax(0,1fr)，与 .page-cols 桌面列同口径）。
+    """
+
+    CLASS_ATTR = re.compile(r'class="([^"]*)"')
+    RESPONSIVE_COLS = re.compile(r'(?:sm|md|lg|xl):grid-cols-\d+')
+    BASE_COLS = re.compile(r'(?<![:\w-])grid-cols-\d+')
+
+    def _offenders(self, text):
+        bad = []
+        for m in self.CLASS_ATTR.finditer(text):
+            tokens = m.group(1).split()
+            if 'grid' in tokens and self.RESPONSIVE_COLS.search(m.group(1)) \
+                    and not self.BASE_COLS.search(m.group(1)):
+                bad.append(m.group(1)[:70])
+        return bad
+
+    def test_no_grid_without_base_track(self):
+        offenders = []
+        base = Path(settings.BASE_DIR)
+        files = list((base / 'templates').rglob('*.html'))
+        for app_dir in sorted(base.glob('*/templates')):
+            files.extend(app_dir.rglob('*.html'))
+        for tpl in sorted(set(files)):
+            for o in self._offenders(tpl.read_text(encoding='utf-8')):
+                offenders.append(f'{tpl.relative_to(base)}: {o}')
+        self.assertEqual(offenders, [],
+                         '有响应式 grid 没写基态列数（移动端隐式 auto 轨道会被长文本顶破）：'
+                         f'{offenders}')
+
+    def test_scanner_itself_detects_the_bad_shape(self):
+        # 变异反证：坏形状必须响，三种好形状不得误伤（防锁被下一波误报逼成摆设）
+        self.assertEqual(len(self._offenders('<div class="grid md:grid-cols-2 gap-4">')), 1)
+        self.assertEqual(self._offenders('<div class="grid grid-cols-1 md:grid-cols-2">'), [])
+        self.assertEqual(self._offenders('<div class="grid grid-cols-2 gap-3">'), [])
+        self.assertEqual(self._offenders('<div class="flex md:flex-col">'), [])
