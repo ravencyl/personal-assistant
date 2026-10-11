@@ -18,7 +18,6 @@
         { keys: ['/报告', '/周报', '/report'], label: '本周周报', url: '/reports/weekly/', icon: '📊' },
         { keys: ['/回顾', '/review'], label: '每周回顾', url: '/weekly-review/', icon: '🔍' },
         { keys: ['/行动', '/下一步', '/actions'], label: '下一步行动', url: '/activities/next-actions/', icon: '→' },
-        { keys: ['/时间线', '/timeline'], label: '活动时间线', url: '/activities/timeline/', icon: '🕐' },
         { keys: ['/日历', '/calendar'], label: '活动日历', url: '/activities/calendar/', icon: '📅' },
         { keys: ['/归档', '/archive'], label: '已归档活动', url: '/activities/archive/', icon: '📦' },
         { keys: ['/对话', '/chat'], label: 'AI 对话', url: '/chat/', icon: '💬' },

@@ -58,7 +58,6 @@ from .calendar_views import (  # noqa: F401
 )
 from .daily_views import daily_view, next_actions, refresh_suggestion  # noqa: F401
 from .archive_views import archive_list, archive_activity, unarchive_activity  # noqa: F401
-from .timeline_views import timeline_view  # noqa: F401
 from .template_views import (  # noqa: F401
     template_list,
     template_create,
@@ -81,6 +80,5 @@ __all__ = [
     'activity_calendar', 'calendar_data', 'calendar_feed', 'calendar_feed_settings',
     'daily_view', 'next_actions', 'refresh_suggestion',
     'archive_list', 'archive_activity', 'unarchive_activity',
-    'timeline_view',
     'template_list', 'template_create', 'template_use',
 ]
