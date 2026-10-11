@@ -10,13 +10,13 @@ paTidyFollowUps 当「下一步」建议组收纳（非最新组折叠、超 2 �
 
 变量：card（{week_start, completed_count, questions}，questions 最多 3 条）
 {% endcomment %}
-<div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
+<div class="mt-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] p-3 text-left">
     <div class="flex items-baseline justify-between gap-2">
-        <span class="text-sm font-medium text-zinc-900">周回顾</span>
-        <span class="text-xs text-zinc-400">{{ card.week_start }} 周 · 已完成 {{ card.completed_count }} 个</span>
+        <span class="text-sm font-medium text-[var(--text)]">周回顾</span>
+        <span class="text-xs text-[var(--text-muted)]">{{ card.week_start }} 周 · 已完成 {{ card.completed_count }} 个</span>
     </div>
     {% if card.questions %}
-    <p class="mt-2 text-xs font-medium text-zinc-500">跟着引导问题回顾</p>
+    <p class="mt-2 text-xs font-medium text-[var(--text-muted)]">跟着引导问题回顾</p>
     <div class="mt-1.5 flex flex-wrap gap-1.5">
         {% for q in card.questions %}
         <button type="button" class="chat-chip tap-target follow-up" data-followup="{{ q }}">{{ q }}</button>

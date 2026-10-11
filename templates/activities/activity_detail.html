@@ -144,7 +144,7 @@
     <!-- 描述 -->
     {% if activity.description %}
     <div class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-medium text-[var(--text)] mb-3">活动描述</h2>
+        <h2 class="text-sm font-semibold text-[var(--text)] mb-3">活动描述</h2>
         <p class="text-sm text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
     </div>
     {% endif %}
@@ -197,22 +197,22 @@
             <!-- 移动端：每行一个字段（全宽）；桌面端（sm+）：金额+日期同行，备注/标签同行 -->
             <div class="md:w-28 md:shrink-0">
                 <input type="number" name="amount" step="0.01" min="0" required placeholder="金额" aria-label="金额"
-                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
             </div>
             <!-- 日期：移动端全宽独占一行，桌面端固定宽度 -->
             <div class="md:w-40 md:shrink-0">
                 <input type="date" name="paid_at" value="{{ today_date }}" aria-label="消费日期"
-                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
             </div>
             <!-- 备注：移动端全宽独占一行，桌面端自适应剩余宽度 -->
             <div class="col-span-2 flex-1 md:min-w-[10rem]">
                 <input type="text" name="note" maxlength="255" placeholder="备注" aria-label="备注"
-                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
             </div>
             <!-- 费用标签（scope=expense，与活动标签隔离；逗号分隔，datalist 提供建议） -->
             <div class="md:w-44 md:shrink-0">
                 <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" aria-label="费用标签" list="expense-tag-options"
-                       class="tap-target w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none">
+                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 <datalist id="expense-tag-options">
                     {% for t in expense_tag_suggestions %}<option value="{{ t }}"></option>{% endfor %}
                 </datalist>
@@ -241,7 +241,7 @@
                     解析
                 </button>
             </div>
-            <p id="sub-quick-error" class="hidden mt-2 text-sm text-zinc-800 font-semibold"></p>
+            <p id="sub-quick-error" class="hidden mt-2 text-sm text-[var(--text)] font-semibold"></p>
             <div id="sub-quick-preview" class="hidden mt-3 rounded-2xl bg-[var(--accent-light)] p-4">
                 <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]"></div>
                 <div class="flex flex-wrap items-center gap-2 mt-3">
@@ -265,22 +265,22 @@
                     <div class="md:col-span-2">
                         <label for="sub-manual-name" class="block text-xs text-[var(--text-muted)] mb-1">名称 <span class="text-[var(--text-secondary)]">*</span></label>
                         <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="活动安排名称" autocomplete="off" aria-label="活动安排名称"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-start" class="block text-xs text-[var(--text-muted)] mb-1">开始日期</label>
                         <input type="date" id="sub-manual-start" name="start_date" aria-label="活动安排开始日期"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-end" class="block text-xs text-[var(--text-muted)] mb-1">结束日期</label>
                         <input type="date" id="sub-manual-end" name="end_date" aria-label="活动安排结束日期"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-status" class="block text-xs text-[var(--text-muted)] mb-1">状态</label>
                         <select id="sub-manual-status" name="status" aria-label="活动安排状态"
-                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--text-secondary)]">
+                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                             {% for value, label in status_choices %}
                             <option value="{{ value }}" {% if value == 'planned' %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
@@ -289,12 +289,12 @@
                     <div>
                         <label for="sub-manual-amount" class="block text-xs text-[var(--text-muted)] mb-1">费用金额</label>
                         <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选" aria-label="活动安排金额（可选）"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-tags" class="block text-xs text-[var(--text-muted)] mb-1">标签</label>
                         <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排标签"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                         <datalist id="sub-manual-tag-options">
                             {% for tag_name in tag_suggestions %}<option value="{{ tag_name }}"></option>{% endfor %}
                         </datalist>
@@ -302,7 +302,7 @@
                     <div>
                         <label for="sub-manual-participants" class="block text-xs text-[var(--text-muted)] mb-1">参与者</label>
                         <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排参与者"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                         <datalist id="sub-manual-participant-options">
                             {% for p_name in participant_suggestions %}<option value="{{ p_name }}"></option>{% endfor %}
                         </datalist>
@@ -314,7 +314,7 @@
                                 class="tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">取消</button>
                     </div>
                 </div>
-                <p id="sub-manual-error" class="hidden mt-2 text-xs font-semibold text-zinc-800"></p>
+                <p id="sub-manual-error" class="hidden mt-2 text-xs font-semibold text-[var(--text)]"></p>
                 <p class="mt-2 text-xs text-[var(--text-muted)]">除名称外均可留空；标签与参与者用逗号分隔（参与者不区分大小写匹配已有名单，匹配不到才新建）</p>
             </form>
         </div>
@@ -484,9 +484,9 @@
         <!-- 添加：搜索选择已有活动（候选用 createElement+textContent 构建，活动名是用户数据） -->
         <div class="mt-3 relative" id="dep-search-wrap">
             <input type="text" id="dep-search" placeholder="搜索活动，添加为前置依赖" autocomplete="off"
-                   class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                   class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
             <div id="dep-candidates" class="hidden absolute left-0 right-0 top-full mt-1 z-20 rounded-xl bg-[var(--bg-card)] border border-[var(--border)] shadow-lg overflow-hidden"></div>
-            <p id="dep-error" class="hidden mt-2 text-xs font-semibold text-zinc-800"></p>
+            <p id="dep-error" class="hidden mt-2 text-xs font-semibold text-[var(--text)]"></p>
         </div>
     </details>
 

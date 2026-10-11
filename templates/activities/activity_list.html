@@ -138,10 +138,10 @@
         <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-[var(--text-secondary)]">日期筛选</span>
         <input type="date" name="date_from" value="{{ date_from }}"
-               class="rounded-md border-zinc-300 text-sm px-2 py-1 border focus:ring-zinc-500 focus:border-zinc-500">
+               class="rounded-md border-[var(--border-strong)] text-sm px-2 py-1 border focus:ring-[var(--accent)] focus:border-[var(--accent)]">
         <span class="text-sm text-[var(--text-muted)]">至</span>
         <input type="date" name="date_to" value="{{ date_to }}"
-               class="rounded-md border-zinc-300 text-sm px-2 py-1 border focus:ring-zinc-500 focus:border-zinc-500">
+               class="rounded-md border-[var(--border-strong)] text-sm px-2 py-1 border focus:ring-[var(--accent)] focus:border-[var(--accent)]">
         {% if status_filter or tag_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}

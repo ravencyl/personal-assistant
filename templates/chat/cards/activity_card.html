@@ -1,47 +1,47 @@
 {% comment %}对话内单活动卡片：数据来自 msg.payload.card_data（快照，历史消息可回放）{% endcomment %}
-<div class="mt-2 rounded-xl border border-zinc-200 bg-white overflow-hidden text-left">
+<div class="mt-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] overflow-hidden text-left">
     <div class="h-1 status-bg--{{ card.status }}"></div>
     <div class="p-3">
         <div class="flex items-center justify-between gap-2">
-            <a href="{{ card.detail_url }}" class="font-medium text-sm text-zinc-900 hover:text-zinc-600 truncate">{{ card.name }}</a>
-            <span class="shrink-0 text-[10px] text-zinc-400 tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ card.id }}</span>
+            <a href="{{ card.detail_url }}" class="font-medium text-sm text-[var(--text)] hover:text-[var(--text-secondary)] truncate">{{ card.name }}</a>
+            <span class="shrink-0 text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ card.id }}</span>
             {% include "activities/_status_badge.html" with status=card.status label=card.status_label %}
         </div>
-        <p class="mt-1 text-xs text-zinc-500">{{ card.date_range }}{% if card.expense_total %} · &#165;{{ card.expense_total|floatformat:"-2" }}{% endif %}</p>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">{{ card.date_range }}{% if card.expense_total %} · &#165;{{ card.expense_total|floatformat:"-2" }}{% endif %}</p>
         {% if card.tags or card.participants %}
-        <p class="mt-1 text-xs text-zinc-400">
+        <p class="mt-1 text-xs text-[var(--text-muted)]">
             {% for t in card.tags %}<span class="mr-1.5"># {{ t }}</span>{% endfor %}
             {% for p in card.participants %}<span class="mr-1.5">@ {{ p }}</span>{% endfor %}
         </p>
         {% endif %}
         {% if card.description %}
-        <p class="mt-1 text-xs text-zinc-500 line-clamp-2">{{ card.description }}</p>
+        <p class="mt-1 text-xs text-[var(--text-muted)] line-clamp-2">{{ card.description }}</p>
         {% endif %}
 
         {% if card.children %}
-        <div class="mt-2 border-t border-zinc-100 pt-2">
+        <div class="mt-2 border-t border-[var(--border)] pt-2">
             {% if card.children_count <= 3 %}
             {% for c in card.children %}
             <div class="flex items-center gap-1.5 text-xs py-0.5 flex-wrap">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
-                <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
-                <span class="text-[10px] text-zinc-400 tabular-nums">#{{ c.id }}</span>
-                {% if c.date_label %}<span class="text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3 sm:pl-0 text-[10px]">{{ c.date_label }}</span>{% endif %}
+                <a href="{{ c.detail_url }}" class="text-[var(--text-secondary)] hover:text-[var(--text)] truncate">{{ c.name }}</a>
+                <span class="text-[10px] text-[var(--text-muted)] tabular-nums">#{{ c.id }}</span>
+                {% if c.date_label %}<span class="text-[var(--text-muted)] tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3 sm:pl-0 text-[10px]">{{ c.date_label }}</span>{% endif %}
             </div>
             {% endfor %}
             {% else %}
             <details>
-                <summary class="text-xs text-zinc-500 cursor-pointer select-none hover:text-zinc-800">活动安排（{{ card.children_count }}）</summary>
+                <summary class="text-xs text-[var(--text-muted)] cursor-pointer select-none hover:text-[var(--text)]">活动安排（{{ card.children_count }}）</summary>
                 <div class="mt-1">
                     {% for c in card.children %}
                     <div class="flex items-center gap-1.5 text-xs py-0.5 flex-wrap">
                         <span class="w-1.5 h-1.5 rounded-full shrink-0 status-bg--{{ c.status }}"></span>
-                        <a href="{{ c.detail_url }}" class="text-zinc-700 hover:text-zinc-900 truncate">{{ c.name }}</a>
-                        <span class="text-[10px] text-zinc-400 tabular-nums">#{{ c.id }}</span>
-                        {% if c.date_label %}<span class="text-zinc-400 tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3 sm:pl-0 text-[10px]">{{ c.date_label }}</span>{% endif %}
+                        <a href="{{ c.detail_url }}" class="text-[var(--text-secondary)] hover:text-[var(--text)] truncate">{{ c.name }}</a>
+                        <span class="text-[10px] text-[var(--text-muted)] tabular-nums">#{{ c.id }}</span>
+                        {% if c.date_label %}<span class="text-[var(--text-muted)] tabular-nums w-full sm:w-auto sm:ml-auto sm:shrink-0 pl-3 sm:pl-0 text-[10px]">{{ c.date_label }}</span>{% endif %}
                     </div>
                     {% endfor %}
-                    <a href="{{ card.detail_url }}" class="text-xs text-zinc-400 hover:text-zinc-700">查看全部 →</a>
+                    <a href="{{ card.detail_url }}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">查看全部 →</a>
                 </div>
             </details>
             {% endif %}
@@ -50,24 +50,24 @@
 
         {% if card.next_status %}
         {# 状态按钮不整页提交：method=post 的原生表单会把分栏 SPA 导航走。chat-turn.js 里对 [data-status-fetch] 做 submit 委托（preventDefault + apiFetch POST），沿用表单自身的 action，activities 侧视图零改动。 #}
-        <div class="mt-2 pt-2 border-t border-zinc-100 flex flex-wrap items-center gap-1.5" data-status-row>
+        <div class="mt-2 pt-2 border-t border-[var(--border)] flex flex-wrap items-center gap-1.5" data-status-row>
             {% for s in card.next_status %}
             <form method="post" action="{% url 'activities:activity_set_status' card.id %}" data-status-fetch>
                 {% csrf_token %}
                 <input type="hidden" name="status" value="{{ s.value }}">
                 <button type="submit" data-status-label="{{ s.label }}" class="tap-target rounded-full px-3 py-1.5 text-xs font-medium transition-colors
-                    {% if s.value == 'done' %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200
-                    {% elif s.value == 'cancelled' %}bg-zinc-50 text-zinc-400 hover:bg-zinc-100
-                    {% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+                    {% if s.value == 'done' %}bg-[var(--bg)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]
+                    {% elif s.value == 'cancelled' %}bg-[var(--bg)] text-[var(--text-muted)] hover:bg-[var(--accent-light)]
+                    {% else %}bg-[var(--bg)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">
                     {{ s.label }}
                 </button>
             </form>
             {% endfor %}
-            <a href="{{ card.detail_url }}" class="ml-auto text-xs text-zinc-500 hover:text-zinc-900">详情 →</a>
+            <a href="{{ card.detail_url }}" class="ml-auto text-xs text-[var(--text-muted)] hover:text-[var(--text)]">详情 →</a>
         </div>
         {% else %}
-        <div class="mt-2 pt-2 border-t border-zinc-100 flex justify-end">
-            <a href="{{ card.detail_url }}" class="text-xs text-zinc-500 hover:text-zinc-900">详情 →</a>
+        <div class="mt-2 pt-2 border-t border-[var(--border)] flex justify-end">
+            <a href="{{ card.detail_url }}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">详情 →</a>
         </div>
         {% endif %}
     </div>

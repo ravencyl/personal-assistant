@@ -1,12 +1,12 @@
 {% comment %}统计卡片：状态分布分段条 + 近 6 月柱状 + 热门标签 + 费用汇总，纯 CSS 无图表库{% endcomment %}
-<div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
+<div class="mt-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] p-3 text-left">
     <div class="flex items-baseline justify-between gap-2">
-        <span class="text-sm font-medium text-zinc-900">活动概况</span>
-        <span class="text-xs text-zinc-400">共 {{ card.total }} 个 · 费用合计 &#165;{{ card.cost_total|floatformat:"-2" }}</span>
+        <span class="text-sm font-medium text-[var(--text)]">活动概况</span>
+        <span class="text-xs text-[var(--text-muted)]">共 {{ card.total }} 个 · 费用合计 &#165;{{ card.cost_total|floatformat:"-2" }}</span>
     </div>
 
     <!-- 状态分布分段条 -->
-    <div class="mt-2.5 flex h-2 rounded-full overflow-hidden bg-zinc-100">
+    <div class="mt-2.5 flex h-2 rounded-full overflow-hidden bg-[var(--accent-light)]">
         {% for s in card.status_dist %}
         {% if s.count %}
         <div class="status-bg--{{ s.status }}"
@@ -14,7 +14,7 @@
         {% endif %}
         {% endfor %}
     </div>
-    <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-500">
+    <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
         {% for s in card.status_dist %}
         <span class="inline-flex items-center gap-1">
             <span class="w-1.5 h-1.5 rounded-full status-bg--{{ s.status }}"></span>
@@ -27,26 +27,26 @@
     <div class="mt-3 flex items-end gap-1.5">
         {% for b in card.month_bars %}
         <div class="flex-1 flex flex-col items-center gap-0.5 min-w-0">
-            <span class="text-[10px] text-zinc-400 tabular-nums h-3">{% if b.count %}{{ b.count }}{% endif %}</span>
+            <span class="text-[10px] text-[var(--text-muted)] tabular-nums h-3">{% if b.count %}{{ b.count }}{% endif %}</span>
             <div class="w-full h-12 flex items-end">
                 <div class="w-full rounded-sm bg-[var(--accent)] {% if not b.count %}opacity-10{% endif %}"
                      style="height: {% if b.count %}{{ b.pct }}{% else %}4{% endif %}%"></div>
             </div>
-            <span class="text-[10px] text-zinc-400">{{ b.label }}</span>
+            <span class="text-[10px] text-[var(--text-muted)]">{{ b.label }}</span>
         </div>
         {% endfor %}
     </div>
 
     <!-- 热门标签 -->
     {% if card.tags_top %}
-    <div class="mt-2.5 pt-2 border-t border-zinc-100 flex flex-wrap gap-1.5">
+    <div class="mt-2.5 pt-2 border-t border-[var(--border)] flex flex-wrap gap-1.5">
         {% for t in card.tags_top %}
-        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600"># {{ t.name }} · {{ t.count }}</span>
+        <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]"># {{ t.name }} · {{ t.count }}</span>
         {% endfor %}
     </div>
     {% endif %}
 
-    <div class="mt-2 pt-2 border-t border-zinc-100 flex justify-end">
-        <a href="{{ card.list_url }}" class="text-xs text-zinc-500 hover:text-zinc-900">查看全部 →</a>
+    <div class="mt-2 pt-2 border-t border-[var(--border)] flex justify-end">
+        <a href="{{ card.list_url }}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部 →</a>
     </div>
 </div>

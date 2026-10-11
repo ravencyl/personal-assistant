@@ -4,21 +4,21 @@
 {# 具体时间默认隐藏，点「具体时间」开关展开（展开逻辑在 activity-form.js initWidgets） #}
 {# a11y：label 必须 for 关联到 input（Django 自动 id 为 id_<field>），否则屏幕阅读器读不到字段名 #}
 <div>
-    <label for="id_name" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-zinc-800">*</span></label>
+    <label for="id_name" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-[var(--text)]">*</span></label>
     {{ form.name }}
-    {% if form.name.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.name.errors.0 }}</p>{% endif %}
+    {% if form.name.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.name.errors.0 }}</p>{% endif %}
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     <div>
         <label for="id_start_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
         {{ form.start_date }}
-        {% if form.start_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
+        {% if form.start_date.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
     </div>
     <div>
         <label for="id_end_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
         {{ form.end_date }}
-        {% if form.end_date.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
+        {% if form.end_date.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
     </div>
 </div>
 
@@ -35,12 +35,12 @@
         <div>
             <label for="id_start_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
             {{ form.start_time }}
-            {% if form.start_time.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
+            {% if form.start_time.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
         </div>
         <div>
             <label for="id_end_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
             {{ form.end_time }}
-            {% if form.end_time.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
+            {% if form.end_time.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
         </div>
         <p class="sm:col-span-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
     </div>
@@ -56,7 +56,7 @@
         <label for="id_parsed_cost" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.parsed_cost.label }}</label>
         {{ form.parsed_cost }}
         <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.parsed_cost.help_text }}</p>
-        {% if form.parsed_cost.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.parsed_cost.errors.0 }}</p>{% endif %}
+        {% if form.parsed_cost.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.parsed_cost.errors.0 }}</p>{% endif %}
     </div>
     {% endif %}
 </div>
@@ -74,7 +74,7 @@
     </div>
     <p class="mt-1 text-xs text-[var(--text-muted)]">点输入框从已有标签中选择（支持拼音），或输入新标签回车添加</p>
     {{ form.tags }}
-    {% if form.tags.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.tags.errors.0 }}</p>{% endif %}
+    {% if form.tags.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.tags.errors.0 }}</p>{% endif %}
 </div>
 
 <div>
@@ -90,7 +90,7 @@
     </div>
     <p class="mt-1 text-xs text-[var(--text-muted)]">点输入框从已有联系人中选择，或输入新姓名回车添加（保存时自动创建）</p>
     {{ form.participants_input }}
-    {% if form.participants_input.errors %}<p class="mt-1 text-xs text-zinc-800 font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
+    {% if form.participants_input.errors %}<p class="mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
 </div>
 
 {# 低频字段折叠区：描述/父活动/活动安排收进来，默认收起（编辑已有描述时自动展开防误以为丢失）；弹窗无 parent（hide_parent）、编辑页无 new_children #}

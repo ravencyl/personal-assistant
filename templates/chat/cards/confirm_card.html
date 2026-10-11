@@ -3,65 +3,65 @@
 整卡带 id：确认端点（chat/views.py confirm_action）返回整张卡的片段做 outerHTML
 替换 —— 只换动作区的话，正文里「点确认后才会创建」的 pending 文案会与 ✓ 结果态
 同框矛盾（2026-10 UI 走查 item 6）。{% endcomment %}
-<div id="confirm-card-{{ msg.id }}" class="mt-2 rounded-xl border {% if card.kind == 'delete' %}border-zinc-200{% else %}border-zinc-200{% endif %} bg-white overflow-hidden text-left">
+<div id="confirm-card-{{ msg.id }}" class="mt-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] overflow-hidden text-left">
     <div class="h-1 {% if card.kind == 'delete' %}bg-red-400{% else %}bg-[var(--accent)]{% endif %}"></div>
     <div class="p-3">
         {% if card.kind == 'delete' %}
-        <p class="text-sm font-semibold text-zinc-800 flex items-center gap-1.5">
+        <p class="text-sm font-semibold text-[var(--text)] flex items-center gap-1.5">
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
             删除活动
         </p>
-        <p class="mt-1.5 text-sm text-zinc-900">
+        <p class="mt-1.5 text-sm text-[var(--text)]">
             {{ card.name }}
-            <span class="text-xs text-zinc-400 ml-1">{{ card.date_range }}</span>
+            <span class="text-xs text-[var(--text-muted)] ml-1">{{ card.date_range }}</span>
         </p>
         {% if card.children_count %}
-        <p class="mt-1 text-xs text-zinc-800 font-semibold">该活动下有 {{ card.children_count }} 个子活动，删除后它们将变为独立活动。</p>
+        <p class="mt-1 text-xs text-[var(--text)] font-semibold">该活动下有 {{ card.children_count }} 个子活动，删除后它们将变为独立活动。</p>
         {% endif %}
-        <p class="mt-1 text-xs text-zinc-400">此操作不可撤销（操作日志会保留）。</p>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">此操作不可撤销（操作日志会保留）。</p>
         {% elif card.kind == 'create' %}
-        <p class="text-sm font-semibold text-zinc-800">创建活动</p>
-        <p class="mt-1 text-sm text-zinc-900 font-medium">{{ card.name }}</p>
+        <p class="text-sm font-semibold text-[var(--text)]">创建活动</p>
+        <p class="mt-1 text-sm text-[var(--text)] font-medium">{{ card.name }}</p>
         <div class="mt-1.5 space-y-1">
             {% for f in card.fields %}
             <div class="flex flex-wrap items-baseline gap-x-2 text-xs">
-                <span class="text-zinc-400 shrink-0">{{ f.label }}</span>
-                <span class="text-zinc-900">{{ f.value }}</span>
+                <span class="text-[var(--text-muted)] shrink-0">{{ f.label }}</span>
+                <span class="text-[var(--text)]">{{ f.value }}</span>
             </div>
             {% endfor %}
         </div>
         {% if not action.resolved %}
         {# 决议后整卡会被换成结果态：pending 引导语只在待确认时出现，避免与 ✓ 结果同框矛盾 #}
-        <p class="mt-1 text-xs text-zinc-400">点确认后才会创建，取消则不做任何改动。</p>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">点确认后才会创建，取消则不做任何改动。</p>
         {% endif %}
         {% elif card.kind == 'expense' %}
-        <p class="text-sm font-semibold text-zinc-800">添加费用</p>
-        <p class="mt-1 text-sm text-zinc-900 font-medium">
-            <a href="{{ card.detail_url }}" class="hover:text-zinc-600">{{ card.name }}</a>
+        <p class="text-sm font-semibold text-[var(--text)]">添加费用</p>
+        <p class="mt-1 text-sm text-[var(--text)] font-medium">
+            <a href="{{ card.detail_url }}" class="hover:text-[var(--text-secondary)]">{{ card.name }}</a>
         </p>
         <div class="mt-1.5 space-y-1">
             {% for f in card.fields %}
             <div class="flex flex-wrap items-baseline gap-x-2 text-xs">
-                <span class="text-zinc-400 shrink-0">{{ f.label }}</span>
-                <span class="text-zinc-900">{{ f.value }}</span>
+                <span class="text-[var(--text-muted)] shrink-0">{{ f.label }}</span>
+                <span class="text-[var(--text)]">{{ f.value }}</span>
             </div>
             {% endfor %}
         </div>
         {% if not action.resolved %}
         {# 同 create 分支：决议后不再显示 pending 引导语 #}
-        <p class="mt-1 text-xs text-zinc-400">点确认后才会记账，取消则不做任何改动。</p>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">点确认后才会记账，取消则不做任何改动。</p>
         {% endif %}
         {% else %}
-        <p class="text-sm font-medium text-zinc-900">
-            修改「<a href="{{ card.detail_url }}" class="hover:text-zinc-600">{{ card.name }}</a>」
+        <p class="text-sm font-medium text-[var(--text)]">
+            修改「<a href="{{ card.detail_url }}" class="hover:text-[var(--text-secondary)]">{{ card.name }}</a>」
         </p>
         <div class="mt-1.5 space-y-1">
             {% for c in card.changes %}
             <div class="flex flex-wrap items-baseline gap-x-2 text-xs">
-                <span class="text-zinc-400 shrink-0">{{ c.label }}</span>
-                <span class="text-zinc-400 line-through">{{ c.old }}</span>
-                <span class="text-zinc-300">→</span>
-                <span class="text-zinc-900 font-medium">{{ c.new }}</span>
+                <span class="text-[var(--text-muted)] shrink-0">{{ c.label }}</span>
+                <span class="text-[var(--text-muted)] line-through">{{ c.old }}</span>
+                <span class="text-[var(--text-muted)]">→</span>
+                <span class="text-[var(--text)] font-medium">{{ c.new }}</span>
             </div>
             {% endfor %}
         </div>

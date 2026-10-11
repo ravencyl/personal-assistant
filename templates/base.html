@@ -173,7 +173,7 @@
         {% if messages %}
         <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-4">
             {% for message in messages %}
-            <div class="rounded-xl p-3.5 mb-2 text-sm bg-zinc-50 text-zinc-800 border border-zinc-200">
+            <div class="rounded-xl p-3.5 mb-2 text-sm bg-[var(--bg-card)] text-[var(--text)] border border-[var(--border-strong)]">
                 {{ message }}
             </div>
             {% endfor %}
@@ -202,7 +202,7 @@
             <!-- 备忘 Tab -->
             <form id="quick-note-form" data-quick-pane="note" class="p-4 space-y-2">
                 <textarea name="content" rows="4" placeholder="记点什么…"
-                          class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]"></textarea>
+                          class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"></textarea>
                 <div class="flex justify-end">
                     <button type="submit"
                             class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">保存</button>
@@ -213,7 +213,7 @@
             <form id="quick-activity-form" data-quick-pane="activity" class="hidden p-4 space-y-2">
                 <input type="text" name="text" maxlength="500" autocomplete="off"
                        placeholder="一句话创建活动，如：8月25到28日去上海出差 预算3000 #工作"
-                       class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--text-secondary)]">
+                       class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                 <div class="flex justify-end">
                     <button type="submit"
                             class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">创建</button>

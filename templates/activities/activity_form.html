@@ -30,7 +30,7 @@
                 <input type="text" id="form-quick-input" data-parse-url="{% url "activities:parse_quick_input" %}" maxlength="500"
                        placeholder="快速输入，如：8月25到28日去上海出差 #工作 @小王"
                        autocomplete="off"
-                       class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+                       class="flex-1 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 <button type="button" id="form-quick-btn"
                         class="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed">解析</button>
             </div>
@@ -40,7 +40,7 @@
         <!-- 从模板创建 -->
         <div id="template-section" class="mb-4">
             <div class="flex items-center gap-2">
-                <select id="template-select" class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+                <select id="template-select" class="flex-1 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                     <option value="">从模板创建…</option>
                 </select>
                 <button type="button" id="template-use-btn" disabled
@@ -50,7 +50,7 @@
         {% endif %}
 
         {% if form.non_field_errors %}
-        <div class="mb-4 rounded-md bg-zinc-50 border border-zinc-200 p-3 text-sm text-zinc-800">
+        <div class="mb-4 rounded-md bg-[var(--bg)] border border-[var(--border-strong)] p-3 text-sm text-[var(--text)]">
             错误：{{ form.non_field_errors }}
         </div>
         {% endif %}
@@ -78,12 +78,12 @@
         {% if activity %}
         <!-- 活动安排快捷管理（仅编辑模式） -->
         <div class="mt-6 pt-4 border-t border-[var(--border-strong)]">
-            <h2 class="text-sm font-medium text-[var(--text)] mb-2">活动安排（{{ children|length }}）</h2>
+            <h2 class="text-sm font-semibold text-[var(--text)] mb-2">活动安排（{{ children|length }}）</h2>
             <form method="post" action="{% url 'activities:add_subactivity' activity.id %}" class="flex gap-2 mb-3">
                 {% csrf_token %}
                 <input type="text" name="name" placeholder="输入活动安排名称，回车添加"
                        autocomplete="off"
-                       class="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none">
+                       class="flex-1 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 <button type="submit" class="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">+ 添加</button>
             </form>
             {% if children %}

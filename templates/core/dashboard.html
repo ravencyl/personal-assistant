@@ -13,7 +13,7 @@
      铃铛不带 id 只带 data-push-toggle，与顶栏按钮同进 push.js 的按钮组） -->
 <div class="mb-6 flex items-start justify-between gap-2">
     <div>
-        <h1 class="text-2xl font-semibold text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
+        <h1 class="text-2xl font-bold text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
         <p class="text-sm text-[var(--text-secondary)] mt-1">{{ today_display }}</p>
     </div>
     <div class="flex items-center shrink-0 md:hidden">
@@ -62,7 +62,7 @@
 <!-- 本周费用趋势 -->
 <div class="app-card p-4">
     <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-medium text-[var(--text)]">本周费用</h2>
+        <h2 class="text-sm font-semibold text-[var(--text)]">本周费用</h2>
         <span class="text-xs text-[var(--text-muted)]">¥{{ stats.week_expense|floatformat:0 }}</span>
     </div>
     {# 图表数据走 json_script：转义由 Django 负责（旧版 |safe 内联拼 JS 靠 Python repr 恰好合法撑着，标签一旦含引号就是语法错误/注入面） #}
@@ -83,7 +83,7 @@
     <!-- 最近活动 -->
     <div class="app-card p-4">
         <div class="flex items-center justify-between mb-3">
-            <h2 class="text-sm font-medium text-[var(--text)]">最近活动</h2>
+            <h2 class="text-sm font-semibold text-[var(--text)]">最近活动</h2>
             <a href="{% url 'activities:activity_list' %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部</a>
         </div>
         {% for a in recent_activities %}
@@ -100,7 +100,7 @@
     <!-- 最近对话 -->
     <div class="app-card p-4">
         <div class="flex items-center justify-between mb-3">
-            <h2 class="text-sm font-medium text-[var(--text)]">最近对话</h2>
+            <h2 class="text-sm font-semibold text-[var(--text)]">最近对话</h2>
             <a href="{% url 'chat:conversation_list' %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">查看全部</a>
         </div>
         {% for conv in recent_conversations %}
@@ -123,7 +123,7 @@
      四个入口（周报/月报/年报/每周回顾）语义平级，统一同一套描边按钮样式
      （旧版周报是实心、其余描边，看着像周报才是主路径） -->
 <div class="app-card p-4">
-    <h2 class="text-sm font-medium text-[var(--text)] mb-3">生成报告</h2>
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-3">生成报告</h2>
     <div class="flex flex-wrap gap-2 md:flex-col">
         <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
             生成周报
@@ -142,7 +142,7 @@
 
 <!-- 日历订阅入口：把活动同步到 Apple 日历（2026-09-11） -->
 <div class="app-card p-4">
-    <h2 class="text-sm font-medium text-[var(--text)] mb-3">日历同步</h2>
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-3">日历同步</h2>
     <p class="text-xs text-[var(--text-secondary)] mb-3 leading-relaxed">把进行中与计划中的活动同步到 iPhone / Mac 自带日历，到期前收系统提醒。</p>
     <a href="{% url 'activities:calendar_feed_settings' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors inline-block">
         管理订阅
@@ -152,7 +152,7 @@
 <!-- 活动状态分布 -->
 {% if stats.status_counts %}
 <div class="app-card p-4">
-    <h2 class="text-sm font-medium text-[var(--text)] mb-3">活动分布</h2>
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-3">活动分布</h2>
 
     <!-- 分段条 -->
     <div class="flex h-2 rounded-full overflow-hidden bg-[var(--accent-light)] mb-4">

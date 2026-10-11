@@ -5,7 +5,7 @@
 {% block content %}
 <!-- 头部 -->
 <div class="mb-6">
-    <h1 class="text-xl font-semibold text-[var(--text)]">{{ title }}</h1>
+    <h1 class="text-xl font-bold text-[var(--text)]">{{ title }}</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">
         {% if report_type == 'weekly' %}
             {{ week_start|date:"Y.m.d" }} - {{ week_end|date:"m.d" }}

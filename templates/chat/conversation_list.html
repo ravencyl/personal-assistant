@@ -80,7 +80,7 @@
                         <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium
                             {% if conv.status == 'processing' %}bg-[var(--accent)] text-[var(--bg)]
                             {% elif conv.status == 'archived' %}bg-[var(--accent-light)] text-[var(--text-secondary)]
-                            {% else %}bg-zinc-100 text-zinc-600{% endif %}">
+                            {% else %}bg-[var(--accent-light)] text-[var(--text-secondary)]{% endif %}">
                             {{ conv.get_status_display }}
                         </span>
                         <span class="text-[10px] text-[var(--text-muted)]">{{ conv.updated_at|timesince }}前</span>

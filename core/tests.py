@@ -2193,3 +2193,104 @@ class ImplicitGridTrackTest(SimpleTestCase):
         self.assertEqual(self._offenders('<div class="grid grid-cols-1 md:grid-cols-2">'), [])
         self.assertEqual(self._offenders('<div class="grid grid-cols-2 gap-3">'), [])
         self.assertEqual(self._offenders('<div class="flex md:flex-col">'), [])
+
+
+class VisualAlignmentTest(SimpleTestCase):
+    """全站视觉对齐的唯一口径（2026-10-11 走查取证后定稿），逐条静态锁：
+
+    ① 表面/文字灰阶只有令牌一份：模板 class 里禁止 bg-white、zinc-* 系硬编码，
+       统一 var(--bg-card)/var(--border)/var(--text-secondary)/var(--text-muted)。
+       例外白名单只有一类：深底反白元素（outbox 徽点、附件遮罩上的删除键），
+       判据同行必须有 text-white（白字底下才有深灰底可言）。
+    ② 页面主标题 h1 一律 font-bold：曾同时存在 text-2xl font-semibold（仪表盘）
+       与其余页的 font-bold，同级标题两种字重是「每个页各自长出来」的典型症状。
+    ③ 卡片标题 h2 不得用 font-medium：口径是 text-sm font-semibold（expense_report
+       等 9 处已如此），dashboard/activity_detail 的 font-medium 已收拢。
+    ④ 输入框聚焦态一律 focus:border-[var(--accent)]：曾并存 focus:border-zinc-900
+       （详情页费用表单）、zinc-500（表单页/列表筛选）、border-[var(--text-secondary)]
+       三种灰阶聚焦 —— 品牌色落点只在 focus 环与勾选框（custom.css），聚焦描边
+       跟着它走；灰阶聚焦和令牌聚焦混用，同站两种「正在输入」的颜色。
+
+    扫描一律先过 code_only 剔注释（注释里写旧类名是「为什么改」的说明，不是漂移）。
+    """
+
+    # class="..." 属性里出现的灰阶工具类（含任意 hover:/focus:/sm: 前缀变体）
+    HARDCODED_GRAY = re.compile(r'(?:\b(?:hover|focus|sm|md|lg):)?(?:bg|border|text|ring|divide)-(?:zinc|gray|neutral)-\d+')
+    BG_WHITE = re.compile(r'(?:\b(?:hover|focus|sm|md|lg):)?bg-white\b')
+    # 例外（唯一允许硬编码灰的地方）：深底反白 —— 同一 class 属性里有 text-white
+    ON_DARK = re.compile(r'\btext-white\b')
+    H1_TAG = re.compile(r'<h1\b[^>]*>')
+    H2_TAG = re.compile(r'<h2\b[^>]*>')
+    # 禁止的聚焦描边（灰阶硬编码 + 旧令牌变体），只查 focus: 前缀的 border/ring
+    BAD_FOCUS = re.compile(r'focus:(?:border|ring)-(?:\[var\(--text-secondary\)\]|zinc-\d+)')
+
+    def _templates(self):
+        base = Path(settings.BASE_DIR)
+        files = list((base / 'templates').rglob('*.html'))
+        for app_dir in sorted(base.glob('*/templates')):
+            files.extend(app_dir.rglob('*.html'))
+        return sorted(set(files))
+
+    def _scan(self, src, pattern):
+        """返回命中列表；深底反白元素（class 属性含 text-white）按白名单放行"""
+        hits = []
+        for m in re.finditer(r'class="([^"]*)"', src):
+            cls = m.group(1)
+            if pattern.search(cls) and not self.ON_DARK.search(cls):
+                hits.append(cls[:80])
+        return hits
+
+    def test_no_hardcoded_gray_surface_or_text(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for cls in self._scan(src, self.HARDCODED_GRAY) + self._scan(src, self.BG_WHITE):
+                offenders.append(f'{tpl.relative_to(Path(settings.BASE_DIR))}: {cls}')
+        self.assertEqual(offenders, [],
+                         f'模板里又出现硬编码灰阶（表面/文字应走 var(--*) 令牌）：{offenders}')
+
+    def test_h1_always_bold(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for tag in self.H1_TAG.finditer(src):
+                if 'font-semibold' in tag.group(0) or 'font-medium' in tag.group(0):
+                    offenders.append(f'{tpl.name}: {tag.group(0)[:80]}')
+        self.assertEqual(offenders, [], f'h1 字重不是 font-bold（页面主标题唯一口径）：{offenders}')
+
+    def test_h2_never_font_medium(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for tag in self.H2_TAG.finditer(src):
+                if 'font-medium' in tag.group(0):
+                    offenders.append(f'{tpl.name}: {tag.group(0)[:80]}')
+        self.assertEqual(offenders, [], f'h2 卡标题还在用 font-medium（口径是 font-semibold）：{offenders}')
+
+    def test_input_focus_uses_accent_only(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for m in re.finditer(r'class="([^"]*)"', src):
+                bad = self.BAD_FOCUS.search(m.group(1))
+                if bad:
+                    offenders.append(f'{tpl.name}: {bad.group(0)}')
+        self.assertEqual(offenders, [], f'输入框聚焦描边还有灰阶（唯一口径 focus:border-[var(--accent)]）：{offenders}')
+
+    def test_scanners_itself_detect_the_bad_shapes(self):
+        # 变异反证：四条口径的坏形状各喂一条必须响，白名单形态必须不响
+        self.assertEqual(len(self._scan('<div class="bg-white border border-zinc-200">', self.HARDCODED_GRAY)), 1)
+        self.assertEqual(len(self._scan('<div class="bg-white">', self.BG_WHITE)), 1)
+        # 深底反白徽点（白名单）不得误伤
+        self.assertEqual(self._scan('<span class="bg-zinc-700 text-white">3</span>', self.HARDCODED_GRAY), [])
+        self.assertEqual(len(self.H1_TAG.findall('<h1 class="text-2xl font-semibold">x</h1>')), 1)
+        bad_h1 = [t for t in self.H1_TAG.finditer('<h1 class="text-2xl font-semibold">x</h1>')
+                  if 'font-semibold' in t.group(0)]
+        self.assertEqual(len(bad_h1), 1)
+        self.assertEqual(len([t for t in self.H2_TAG.finditer('<h2 class="text-sm font-medium">x</h2>')
+                              if 'font-medium' in t.group(0)]), 1)
+        # 好形状不得误伤（防锁被下一波误报逼成摆设）
+        self.assertEqual([t for t in self.H1_TAG.finditer('<h1 class="text-2xl font-bold">ok</h1>')
+                          if 'font-semibold' in t.group(0)], [])
+        self.assertIsNotNone(self.BAD_FOCUS.search('focus:border-zinc-900 focus:outline-none'))
+        self.assertIsNone(self.BAD_FOCUS.search('focus:border-[var(--accent)] focus:outline-none'))
