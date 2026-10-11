@@ -565,7 +565,8 @@ class ToolTargetNumericIdTest(TestCase):
 
 
 class ActivityIdDisplayTest(SimpleTestCase):
-    """活动 ID 展示锁：对话卡片与列表页活动名旁都标 #N，供用户直接口述 ID 操作"""
+    """活动 ID 展示锁：只在对话卡片标 #N（列表页已按 2026-10-12 用户决定隐藏——
+    一行里多一个数字只会歪歪扭扭，要看 ID 去详情页，口述操作在对话卡片上点）"""
 
     EXPECTED = {
         'templates/chat/cards/activity_card.html': ['#{{ card.id }}', '#{{ c.id }}'],
@@ -573,7 +574,6 @@ class ActivityIdDisplayTest(SimpleTestCase):
         'templates/chat/cards/candidates_card.html': ['#{{ item.id }}'],
         'templates/chat/cards/daily_brief_card.html': ['#{{ item.id }}'],
         'templates/chat/cards/today_brief_card.html': ['#{{ item.id }}'],
-        'templates/activities/activity_list.html': ['#{{ activity.id }}'],
     }
 
     def test_all_surfaces_render_activity_id(self):
@@ -582,6 +582,12 @@ class ActivityIdDisplayTest(SimpleTestCase):
             html = (root / rel).read_text(encoding='utf-8')
             for m in markers:
                 self.assertIn(m, html, f'{rel} 缺少活动 ID 标注 {m}')
+
+    def test_activity_list_no_longer_shows_id(self):
+        """防复活：列表页（移动卡 + 桌面表格）都不得再把 #ID 摆回名字旁边"""
+        src = (Path(__file__).resolve().parent.parent
+               / 'templates' / 'activities' / 'activity_list.html').read_text()
+        self.assertNotIn('#{{ activity.id }}', src)
 
 
 class ParticipantQuickEndpointTest(TestCase):
@@ -3270,3 +3276,51 @@ class MobileActivityCardDisplayTest(TestCase):
         self.assertIn('px-1.5', block)
         self.assertNotIn('进行中</span>', block)
         self.assertIn('aria-label="进行中"', block)
+
+
+class ListRowClutterRemovedTest(SimpleTestCase):
+    """活动列表行内收敛（2026-10-12 用户走查决定，防复活静态锁）：
+
+    ① 行内编辑按钮整体下线（移动卡 + 桌面表格）：使用习惯是点进详情页再编辑；
+    ② 移动端卡片去掉 #ID 与 ¥费用，右侧收敛成「折叠槽(44px)｜日期(固定宽)｜状态 icon」
+       三条恒定宽度列 —— 这正是此前「歪歪扭扭」的根因（可变宽度尾部元素互相推挤）；
+    ③ 桌面表格的费用列保留（列宽天然对齐，且承担 cost 排序入口），不得顺手删除。
+    """
+
+    LIST = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'activity_list.html'
+
+    def _raw(self):
+        return self.LIST.read_text(encoding='utf-8')
+
+    def _mobile_block(self):
+        """移动端卡整块：与 MobileActivityCardDisplayTest 同一锚点口径（<!-- 分页 收尾），
+        再剔注释 —— code_only 会把该锚点一起剔掉，所以必须先切块后剔注释"""
+        from core.layout_asserts import code_only
+        src = self._raw()
+        start = src.index('id="mobile-activity-list"')
+        rest = src[start:]
+        end = rest.index('<!-- 分页')
+        return code_only(rest[:end])
+
+    def test_no_inline_edit_link_anywhere(self):
+        from core.layout_asserts import code_only
+        self.assertNotIn('activities:activity_edit', code_only(self._raw()))
+
+    def test_mobile_card_has_no_cost_or_edit(self):
+        block = self._mobile_block()
+        self.assertNotIn('¥', block, '移动端卡的费用又摆回来了')
+        self.assertNotIn('show_cost', block)
+
+    def test_mobile_card_right_side_uses_fixed_width_slots(self):
+        """对齐的唯一实现：折叠钮槽位与日期列恒定宽，无子活动的行也占位"""
+        block = self._mobile_block()
+        self.assertIn('shrink-0 w-11 flex items-center justify-center', block)
+        self.assertIn('shrink-0 w-10 text-right', block)
+
+    def test_desktop_cost_column_survives(self):
+        """桌面表格费用列是对齐的，不能跟着移动端一起删"""
+        from core.layout_asserts import code_only
+        table = code_only(self._raw())
+        table = table[table.index('id="activity-list"'):table.index('id="mobile-activity-list"')]
+        self.assertIn('¥{{ activity.show_cost', table)
+        self.assertIn("sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}", table)

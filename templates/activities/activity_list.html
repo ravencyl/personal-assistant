@@ -191,8 +191,7 @@
             {% if activity.depth %}<span class="text-[var(--text-muted)] select-none" style="margin-left: {% widthratio activity.depth 1 1 %}em">&#9492;</span>{% endif %}
             <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-[var(--text)] hover:text-[var(--text-secondary)] break-words min-w-0">{{ activity.name }}</a>
             {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
-            <span class="ml-auto shrink-0 text-xs text-[var(--text-secondary)] whitespace-nowrap">{{ activity.date_range }}</span>
-            <span class="shrink-0 text-xs tabular-nums text-[var(--text-secondary)]">¥{{ activity.show_cost|floatformat:"-2" }}</span>
+            <span class="ml-auto shrink-0 text-xs text-[var(--text-muted)] tabular-nums whitespace-nowrap">{{ activity.date_range }}</span>
         </div>
         {% endfor %}
     </div>
@@ -244,7 +243,6 @@
                         <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %} hover:text-[var(--text-secondary)]">
                             {{ activity.name }}
                         </a>
-                        <span class="text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ activity.id }}</span>
                     </div>
                     {% if not tree_mode and activity.parent %}
                     <span class="ml-1 text-xs text-[var(--text-muted)]">└ {{ activity.parent.name }}</span>
@@ -268,18 +266,13 @@
                     {% if activity.sub_count %}<span class="text-xs text-[var(--text-muted)]">含子活动</span>{% endif %}
                 </td>
                 <td class="px-3 py-3 text-center">
+                    {# 操作列只剩树形折叠钮（2026-10-12 用户决定去掉行内编辑：编辑一律点进详情页做） #}
                     <div class="flex items-center justify-center gap-1">
                         {% if tree_mode and activity.has_children %}
                         {# 树形钮放行尾操作区（2026-10-08 用户反馈：放名字前同一列名字对不齐） #}
                         <button type="button" class="tree-toggle inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] select-none"
                                 data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                         {% endif %}
-                        <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑「{{ activity.name }}」"
-                           class="inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text)] hover:bg-[var(--accent-light)]">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                            </svg>
-                        </a>
                     </div>
                 </td>
             </tr>
@@ -289,32 +282,27 @@
     </div>
 </div>
 
-<!-- 移动端卡片列表（2026-10-11 用户反馈）：名字**不截断、换行展示全**；
-     状态徽章收成 icon-only 色块（文字太长占宽，颜色与 icon 已足够区分四态，
-     title/aria-label 保留读屏与长按提示）；名字行不放任何 icon（树形钮在行尾），
-     所有名字同列左对齐；整卡空白处仍是进详情的触区 -->
+<!-- 移动端卡片列表（2026-10-12 用户走查后收敛为一行口径）：
+     名字换行展示全（禁 truncate，锁见 MobileActivityCardDisplayTest），右侧是三条**恒定宽度的固定列**
+     （折叠钮槽位 44px / 日期 / 状态 icon），没有子活动与没有折叠的行的槽位留空但占位，
+     所以右缘逐行对齐、不再歪歪扭扭；编辑按钮、#ID、费用全部从列表去掉
+     （编辑走详情页，ID 在详情页与对话卡片里仍可口述，费用看详情页）。整卡空白处仍是进详情的触区 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
-    <div class="tree-row app-card flex items-center gap-2 px-3 py-2.5" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+    <div class="tree-row app-card flex items-center gap-1.5 px-3.5 py-2.5" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <a href="{% url 'activities:activity_detail' activity.id %}"
            class="flex-1 min-w-0 break-words text-[15px] font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
            style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">{{ activity.name }}</a>
-        <span class="shrink-0 text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ activity.id }}</span>
-        <span class="shrink-0 whitespace-nowrap text-xs text-[var(--text-secondary)]" title="{{ activity.date_range }}">{{ activity.start_date|date:'m-d' }}</span>
-        <span class="shrink-0 tabular-nums text-xs text-[var(--text-secondary)]">¥{{ activity.show_cost|floatformat:"-2" }}</span>
-        {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display icon_only=True %}
-        {% if tree_mode and activity.has_children %}
-        {# 树形钮放行尾：名字行无 icon 才能对齐；tap-target 膨胀用负 margin 抵消 #}
-        <button type="button" class="tree-toggle tap-target shrink-0 -my-2 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)] select-none"
-                data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
-        {% endif %}
-        <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑「{{ activity.name }}」"
-           class="tap-target shrink-0 -my-2 -mr-1.5 rounded-full text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)]">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-            </svg>
-        </a>
+        <span class="shrink-0 w-11 flex items-center justify-center">
+            {# 折叠钮槽位恒占 44px（tap-target 宽度），无子活动留空：状态列才逐行对齐 #}
+            {% if tree_mode and activity.has_children %}
+            <button type="button" class="tree-toggle tap-target -my-2.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)] select-none"
+                    data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
+            {% endif %}
+        </span>
+        <span class="shrink-0 w-10 text-right text-xs tabular-nums text-[var(--text-muted)] whitespace-nowrap" title="{{ activity.date_range }}">{{ activity.start_date|date:'m-d' }}</span>
+        <span class="shrink-0 flex items-center justify-center">{% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display icon_only=True %}</span>
     </div>
     {% endfor %}
 </div>
@@ -361,7 +349,7 @@
 <!-- 新建活动弹窗：唯一实现在共享 partial（原 Daily 页已下线，现对话快记面板/列表页等共用） -->
 {% include "activities/_activity_create_modal.html" %}
 
-{# 整卡触区委托：点卡片空白处进详情；树形/编辑/标签等真实交互元素先排除 #}
+{# 整卡触区委托：点卡片空白处进详情；树形钮等真实交互元素先排除（行内编辑已下线，卡上只剩详情链与折叠钮） #}
 <script>
 (function () {
     var list = document.getElementById('mobile-activity-list');
