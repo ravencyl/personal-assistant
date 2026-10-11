@@ -551,6 +551,34 @@ class ChatSendAsyncTest(TestCase):
         # 拒发要发生在落库之前：否则历史里留下一条永远发不出去的孤儿消息
         self.assertEqual(self.conv.messages.count(), before)
 
+    def test_second_concurrent_send_loses_the_race_and_writes_nothing(self):
+        """抢轮是条件 UPDATE：两个并发请求（双标签页/狂点）都过了先读后写的
+        turn_active 检查后，抢不到轮的必须空手而回且不落用户消息。
+
+        patch 掉 claim_turn 单独模拟「库里状态刚被别人改了」的毫秒级窗口：
+        2026-10-11 线上实锤（对话 52/58 各出现间隔 0~1 秒的相同消息），
+        旧代码这里没有任何原子性，两条都落库并各发起一轮。
+        """
+        with patch.object(Conversation, 'claim_turn', return_value=False):
+            resp = self._post(FakeQoderService())
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(resp.json()['state'], 'busy')
+        self.assertEqual(self.conv.messages.count(), 0)
+
+    def test_expired_residue_is_interrupted_in_db_before_the_claim(self):
+        """TTL 残留分支必须先 save 再抢轮：只改内存的话 claim 拿库里的旧活跃态
+        （awaiting）去比 from=none，永远抢不过自己，超时轮次会永久发不出新消息
+        """
+        self.conv.turn_state = Conversation.TURN_AWAITING
+        self.conv.turn_started_at = timezone.now() - timedelta(seconds=models_TTL + 60)
+        self.conv.save(update_fields=['turn_state', 'turn_started_at'])
+        resp = self._post(FakeQoderService())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['state'], 'processing')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_AWAITING)
+        self.assertEqual(self.conv.messages.filter(role='user').count(), 1)
+
     def test_platform_busy_keeps_the_turn_queued_instead_of_failing(self):
         """撞 409 不是失败：保持 queued 交给轮询重发（旧实现在这里同步等完首帧）"""
         service = FakeQoderService(send_raises=http_error(409))

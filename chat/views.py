@@ -555,10 +555,24 @@ def send_message(request, conversation_id):
                 'state': 'busy',
                 'turn_state': conversation.turn_state,
             }, status=409)
-        # TTL 残留（浏览器被关、worker 被杀、平台卡住）：开新轮前先把上一轮判为中断
+        # TTL 残留（浏览器被关、worker 被杀、平台卡住）：开新轮前先把上一轮判为中断。
+        # 必须先落库再往下抢轮：只改内存的话，下面的 claim 会拿库里的旧活跃态去比，
+        # 永远抢不过自己
         logger.info(f'对话 {conversation.id} 的上一轮没收尾（超时），开新一轮前强制中断')
         conversation.turn_state = Conversation.TURN_ERROR
         conversation.turn_idle_at = None
+        conversation.save(update_fields=['turn_state', 'turn_idle_at', 'updated_at'])
+
+    # 抢轮必须是条件 UPDATE（2026-10-11 线上实锤：对话 52/58 各出现间隔 0~1 秒的
+    # 两条相同消息）：上面的 turn_active 检查是先读后写，两个标签页/抽屉与分栏页
+    # 同时提交会双双通过检查、各落一条消息。抢不到轮的一方直接 409，
+    # 草稿留在输入框（前端 409 分支不丢字）。
+    if not conversation.claim_turn(conversation.turn_state, Conversation.TURN_QUEUED):
+        return _turn_response(request, conversation, {
+            'error': '上一条还在处理中，等它回完或先点「停止」',
+            'state': 'busy',
+            'turn_state': Conversation.TURN_QUEUED,
+        }, status=409)
 
     # 保存用户消息（原始内容，不含上下文提示）
     user_msg = Message.objects.create(

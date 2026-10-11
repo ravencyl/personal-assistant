@@ -159,6 +159,7 @@
         var ticking = false;                        // 上一拍没回来就不叠加发请求
         var ceiling = 0;                            // 兜底轮次上限（服务端 TTL 才是权威裁决）
         var running = false;
+        var sentAt = 0;                             // 本轮发出时刻（状态行「已等 N 秒」的基准）
 
         function api() { return urls() || {}; }
 
@@ -174,14 +175,21 @@
         }
 
         function setPhase(phase) {
-            showStatus(PHASE_TEXT[phase] || PHASE_TEXT.sent);
+            var text = PHASE_TEXT[phase] || PHASE_TEXT.sent;
+            // 长等待没有反馈就会被当成卡死（用户因此去点第二次/换个对话重发）。
+            // 5 秒起报「已等 N 秒」：比 5 秒快的轮没必要数字，慢轮要让用户看到在走
+            if (sentAt && phase !== 'queued') {
+                var secs = Math.round((Date.now() - sentAt) / 1000);
+                if (secs >= 5) text += '（已等 ' + secs + ' 秒）';
+            }
+            showStatus(text);
         }
 
         function setBusy(on) {
             running = !!on;
             // 只锁「发送」按钮，输入框保持可编辑：能边等边打下一条是这次改造的目的之一
             if (sendBtn) sendBtn.disabled = !!on;
-            if (!on) showStatus('');
+            if (!on) { sentAt = 0; showStatus(''); }
         }
 
         function append(html) {
@@ -198,9 +206,9 @@
             ticking = false;
         }
 
-        function schedule(ttl) {
+        function schedule(delay) {
             if (timer) clearTimeout(timer);
-            timer = setTimeout(tick, intervalMs);
+            timer = setTimeout(tick, delay || intervalMs);
         }
 
         function tick() {
@@ -244,7 +252,9 @@
         function start(ttl) {
             ceiling = Math.ceil(((ttl || 180) + 60) / (intervalMs / 1000));
             stopLoop();
-            schedule(ttl);
+            // 首拍 500ms：快轮（简单问答 5~15s 是常态）不必等满一个周期才见结果；
+            // 之后回到常规间隔，不给服务端加压
+            schedule(500);
         }
 
         function clearDraft(content) {
@@ -279,6 +289,7 @@
             Object.keys(extra).forEach(function (k) { body.set(k, extra[k]); });
 
             setBusy(true);
+            sentAt = Date.now();
             setPhase('sent');
             return apiFetch(u.send, {
                 method: 'POST',
