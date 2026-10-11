@@ -3214,3 +3214,59 @@ class ListCountColumnsRemovedTest(SimpleTestCase):
         self.assertNotIn('expense_count', src)
         self.assertNotIn('sort=sub_count', src)
         self.assertNotIn('{{ activity.sub_count }}', src)
+
+
+class MobileActivityCardDisplayTest(TestCase):
+    """移动端活动卡（2026-10-11 用户反馈两条）：
+    ① 活动名不得截断 —— 换行把名字展示全（break-words，禁 truncate）；
+    ② 状态徽章收成 icon-only 色块 —— 文字太长占宽，颜色+icon 已足够区分四态，
+       但 title/aria-label 必须保留（否则读屏与长按都不知道这是什么状态）。
+    """
+
+    LIST = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'activity_list.html'
+    BADGE = Path(settings.BASE_DIR) / 'templates' / 'activities' / '_status_badge.html'
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='mobile-card', password='x')
+        cls.activity = Activity.objects.create(
+            user=cls.user, name='话剧《尼罗河上的惨案》超长名字验证换行',
+            status='in_progress', start_date=date.today())
+
+    def _mobile_block(self, src):
+        start = src.index('id="mobile-activity-list"')
+        rest = src[start:]
+        end = rest.index('<!-- 分页')
+        return rest[:end]
+
+    def test_card_name_wraps_and_never_truncates(self):
+        from core.layout_asserts import code_only
+        block = code_only(self._mobile_block(self.LIST.read_text(encoding='utf-8')))
+        self.assertNotIn('truncate', block,
+                         '移动端卡的名字又挂上 truncate 了，长名字会被截断')
+        self.assertIn('break-words', block)
+
+    def test_mobile_badge_passes_icon_only(self):
+        self.assertIn('icon_only=True', self._mobile_block(
+            self.LIST.read_text(encoding='utf-8')))
+
+    def test_badge_partial_keeps_label_for_icon_only(self):
+        src = self.BADGE.read_text(encoding='utf-8')
+        self.assertIn('aria-label="{{ label }}"', src)
+        self.assertIn('title="{{ label }}"', src)
+        self.assertIn('{% if not icon_only %}{{ label }}{% endif %}', src)
+        # 桌面表格/详情页的带字徽章不得被顺手改掉（不传 icon_only 时原样）
+        self.assertIn('{{ label }}</span>', src.replace(
+            '{% if not icon_only %}{{ label }}{% endif %}</span>',
+            '{{ label }}</span>'))
+
+    def test_rendered_mobile_card_shows_full_name(self):
+        self.client.login(username='mobile-card', password='x')
+        html = self.client.get(reverse('activities:activity_list')).content.decode()
+        block = html[html.index('id="mobile-activity-list"'):]
+        block = block[:block.index('<!-- 分页')] if '<!-- 分页' in block else block
+        self.assertIn('话剧《尼罗河上的惨案》超长名字验证换行', block)
+        # icon-only：徽章形状是紧凑 px-1.5，且没有可见的状态文字
+        self.assertIn('px-1.5', block)
+        self.assertNotIn('进行中</span>', block)
+        self.assertIn('aria-label="进行中"', block)

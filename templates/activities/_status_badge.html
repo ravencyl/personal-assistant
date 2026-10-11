@@ -1,6 +1,6 @@
-{% comment %}共享状态徽章：{% include "activities/_status_badge.html" with status=xxx label=xxx %}{% endcomment %}
+{% comment %}共享状态徽章：{% include "activities/_status_badge.html" with status=xxx label=xxx %}；传 icon_only=True 收成纯 icon 色块（移动端列表用，文字太长占宽）{% endcomment %}
 {% comment %}颜色只在 static/css/custom.css 的 .badge-status--<status> 里定义；这里只管形状与图标 {% endcomment %}
-<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap badge-status--{{ status }}">
+<span class="inline-flex items-center gap-1 rounded-full {% if icon_only %}px-1.5{% else %}px-2{% endif %} py-0.5 text-xs font-medium whitespace-nowrap badge-status--{{ status }}"{% if icon_only %} title="{{ label }}" aria-label="{{ label }}"{% endif %}>
     {% if status == 'in_progress' %}
     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     {% elif status == 'done' %}
@@ -10,4 +10,4 @@
     {% else %}
     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     {% endif %}
-    {{ label }}</span>
+    {% if not icon_only %}{{ label }}{% endif %}</span>

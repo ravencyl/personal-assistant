@@ -296,20 +296,21 @@
     </div>
 </div>
 
-<!-- 移动端卡片列表：单行卡（2026-10-08 用户反馈还是太高，只留必要内容）：
-     名字截断 + 开始日期 + 金额 + 状态 + 操作一行排完，标签/完整日期区间看详情页；
-     名字行不放任何 icon（树形钮在行尾），所有名字同列左对齐；整卡空白处仍是进详情的触区 -->
+<!-- 移动端卡片列表（2026-10-11 用户反馈）：名字**不截断、换行展示全**；
+     状态徽章收成 icon-only 色块（文字太长占宽，颜色与 icon 已足够区分四态，
+     title/aria-label 保留读屏与长按提示）；名字行不放任何 icon（树形钮在行尾），
+     所有名字同列左对齐；整卡空白处仍是进详情的触区 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
     <div class="tree-row app-card flex items-center gap-2 px-3 py-2.5" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <a href="{% url 'activities:activity_detail' activity.id %}"
-           class="flex-1 min-w-0 truncate text-[15px] font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
+           class="flex-1 min-w-0 break-words text-[15px] font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
            style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">{{ activity.name }}</a>
         <span class="shrink-0 text-[10px] text-[var(--text-muted)] tabular-nums" title="活动 ID，可在对话里直接用它操作">#{{ activity.id }}</span>
         <span class="shrink-0 whitespace-nowrap text-xs text-[var(--text-secondary)]" title="{{ activity.date_range }}">{{ activity.start_date|date:'m-d' }}</span>
         <span class="shrink-0 tabular-nums text-xs text-[var(--text-secondary)]">¥{{ activity.show_cost|floatformat:"-2" }}</span>
-        {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
+        {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display icon_only=True %}
         {% if tree_mode and activity.has_children %}
         {# 树形钮放行尾：名字行无 icon 才能对齐；tap-target 膨胀用负 margin 抵消 #}
         <button type="button" class="tree-toggle tap-target shrink-0 -my-2 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)] select-none"
