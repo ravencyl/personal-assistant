@@ -28,9 +28,7 @@
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                         <p class="text-sm font-medium text-[var(--text)]">{{ v.title }}</p>
-                        {# versions 按 -edited_at 倒序（模型 Meta），第一条即最新版本快照。
-                           注意：快照是「保存前」的内容，最新一条是离当前正文最近的历史版本，
-                           标「最新」而不是「当前」—— 当前正文在文章页本身，这里没存它。 #}
+                        {# versions 按 -edited_at 倒序（模型 Meta），第一条即最新版本快照。注意：快照是「保存前」的内容，最新一条是离当前正文最近的历史版本，标「最新」而不是「当前」—— 当前正文在文章页本身，这里没存它。 #}
                         {% if forloop.first %}
                         <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]" title="这是最近一个历史快照（当前正文请看文章页）">最新</span>
                         {% endif %}

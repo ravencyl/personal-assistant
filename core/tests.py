@@ -2106,3 +2106,49 @@ class DashboardZeroExpenseChartTest(TestCase):
         self.assertIn('role="img"', html)
         self.assertIn('id="dash-weekdays"', html)
         self.assertIn('id="dash-daily-expense"', html)
+
+
+class TemplateCommentLineTest(SimpleTestCase):
+    """Django 的 {# #} 注释词法**不跨行**：跨行时匹配不上，整段注释会原样
+    泄漏成页面正文（2026-10-11 线上仪表盘「本周费用」卡泄漏了两段注释，
+    这是本项目第三次踩同一雷）。{# #} 想写长也必须收在同一行内。
+
+    扫描器自带一条自我反证（test_scanner_itself_detects_the_bad_shape）：
+    静态锁最怕切片/判据写错导致「空跑」，先拿构造样本证明它会响。
+    """
+
+    def _offenders(self, text):
+        """返回出现「{# 未在本行闭合」的行号列表"""
+        bad = []
+        for no, line in enumerate(text.splitlines(), 1):
+            pos = line.find('{#')
+            while pos != -1:
+                close = line.find('#}', pos + 2)
+                if close == -1:
+                    bad.append(no)
+                    break
+                pos = line.find('{#', close + 2)
+        return bad
+
+    def _all_template_files(self):
+        base = Path(settings.BASE_DIR)
+        files = list((base / 'templates').rglob('*.html'))
+        for app_dir in sorted(base.glob('*/templates')):
+            files.extend(app_dir.rglob('*.html'))
+        return sorted(set(files))
+
+    def test_no_multiline_django_comments_in_templates(self):
+        offenders = []
+        for tpl in self._all_template_files():
+            bad = self._offenders(tpl.read_text(encoding='utf-8'))
+            if bad:
+                offenders.append(f'{tpl.relative_to(Path(settings.BASE_DIR))}:{bad}')
+        self.assertEqual(offenders, [],
+                         '有注释没有在本行闭合（跨行的 Django 注释），'
+                         f'会整段泄漏进渲染结果：{offenders}')
+
+    def test_scanner_itself_detects_the_bad_shape(self):
+        # 变异反证：跨行必须响、同行多条必须不响（防误报把锁逼成摆设）
+        self.assertEqual(self._offenders('<p>a</p>{# 第一行\n第二行 #}<p>b</p>'), [1])
+        self.assertEqual(self._offenders('{# 单行 #}文字{# 又一行 #}'), [])
+        self.assertEqual(self._offenders('正常文本里没有注释'), [])

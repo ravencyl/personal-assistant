@@ -49,9 +49,7 @@
         {% endif %}
 
         {% if card.next_status %}
-        {# 状态按钮不整页提交：method=post 的原生表单会把分栏 SPA 导航走。
-           chat-turn.js 里对 [data-status-fetch] 做 submit 委托（preventDefault +
-           apiFetch POST），沿用表单自身的 action，activities 侧视图零改动。 #}
+        {# 状态按钮不整页提交：method=post 的原生表单会把分栏 SPA 导航走。chat-turn.js 里对 [data-status-fetch] 做 submit 委托（preventDefault + apiFetch POST），沿用表单自身的 action，activities 侧视图零改动。 #}
         <div class="mt-2 pt-2 border-t border-zinc-100 flex flex-wrap items-center gap-1.5" data-status-row>
             {% for s in card.next_status %}
             <form method="post" action="{% url 'activities:activity_set_status' card.id %}" data-status-fetch>

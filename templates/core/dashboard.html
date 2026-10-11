@@ -65,15 +65,12 @@
         <h2 class="text-sm font-medium text-[var(--text)]">本周费用</h2>
         <span class="text-xs text-[var(--text-muted)]">¥{{ stats.week_expense|floatformat:0 }}</span>
     </div>
-    {# 图表数据走 json_script（旧版 |safe 内联拼 JS：靠 Python repr 恰好合法撑着，
-       标签一旦含引号就是语法错误/注入面；json_script 转义由 Django 负责）#}
+    {# 图表数据走 json_script：转义由 Django 负责（旧版 |safe 内联拼 JS 靠 Python repr 恰好合法撑着，标签一旦含引号就是语法错误/注入面） #}
     {{ weekdays|json_script:"dash-weekdays" }}
     {{ daily_expense|json_script:"dash-daily-expense" }}
     {% if week_has_expense %}
     <canvas id="dashWeekChart" height="60" role="img" aria-label="{{ week_chart_summary }}"></canvas>
-    {# canvas 的隐藏文字替代：读屏与「图表加载失败」时读到同一句总结。
-       全站没有 sr-only 工具类（Tailwind 构建产物未含、也禁止为此新增 CSS），
-       这里用标准 clip 内联模式，语义等同。 #}
+    {# canvas 的隐藏文字替代：读屏与「图表加载失败」时读到同一句总结。全站没有 sr-only 工具类（Tailwind 构建产物未含、也禁止为此新增 CSS），这里用标准 clip 内联模式，语义等同。 #}
     <p style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;">{{ week_chart_summary }}</p>
     {% else %}
     <p class="text-sm text-[var(--text-muted)] py-4 text-center">本周暂无消费</p>
