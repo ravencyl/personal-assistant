@@ -19,8 +19,8 @@
         </div>
         <!-- 视图切换 Tab -->
         <div class="flex items-center rounded-full border border-[var(--border-strong)] overflow-hidden text-sm">
-            <button type="button" data-view="list" class="px-3 py-1 font-medium transition-colors bg-[var(--accent)] text-white">列表</button>
-            <button type="button" data-view="map" class="px-3 py-1 font-medium transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
+            <button type="button" data-view="list" aria-pressed="true" class="px-3 py-1 font-medium transition-colors bg-[var(--accent)] text-white">列表</button>
+            <button type="button" data-view="map" aria-pressed="false" class="px-3 py-1 font-medium transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
         </div>
     </div>
 </div>
@@ -45,7 +45,7 @@
                hx-target="#memory-list"
                hx-trigger="input changed delay:300ms, search"
                hx-include="#memory-category-filter"
-               class="flex-1 min-w-0 rounded-full border border-zinc-200 px-4 py-2 text-sm focus:border-zinc-400 focus:outline-none">
+               class="flex-1 min-w-0 rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
     </div>
 
     <!-- 类别筛选 Tab -->
@@ -55,8 +55,7 @@
            hx-target="#memory-list"
            hx-include="#memory-search"
            hx-push-url="true"
-           onclick="this.querySelector('input') || 0"
-           class="rounded-full px-3 py-1 text-sm {% if not category %}bg-[var(--accent)] text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+           class="rounded-full px-3 py-1 text-sm {% if not category %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             全部
             <input type="hidden" name="category" value="">
         </a>
@@ -66,7 +65,7 @@
            hx-target="#memory-list"
            hx-include="#memory-search"
            hx-push-url="true"
-           class="rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-[var(--accent)] text-white{% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">
+           class="rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             {{ cat_label }}
         </a>
         {% endfor %}
@@ -99,7 +98,7 @@
                 <p class="text-sm font-medium text-[var(--text)] truncate flex-1">{{ goal.content }}</p>
                 <span class="text-xs font-bold text-[var(--accent)] ml-2">{{ goal.percent }}%</span>
             </div>
-            <div class="h-2 rounded-full bg-zinc-100 overflow-hidden">
+            <div class="h-2 rounded-full bg-[var(--border)] overflow-hidden">
                 <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {{ goal.percent }}%"></div>
             </div>
             <p class="text-[11px] text-[var(--text-muted)] mt-1.5">{{ goal.done }}/{{ goal.total }} 个相关活动已完成</p>
@@ -110,39 +109,77 @@
 {% endif %}
 
 <script>
-// 视图切换：列表 / 记忆地图
+// 视图切换：列表 / 记忆地图。
+// 旧实现在切到地图时执行页面重载 —— 重载后服务端仍渲染列表态，地图永远打不开（UI 走查 blocker）。
+// memory-viz.js 以 defer 加载并对外暴露 window.PaMemoryViz.ensureLoaded()：首次切到
+// 「地图」时才拉统计并渲染，列表态不产生请求。视图态记进 localStorage，刷新后保持上次视图。
 (function () {
-    var btns = document.querySelectorAll('[data-view]');
-    var listArea = document.querySelector('.page-cols');
-    var vizArea = document.getElementById('memory-viz-container');
-    if (!btns.length || !listArea || !vizArea) return;
+    var STORAGE_KEY = 'memory_view_mode';
 
-    btns.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var view = btn.dataset.view;
+    function init() {
+        var btns = document.querySelectorAll('[data-view]');
+        var listArea = document.querySelector('.page-cols');
+        var vizArea = document.getElementById('memory-viz-container');
+        if (!btns.length || !listArea || !vizArea) return;
+
+        function setView(view, persist) {
             btns.forEach(function (b) {
-                var isActive = b === btn;
+                var isActive = b.getAttribute('data-view') === view;
                 b.classList.toggle('bg-[var(--accent)]', isActive);
                 b.classList.toggle('text-white', isActive);
                 b.classList.toggle('text-[var(--text-secondary)]', !isActive);
+                b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
             });
-            if (view === 'map') {
-                listArea.classList.add('hidden');
-                vizArea.classList.remove('hidden');
-                // 触发 memory-viz.js 加载（首次切到时才 fetch）
-                if (!vizArea.dataset.loaded) {
-                    vizArea.dataset.loaded = '1';
-                    var script = document.createElement('script');
-                    script.src = vizArea.querySelector('script') ? '' : '';
-                    // memory-viz.js 已在 extra_head 加载，这里只需触发重绘
-                    location.reload(); // 简单方案：切视图时刷新
-                }
-            } else {
-                listArea.classList.remove('hidden');
-                vizArea.classList.add('hidden');
+            // 列表侧用 inline display 而不是 hidden 工具类：custom.css 里 .page-cols 的
+            // display:grid 是无层级规则，优先级恒高于 Tailwind @layer utilities 的 .hidden
+            // （AGENTS.md「开关类不与 Tailwind display 工具类同层」）。挂 hidden 在桌面端会被
+            // grid 声明压回，列表根本藏不掉。vizArea 没有任何 custom 显示规则，仍用 hidden。
+            listArea.style.display = view === 'map' ? 'none' : '';
+            vizArea.classList.toggle('hidden', view !== 'map');
+            if (view === 'map' && window.PaMemoryViz) window.PaMemoryViz.ensureLoaded();
+            if (persist) {
+                try { localStorage.setItem(STORAGE_KEY, view); } catch (e) { /* 隐私模式等禁用存储：只丢持久化，不炸切换 */ }
             }
+        }
+
+        btns.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                setView(btn.getAttribute('data-view'), true);
+            });
         });
-    });
+
+        // 首屏恢复上次视图。defer 脚本先于 DOMContentLoaded 执行，此时 PaMemoryViz 已就绪；
+        // 恢复 map 即触发 ensureLoaded，保证「刷新后直接是地图且已渲染」。
+        var saved = 'list';
+        try { saved = localStorage.getItem(STORAGE_KEY) || 'list'; } catch (e) { /* 读不到就列表态 */ }
+        setView(saved === 'map' ? 'map' : 'list', false);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
+
+// 删除确认走全站统一确认卡（confirm-card.js 的 paConfirmCard API，data-confirm 口径的
+// 自定义流程通道）。HTMX 在发出带 hx-confirm 的请求前触发 htmx:confirm；这里
+// preventDefault 拦掉原生弹窗，确认卡通过后 issueRequest(true) 续发请求
+// （参数 true 让 htmx 跳过它自己的 window.confirm）。监听挂在 document 上，
+// 列表片段被 HTMX 换掉后新按钮天然生效，无需重新绑定。
+document.addEventListener('htmx:confirm', function (e) {
+    var detail = e.detail;
+    if (!detail || !detail.question) return;
+    var elt = detail.elt;
+    if (!elt || !elt.closest || !elt.closest('#memory-list')) return;
+    e.preventDefault();
+    if (!window.paConfirmCard) {
+        // 确认卡组件没加载出来（极端情况）：退回原生弹窗也不能丢请求
+        if (window.confirm(detail.question)) detail.issueRequest(true);
+        return;
+    }
+    window.paConfirmCard(detail.question, { tone: 'danger', label: '确认删除' })
+        .then(function (ok) { if (ok) detail.issueRequest(true); });
+});
 </script>
 {% endblock %}

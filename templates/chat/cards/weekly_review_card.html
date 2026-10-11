@@ -1,0 +1,26 @@
+{% comment %}周回顾开场卡：创建周回顾对话时注入的 AI 首条消息（chat/views.py
+_create_weekly_review_conversation）带的就是这份 payload，此前一直没有分发分支，
+卡片数据被静默丢弃，只剩纯文本正文。
+
+只读不回查：completed_count 是对话创建那一刻的快照，历史渲染不重新统计。
+chips 复用 [data-followup]（chat-turn.js 的发送委托在三宿主自动生效，点一下
+就把这条引导发进本轮对话）；刻意不套 [data-follow-ups] 分组壳 —— 那个壳会被
+paTidyFollowUps 当「下一步」建议组收纳（非最新组折叠、超 2 条隐藏），而引导
+问题是回顾卡的正文内容，不是一次性建议。
+
+变量：card（{week_start, completed_count, questions}，questions 最多 3 条）
+{% endcomment %}
+<div class="mt-2 rounded-xl border border-zinc-200 bg-white p-3 text-left">
+    <div class="flex items-baseline justify-between gap-2">
+        <span class="text-sm font-medium text-zinc-900">周回顾</span>
+        <span class="text-xs text-zinc-400">{{ card.week_start }} 周 · 已完成 {{ card.completed_count }} 个</span>
+    </div>
+    {% if card.questions %}
+    <p class="mt-2 text-xs font-medium text-zinc-500">跟着引导问题回顾</p>
+    <div class="mt-1.5 flex flex-wrap gap-1.5">
+        {% for q in card.questions %}
+        <button type="button" class="chat-chip tap-target follow-up" data-followup="{{ q }}">{{ q }}</button>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

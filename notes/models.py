@@ -27,4 +27,4 @@ class Note(models.Model):
 
     def __str__(self):
         # 取内容前 50 字符作为摘要
-        return self.content[:50] if self.content else '空笔记'
+        return self.content[:50] if self.content else '空备忘'

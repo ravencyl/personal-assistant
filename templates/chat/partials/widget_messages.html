@@ -13,4 +13,5 @@
 {% include "chat/partials/turn_resume.html" %}
 {% if conversation.turn_state == 'error' %}{% include "chat/partials/turn_error.html" %}{% endif %}
 {# 钉选状态也随历史片段带出（mount=True 包隐藏位）：没钉也要带，否则从「钉了活动的对话」切到「没钉的对话」时，浮窗槽里会留着上一个对话的 chip #}
-{% include "chat/partials/pin_bar.html" with mount=True %}
+{# hide_hint 由视图按 ?chrome=drawer 注入：抽屉上下文不显示「输入 @ 可钉住」的误导提示（分栏页不带参数，照常显示） #}
+{% include "chat/partials/pin_bar.html" with mount=True hide_hint=hide_pin_hint %}

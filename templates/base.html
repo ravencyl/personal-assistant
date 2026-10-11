@@ -547,7 +547,7 @@
                     <svg class="w-5 h-5 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
-                    <input id="search-input" type="text" placeholder="搜索活动、知识库、笔记、对话..."
+                    <input id="search-input" type="text" placeholder="搜索活动、知识库、备忘、对话..."
                            class="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
                            autocomplete="off"
                            hx-get="{% url 'global_search' %}"
@@ -557,16 +557,18 @@
                 </div>
                 <!-- 搜索结果 -->
                 <div id="search-results" class="max-h-[50vh] overflow-y-auto p-2">
-                    <!-- 初始状态：快捷操作 -->
+                    <!-- 初始状态：快捷操作（JS 打开面板时克隆还原这一段，是唯一口径；
+                         旧版在 JS 里用 innerHTML 字符串重拼一份，两处markup会漂移，
+                         且任何后续往串里掺用户数据的改动都是注入面） -->
                     <div class="space-y-1">
                         <p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>
-                        <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-                            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">+</span>
+                        <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+                            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
                             <span class="text-sm text-[var(--text)]">新建活动</span>
                         </a>
-                        <a href="{% url 'notes:note_list' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-                            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">📝</span>
-                            <span class="text-sm text-[var(--text)]">新建笔记</span>
+                        <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+                            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
+                            <span class="text-sm text-[var(--text)]">写备忘</span>
                         </a>
                     </div>
                 </div>
@@ -579,21 +581,27 @@
     (function() {
         var overlay = document.getElementById('search-overlay');
         var input = document.getElementById('search-input');
+        var results = document.getElementById('search-results');
+        // 「还原初始态」用页面加载时服务端渲染片段的深拷贝，不再 innerHTML 重拼字符串
+        var initialResults = (function () {
+            var frag = document.createDocumentFragment();
+            Array.prototype.slice.call(results.children).forEach(function (node) {
+                frag.appendChild(node.cloneNode(true));
+            });
+            return frag;
+        })();
+        function restoreInitialResults() {
+            while (results.firstChild) results.removeChild(results.firstChild);
+            var fresh = initialResults.cloneNode(true);
+            while (fresh.firstChild) results.appendChild(fresh.firstChild);
+        }
 
         function toggleSearch() {
             if (overlay.classList.contains('hidden')) {
                 overlay.classList.remove('hidden');
                 input.focus();
                 input.value = '';
-                document.getElementById('search-results').innerHTML =
-                    '<div class="space-y-1">' +
-                    '<p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>' +
-                    '<a href="{% url "activities:activity_create" %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">' +
-                    '<span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">+</span>' +
-                    '<span class="text-sm text-[var(--text)]">新建活动</span></a>' +
-                    '<a href="{% url "notes:note_list" %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">' +
-                    '<span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">📝</span>' +
-                    '<span class="text-sm text-[var(--text)]">新建笔记</span></a></div>';
+                restoreInitialResults();
             } else {
                 overlay.classList.add('hidden');
             }

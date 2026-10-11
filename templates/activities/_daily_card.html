@@ -42,7 +42,7 @@
                     <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日结束</span>
                     {% endif %}
                     {% if activity.is_blocked %}
-                    <span class="shrink-0 text-[10px] font-medium text-orange-600 bg-orange-50 rounded-full px-1.5 py-0.5" title="等待 {{ activity.blocking_names|join:'、' }} 完成">等待前置</span>
+                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--border)] rounded-full px-1.5 py-0.5" title="等待 {{ activity.blocking_names|join:'、' }} 完成">等待前置</span>
                     {% endif %}
                 </div>
 

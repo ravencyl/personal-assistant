@@ -3,13 +3,18 @@
           hx-target="#memory-list"
           hx-swap="innerHTML">
         {% csrf_token %}
+        {# 筛选与页码随表单回传（字段名避开记忆自己的 content/category/importance），#}
+        {# 保存后 POST 分支据此重渲片段，列表与搜索状态和进入编辑前一致（UI 走查 major） #}
+        <input type="hidden" name="filter_q" value="{{ filter_query }}">
+        <input type="hidden" name="filter_category" value="{{ filter_category }}">
+        <input type="hidden" name="filter_page" value="{{ filter_page }}">
         <!-- 内容编辑 -->
         <textarea name="content" rows="2"
-                  class="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none"
+                  class="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none"
                   >{{ memory.content }}</textarea>
-        <!-- 类别 + 重要度 -->
+        <!-- 类别 + 重要度（编辑态保持数字输入，档位折算只发生在展示侧） -->
         <div class="mt-2 flex flex-wrap items-center gap-3">
-            <select name="category" class="rounded-full border border-zinc-200 px-3 py-1 text-sm">
+            <select name="category" class="rounded-full border border-[var(--border)] px-3 py-1 text-sm">
                 {% for cat_value, cat_label in categories %}
                 <option value="{{ cat_value }}" {% if memory.category == cat_value %}selected{% endif %}>
                     {{ cat_label }}
@@ -20,7 +25,7 @@
                 重要度
                 <input type="number" name="importance" value="{{ memory.importance }}"
                        min="1" max="10"
-                       class="w-14 rounded border border-zinc-200 px-2 py-1 text-center text-sm">
+                       class="w-14 rounded border border-[var(--border)] px-2 py-1 text-center text-sm">
             </label>
         </div>
         <!-- 操作按钮 -->
@@ -29,11 +34,12 @@
                     class="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm text-white hover:bg-[var(--accent-hover)]">
                 保存
             </button>
+            {# 取消 = 重新拉取「当前筛选 + 当前页」的列表片段，URL 由视图的 list_params_qs 拼好 #}
             <button type="button"
-                    hx-get="{% url 'memory:memory_list' %}"
+                    hx-get="{% url 'memory:memory_list' %}?{{ list_params_qs }}"
                     hx-target="#memory-list"
                     hx-swap="innerHTML"
-                    class="rounded-full bg-zinc-100 px-4 py-1.5 text-sm text-zinc-600 hover:bg-zinc-200">
+                    class="rounded-full bg-[var(--accent-light)] px-4 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--border)]">
                 取消
             </button>
         </div>

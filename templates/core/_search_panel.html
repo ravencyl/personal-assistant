@@ -2,13 +2,13 @@
 <!-- 空状态：显示快捷操作 -->
 <div class="space-y-1">
     <p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>
-    <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-        <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">+</span>
+    <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+        <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
         <span class="text-sm text-[var(--text)]">新建活动</span>
     </a>
-    <a href="{% url 'notes:note_list' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-        <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">📝</span>
-        <span class="text-sm text-[var(--text)]">新建笔记</span>
+    <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+        <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
+        <span class="text-sm text-[var(--text)]">写备忘</span>
     </a>
 </div>
 {% elif results and total == 0 %}
@@ -23,8 +23,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">活动</p>
         {% for a in results.activities %}
-        <a href="{% url 'activities:activity_detail' a.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">📋</span>
+        <a href="{% url 'activities:activity_detail' a.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📋</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ a.name }}</p>
                 {% if a.description %}<p class="text-xs text-[var(--text-muted)] truncate">{{ a.description|truncatechars:40 }}</p>{% endif %}
@@ -39,8 +39,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">知识库</p>
         {% for a in results.articles %}
-        <a href="{% url 'knowledge:article_detail' a.slug %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">📖</span>
+        <a href="{% url 'knowledge:article_detail' a.slug %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📖</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ a.title }}</p>
                 <p class="text-xs text-[var(--text-muted)] truncate">{{ a.content|truncatechars:40 }}</p>
@@ -50,13 +50,13 @@
     </div>
     {% endif %}
 
-    <!-- 笔记 -->
+    <!-- 备忘：深链带 ?q=，点进去就是同一检索词过滤后的列表（notes 列表视图支持 q） -->
     {% if results.notes %}
     <div>
-        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">笔记</p>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">备忘</p>
         {% for n in results.notes %}
-        <a href="{% url 'notes:note_list' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">📝</span>
+        <a href="{% url 'notes:note_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📝</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ n.content|truncatechars:60 }}</p>
             </div>
@@ -70,8 +70,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">对话</p>
         {% for c in results.conversations %}
-        <a href="{% url 'chat:conversation_list_with_active' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">💬</span>
+        <a href="{% url 'chat:conversation_list_with_active' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">💬</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ c.title }}</p>
             </div>
@@ -85,8 +85,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">消息记录</p>
         {% for msg, conv in results.messages %}
-        <a href="{% url 'chat:conversation_list_with_active' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">💬</span>
+        <a href="{% url 'chat:conversation_list_with_active' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">💬</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ msg.content|truncatechars:60 }}</p>
                 <p class="text-xs text-[var(--text-muted)]">{{ conv.title }}</p>
@@ -96,13 +96,13 @@
     </div>
     {% endif %}
 
-    <!-- 记忆 -->
+    <!-- 记忆：memory 列表视图的参数名就是 q，对齐 -->
     {% if results.memories %}
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">记忆</p>
         {% for m in results.memories %}
-        <a href="{% url 'memory:memory_list' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm shrink-0">🧠</span>
+        <a href="{% url 'memory:memory_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">🧠</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ m.content|truncatechars:60 }}</p>
                 <p class="text-xs text-[var(--text-muted)]">{{ m.get_category_display }}</p>
@@ -122,7 +122,26 @@
     var re = new RegExp('(' + terms.map(function(t){ return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'gi');
     document.querySelectorAll('.search-result-item .text-sm, .search-result-item .text-xs').forEach(function(el){
         if (el.children.length) return;
-        el.innerHTML = el.textContent.replace(re, '<mark class="bg-yellow-200 text-[var(--text)] rounded px-0.5">$1</mark>');
+        // 高亮必须走 DOM 构建：旧实现把 textContent 用 replace 拼成 HTML 串再塞回
+        // innerHTML —— 原文里含 < >（备忘/文章正文里很常见）时会被当作标签解析，
+        // 等于用户数据注入 HTML。这里按匹配位置切片，文本进 createTextNode，
+        // 命中片段进 createElement('mark')，全程不产生可被解析的标记串。
+        var text = el.textContent;
+        re.lastIndex = 0;
+        var frag = document.createDocumentFragment();
+        var last = 0, m;
+        while ((m = re.exec(text)) !== null) {
+            // terms 过滤过空串且逐词转义，匹配长度恒 >=1，不存在零宽死循环
+            if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+            var mark = document.createElement('mark');
+            mark.className = 'bg-yellow-200 text-[var(--text)] rounded px-0.5';
+            mark.textContent = m[0];
+            frag.appendChild(mark);
+            last = m.index + m[0].length;
+        }
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        el.textContent = '';
+        el.appendChild(frag);
     });
 })();
 </script>

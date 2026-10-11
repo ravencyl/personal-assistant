@@ -12,7 +12,12 @@
 {% block content %}
 <div class="max-w-2xl mx-auto">
     <div class="mb-4">
+        {# 编辑态从详情页进来，返回自然回详情；创建态回列表（无需 next 参数） #}
+        {% if activity %}
+        <a href="{% url 'activities:activity_detail' activity.pk %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回详情</a>
+        {% else %}
         <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
+        {% endif %}
     </div>
 
     <div class="bg-[var(--bg-card)] rounded-lg shadow-sm border border-[var(--border-strong)] p-6">
@@ -50,17 +55,23 @@
         </div>
         {% endif %}
 
-        <form method="post" class="space-y-4">
+        <form method="post" class="space-y-4" id="activity-main-form">
             {% csrf_token %}
             {% include "activities/_activity_form_fields.html" %}
 
             <div class="flex gap-3 pt-2">
-                <button type="submit" class="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">
+                <button type="submit" id="activity-save-btn" class="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
                     保存
                 </button>
+                {% if activity %}
+                <a href="{% url 'activities:activity_detail' activity.pk %}" class="rounded-md bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+                    取消
+                </a>
+                {% else %}
                 <a href="{% url 'activities:activity_list' %}" class="rounded-md bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
                     取消
                 </a>
+                {% endif %}
             </div>
         </form>
 
@@ -102,6 +113,21 @@
 {% block extra_js %}
 {# chips（拼音联想）与快速填表逻辑集中在 activity-form.js（与列表页创建弹窗共用） #}
 <script src="{% staticv 'js/activity-form.js' %}"></script>
+<script>
+// 保存防重复提交（抄 _activity_create_modal 的 submitBtn.disabled 守卫口径）：
+// submit 事件里禁用发生在本次提交开始之后，按钮无 name 不参与表单数据，不会吞掉提交；
+// 校验失败服务端整页重渲染，按钮天然恢复可点
+(function () {
+    var form = document.getElementById('activity-main-form');
+    var btn = document.getElementById('activity-save-btn');
+    if (!form || !btn) return;
+    form.addEventListener('submit', function () {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.textContent = '保存中…';
+    });
+})();
+</script>
 {% if not activity %}
 <script>
 // 活动模板：加载模板列表，选择后点击「使用」预填表单字段

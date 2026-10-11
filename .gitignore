@@ -13,3 +13,6 @@ build/
 
 # Node/Tailwind 构建工具链
 node_modules/
+
+# 设计走查/链路产物（本地归档，不入仓库）
+spark-output/

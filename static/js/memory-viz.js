@@ -1,6 +1,10 @@
 /**
  * 记忆可视化面板：雷达图（分类分布）+ 时间线（月度趋势）+ 统计卡片
  * 纯 SVG + 原生 fetch，无外部依赖
+ *
+ * 懒加载口径：defer 加载时只挂引用，不发请求；记忆列表页的视图切换脚本在
+ * 首次切到「记忆地图」时调 window.PaMemoryViz.ensureLoaded() 才拉统计。
+ * 列表态（默认视图）完全不为地图掏一次 API。
  */
 (function () {
     'use strict';
@@ -8,19 +12,32 @@
     var container = document.getElementById('memory-viz-container');
     if (!container) return;
 
-    var statsUrl = container.dataset.statsUrl;
-    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-    var csrf = csrfMeta ? csrfMeta.content : '';
-
     var CATEGORY_LABELS = {
         preference: '偏好', fact: '事实', goal: '目标',
         relationship: '关系', habit: '习惯', other: '其他',
     };
 
-    fetch(statsUrl, { headers: { 'Accept': 'application/json' } })
-        .then(function (r) { return r.json(); })
-        .then(function (data) { render(data); })
-        .catch(function (err) { console.error('记忆统计加载失败:', err); });
+    var requested = false;
+    function ensureLoaded() {
+        if (requested) return;
+        requested = true;
+        var statsUrl = container.dataset.statsUrl;
+        fetch(statsUrl, { headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.json(); })
+            .then(render)
+            .catch(function (err) {
+                console.error('记忆统计加载失败:', err);
+                requested = false; // 允许下次切换重试
+                // 失败态给一句可读文案（textContent 注入，不带 HTML）
+                container.innerHTML = '';
+                var p = document.createElement('p');
+                p.className = 'app-card rounded-xl p-4 text-sm text-[var(--text-muted)]';
+                p.textContent = '记忆统计加载失败，切回列表再点一次「记忆地图」重试。';
+                container.appendChild(p);
+            });
+    }
+
+    window.PaMemoryViz = { ensureLoaded: ensureLoaded };
 
     function render(data) {
         container.innerHTML = '';

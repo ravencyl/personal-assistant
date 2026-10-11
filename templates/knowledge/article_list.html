@@ -36,15 +36,15 @@
     </form>
 
     <!-- 标签筛选栏 -->
-    {# 标签筛选：移动端一行横滑（与备忘录页一致），桌面换行；chips 32px 折衷触区 #}
+    {# 标签筛选：移动端一行横滑（与备忘页一致），桌面换行；chips 32px 折衷触区 #}
     {% if all_tags %}
     <div class="flex flex-nowrap overflow-x-auto pb-1 -mx-1 px-1 gap-2 md:flex-wrap" id="article-tag-filter">
-        <a href="{% url 'knowledge:article_list' %}{% if query %}?q={{ query }}{% endif %}"
+        <a href="{% url 'knowledge:article_list' %}{% if query %}?q={{ query|urlencode }}{% endif %}"
            class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full border transition-colors {% if not current_tag %}bg-[var(--accent)] text-white border-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--text)]{% endif %}">
             全部
         </a>
         {% for tag in all_tags %}
-        <a href="?tag={{ tag.name }}{% if query %}&q={{ query }}{% endif %}"
+        <a href="?tag={{ tag.name|urlencode }}{% if query %}&q={{ query|urlencode }}{% endif %}"
            class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full border transition-colors {% if current_tag.slug == tag.slug %}bg-[var(--accent)] text-white border-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--text)]{% endif %}">
             {{ tag.name }}
         </a>
@@ -86,6 +86,30 @@
         <a href="{% url 'knowledge:article_create' %}" class="tap-target inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity" style="background: var(--accent);">
             写下第一篇文章
         </a>
+    </div>
+    {% endif %}
+
+    {% comment %}
+    分页：每页 30 条（口径同备忘列表）；翻页链接携带当前 q/tag 筛选，翻页不丢条件。
+    样式沿用活动列表的「上一页/下一页 + 页码计数」既有模式与 token 类。
+    {% endcomment %}
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="mt-6 flex flex-col items-center gap-2">
+        <div class="flex flex-wrap items-center justify-center gap-1.5">
+            {% if page_obj.has_previous %}
+            <a href="?{% if current_tag %}tag={{ current_tag.name|urlencode }}&{% endif %}{% if query %}q={{ query|urlencode }}&{% endif %}page={{ page_obj.previous_page_number }}"
+               class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">上一页</a>
+            {% else %}
+            <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">上一页</span>
+            {% endif %}
+            {% if page_obj.has_next %}
+            <a href="?{% if current_tag %}tag={{ current_tag.name|urlencode }}&{% endif %}{% if query %}q={{ query|urlencode }}&{% endif %}page={{ page_obj.next_page_number }}"
+               class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">下一页</a>
+            {% else %}
+            <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">下一页</span>
+            {% endif %}
+        </div>
+        <p class="text-xs text-[var(--text-muted)]">第 {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} 页</p>
     </div>
     {% endif %}
 

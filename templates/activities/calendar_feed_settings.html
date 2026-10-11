@@ -5,6 +5,8 @@
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-4">
   <div>
+    {# 本页唯一入口在仪表盘（全站唯一无出口二级页）：页头补返回链接 #}
+    <a href="{% url 'dashboard' %}" class="tap-target -my-2 inline-flex items-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回</a>
     <h1 class="text-2xl font-bold tracking-tight">日历同步</h1>
     <p class="text-sm text-[var(--text-secondary)] mt-1">把活动导出到 iPhone / Mac 自带日历（单向，日历里的改动不影响站点）</p>
   </div>
@@ -27,6 +29,8 @@
         <button type="button" data-copy-feed="{{ webcal_url }}"
                 class="shrink-0 bg-[var(--accent)] text-white text-sm font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors">复制</button>
       </div>
+      {# 剪贴板失败（非 HTTPS/权限被拒）走行内提示，不静默吞掉 #}
+      <p id="copy-feed-error" class="hidden mt-1.5 text-xs font-semibold text-zinc-800">复制失败，请手动选中链接后复制</p>
     </div>
 
     <div>
@@ -88,16 +92,20 @@
     var btn = e.target.closest('[data-copy-feed]');
     if (!btn) return;
     var text = btn.getAttribute('data-copy-feed');
+    var errEl = document.getElementById('copy-feed-error');
     var done = function () {
+      if (errEl) errEl.classList.add('hidden');
       var old = btn.textContent;
       btn.textContent = '已复制';
       setTimeout(function () { btn.textContent = old; }, 1500);
     };
+    var fail = function () { if (errEl) errEl.classList.remove('hidden'); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done);
+      navigator.clipboard.writeText(text).then(done, fail);
     } else {
       var input = document.querySelector('input[value="' + text + '"]');
-      if (input) { input.select(); document.execCommand('copy'); done(); }
+      if (input) { input.select(); try { document.execCommand('copy') ? done() : fail(); } catch (err) { fail(); } }
+      else { fail(); }
     }
   });
 </script>

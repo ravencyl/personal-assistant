@@ -27,7 +27,7 @@
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 class="text-sm font-medium text-[var(--text)]">{{ a.name }}</h3>
-                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-muted)] bg-zinc-100 rounded-full px-1.5 py-0.5">
+                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg)] rounded-full px-1.5 py-0.5">
                         {{ a.archived_at|date:"m月d日" }} 归档
                     </span>
                 </div>
@@ -43,14 +43,18 @@
                 </div>
                 {% endif %}
             </div>
-            <div class="flex items-center gap-2 shrink-0">
-                <a href="{% url 'activities:activity_detail' a.id %}"
-                   class="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-                   title="查看详情">详情</a>
-                <button type="button" data-unarchive-id="{{ a.id }}"
-                        class="text-xs text-[var(--accent)] hover:underline font-medium">
-                    恢复
-                </button>
+            <div class="flex flex-col items-end gap-1 shrink-0">
+                <div class="flex items-center gap-2">
+                    <a href="{% url 'activities:activity_detail' a.id %}"
+                       class="tap-target -my-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                       title="查看详情">详情</a>
+                    <button type="button" data-unarchive-id="{{ a.id }}"
+                            class="tap-target -my-2 text-xs text-[var(--accent)] hover:underline font-medium">
+                        恢复
+                    </button>
+                </div>
+                {# 失败提示走行内错误条（不用原生 alert），文案由 JS 填 #}
+                <p data-unarchive-error class="hidden text-xs font-semibold text-zinc-800 text-right"></p>
             </div>
         </div>
         {% endfor %}
@@ -63,24 +67,28 @@ document.addEventListener('click', function (e) {
     if (!btn) return;
     var id = btn.getAttribute('data-unarchive-id');
     var csrf = document.querySelector('meta[name="csrf-token"]').content;
+    var card = btn.closest('.group');
+    var errEl = card && card.querySelector('[data-unarchive-error]');
+    function showError(msg) {
+        btn.textContent = '恢复';
+        btn.disabled = false;
+        if (errEl) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    }
     btn.textContent = '恢复中…';
     btn.disabled = true;
+    if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
     fetch('/activities/' + id + '/unarchive/', {
         method: 'POST',
         headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' }
     }).then(function (r) { return r.json(); }).then(function (d) {
         if (d.ok) {
-            btn.closest('.group').style.opacity = '0.3';
+            card.style.opacity = '0.3';
             setTimeout(function () { location.reload(); }, 400);
         } else {
-            btn.textContent = '恢复';
-            btn.disabled = false;
-            alert(d.error || '操作失败');
+            showError(d.error || '操作失败，请稍后重试');
         }
     }).catch(function () {
-        btn.textContent = '恢复';
-        btn.disabled = false;
-        alert('网络异常，请重试');
+        showError('网络异常，请重试');
     });
 });
 </script>

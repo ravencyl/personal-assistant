@@ -1,5 +1,9 @@
-{% comment %}两步确认卡片：create 展示待建字段清单，expense 展示待记费用清单，update 展示字段变更 diff，delete 展示红色警示与影响说明{% endcomment %}
-<div class="mt-2 rounded-xl border {% if card.kind == 'delete' %}border-zinc-200{% else %}border-zinc-200{% endif %} bg-white overflow-hidden text-left">
+{% comment %}两步确认卡片：create 展示待建字段清单，expense 展示待记费用清单，update 展示字段变更 diff，delete 展示红色警示与影响说明。
+
+整卡带 id：确认端点（chat/views.py confirm_action）返回整张卡的片段做 outerHTML
+替换 —— 只换动作区的话，正文里「点确认后才会创建」的 pending 文案会与 ✓ 结果态
+同框矛盾（2026-10 UI 走查 item 6）。{% endcomment %}
+<div id="confirm-card-{{ msg.id }}" class="mt-2 rounded-xl border {% if card.kind == 'delete' %}border-zinc-200{% else %}border-zinc-200{% endif %} bg-white overflow-hidden text-left">
     <div class="h-1 {% if card.kind == 'delete' %}bg-red-400{% else %}bg-[var(--accent)]{% endif %}"></div>
     <div class="p-3">
         {% if card.kind == 'delete' %}
@@ -26,7 +30,10 @@
             </div>
             {% endfor %}
         </div>
+        {% if not action.resolved %}
+        {# 决议后整卡会被换成结果态：pending 引导语只在待确认时出现，避免与 ✓ 结果同框矛盾 #}
         <p class="mt-1 text-xs text-zinc-400">点确认后才会创建，取消则不做任何改动。</p>
+        {% endif %}
         {% elif card.kind == 'expense' %}
         <p class="text-sm font-semibold text-zinc-800">添加费用</p>
         <p class="mt-1 text-sm text-zinc-900 font-medium">
@@ -40,7 +47,10 @@
             </div>
             {% endfor %}
         </div>
+        {% if not action.resolved %}
+        {# 同 create 分支：决议后不再显示 pending 引导语 #}
         <p class="mt-1 text-xs text-zinc-400">点确认后才会记账，取消则不做任何改动。</p>
+        {% endif %}
         {% else %}
         <p class="text-sm font-medium text-zinc-900">
             修改「<a href="{{ card.detail_url }}" class="hover:text-zinc-600">{{ card.name }}</a>」

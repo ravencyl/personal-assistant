@@ -86,7 +86,7 @@
             {# 移动端收纳：搜索按钮收进输入框内成图标（原独立文字按钮占一整列），回车/go 键同样可提交 #}
             <button type="submit" title="搜索"
                     class="md:hidden absolute right-0.5 top-1/2 -translate-y-1/2 tap-target w-10 h-10 rounded-full bg-[var(--accent)] text-[var(--bg)] flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
             </button>
         </div>
         <button type="submit"
@@ -127,9 +127,9 @@
 
     <!-- Status filter（常驻不折叠：状态是高频筛选，2026-10-08 从 filter-body 拉出来；标签筛选已按用户要求下线，标签只能点活动卡上的 #词 进入） -->
     <div class="flex flex-wrap gap-2 px-4 pb-3">
-        <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}{% if keyword_filter %}{% if not date_qs %}?{% else %}&{% endif %}keyword={{ keyword_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
+        <a href="{% url 'activities:activity_list' %}{% if date_qs %}?{{ date_qs }}{% endif %}{% if keyword_filter %}{% if not date_qs %}?{% else %}&{% endif %}keyword={{ keyword_filter|urlencode }}{% endif %}" class="tap-target px-3 py-1 text-sm rounded-full {% if not status_filter %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">全部</a>
         {% for value, label in status_choices %}
-        <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}" class="px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ label }}</a>
+        <a href="?status={{ value }}{% if date_qs %}&{{ date_qs }}{% endif %}{% if tag_filter %}&tag={{ tag_filter|urlencode }}{% endif %}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}" class="tap-target px-3 py-1 text-sm rounded-full {% if status_filter == value %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ label }}</a>
         {% endfor %}
     </div>
 
@@ -155,13 +155,13 @@
         <!-- Select Time 时间片网格同构（截图第二屏）：快捷日期片，激活片 accent 实心 -->
         <div class="flex flex-wrap items-center gap-1.5 w-full">
             <a href="?date_from={{ today_str }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
-               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == 'today' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">今天</a>
+               class="tap-target px-3 py-1 text-sm rounded-full transition-colors {% if quick == 'today' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">今天</a>
             <a href="?date_from={{ week_from }}&date_to={{ week_to }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
-               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == 'week' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">本周</a>
+               class="tap-target px-3 py-1 text-sm rounded-full transition-colors {% if quick == 'week' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">本周</a>
             <a href="?date_from={{ quick_7d_from }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
-               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == '7d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近 7 天</a>
+               class="tap-target px-3 py-1 text-sm rounded-full transition-colors {% if quick == '7d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近 7 天</a>
             <a href="?date_from={{ quick_30d_from }}&date_to={{ today_str }}{% if keyword_filter %}&keyword={{ keyword_filter|urlencode }}{% endif %}"
-               class="px-3 py-1 text-sm rounded-full transition-colors {% if quick == '30d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近一个月</a>
+               class="tap-target px-3 py-1 text-sm rounded-full transition-colors {% if quick == '30d' %}bg-[var(--accent)] text-[var(--bg)]{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]/70{% endif %}">近一个月</a>
         </div>
         </form>
     </div>

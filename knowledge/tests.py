@@ -470,3 +470,37 @@ class ArticleTagEditRegressionTest(TestCase):
         self.article.refresh_from_db()
         self.assertEqual(set(self.article.tags.values_list('name', flat=True)),
                          {'新标签', '知识'})
+
+
+class ArticleListPaginationTest(TestCase):
+    """知识库列表分页回归锁（UI 走查 item 5：30 条/页，翻页保留搜索参数）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        for i in range(31):
+            Article.objects.create(user=self.user, title=f'分页文章{i:02d}',
+                                   content='回归正文')
+
+    def test_first_page_shows_30_newest(self):
+        html = self.client.get('/knowledge/').content.decode()
+        self.assertIn('分页文章30', html)
+        self.assertNotIn('分页文章00', html)
+        self.assertIn('第 1/2 页', html)
+
+    def test_second_page_shows_remainder(self):
+        html = self.client.get('/knowledge/?page=2').content.decode()
+        self.assertIn('分页文章00', html)
+        self.assertNotIn('分页文章30', html)
+
+    def test_bad_page_number_degrades_instead_of_500(self):
+        """get_page 的宽容语义：非法/越界页码不炸（旧列表全量渲染时没这问题）"""
+        for bad in ('abc', '0', '999'):
+            resp = self.client.get(f'/knowledge/?page={bad}')
+            self.assertEqual(resp.status_code, 200)
+
+    def test_next_page_link_preserves_search_query(self):
+        """翻页 URL 必须带上 q：否则下一页丢筛选"""
+        html = self.client.get('/knowledge/?q=分页').content.decode()
+        self.assertIn('?q=%E5%88%86%E9%A1%B5&page=2', html)

@@ -84,7 +84,7 @@
                             {% if activity.status == value %}
                                 bg-[var(--accent)] text-white cursor-default
                             {% else %}
-                                {% if value == 'done' or value == 'cancelled' %}bg-zinc-50 text-zinc-500 hover:bg-zinc-100
+                                {% if value == 'done' or value == 'cancelled' %}bg-[var(--bg)] text-[var(--text-muted)] hover:bg-[var(--accent-light)]
                                 {% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}
                             {% endif %}">
                             {% if activity.status == value %}&#10003; {% endif %}{{ label }}
@@ -111,7 +111,7 @@
             <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
             {% if children|length %}
             {# 完成度进度条：仅看个数读不出推到哪了；新建活动安排后靠刷新页面跟上（JS 只更新计数） #}
-            <div class="mt-2 h-1 bg-zinc-100 rounded-full overflow-hidden" title="活动安排完成度 {{ subtask_done_count }}/{{ children|length }}">
+            <div class="mt-2 h-1 bg-[var(--accent-light)] rounded-full overflow-hidden" title="活动安排完成度 {{ subtask_done_count }}/{{ children|length }}">
                 <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
             </div>
             {% endif %}
@@ -142,7 +142,7 @@
 
     <!-- 费用明细：details 默认折叠（用户要求页面不要太长）；summary 是 flex + justify-between，
          计数连同文字必须包进同一个 span，裸文本会被拆成多个 flex 项铺满整行（前置依赖同款教训） -->
-    <details class="fold-card app-card px-4 py-2.5 sm:px-6">
+    <details data-fold-key="expense" class="fold-card app-card px-4 py-2.5 sm:px-6">
         <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>费用明细（{{ expenses|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
@@ -161,7 +161,7 @@
                     <form method="post" action="{% url 'activities:expense_delete' e.id %}" class="inline"
                           data-confirm="确认删除这笔费用？" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
-                        <button type="submit" class="row-action text-xs text-zinc-500 hover:text-zinc-900">删除</button>
+                        <button type="submit" class="row-action text-xs text-[var(--text-muted)] hover:text-[var(--text)]">删除</button>
                     </form>
                 </div>
             </div>
@@ -216,7 +216,7 @@
     </details>
 
     <!-- 活动安排：同样默认折叠 -->
-    <details class="fold-card app-card px-4 py-2.5 sm:px-6">
+    <details data-fold-key="subtask" class="fold-card app-card px-4 py-2.5 sm:px-6">
         <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>活动安排（<span id="subtask-count">{{ children|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
@@ -317,11 +317,11 @@
     {% comment %}评论：追加式讨论时间线（正序），可见性跟随活动。
        AI 决策链路会经 activities.get / activities.comments 工具读取这里的评论，
        activities.add_comment 工具写入的评论同样出现在此列表。{% endcomment %}
-    <details class="fold-card app-card px-4 py-2.5 sm:px-6">
+    <details data-fold-key="comment" class="fold-card app-card px-4 py-2.5 sm:px-6">
         <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>评论（{{ comments|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
-        <form method="post" action="{% url 'activities:activity_comment_add' activity.id %}" class="flex items-end gap-2 mb-4">
+        <form method="post" action="{% url 'activities:activity_comment_add' activity.id %}" id="comment-form" class="flex items-end gap-2 mb-4">
             {% csrf_token %}
             <textarea name="content" rows="1" data-auto-grow maxlength="2000" required placeholder="追加评论…"
                 class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:outline-none"></textarea>
@@ -416,7 +416,7 @@
             </div>
             <form method="post" action="{% url 'activities:attachment_delete' att.id %}" data-confirm="确定删除？" data-confirm-tone="danger" data-confirm-label="确认删除">
                 {% csrf_token %}
-                <button type="submit" class="row-action text-xs text-[var(--text-muted)] hover:text-zinc-900">删除</button>
+                <button type="submit" class="row-action text-xs text-[var(--text-muted)] hover:text-[var(--text)]">删除</button>
             </form>
         </div>
         {% endif %}
@@ -468,7 +468,7 @@
             {% for dep in blocked_deps %}
             <div class="flex items-center gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2" data-dep-id="{{ dep.id }}">
                 <a href="{% url 'activities:activity_detail' dep.id %}" class="text-sm text-[var(--text)] truncate flex-1 min-w-0">{{ dep.name }}</a>
-                <span class="shrink-0 text-xs {% if dep.status == 'done' %}text-green-600{% else %}text-orange-600{% endif %}">{{ dep.get_status_display }}</span>
+                <span class="shrink-0 text-xs {% if dep.status == 'done' %}status-fg--done{% else %}text-[var(--text-muted)]{% endif %}">{{ dep.get_status_display }}</span>
                 <button type="button" data-dep-remove="{{ dep.id }}"
                         data-dep-remove-url="{% url 'activities:blocked_remove' activity.id dep.id %}"
                         class="row-action text-xs text-[var(--text-muted)] hover:text-red-600">移除</button>
@@ -512,7 +512,7 @@
                 <div class="space-y-2">
                     {% for item in related_articles %}
                     <a href="{% url 'knowledge:article_detail' item.object.slug %}"
-                       class="block p-2 rounded-lg hover:bg-zinc-50 transition-colors">
+                       class="block p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
                         <p class="text-sm text-[var(--text)] truncate">{{ item.object.title }}</p>
                         <p class="text-xs text-[var(--text-muted)]">{{ item.score }} 个共同标签</p>
                     </a>
@@ -567,6 +567,24 @@
 if (window.matchMedia('(max-width: 767px)').matches) {
     document.querySelectorAll('details[data-mobile-collapse]').forEach(function (d) { d.removeAttribute('open'); });
 }
+
+// 折叠卡展开态持久化（费用/活动安排/评论）：表单提交走原生 POST+redirect 整页刷新，
+// 默认折叠会把刚提交的条目藏起来。参照旧 daily_section_ 的做法用 localStorage 记住
+// 开合，刷新后恢复；key 带活动 id，避免跨活动串状态。
+(function () {
+    var prefix = 'activity_detail_fold_{{ activity.id }}_';
+    document.querySelectorAll('details[data-fold-key]').forEach(function (d) {
+        var storeKey = prefix + d.getAttribute('data-fold-key');
+        try {
+            var saved = localStorage.getItem(storeKey);
+            if (saved === '1') d.setAttribute('open', '');
+            else if (saved === '0') d.removeAttribute('open');
+        } catch (e) { /* 隐私模式等 localStorage 不可用：保持模板默认态 */ }
+        d.addEventListener('toggle', function () {
+            try { localStorage.setItem(storeKey, d.open ? '1' : '0'); } catch (e) { /* 同上 */ }
+        });
+    });
+})();
 
 // ==================== 费用编辑 ====================
 var expenseForm = document.getElementById('expense-form');
@@ -840,7 +858,7 @@ function appendExpenseTag(name) {
             link.className = 'text-sm text-[var(--text)] truncate flex-1 min-w-0';
             link.textContent = res.data.name;
             var status = document.createElement('span');
-            status.className = 'shrink-0 text-xs ' + (res.data.done ? 'text-green-600' : 'text-orange-600');
+            status.className = 'shrink-0 text-xs ' + (res.data.done ? 'status-fg--done' : 'text-[var(--text-muted)]');
             status.textContent = res.data.status_label;
             var removeBtn = document.createElement('button');
             removeBtn.type = 'button';
@@ -967,7 +985,7 @@ function appendExpenseTag(name) {
             openedConvId = d.conversation_id;
             titleEl.textContent = '问 AI · ' + d.activity_name;
             // 历史片段：消息（复用 _message.html）+ turn_resume/error + 钉选挂载位一次拿齐
-            return fetch(d.urls.messages, { headers: { 'Accept': 'text/html' } })
+            return fetch(d.urls.messages + '?chrome=drawer', { headers: { 'Accept': 'text/html' } })
                 .then(function (r) { return r.text(); })
                 .then(function (html) {
                     // 片段来自服务端模板渲染（同一份 _message.html），不是拼用户数据

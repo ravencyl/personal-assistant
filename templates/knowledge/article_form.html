@@ -21,7 +21,7 @@
                 <label for="{{ form.title.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">标题</label>
                 {{ form.title }}
                 {% if form.title.errors %}
-                <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.title.errors.0 }}</p>
+                <p class="mt-1 text-sm text-[var(--text)] font-medium">{{ form.title.errors.0 }}</p>
                 {% endif %}
             </div>
 
@@ -30,7 +30,7 @@
                 <label for="{{ form.content.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">内容（Markdown）</label>
                 {{ form.content }}
                 {% if form.content.errors %}
-                <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.content.errors.0 }}</p>
+                <p class="mt-1 text-sm text-[var(--text)] font-medium">{{ form.content.errors.0 }}</p>
                 {% endif %}
             </div>
 
@@ -49,7 +49,7 @@
                     ✨ AI 建议标签
                 </button>
                 {% if form.tags.errors %}
-                <p class="mt-1 text-sm text-zinc-800 font-medium">{{ form.tags.errors.0 }}</p>
+                <p class="mt-1 text-sm text-[var(--text)] font-medium">{{ form.tags.errors.0 }}</p>
                 {% endif %}
             </div>
 
@@ -94,10 +94,23 @@
                     return;
                 }
                 suggestionsDiv.classList.remove('hidden');
-                chipsDiv.innerHTML = data.tags.map(function(tag) {
-                    return '<button type="button" class="tag-chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:border-[var(--accent)] transition-colors" data-tag="' + tag.replace(/"/g, '&quot;') + '">' +
-                        '<span>+</span><span>' + tag + '</span></button>';
-                }).join('');
+                // chips 必须用 DOM 构建（createElement + textContent）：标签名来自
+                // AI 回复（外部数据），旧版 innerHTML 拼串时 tag 里的 < > 或引号会
+                // 被当作标记解析，等于注入。
+                chipsDiv.textContent = '';
+                data.tags.forEach(function(tag) {
+                    var chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'tag-chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:border-[var(--accent)] transition-colors';
+                    chip.setAttribute('data-tag', tag);
+                    var plus = document.createElement('span');
+                    plus.textContent = '+';
+                    var label = document.createElement('span');
+                    label.textContent = tag;
+                    chip.appendChild(plus);
+                    chip.appendChild(label);
+                    chipsDiv.appendChild(chip);
+                });
                 // 点击 chip 追加到标签输入框
                 chipsDiv.querySelectorAll('.tag-chip').forEach(function(chip) {
                     chip.addEventListener('click', function() {

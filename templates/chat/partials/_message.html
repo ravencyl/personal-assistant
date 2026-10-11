@@ -12,7 +12,8 @@
     <div class="chat-bubble rounded-lg p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% elif msg.role == 'system' %}bg-zinc-50 border border-dashed border-[var(--border-strong)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
         <div class="flex items-center gap-2 mb-1">
             <span class="text-xs font-medium text-[var(--text-secondary)]">{% if msg.role == 'user' %}你{% elif msg.role == 'system' %}系统{% else %}AI 助手{% endif %}</span>
-            <span class="text-xs text-[var(--text-muted)]">{{ msg.created_at|timesince }}前</span>
+            {# 相对时间包进 <time>：datetime 给机器可读绝对时间，title 悬浮显示完整时间戳 #}
+            <time class="text-xs text-[var(--text-muted)]" datetime="{{ msg.created_at|date:'c' }}" title="{{ msg.created_at|date:'Y年n月j日 H:i' }}">{{ msg.created_at|timesince }}前</time>
             {% if msg.role == 'assistant' %}
             {# 复制的是渲染后的可读文本（.md-body 的 innerText），不是 Markdown 源文 #}
             <button type="button" data-copy-msg

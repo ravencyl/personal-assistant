@@ -49,12 +49,15 @@
         {% endif %}
 
         {% if card.next_status %}
-        <div class="mt-2 pt-2 border-t border-zinc-100 flex flex-wrap items-center gap-1.5">
+        {# 状态按钮不整页提交：method=post 的原生表单会把分栏 SPA 导航走。
+           chat-turn.js 里对 [data-status-fetch] 做 submit 委托（preventDefault +
+           apiFetch POST），沿用表单自身的 action，activities 侧视图零改动。 #}
+        <div class="mt-2 pt-2 border-t border-zinc-100 flex flex-wrap items-center gap-1.5" data-status-row>
             {% for s in card.next_status %}
-            <form method="post" action="{% url 'activities:activity_set_status' card.id %}">
+            <form method="post" action="{% url 'activities:activity_set_status' card.id %}" data-status-fetch>
                 {% csrf_token %}
                 <input type="hidden" name="status" value="{{ s.value }}">
-                <button type="submit" class="tap-target rounded-full px-3 py-1.5 text-xs font-medium transition-colors
+                <button type="submit" data-status-label="{{ s.label }}" class="tap-target rounded-full px-3 py-1.5 text-xs font-medium transition-colors
                     {% if s.value == 'done' %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200
                     {% elif s.value == 'cancelled' %}bg-zinc-50 text-zinc-400 hover:bg-zinc-100
                     {% else %}bg-zinc-100 text-zinc-600 hover:bg-zinc-200{% endif %}">

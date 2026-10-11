@@ -19,4 +19,7 @@
 {% elif msg.payload and msg.payload.card == 'today_brief' and msg.payload.card_data %}
     {# 同上：工作台卡（/today/ 页下线后的唯一出口） #}
     {% include "chat/cards/today_brief_card.html" with card=msg.payload.card_data %}
+{% elif msg.payload and msg.payload.card == 'weekly_review' and msg.payload.card_data %}
+    {# 周回顾对话的开场快照卡（chat/views.py _create_weekly_review_conversation 直出） #}
+    {% include "chat/cards/weekly_review_card.html" with card=msg.payload.card_data %}
 {% endif %}

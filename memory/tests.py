@@ -746,3 +746,201 @@ class MonthlyInsightCommandTest(TestCase):
         out = StringIO()
         call_command('generate_monthly_insight', stdout=out)
         self.assertIn('月度洞察完成', out.getvalue())
+
+
+class MemoryListPaginationTest(TestCase):
+    """记忆列表分页（UI 走查 major #8）：长期使用不得再把页面拉成无限长"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('pageuser', password='p')
+        self.client = Client()
+        self.client.login(username='pageuser', password='p')
+        self.list_url = reverse('memory:memory_list')
+        for i in range(35):
+            Memory.objects.create(user=self.user, content=f'分页记忆{i:02d}', importance=5)
+        # 排序是 -importance, -updated_at，importance 全同 → 用 updated_at 拉开确定顺序：
+        # content 最小的记忆最新，第 1 页是 00-29，第 2 页是 30-34
+        base = timezone.now()
+        ordered = list(Memory.objects.filter(user=self.user).order_by('content'))
+        for i, m in enumerate(ordered):
+            Memory.objects.filter(id=m.id).update(updated_at=base - timedelta(minutes=i))
+
+    def test_first_page_caps_at_30_and_shows_nav(self):
+        resp = self.client.get(self.list_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '第 1/2 页')
+        self.assertContains(resp, '共 35 条')
+        self.assertContains(resp, '分页记忆00')
+        self.assertNotContains(resp, '分页记忆30')
+
+    def test_second_page_via_query_param(self):
+        resp = self.client.get(self.list_url + '?page=2')
+        self.assertContains(resp, '第 2/2 页')
+        self.assertContains(resp, '分页记忆34')
+        self.assertNotContains(resp, '分页记忆00')
+
+    def test_illegal_page_falls_back(self):
+        """非法/越界页码不炸：get_page 收敛到最近合法页"""
+        resp = self.client.get(self.list_url + '?page=abc')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '第 1/2 页')
+
+    def test_pagination_links_carry_filter(self):
+        """翻页链接保留 q/category（带筛选翻页不得把搜索状态弄丢）"""
+        resp = self.client.get(self.list_url + '?q=分页&page=2')
+        self.assertEqual(resp.status_code, 200)
+        from urllib.parse import quote
+        self.assertIn('q=' + quote('分页'), resp.content.decode())
+
+    def test_htmx_fragment_paginates_too(self):
+        """筛选片段（HTMX）与整页共用同一份分页口径"""
+        resp = self.client.get(self.list_url + '?q=分页记忆', HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, '分页记忆30')
+
+
+class MemoryEditFilterCarryTest(TestCase):
+    """编辑取消/保存不得丢筛选（UI 走查 major #3）
+
+    旧实现在 memory_edit / memory_delete 的 htmx 分支里把 query/category
+    硬写成空串，保存后整个搜索状态被无过滤的列表覆盖。筛选与页码现在随
+    表单 filter_* 隐藏字段回传（避开记忆自己的 category 字段名）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('edituser', password='p')
+        self.client = Client()
+        self.client.login(username='edituser', password='p')
+        self.m1 = Memory.objects.create(user=self.user, content='喜欢喝咖啡',
+                                        category='preference', importance=6)
+        self.m2 = Memory.objects.create(user=self.user, content='在杭州工作',
+                                        category='fact', importance=5)
+
+    def test_edit_get_carries_filter_into_hidden_fields(self):
+        url = reverse('memory:memory_edit', args=[self.m1.id]) + '?q=咖啡&page=1'
+        resp = self.client.get(url, HTTP_HX_REQUEST='true')
+        self.assertContains(resp, 'name="filter_q" value="咖啡"')
+        # 取消按钮的 hx-get URL 必须带当前筛选（不带时点取消 = 无过滤整表）
+        from urllib.parse import quote
+        self.assertIn('q=' + quote('咖啡'), resp.content.decode())
+
+    def test_edit_post_htmx_fragment_keeps_filter(self):
+        url = reverse('memory:memory_edit', args=[self.m1.id])
+        resp = self.client.post(url, {
+            'content': '喜欢喝茶', 'category': 'preference', 'importance': '7',
+            'filter_q': '喝茶', 'filter_page': '1',
+        }, HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '喜欢喝茶')
+        self.assertNotContains(resp, '在杭州工作')
+
+    def test_edit_post_still_updates_when_no_filters(self):
+        """回归：不带 filter_* 也不能炸（非 HTMX/旧入口路径）"""
+        url = reverse('memory:memory_edit', args=[self.m1.id])
+        resp = self.client.post(url, {
+            'content': '喜欢喝茶', 'category': 'preference', 'importance': '7',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.m1.refresh_from_db()
+        self.assertEqual(self.m1.content, '喜欢喝茶')
+
+
+class MemoryDeleteSwapTest(TestCase):
+    """删除返回空响应而不是整份列表（UI 走查 blocker #2）
+
+    删除按钮 hx-target="#memory-<id>" + hx-swap="outerHTML"：旧实现回整份
+    _memory_items 片段，删除后列表被嵌进这张卡片。空响应恰好移除该行。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('deluser', password='p')
+        self.client = Client()
+        self.client.login(username='deluser', password='p')
+        self.m1 = Memory.objects.create(user=self.user, content='待删记忆')
+        self.m2 = Memory.objects.create(user=self.user, content='保留记忆')
+
+    def test_htmx_delete_returns_empty_body(self):
+        resp = self.client.post(
+            reverse('memory:memory_delete', args=[self.m1.id]),
+            HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content.decode().strip(), '')
+        self.assertFalse(Memory.objects.filter(id=self.m1.id).exists())
+        self.assertTrue(Memory.objects.filter(id=self.m2.id).exists())
+
+    def test_plain_delete_still_redirects(self):
+        resp = self.client.post(reverse('memory:memory_delete', args=[self.m1.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Memory.objects.filter(id=self.m1.id).exists())
+
+
+class MemoryDisplayFixesTest(TestCase):
+    """展示/无障碍/死代码的静态锁（UI 走查 #1/#4/#5/#6/#7）
+
+    与渲染测试互补：这几条修的是模板/JS 源本身的形状，
+    断言「坏写法不再出现」比断言「好写法出现过一次」更防回退。
+    """
+    TPL_DIR = Path(__file__).resolve().parent.parent / 'templates' / 'memory'
+    VIZ_JS = Path(__file__).resolve().parent.parent / 'static' / 'js' / 'memory-viz.js'
+
+    def _read(self, name):
+        return (self.TPL_DIR / name).read_text(encoding='utf-8')
+
+    def setUp(self):
+        self.user = User.objects.create_user('dispuser', password='p')
+        self.client = Client()
+        self.client.login(username='dispuser', password='p')
+
+    def test_view_switch_never_reloads_the_page(self):
+        """死功能根因：点「地图」执行页面重载，重载后服务端仍是列表态。
+        正确形状是调 memory-viz.js 暴露的 PaMemoryViz.ensureLoaded()。"""
+        src = self._read('memory_list.html')
+        self.assertNotIn('location.reload', src)
+        self.assertNotIn('script.src', src)  # 残留的死代码（三元恒空赋值）不得回来
+        self.assertIn('PaMemoryViz', src)
+        self.assertIn('memory_view_mode', src)  # 视图态持久化到 localStorage
+        # 列表侧隐藏必须走 inline display：.page-cols 的无层级 display:grid 恒赢
+        # Tailwind 分层 .hidden，挂 hidden 类桌面端等于没藏（AGENTS.md 开关类教训）
+        self.assertIn('listArea.style.display', src)
+        self.assertNotIn("listArea.classList", src)
+
+    def test_memory_viz_is_lazy_behind_ensure_loaded(self):
+        js = self.VIZ_JS.read_text(encoding='utf-8')
+        self.assertIn('window.PaMemoryViz', js)
+        self.assertIn('ensureLoaded', js)
+        # fetch 只能出现在 ensureLoaded 里，不允许回到模块加载即请求
+        self.assertEqual(js.count('fetch('), 1)
+
+    def test_delete_confirm_goes_through_site_confirm_card(self):
+        """hx-confirm 原生弹窗 → 全站统一确认卡（paConfirmCard 自定义流程通道）"""
+        src = self._read('memory_list.html')
+        self.assertIn('htmx:confirm', src)
+        self.assertIn('paConfirmCard', src)
+        self.assertNotIn('hx-confirm="', src)  # 问题文案源在片段模板的按钮上，整页模板不挂属性
+
+    def test_icon_buttons_have_aria_labels_and_tap_targets(self):
+        src = self._read('_memory_items.html')
+        self.assertEqual(src.count('aria-label="编辑这条记忆"'), 1)
+        self.assertEqual(src.count('aria-label="删除这条记忆"'), 1)
+        self.assertEqual(src.count('tap-target rounded p-1.5'), 2,
+                         '两个图标按钮都要有 tap-target，少一个就是又漏一个')
+
+    def test_importance_rendered_as_tier(self):
+        """内部权重 1-10 不直曝；档位：>=7 高、4-6 中、<4 低"""
+        Memory.objects.create(user=self.user, content='高权重记忆', importance=8)
+        Memory.objects.create(user=self.user, content='中权重记忆', importance=5)
+        Memory.objects.create(user=self.user, content='低权重记忆', importance=2)
+        resp = self.client.get(reverse('memory:memory_list'))
+        self.assertContains(resp, '重要度高')
+        self.assertContains(resp, '重要度中')
+        self.assertContains(resp, '重要度低')
+        self.assertNotContains(resp, '重要度 8')
+        self.assertNotContains(resp, '重要度 5')
+
+    def test_no_hardcoded_zinc_or_white_in_memory_templates(self):
+        """硬编码色已收敛到 var() token（删除按钮的 red 系是危险语义，保留）"""
+        for name in ('memory_list.html', '_memory_items.html', '_memory_edit_form.html'):
+            src = self._read(name)
+            self.assertNotIn('zinc-', src, f'{name} 还有硬编码 zinc 色')
+            self.assertNotIn('bg-white', src, f'{name} 还有 bg-white')
+

@@ -871,9 +871,14 @@ class DashboardDesktopLayoutTest(TestCase):
         self.client = Client()
         self.client.login(username='raven', password='test')
         # 「活动分布」是条件渲染块（stats.status_counts），没数据整块不出现，顺序锁会空跑
-        Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress')
+        trip = Activity.objects.create(user=self.user, name='新西兰之旅', status='in_progress')
         Activity.objects.create(user=self.user, name='晨读', status='done')
         Conversation.objects.create(user=self.user, title='面签准备')
+        # 周费用图零消费周会换成「本周暂无消费」空态（canvas 不渲染），
+        # 顺序锁锚的是 id="dashWeekChart"，所以必须带一条本周费用才有图可锁
+        Expense.objects.create(user=self.user, activity=trip,
+                               amount=Decimal('88.00'),
+                               paid_at=timezone.localdate())
         self.html = self.client.get('/dashboard/').content.decode()
 
     def test_desktop_two_columns(self):
@@ -2010,3 +2015,94 @@ class ReportPushPayloadTest(TestCase):
         self.assertEqual(
             Article.objects.filter(
                 user=self.user, tags__name='report-weekly').count(), 1)
+
+
+class WeeklyReviewNoFakeSuccessTest(TestCase):
+    """每周回顾「假成功」回归锁（UI 走查 item 4）
+
+    旧行为：三个 textarea 全可空，空提交照样跳完成页宣布「已保存为记忆」；
+    ?step=3 深链也直接渲染完成态。现在完成态只有一个真相 —— 本周真的提交过
+    （session['weekly_review_week'] == 本周一），空提交在视图层被 400 挡回。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+
+    def test_empty_post_rejected_400_no_memory_no_flag(self):
+        """两项引导问题全空：400 留在引导页并给错误文案，不写 session 标记"""
+        from memory.models import Memory
+        resp = self.client.post('/weekly-review/', {
+            'highlights': '', 'improvements': '', 'reflection': ''})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('都要填写', resp.content.decode())
+        self.assertEqual(Memory.objects.filter(user=self.user).count(), 0)
+        self.assertIsNone(self.client.session.get('weekly_review_week'))
+
+    def test_half_empty_post_also_rejected(self):
+        """只填一项同样挡回（required 口径 = 视图校验口径）"""
+        resp = self.client.post('/weekly-review/', {
+            'highlights': '只写了亮点', 'improvements': '', 'reflection': '感悟'})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_complete_page_url_requires_real_submission(self):
+        """没提交过直接敲完成页 URL：302 回引导流程，不再凭空显示完成"""
+        resp = self.client.get('/weekly-review/complete/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('weekly_review'))
+
+    def test_step3_deeplink_no_longer_fakes_completion(self):
+        """?step=3 深链：没提交过 → 回到引导反思（step 2），页面不含完成文案"""
+        resp = self.client.get('/weekly-review/?step=3')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertNotIn('每周回顾完成', html)
+        self.assertIn('这周最大的亮点是什么', html)
+
+    def test_valid_post_saves_marks_week_and_completes(self):
+        """真提交：写两条记忆（感悟留空则不写第三条）、记 session 标记、完成页可看"""
+        from memory.models import Memory
+        resp = self.client.post('/weekly-review/', {
+            'highlights': '跑了一次半马', 'improvements': '睡眠太晚', 'reflection': ''})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('weekly_review_complete'))
+        contents = set(Memory.objects.filter(
+            user=self.user).values_list('content', flat=True))
+        self.assertEqual(len(contents), 2)
+        self.assertTrue(any(c.startswith('[本周亮点]') for c in contents))
+        self.assertTrue(any(c.startswith('[改进方向]') for c in contents))
+        page = self.client.get('/weekly-review/complete/')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('每周回顾完成', page.content.decode())
+
+
+class DashboardZeroExpenseChartTest(TestCase):
+    """仪表盘周费用图空态与替代文本回归锁（UI 走查 item 10）
+
+    零消费周不再渲染空网格，换成「本周暂无消费」；有消费时 canvas 带
+    aria-label 与隐藏文字替代，数据经 json_script 传递（不再内联 |safe）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+
+    def test_zero_expense_week_shows_empty_state(self):
+        html = self.client.get('/dashboard/').content.decode()
+        self.assertIn('本周暂无消费', html)
+        self.assertNotIn('id="dashWeekChart"', html)
+
+    def test_expense_week_shows_chart_with_text_alternative(self):
+        trip = Activity.objects.create(user=self.user, name='新西兰之旅')
+        Expense.objects.create(user=self.user, activity=trip,
+                               amount=Decimal('88.00'),
+                               paid_at=timezone.localdate())
+        html = self.client.get('/dashboard/').content.decode()
+        self.assertIn('id="dashWeekChart"', html)
+        self.assertNotIn('本周暂无消费', html)
+        self.assertIn('本周每日费用', html)
+        self.assertIn('role="img"', html)
+        self.assertIn('id="dash-weekdays"', html)
+        self.assertIn('id="dash-daily-expense"', html)

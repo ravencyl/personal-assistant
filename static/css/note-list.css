@@ -1,0 +1,19 @@
+/* 备忘页（note_list.html）专属样式：语音速记录音态（禁彩色，灰阶/accent 脉冲点）。
+   原先是模板内联 <style>，外置到此文件统一走 staticv 内容版本号。 */
+.voice-rec-dot {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background: var(--accent, #18181b);
+}
+#voiceBtn.voice-recording {
+    border-color: var(--accent, #18181b);
+    color: var(--text, #18181b);
+}
+#voiceBtn.voice-recording .voice-rec-dot {
+    animation: voice-pulse 1.2s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.3; transform: scale(0.65); }
+}

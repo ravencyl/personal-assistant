@@ -13,7 +13,8 @@
         <button type="button" class="pin-chip-clear tap-target" data-pin-clear
                 title="取消钉选" aria-label="取消钉选">&times;</button>
     </span>
-    {% else %}
+    {% elif not hide_hint %}
+    {# hide_hint：抽屉等「上下文已是该活动」的宿主由视图传 True，省掉没用的 @ 提示；chip 照常 #}
     <span class="pin-hint">输入 <span class="pin-key">@</span> 可钉住一个活动，之后几轮都默认针对它</span>
     {% endif %}
 </div>

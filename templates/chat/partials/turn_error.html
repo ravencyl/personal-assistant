@@ -1,11 +1,15 @@
 {% comment %}本轮中断（超时 / 发送失败）的气泡。服务端渲染一份、轮询响应里也带一份，
 同用这个模板 —— 前端不再自己拼一套，避免两处措辞漂移。
-「重试」把原文带在 data-retry-text 里，点了就按同一份内容重发（不新造端点）。{% endcomment %}
+「重试」把原文带在 data-retry-text 里，点了就按同一份内容重发（不新造端点）。
+note 缺省时按「刷新后渲染」兜底一句可读文案：轮询路径（_turn_error_json）总会显式传 note，
+而页面刷新时 conversation_detail / widget_messages / conversation_list 三处 include 都不传，
+以前没兜底就只剩一个「⚠️」。默认文案只留这一份来源（与 views 侧 TURN_INTERRUPTED_NOTE 同句，
+改词两处都要动）。{% endcomment %}
 <div class="chat-message assistant">
     {# chat-bubble：与 _message.html 共用同一份移动端覆盖（满宽 + 左侧角色竖条），不必再写第三条规则 #}
     <div class="chat-bubble rounded-lg p-3 md:p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
         <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs text-[var(--text-secondary)]">⚠️ {{ note }}</span>
+            <span class="text-xs text-[var(--text-secondary)]">⚠️ {% firstof note "上一轮没有完成，可以再问一次。" %}</span>
             {% if conversation.turn_message %}
             <button type="button" data-retry-text="{{ conversation.turn_message.content }}"
                     class="tap-target text-xs px-2 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text)]">

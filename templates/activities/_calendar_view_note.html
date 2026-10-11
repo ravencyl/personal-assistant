@@ -1,0 +1,15 @@
+{% comment %}
+日历月/视图的覆写提示层（空状态文案 + 加载失败重试）：
+JS 通过 #calendar-note / #calendar-note-text / #calendar-retry 控制显隐，月/周两个分支共用这一份
+（同一次渲染只会存在其中一个，id 不冲突）。
+注意：外层负责 hidden 切换，内层才挂 flex —— hidden 与 flex 同层会因样式表顺序决定去掉
+hidden 后拿到哪个 display（turn_status.html 同款教训）。
+empty_text 由宿主分支传入（「本月没有活动安排」/「本周没有活动安排」）。
+{% endcomment %}
+<div id="calendar-note" class="hidden absolute inset-0 z-10 bg-[var(--bg-card)]/95">
+    <div class="h-full flex flex-col items-center justify-center gap-3">
+        <p id="calendar-note-text" class="text-sm text-[var(--text-muted)]">{{ empty_text }}</p>
+        <button type="button" id="calendar-retry"
+                class="hidden tap-target rounded-full border border-[var(--border-strong)] px-4 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">重试</button>
+    </div>
+</div>

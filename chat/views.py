@@ -408,6 +408,9 @@ def widget_messages(request, conversation_id):
         'history_all_url': f"/chat/{conversation.id}/?history=all",
         'conversation': conversation,
         'turn_ttl': TURN_TTL_SECONDS,
+        # ?chrome=drawer（活动详情页「问 AI」抽屉）：抽屉上下文本身就钉着这个活动、
+        # 且没挂 PaChatPin（输 @ 没有候选），「输入 @ 可钉住」的提示只会误导（UI 走查 item 10）
+        'hide_pin_hint': request.GET.get('chrome') == 'drawer',
     })
 
 
@@ -1114,7 +1117,9 @@ def confirm_action(request, message_id):
     action = payload.get('action') or {}
 
     def _render():
-        response = render(request, 'chat/cards/_confirm_actions.html', {
+        # 返回整张确认卡（#confirm-card-<id> 做 outerHTML 替换）：只回动作区片段
+        # 会让卡体 pending 文案与 ✓ 结果态同框矛盾（UI 走查 item 6）
+        response = render(request, 'chat/cards/confirm_card.html', {
             'msg': message,
             'action': action,
             'card': payload.get('card_data') or {},

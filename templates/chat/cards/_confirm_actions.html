@@ -1,4 +1,6 @@
-{% comment %}确认流动作区：待确认显示「确认/取消」按钮，已决议显示结果态；确认端点返回同一片段做局部替换{% endcomment %}
+{% comment %}确认流动作区：待确认显示「确认/取消」按钮，已决议显示结果态。
+确认端点返回整张确认卡（confirm_card.html）做 outerHTML 替换：只换本片段的话，
+卡体里的 pending 引导语会与 ✓ 结果态同框矛盾（见 confirm_card.html 头注）。{% endcomment %}
 <div class="agent-card-actions mt-2 pt-2 border-t border-zinc-100" id="card-actions-{{ msg.id }}">
     {% if action.resolved == 'confirmed' %}
         <p class="text-xs text-zinc-800 font-medium">✓ {{ action.result }}</p>
@@ -8,7 +10,7 @@
         <p class="text-xs text-zinc-800 font-semibold">✗ {{ action.result }}</p>
     {% else %}
         <div class="flex items-center gap-2">
-            <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#card-actions-{{ msg.id }}" hx-swap="outerHTML">
+            <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#confirm-card-{{ msg.id }}" hx-swap="outerHTML">
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="confirm">
                 <input type="hidden" name="token" value="{{ action.token }}">
@@ -17,7 +19,7 @@
                     {% if card.kind == 'delete' %}确认删除{% else %}确认执行{% endif %}
                 </button>
             </form>
-            <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#card-actions-{{ msg.id }}" hx-swap="outerHTML">
+            <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#confirm-card-{{ msg.id }}" hx-swap="outerHTML">
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="cancel">
                 <button type="submit" class="tap-target rounded-full bg-zinc-100 text-zinc-600 hover:bg-zinc-200 px-4 py-2 text-xs font-medium transition-colors">取消</button>

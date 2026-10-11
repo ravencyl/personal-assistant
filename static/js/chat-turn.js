@@ -268,7 +268,7 @@
             var u = api();
             if (!u.send) {
                 // 没选对话时给一句提示：旧实现是默默 return，用户点了发送什么也没发生
-                showStatus(opts.noConversationHint || '先选一个对话');
+                showStatus('先选一个对话');
                 return Promise.resolve(false);
             }
             if (running) { showStatus('上一条还在处理中，等它回完或先点「停止」'); return Promise.resolve(false); }
@@ -603,6 +603,41 @@
         }).catch(function () {
             flashLocalError(btn, '插入失败，请重试');
         });
+    });
+
+    /* 活动卡「改状态」按钮：表单保留 method=post + action 作无 JS 兜底，
+     * JS 在场时拦下原生提交改走 apiFetch（UI 走查 item 5：整页提交会把分栏
+     * SPA 导航走）。服务端 activities 视图零改动：非 HX 的 POST 返 302，
+     * fetch 自动跟到 200；成功就地改按钮区，不回写消息流，与轮询 append 无竞态。 */
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!form || !form.matches || !form.matches('[data-status-fetch]')) return;
+        if (e.defaultPrevented) return;   // 别的处理器已接管（如 PaChatTurn 的宿主表单）
+        e.preventDefault();
+        var btn = form.querySelector('button[type="submit"]');
+        if (!btn || btn.disabled) return;
+        var row = form.closest('[data-status-row]');
+        btn.disabled = true;
+        apiFetch(form.action, { method: 'POST', body: new FormData(form) })
+            .then(function (r) {
+                // 会话过期时端点会 302 到登录页，跟着转后还是 200：按失败报，不能假报 ✓
+                if (!r.ok || /\/accounts\/login/.test(r.url || '')) throw new Error('http ' + r.status);
+                if (row) {
+                    Array.prototype.forEach.call(
+                        row.querySelectorAll('button[type="submit"]'),
+                        function (b) {
+                            b.disabled = true;
+                            if (b !== btn) b.style.opacity = '0.4';
+                        });
+                }
+                btn.textContent = '✓ ' + (btn.getAttribute('data-status-label') || '');
+                // 状态确实改了：广播给宿主页面（base.html 监听后弹提示条/刷新徽标）
+                document.dispatchEvent(new CustomEvent('activities:changed'));
+            })
+            .catch(function () {
+                btn.disabled = false;
+                flashLocalError(btn, '改状态失败，请重试');
+            });
     });
 
     // 页面加载完：收一遍历史里已有的 chips（详情页 / 分栏页首屏都靠这条覆盖）。

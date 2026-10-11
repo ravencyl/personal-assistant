@@ -16,25 +16,26 @@
         接下来 7 天
         <span class="ml-1.5 text-[var(--text-muted)] font-normal normal-case">{{ upcoming|length }}</span>
     </h2>
-    <div class="space-y-2">
+    <div class="space-y-2" id="next-actions-list">
         {% for a in upcoming %}
-        <div onclick="location.href='{% url 'activities:activity_detail' a.id %}'"
-           class="group flex items-start gap-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors cursor-pointer">
+        {# 外 div 内 a 模式（与活动列表移动卡同款）：卡片名就是真链接，整卡空白由页尾委托跳详情；#}
+        {# 不用 onclick location.href，行内「属于 xx」父活动链接不受影响（委托先排除 a/button/form） #}
+        <div class="group flex items-start gap-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors cursor-pointer">
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1 flex-wrap">
-                    <h3 class="text-sm font-medium text-[var(--text)] group-hover:text-[var(--text-secondary)]">{{ a.name }}</h3>
+                    <h3 class="text-sm font-medium text-[var(--text)] group-hover:text-[var(--text-secondary)]"><a href="{% url 'activities:activity_detail' a.id %}" data-card-main>{{ a.name }}</a></h3>
                     {% if a.days_until == 0 %}
                     <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">今日开始</span>
                     {% elif a.days_until == 1 %}
                     <span class="shrink-0 text-[10px] font-medium text-[var(--text-secondary)] bg-[var(--accent-light)] rounded-full px-1.5 py-0.5">明天开始</span>
                     {% else %}
-                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-muted)] bg-zinc-100 rounded-full px-1.5 py-0.5">{{ a.days_until }} 天后</span>
+                    <span class="shrink-0 text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg)] rounded-full px-1.5 py-0.5">{{ a.days_until }} 天后</span>
                     {% endif %}
                 </div>
                 <div class="flex items-center gap-3 text-xs text-[var(--text-muted)]">
                     <span class="tabular-nums">{{ a.date_range }}</span>
                     {% if a.parent %}
-                    <span>属于 <a href="{% url 'activities:activity_detail' a.parent.id %}" onclick="event.stopPropagation()" class="hover:text-[var(--text-secondary)] hover:underline">{{ a.parent.name }}</a></span>
+                    <span>属于 <a href="{% url 'activities:activity_detail' a.parent.id %}" class="hover:text-[var(--text-secondary)] hover:underline">{{ a.parent.name }}</a></span>
                     {% endif %}
                     {% include "activities/_status_badge.html" with status=a.status label=a.get_status_display %}
                 </div>
@@ -72,4 +73,21 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 整卡触区委托（与活动列表移动卡同款）：点卡片空白进详情，
+// 行内真实链接（父活动）等交互元素先排除，不做第二套跳转逻辑
+(function () {
+    var list = document.getElementById('next-actions-list');
+    if (!list) return;
+    list.addEventListener('click', function (e) {
+        if (e.target.closest('a, button, form')) return;
+        var card = e.target.closest('.group');
+        var link = card && card.querySelector('[data-card-main]');
+        if (link) window.location.href = link.href;
+    });
+})();
+</script>
 {% endblock %}

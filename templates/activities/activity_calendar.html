@@ -15,11 +15,11 @@
             <!-- 视图切换 -->
             <div class="flex items-center rounded-full border border-[var(--border-strong)] overflow-hidden">
                 <a href="?mode=month{% if mode != 'month' %}&date={{ today.isoformat }}{% endif %}"
-                   class="px-3 py-1 text-xs font-medium transition-colors {% if mode == 'month' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">月</a>
+                   class="tap-target px-3 py-1 text-xs font-medium transition-colors {% if mode == 'month' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">月</a>
                 <a href="?mode=week{% if mode != 'week' %}&date={{ today.isoformat }}{% endif %}"
-                   class="px-3 py-1 text-xs font-medium transition-colors {% if mode == 'week' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">周</a>
+                   class="tap-target px-3 py-1 text-xs font-medium transition-colors {% if mode == 'week' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">周</a>
                 <a href="?mode=day{% if mode != 'day' %}&date={{ today.isoformat }}{% endif %}"
-                   class="px-3 py-1 text-xs font-medium transition-colors {% if mode == 'day' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">日</a>
+                   class="tap-target px-3 py-1 text-xs font-medium transition-colors {% if mode == 'day' %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">日</a>
             </div>
         </div>
     </div>
@@ -27,14 +27,14 @@
     <!-- 前后导航 -->
     <div class="flex items-center justify-between mb-3">
         <a href="?mode={{ mode }}&date={{ prev_params.date }}"
-           class="inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
+           class="tap-target -my-2 inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
             上一{% if mode == 'month' %}月{% elif mode == 'week' %}周{% else %}日{% endif %}
         </a>
         <a href="?mode={{ mode }}&date={{ today_params.date }}"
-           class="px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] text-sm font-medium hover:opacity-90">今天</a>
+           class="tap-target px-3 py-1 rounded-full bg-[var(--accent)] text-[var(--bg)] text-sm font-medium hover:opacity-90">今天</a>
         <a href="?mode={{ mode }}&date={{ next_params.date }}"
-           class="inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
+           class="tap-target -my-2 inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
             下一{% if mode == 'month' %}月{% elif mode == 'week' %}周{% else %}日{% endif %}
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
         </a>
@@ -55,7 +55,7 @@
 
     <!-- ==================== 月视图 ==================== -->
     {% if mode == 'month' %}
-    <div class="app-card overflow-hidden">
+    <div class="app-card relative overflow-hidden">
         <div class="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--accent-light)]">
             {% for day_name in weekdays %}
             <div class="px-2 py-2 text-center text-xs font-medium text-[var(--text-secondary)] uppercase">{{ day_name }}</div>
@@ -74,11 +74,12 @@
                 {% endfor %}
             {% endfor %}
         </div>
+        {% include "activities/_calendar_view_note.html" with empty_text="本月没有活动安排" %}
     </div>
 
     <!-- ==================== 周视图 ==================== -->
     {% elif mode == 'week' %}
-    <div class="app-card overflow-hidden">
+    <div class="app-card relative overflow-hidden">
         <div class="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--accent-light)]">
             {% for day in days %}
             <div class="px-1 py-2 text-center {% if day.is_today %}bg-[var(--accent-light)]{% endif %}">
@@ -93,6 +94,7 @@
             </div>
             {% endfor %}
         </div>
+        {% include "activities/_calendar_view_note.html" with empty_text="本周没有活动安排" %}
     </div>
 
     <!-- ==================== 日视图 ==================== -->
@@ -126,21 +128,20 @@
 
 <script>
 (function () {
+    // 日视图唯一渲染方是 static/js/calendar-day-select.js（含自己的空状态），
+    // 这里只负责月/周视图：旧版内联的日视图分支指向不存在的 #day-activities，是死代码，已删
+    if ('{{ mode }}' === 'day') return;
     var mode = '{{ mode }}';
-    var todayStr = '{{ today.isoformat }}';
 
     function getDateRange() {
         {% if mode == 'month' %}
         return { year: {{ year }}, month: {{ month }} };
-        {% elif mode == 'week' %}
-        return { date: '{{ week_start }}' };
         {% else %}
-        return { date: '{{ day_date }}' };
+        return { date: '{{ week_start }}' };
         {% endif %}
     }
 
     function findContainer(dateStr) {
-        if (mode === 'day') return document.querySelector('[data-hour]');
         return document.querySelector('[data-date="' + dateStr + '"]');
     }
 
@@ -161,55 +162,70 @@
             }
         });
 
-        if (mode === 'day') {
-            var dateStr = '{{ day_date }}';
-            var items = byDate[dateStr] || [];
-            var container = document.getElementById('day-activities');
-            items.forEach(function (a) {
+        Object.keys(byDate).forEach(function (ds) {
+            var el = findContainer(ds);
+            if (!el) return;
+            byDate[ds].forEach(function (a) {
                 var block = document.createElement('a');
                 block.href = a.url;
-                block.className = 'block rounded-lg p-3 hover:opacity-90 transition-opacity status-fg-on--' + a.status;
+                var textCls = 'status-fg-on--' + a.status;
+                if (mode === 'week') {
+                    block.className = 'block rounded px-1.5 py-0.5 text-[11px] ' + textCls + ' truncate hover:opacity-80 mb-1';
+                } else {
+                    block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs ' + textCls + ' truncate hover:opacity-80 transition-opacity';
+                    // 月视图活动卡片可拖拽
+                    block.draggable = true;
+                    block.dataset.activityId = a.id;
+                }
                 block.style.backgroundColor = 'var(--status-' + a.status + ')';
-                block.innerHTML = '<div class="text-sm font-medium truncate">' + a.name + '</div>' +
-                    '<div class="text-[11px] opacity-80 mt-1">' + a.status_label + '</div>';
-                container.appendChild(block);
+                block.title = a.name + ' (' + a.status_label + ')';
+                block.textContent = a.name;
+                el.appendChild(block);
             });
-            if (items.length === 0) {
-                container.innerHTML += '<p class="text-xs text-zinc-400">无活动</p>';
-            }
-        } else {
-            Object.keys(byDate).forEach(function (ds) {
-                var el = findContainer(ds);
-                if (!el) return;
-                byDate[ds].forEach(function (a) {
-                    var block = document.createElement('a');
-                    block.href = a.url;
-                    var textCls = 'status-fg-on--' + a.status;
-                    if (mode === 'week') {
-                        block.className = 'block rounded px-1.5 py-0.5 text-[11px] ' + textCls + ' truncate hover:opacity-80 mb-1';
-                    } else {
-                        block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs ' + textCls + ' truncate hover:opacity-80 transition-opacity';
-                        // 月视图活动卡片可拖拽
-                        block.draggable = true;
-                        block.dataset.activityId = a.id;
-                    }
-                    block.style.backgroundColor = 'var(--status-' + a.status + ')';
-                    block.title = a.name + ' (' + a.status_label + ')';
-                    block.textContent = a.name;
-                    el.appendChild(block);
-                });
-            });
-        }
+        });
     }
 
-    var params = getDateRange();
-    var qs = 'mode=' + mode;
-    for (var k in params) qs += '&' + k + '=' + params[k];
+    // 空态/失败态覆写层（_calendar_view_note.html，月/周分支各渲染一份）
+    var noteEl = document.getElementById('calendar-note');
+    var noteTextEl = document.getElementById('calendar-note-text');
+    var retryBtn = document.getElementById('calendar-retry');
 
-    fetch('{% url "activities:calendar_data" %}?' + qs)
-        .then(function (r) { return r.json(); })
-        .then(function (data) { renderActivities(data.activities || []); })
-        .catch(function (err) { console.error('加载日历数据失败:', err); });
+    function showNote(text, withRetry) {
+        if (!noteEl) return;
+        noteTextEl.textContent = text;
+        retryBtn.classList.toggle('hidden', !withRetry);
+        noteEl.classList.remove('hidden');
+    }
+    function hideNote() {
+        if (noteEl) noteEl.classList.add('hidden');
+    }
+    if (retryBtn) retryBtn.addEventListener('click', load);
+
+    function load() {
+        hideNote();
+        var params = getDateRange();
+        var qs = 'mode=' + mode;
+        for (var k in params) qs += '&' + k + '=' + params[k];
+
+        fetch('{% url "activities:calendar_data" %}?' + qs)
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                var activities = data.activities || [];
+                renderActivities(activities);
+                // 空月/空周：网格上覆写一句空状态（模板已给出各分支文案）
+                if (activities.length === 0) {
+                    showNote(mode === 'month' ? '本月没有活动安排' : '本周没有活动安排', false);
+                }
+            })
+            .catch(function (err) {
+                console.error('加载日历数据失败:', err);
+                showNote('加载失败，请点击重试', true);
+            });
+    }
+    load();
 })();
 </script>
 

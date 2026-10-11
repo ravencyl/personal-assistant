@@ -6,10 +6,16 @@
             <p class="text-sm leading-relaxed">{{ memory.content }}</p>
             <!-- 元信息 -->
             <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-                <span class="rounded-full bg-zinc-100 px-2 py-0.5">
+                <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">
                     {{ memory.get_category_display }}
                 </span>
-                <span>重要度 {{ memory.importance }}</span>
+                {% comment %}
+                1-10 是检索用的内部权重，直接曝给用户读不出含义（UI 走查 minor）。
+                展示档位口径：>=7 高、4-6 中、<4 低；编辑态仍是数字输入。
+                {% endcomment %}
+                <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">
+                    重要度{% if memory.importance >= 7 %}高{% elif memory.importance >= 4 %}中{% else %}低{% endif %}
+                </span>
                 <span>{{ memory.created_at|date:"Y-m-d" }}</span>
                 {% if memory.access_count > 0 %}
                 <span>使用 {{ memory.access_count }} 次</span>
@@ -18,23 +24,27 @@
         </div>
         <!-- 操作按钮 -->
         <div class="flex items-center gap-1 hover-actions">
+            {# 编辑触发 URL 携带当前筛选与页码（edit_params_qs 由 _memory_list_context 拼），#}
+            {# GET 编辑视图据此回传，取消/保存后的片段才能与原列表状态一致 #}
             <button type="button"
-                    hx-get="{% url 'memory:memory_edit' memory.id %}"
+                    hx-get="{% url 'memory:memory_edit' memory.id %}?{{ edit_params_qs }}"
                     hx-target="#memory-{{ memory.id }}"
                     hx-swap="outerHTML"
-                    class="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-                    title="编辑">
+                    class="tap-target rounded p-1.5 text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]"
+                    title="编辑" aria-label="编辑这条记忆">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
             </button>
+            {# hx-confirm 只提供问题文案：memory_list.html 里的 htmx:confirm 监听会 #}
+            {# preventDefault 拦掉原生弹窗，改走全站统一的 paConfirmCard 确认卡 #}
             <button type="button"
                     hx-post="{% url 'memory:memory_delete' memory.id %}"
                     hx-target="#memory-{{ memory.id }}"
                     hx-swap="outerHTML swap:0.2s"
                     hx-confirm="确定删除这条记忆吗？"
-                    class="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                    title="删除">
+                    class="tap-target rounded p-1.5 text-[var(--text-muted)] hover:bg-red-50 hover:text-red-500"
+                    title="删除" aria-label="删除这条记忆">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                 </svg>
@@ -51,3 +61,37 @@
     {% endif %}
 </div>
 {% endfor %}
+
+{% comment %}
+分页控件：与 activities/activity_list.html 底部同一套「上一页 · 页码窗口 · 下一页」形状，
+翻页链接经 page_base_qs 携带 q/category（view 态由前端 localStorage 自持，不进 URL）。
+放在片段内部：编辑保存后 HTMX 换整段 #memory-list 时，分页状态跟着一起刷新。
+{% endcomment %}
+{% if page_obj.paginator.num_pages > 1 %}
+<div class="mt-6 flex flex-col items-center gap-2 fade-in">
+    <div class="flex flex-wrap items-center justify-center gap-1.5">
+        {% if page_obj.has_previous %}
+        <a href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.previous_page_number }}"
+           class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">上一页</a>
+        {% else %}
+        <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">上一页</span>
+        {% endif %}
+        {% for p in page_numbers %}
+            {% if p %}
+            <a href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ p }}"
+               aria-current="{% if p == page_obj.number %}page{% else %}false{% endif %}"
+               class="tap-target inline-flex items-center justify-center min-w-[2.5rem] h-10 rounded-full text-sm transition-colors {% if p == page_obj.number %}bg-[var(--accent)] text-[var(--bg)] font-semibold shadow-sm{% else %}border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ p }}</a>
+            {% else %}
+            <span class="px-1 text-[var(--text-muted)] select-none">…</span>
+            {% endif %}
+        {% endfor %}
+        {% if page_obj.has_next %}
+        <a href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.next_page_number }}"
+           class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">下一页</a>
+        {% else %}
+        <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">下一页</span>
+        {% endif %}
+    </div>
+    <p class="text-xs text-[var(--text-muted)]">共 {{ page_obj.paginator.count }} 条 · 第 {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} 页</p>
+</div>
+{% endif %}

@@ -153,8 +153,41 @@
         }
     }
 
-    fetch(apiUrl + '?mode=day&date=' + dayDate)
-        .then(function (r) { return r.json(); })
-        .then(function (data) { renderDayActivities(data.activities || []); })
-        .catch(function (err) { console.error('加载日历数据失败:', err); });
+    // 失败态覆写层：只在出错时插入（DOM 构建，不拼 innerHTML），重试成功后移除。
+    // 覆盖整条时间线，避免失败时误留模板默认文案「这一天没有安排活动」
+    var errorEl = null;
+    function clearError() {
+        if (errorEl) { errorEl.remove(); errorEl = null; }
+    }
+    function showError() {
+        if (errorEl) return;
+        errorEl = document.createElement('div');
+        errorEl.className = 'absolute inset-0 z-10 bg-[var(--bg-card)]/95 flex flex-col items-center justify-center gap-3';
+        var text = document.createElement('p');
+        text.className = 'text-sm text-[var(--text-muted)]';
+        text.textContent = '加载失败，请点击重试';
+        var retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'tap-target rounded-full border border-[var(--border-strong)] px-4 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors';
+        retry.textContent = '重试';
+        retry.addEventListener('click', load);
+        errorEl.appendChild(text);
+        errorEl.appendChild(retry);
+        timeline.appendChild(errorEl);
+    }
+
+    function load() {
+        clearError();
+        fetch(apiUrl + '?mode=day&date=' + dayDate)
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) { renderDayActivities(data.activities || []); })
+            .catch(function (err) {
+                console.error('加载日历数据失败:', err);
+                showError();
+            });
+    }
+    load();
 })();

@@ -73,7 +73,7 @@ def global_search(user, query, limit_per_module=5):
         ).distinct()[:limit_per_module]
     results['articles'] = list(articles)
 
-    # 笔记：搜索内容、标签
+    # 备忘：搜索内容、标签
     from notes.models import Note
     if fts_used and fts_ids.get('note'):
         notes = visible_qs(Note, user).filter(

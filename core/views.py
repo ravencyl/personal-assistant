@@ -66,6 +66,11 @@ def dashboard(request):
         Expense.objects.filter(user=user, paid_at__gte=week_start, paid_at__lte=today),
         week_start,
     )
+    # 周费用图的无障碍文字替代 + 零消费空态判定（模板据此渲染，不再靠 JS 猜）
+    week_has_expense = any(v > 0 for v in daily_expense)
+    week_chart_summary = '本周每日费用：' + '，'.join(
+        f'{label} ¥{amount:g}' for label, amount in zip(weekdays, daily_expense)
+    )
 
     # ── 问候 ──
     hour = timezone.localtime().hour
@@ -100,6 +105,8 @@ def dashboard(request):
         'stats': stats,
         'weekdays': weekdays,
         'daily_expense': daily_expense,
+        'week_has_expense': week_has_expense,
+        'week_chart_summary': week_chart_summary,
         'today': today,
         'greeting': greeting,
         'today_display': today_display,
@@ -422,9 +429,11 @@ def push_test(request):
 
 @login_required
 def weekly_review_view(request):
-    """每周回顾：引导式 3 步流程（数据摘要 → 引导问题 → 完成）
+    """每周回顾：引导式流程（1 数据摘要 → 2 引导反思 → 提交后进完成页）
 
-    步骤由 GET 参数 step 控制（1/2/3），POST 提交回顾内容并保存为记忆。
+    步骤由 GET 参数 step 控制（1/2），POST 提交回顾内容并保存为记忆。
+    完成态只有一个真相：本次（本周）真的提交过才认 —— 记在 session 里，
+    完成页与 step=3 深链都按它判定，不再出现「没保存也显示回顾已完成」。
     """
     from memory.models import Memory
 
@@ -451,19 +460,44 @@ def weekly_review_view(request):
     # 本周完成的活动列表
     completed_activities = list(week_activities.filter(status='done').order_by('-end_date', '-start_date')[:10])
 
-    # 当前步骤
-    step = request.GET.get('step', '1')
-    try:
-        step = int(step)
-    except (ValueError, TypeError):
-        step = 1
-    step = max(1, min(3, step))
+    def base_context(step_value):
+        return {
+            'step': step_value,
+            'week_start': week_start,
+            'today': today,
+            'reviewed': reviewed,
+            'stats': {
+                'completed': completed,
+                'in_progress': in_progress,
+                'planned': planned,
+                'cancelled': cancelled,
+                'total': total,
+                'expense': float(week_expense),
+            },
+            'completed_activities': completed_activities,
+        }
+
+    # 完成标记按周记：上周提交过不代表本周完成了
+    reviewed = request.session.get('weekly_review_week') == week_start.isoformat()
 
     # POST 提交回顾
     if request.method == 'POST':
         reflection = request.POST.get('reflection', '').strip()
         highlights = request.POST.get('highlights', '').strip()
         improvements = request.POST.get('improvements', '').strip()
+
+        # 视图层兜住空内容（HTML required 可被无 JS 提交绕过）：
+        # 两个引导问题必填、开放感悟可留空，口径与模板 required 一致。
+        # 空提交不再静默跳完成页假报「已保存为记忆」。
+        if not highlights or not improvements:
+            ctx = base_context(2)
+            ctx['error'] = '「这周最大的亮点」与「可以改进的地方」都要填写，至少别空着这两项。'
+            ctx.update({
+                'posted_highlights': highlights,
+                'posted_improvements': improvements,
+                'posted_reflection': reflection,
+            })
+            return render(request, 'core/weekly_review.html', ctx, status=400)
 
         # 保存为记忆（importance=5，与计划一致）
         if reflection:
@@ -473,42 +507,47 @@ def weekly_review_view(request):
                 category='other',
                 importance=5,
             )
-        if highlights:
-            Memory.objects.create(
-                user=user,
-                content=f'[本周亮点] {highlights[:400]}',
-                category='fact',
-                importance=5,
-            )
-        if improvements:
-            Memory.objects.create(
-                user=user,
-                content=f'[改进方向] {improvements[:400]}',
-                category='goal',
-                importance=5,
-            )
+        Memory.objects.create(
+            user=user,
+            content=f'[本周亮点] {highlights[:400]}',
+            category='fact',
+            importance=5,
+        )
+        Memory.objects.create(
+            user=user,
+            content=f'[改进方向] {improvements[:400]}',
+            category='goal',
+            importance=5,
+        )
 
+        request.session['weekly_review_week'] = week_start.isoformat()
         return redirect('weekly_review_complete')
 
-    return render(request, 'core/weekly_review.html', {
-        'step': step,
-        'week_start': week_start,
-        'today': today,
-        'stats': {
-            'completed': completed,
-            'in_progress': in_progress,
-            'planned': planned,
-            'cancelled': cancelled,
-            'total': total,
-            'expense': float(week_expense),
-        },
-        'completed_activities': completed_activities,
-    })
+    # 当前步骤（step=3 不再是独立页面：提交过 → 完成页；没提交 → 回到引导反思）
+    step = request.GET.get('step', '1')
+    try:
+        step = int(step)
+    except (ValueError, TypeError):
+        step = 1
+    step = max(1, min(3, step))
+    if step >= 3:
+        if reviewed:
+            return redirect('weekly_review_complete')
+        step = 2
+
+    return render(request, 'core/weekly_review.html', base_context(step))
 
 
 @login_required
 def weekly_review_complete_view(request):
-    """每周回顾完成页"""
+    """每周回顾完成页 —— 唯一的完成态出口。
+
+    只认「本周真提交过」（weekly_review_view POST 成功后写入的 session 标记），
+    直接敲 URL 不再凭空宣布「回顾已完成」。没提交过就送回引导流程。
+    """
+    week_start = week_monday(timezone.localdate())
+    if request.session.get('weekly_review_week') != week_start.isoformat():
+        return redirect('weekly_review')
     return render(request, 'core/weekly_review_complete.html')
 
 
@@ -520,7 +559,7 @@ def _compute_daily_focus(today_activities, recent_notes):
     """
     from django.urls import reverse
 
-    # 规则排序：进行中 > 今天开始的活动 > 笔记
+    # 规则排序：进行中 > 今天开始的活动 > 备忘
     focus = []
     sorted_acts = sorted(
         today_activities[:6],
@@ -539,7 +578,7 @@ def _compute_daily_focus(today_activities, recent_notes):
         i += 1
         focus.append({
             'name': n.content[:40],
-            'reason': '近期笔记',
+            'reason': '近期备忘',
             'url': reverse('notes:note_edit', args=[n.id]),
         })
     return focus[:3]
@@ -584,7 +623,7 @@ def gather_today(user):
     ).exclude(status='done').exclude(id__in=ongoing_ids))
     today_activities = ongoing + starting_today
 
-    # ── 近期笔记：最近 7 天更新的 ──
+    # ── 近期备忘：最近 7 天更新的 ──
     note_since = today - timedelta(days=7)
     recent_notes = list(visible_qs(Note, user).filter(
         updated_at__date__gte=note_since
@@ -619,7 +658,7 @@ def gather_today(user):
 def today_brief_payload(user):
     """工作台快捷卡的快照（chat.local_cards 注册的 today_brief 消费）。
 
-    只带模板需要的标量与 id/name/reason，活动/笔记/文章行各留跳转 id，
+    只带模板需要的标量与 id/name/reason，活动/备忘/文章行各留跳转 id，
     历史渲染只读快照不回查（与 daily_brief_payload 同一口径）。
     相对时间（「3 天前」）在快照时算死：回看历史卡不该随时间漂移。
     """
@@ -637,7 +676,7 @@ def today_brief_payload(user):
              'tags': [t.name for t in a.tags.all()]}
             for a in data['today_activities'][:6]
         ],
-        # 近期笔记（最多 5 条）
+        # 近期备忘（最多 5 条）
         'recent_notes': [
             {'id': n.id, 'excerpt': str(n.content)[:100],
              'ago': f'{timesince(n.updated_at)}前'}

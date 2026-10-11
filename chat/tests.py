@@ -3492,3 +3492,192 @@ class AutoArchiveStaleConversationTest(TestCase):
         self.call_command('archive_stale_conversations', days=30)
         self.stale.refresh_from_db()
         self.assertEqual(self.stale.status, 'idle', '30 天阈值下 4 天前消息不算超期')
+
+
+# ── 2026-10 UI 走查：chat 十条修复的回归锁 ──
+
+class ChatUiAuditFixesTest(TestCase):
+    """锁住十项修复里「坏掉时没有报错、只有用户看得见」的部分
+
+    优先做渲染断言（切范围切空 = 静默空跑的假锁，本项目踩过多次）；
+    只有无法从渲染结果判定的（如「不再用 innerHTML 拼标题」）才退回源码锁，
+    且一律先剔注释再比禁用词。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        cls.tpl_root = root / 'templates' / 'chat'
+        cls.turn_js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
+        cls.turn_js_code = ChatTurnFlowJsTest._strip_js_comments(cls.turn_js)
+
+    def setUp(self):
+        self.user = User.objects.create_user('audit', password='pw')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_audit', agent_id='ag_audit', title='走查')
+
+    def _msg(self, role='assistant', content='正文', payload=None):
+        return Message.objects.create(conversation=self.conv, role=role,
+                                      content=content, event_type='assistant.message',
+                                      payload=payload)
+
+    # ── item 1：turn_error 缺省文案 ──
+
+    def test_turn_error_default_note_survives_refresh(self):
+        """刷新后渲染（include 不传 note）必须还有可读文案，而不是光杆「⚠️」"""
+        from django.template.loader import render_to_string
+        html = render_to_string('chat/partials/turn_error.html',
+                                 {'conversation': self.conv})
+        self.assertIn('上一轮没有完成，可以再问一次。', html)
+        # 防「空跑」：默认文案确实来自 firstof 兜底，而不是测试自己造的场景
+        tpl = (self.tpl_root / 'partials' / 'turn_error.html').read_text(encoding='utf-8')
+        self.assertIn('{% firstof note "上一轮没有完成，可以再问一次。" %}', tpl)
+
+    def test_default_note_single_source(self):
+        """模板兜底句与 views 的 TURN_INTERRUPTED_NOTE 必须同句；conversation_list 不许再硬编码传 note"""
+        tpl = (self.tpl_root / 'partials' / 'turn_error.html').read_text(encoding='utf-8')
+        self.assertIn(chat_views.TURN_INTERRUPTED_NOTE, tpl)
+        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
+        start = split.index('{% include "chat/partials/turn_error.html"')
+        self.assertNotIn('note=', split[start:split.index('%}', start)],
+                         'conversation_list 又硬编码了第二份兜底文案')
+
+    # ── item 2：weekly_review 卡不再被静默丢弃 ──
+
+    def test_weekly_review_card_renders(self):
+        payload = {'card': 'weekly_review', 'card_data': {
+            'week_start': '2026-10-12', 'completed_count': 3,
+            'questions': ['本周完成了什么？', '有什么卡住了？', '下周第一件事？']}}
+        msg = self._msg(payload=payload)
+        from django.template.loader import render_to_string
+        html = render_to_string('chat/partials/_message.html', {'msg': msg})
+        self.assertIn('周回顾', html)
+        self.assertIn('已完成 3 个', html)
+        self.assertIn('本周完成了什么？', html)
+        self.assertIn('下周第一件事？', html, '第三条引导被折叠壳藏掉了（不该有 data-follow-ups 壳）')
+        self.assertNotIn('data-follow-ups', html)
+        self.assertIn('data-followup="有什么卡住了？"', html,
+                      '引导问题必须走唯一发送委托，不是死文本')
+
+    def test_card_dispatch_has_weekly_review_branch(self):
+        """分发锁：_card.html 没有 weekly_review 分支时，上面的渲染会悄悄只剩正文"""
+        dispatch = (self.tpl_root / 'cards' / '_card.html').read_text(encoding='utf-8')
+        self.assertIn("msg.payload.card == 'weekly_review'", dispatch)
+
+    # ── item 3/4/8：分栏页脚本的静默丢失 / 注入 / alert ──
+
+    def test_split_script_has_no_native_dialogs(self):
+        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
+        js = ChatTurnFlowJsTest._strip_js_comments(split)
+        self.assertNotIn('alert(', js)
+        self.assertIn('flashSplitHint(', js, '行内自消提示是 alert 的替代品，不能整体删掉')
+
+    def test_conv_item_builds_title_with_dom_api(self):
+        """标题是用户数据：只许 textContent 进 DOM，不许拼进 innerHTML 字符串"""
+        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
+        js = ChatTurnFlowJsTest._strip_js_comments(split)
+        self.assertIn('h3.textContent = title', js)
+        # ⋯ 菜单的 innerHTML 只可以是纯常量模板：拼接用户数据的旧路径不许复活
+        start = js.index('function convMenuEl')
+        body = js[start:js.index('function convItemEl')]
+        assign = body.split('box.innerHTML =')[1].split('var details')[0]
+        self.assertIn('<details class="conv-menu', assign, '切片没捕到菜单模板本体，这条锁是空的')
+        self.assertNotIn('+ title', assign, '菜单模板拼进了标题：innerHTML 注入面回来了')
+        self.assertNotIn('+ data', assign)
+
+    def test_split_send_without_conversation_is_intercepted(self):
+        """未选对话点发送：拦原生 POST（整页重绘丢输入），给可见提示"""
+        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
+        js = ChatTurnFlowJsTest._strip_js_comments(split)
+        # 用 rindex：新建表单的处理器先出现且共享同一子串，最后一条才是未选对话的拦截
+        start = js.rindex("form.addEventListener('submit'")
+        body = js[start:start + 400]
+        self.assertIn('if (currentId) return;', body,
+                      '已选中时必须给 PaChatTurn 让路，不能双处理器')
+        self.assertIn('e.preventDefault();', body)
+        self.assertIn('flashSplitHint', body)
+
+    # ── item 5：活动卡状态按钮 fetch 化 ──
+
+    def test_status_forms_marked_for_fetch_delegation(self):
+        card = (self.tpl_root / 'cards' / 'activity_card.html').read_text(encoding='utf-8')
+        self.assertIn('data-status-fetch', card)
+        self.assertIn('data-status-row', card)
+        self.assertIn('data-status-label', card)
+
+    def test_turn_js_delegates_status_submit_via_api_fetch(self):
+        js = self.turn_js_code
+        self.assertIn("matches('[data-status-fetch]')", js)
+        self.assertIn('new FormData(form)', js,
+                      '表单自带 csrf 隐藏域：FormData 是唯一不带漏的组 body 方式')
+        self.assertIn('apiFetch(form.action', js)
+        self.assertIn('e.defaultPrevented', js, '宿主表单已有处理器（PaChatTurn）时必须让路')
+        self.assertNotIn('hx-', js, 'fetch 通道里不许混进 HTMX 属性名')
+
+    # ── item 6：确认卡整卡换，不再文案矛盾 ──
+
+    def test_confirm_flow_swaps_whole_card(self):
+        from core.agent_registry import make_action_token
+        msg = self._msg(payload={
+            'card': 'confirm',
+            'card_data': {'kind': 'create', 'name': '周末逛博物馆', 'fields': []},
+            'action': {'tool': 'activities.create', 'params': {}, 'token': ''},
+        })
+        msg.payload['action']['token'] = make_action_token(self.user, msg.id, 'confirm')
+        msg.save(update_fields=['payload'])
+        pending = self.client.get(f'/chat/{self.conv.id}/detail/').content.decode()
+        self.assertIn('点确认后才会创建', pending)
+        self.assertIn(f'id="confirm-card-{msg.id}"', pending, '整卡必须带可替换的锚点 id')
+        resp = self.client.post(reverse('chat:confirm_action', args=[msg.id]),
+                                {'decision': 'cancel', 'token': 'x'})
+        html = resp.content.decode()
+        self.assertIn(f'id="confirm-card-{msg.id}"', html,
+                      '确认端点必须返回整卡（否则 pending 文案与结果态同框）')
+        self.assertIn('已取消', html)
+        self.assertNotIn('点确认后才会创建', html, '决议后 pending 引导语必须消失')
+        self.assertNotIn('name="decision"', html, '决议后不该再有确认/取消表单')
+        actions = (self.tpl_root / 'cards' / '_confirm_actions.html').read_text(encoding='utf-8')
+        self.assertNotIn('hx-target="#card-actions-', actions)
+        self.assertIn('hx-target="#confirm-card-{{ msg.id }}"', actions)
+
+    # ── item 7：display 工具类坑（扫四处代表模板的每一行 class） ──
+
+    def test_centering_classes_have_flex_host(self):
+        """items-center/justify-center 必须挂在 flex/inline-flex 宿主上（否则整行塌陷）"""
+        for rel in ('conversation_list.html', 'partials/pin_bar.html',
+                    'cards/activity_card.html', 'cards/confirm_card.html'):
+            src = code_only((self.tpl_root / rel).read_text(encoding='utf-8'))
+            # JS 字符串里的 class 赋值同样是 DOM，一起扫
+            for m in re.finditer(r'class(?:Name)?\s*=\s*[\'"]([^\'"]*)[\'"]', src):
+                classes = m.group(1).split()
+                if {'items-center', 'justify-center'} & set(classes):
+                    self.assertTrue(
+                        {'flex', 'inline-flex', 'md:flex', 'md:inline-flex'} & set(classes)
+                        or any(c.endswith('/flex') or 'flex--' in c for c in classes),
+                        f'{rel} 的 class="{m.group(1)}" 又踩了 display 坑')
+
+    # ── item 9：时间戳绝对时间可达 ──
+
+    def test_message_time_uses_time_element(self):
+        from django.template.loader import render_to_string
+        msg = self._msg(role='user', content='时间戳锁')
+        html = render_to_string('chat/partials/_message.html', {'msg': msg})
+        self.assertRegex(html, r'<time[^>]+datetime="\d{4}-\d{2}-\d{2}T')
+        self.assertRegex(html, r'<time[^>]+title="')
+
+    # ── item 10：抽屉 chrome 隐藏误导提示 ──
+
+    def test_drawer_chrome_hides_pin_hint_only(self):
+        base = f'/chat/{self.conv.id}/widget-messages/'
+        normal = self.client.get(base).content.decode()
+        self.assertIn('可钉住一个活动', normal, '分栏页的提示仍是唯一发现入口，不能被删坏')
+        drawer = self.client.get(base + '?chrome=drawer').content.decode()
+        self.assertNotIn('可钉住一个活动', drawer)
+        self.assertIn('data-pin-mount', drawer, '隐藏位必须还在：抽屉靠它搬运钉选槽')
+        pinned = Activity.objects.create(user=self.user, name='钉住的活動', status='planned',
+                                         start_date=timezone.localdate())
+        Conversation.objects.filter(pk=self.conv.pk).update(pin_activity=pinned)
+        drawer_pinned = self.client.get(base + '?chrome=drawer').content.decode()
+        self.assertIn('钉住的活動', drawer_pinned, '抽屉上下文里 chip（已钉状态）要照常显示')

@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db import models
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
@@ -11,10 +12,13 @@ from core.models import Tag
 from core.tags import apply_tags, used_tags
 from core.utils import visible_qs, get_visible
 
+# 列表分页每页条数（与备忘列表同口径）
+ARTICLE_LIST_PAGE_SIZE = 30
+
 
 @login_required
 def article_list(request):
-    """文章列表，支持标签筛选和关键词搜索"""
+    """文章列表，支持标签筛选、关键词搜索与分页"""
     articles = visible_qs(Article, request.user)
     
     # 标签筛选（自建 core.Tag 无 slug，直接用标签名匹配）
@@ -33,9 +37,12 @@ def article_list(request):
     all_tags = used_tags('knowledge', request.user)
     
     current_tag = Tag.objects.filter(scope='knowledge', name=tag_slug).first() if tag_slug else None
-    
+
+    page_obj = Paginator(articles, ARTICLE_LIST_PAGE_SIZE).get_page(request.GET.get('page'))
+
     return render(request, 'knowledge/article_list.html', {
-        'articles': articles,
+        'articles': page_obj,
+        'page_obj': page_obj,
         'all_tags': all_tags,
         'current_tag': current_tag,
         'query': q,

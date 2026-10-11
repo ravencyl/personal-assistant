@@ -1,4 +1,4 @@
-"""备忘录页测试
+"""备忘页测试
 
 目前只有桌面两列布局回归锁：本页改造前是整宽单列，改造后右列放筛选与搜索。
 「快速记录」按口径留在两列区之上（多字段表单压进 320px 栏会很难用），所以它
@@ -18,7 +18,7 @@ User = get_user_model()
 
 
 class NoteListDesktopLayoutTest(TestCase):
-    """备忘录页桌面两列布局回归锁（右列 = 标签筛选 + 搜索）"""
+    """备忘页桌面两列布局回归锁（右列 = 标签筛选 + 搜索）"""
     TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'notes' / 'note_list.html'
 
     def setUp(self):
@@ -32,9 +32,9 @@ class NoteListDesktopLayoutTest(TestCase):
     def test_desktop_two_columns(self):
         assert_desktop_two_columns(
             self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
-            left=[('新西兰南岛自驾路线草稿', '笔记卡内容')],
-            right=[('搜索备忘录...', '搜索框'), ('id="note-tag-filter"', '标签筛选栏')],
-            mobile_order=['记点什么...', '搜索备忘录...', '新西兰南岛自驾路线草稿'],
+            left=[('新西兰南岛自驾路线草稿', '备忘卡内容')],
+            right=[('搜索备忘...', '搜索框'), ('id="note-tag-filter"', '标签筛选栏')],
+            mobile_order=['记点什么...', '搜索备忘...', '新西兰南岛自驾路线草稿'],
             rail_first=True)
 
     def test_quick_create_stays_full_width_above_columns(self):
@@ -95,3 +95,32 @@ class NoteTagEditRegressionTest(TestCase):
         self.note.refresh_from_db()
         self.assertEqual(set(self.note.tags.values_list('name', flat=True)),
                          {'新标签'})
+
+
+class NoteListPaginationTest(TestCase):
+    """备忘列表分页回归锁（UI 走查 item 5：30 条/页，翻页保留筛选参数）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client = Client()
+        self.client.login(username='raven', password='test')
+        for i in range(31):
+            Note.objects.create(user=self.user, content=f'分页备忘{i:02d}')
+
+    def test_first_page_shows_30_newest(self):
+        html = self.client.get('/notes/').content.decode()
+        # 每条备忘渲染一个折叠钩子，数它 = 数列表条数
+        self.assertEqual(html.count('data-note-toggle data-length='), 30)
+        self.assertIn('分页备忘30', html)     # 最新（updated_at 最大）在第一页
+        self.assertNotIn('分页备忘00', html)  # 最旧被分到第二页
+        self.assertIn('第 1/2 页', html)
+
+    def test_second_page_shows_remainder(self):
+        html = self.client.get('/notes/?page=2').content.decode()
+        self.assertIn('分页备忘00', html)
+        self.assertNotIn('分页备忘30', html)
+
+    def test_next_page_link_preserves_search_query(self):
+        """翻页 URL 必须带上 q：否则点下一页筛选条件被静默丢掉"""
+        html = self.client.get('/notes/?q=分页').content.decode()
+        self.assertIn('?q=%E5%88%86%E9%A1%B5&page=2', html)
