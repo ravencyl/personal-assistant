@@ -350,7 +350,7 @@
             form: form,
             input: input,
             urls: function () {
-                return { send: base + 'send/', poll: base + 'turn/', cancel: base + 'turn/cancel/' };
+                return { send: base + 'send/', poll: base + 'turn/', wait: base + 'turn-wait/', cancel: base + 'turn/cancel/' };
             },
             extraParams: function () {
                 return (window.paPageContext && window.paPageContext()) || {};

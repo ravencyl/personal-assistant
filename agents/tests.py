@@ -1,3 +1,6 @@
+import time
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from agents.services import QoderAgentService
@@ -170,3 +173,151 @@ class EventPaginationTest(TestCase):
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(result['state'], 'empty',
                          '熔断后返回窗口内判定结果，不抛异常不挂死')
+
+
+# ==================== SSE 通知器（长轮询收口，Phase 1.2） ====================
+#
+# wait_turn_finished 只当「通知器」：回答本轮结束了没有 / 进行到哪一步，
+# 永远不解析正文（正文归 poll_turn 的 REST desc 窗口）。它的失败形态必须是
+# 「没收到信号」（空串，调用方退回普通轮询），而不是抛异常弄挂一个正常轮次。
+# 下面用假流把这四种形态各钉一次：终止信号 / 进度信号 / 预算到点 / 各种坏流。
+
+class _FakeSSEStream:
+    def __init__(self, lines, status_code=200, iter_exc=None):
+        self._lines = lines
+        self.status_code = status_code
+        self._iter_exc = iter_exc
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def iter_lines(self):
+        if self._iter_exc:
+            raise self._iter_exc
+        return iter(self._lines)
+
+
+class _FakeSSEClient:
+    """模拟 wait_turn_finished 里的 `httpx.Client(...) as client, client.stream(...)`
+
+    注意它测的是**短命流**：通知器必须为每次等待新建连接并在退出时关掉
+    （closed 断言），绝不能复用 _get_client() 那个常驻连接 —— 平台 idle 时
+    不自动关流（F4 实测），复用常驻客户端会把一条挂 25s 的流吊在全站共用的
+    连接池上。
+    """
+
+    def __init__(self, lines, status_code=200, stream_exc=None, iter_exc=None):
+        self.lines = lines
+        self.status_code = status_code
+        self.stream_exc = stream_exc
+        self.iter_exc = iter_exc
+        self.stream_args = None
+        self.init_kwargs = None
+        self.closed = False
+
+    def __call__(self, *args, **kwargs):
+        # 顶替 httpx.Client(...) 构造函数：返回自身供 with 使用
+        self.init_kwargs = kwargs
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.closed = True
+        return False
+
+    def stream(self, method, path):
+        self.stream_args = (method, path)
+        if self.stream_exc:
+            raise self.stream_exc
+        return _FakeSSEStream(self.lines, self.status_code, self.iter_exc)
+
+
+class TurnFinishedNotifierTest(TestCase):
+    """agents.services.wait_turn_finished：SSE 帧 → 结束信号 / 进度阶段 / 空串"""
+
+    def _svc(self):
+        return QoderAgentService(access_token='t', base_url='https://plat.test/api')
+
+    def _run(self, lines, budget=5.0, **fake_kw):
+        fake = _FakeSSEClient(lines, **fake_kw)
+        with patch('agents.services.httpx.Client', fake):
+            result = self._svc().wait_turn_finished('sess_w', budget=budget)
+        return result, fake
+
+    def test_terminal_frame_returns_finished_and_closes_the_stream(self):
+        """session.status_idle 成组帧（id/event/data 三行，2026-10-11 实测形态）"""
+        result, fake = self._run([
+            'id: evt_0101',
+            'event: session.status_idle',
+            'data: {"type": "session.status_idle", "id": "evt_0101"}',
+        ])
+        self.assertEqual(result, 'finished')
+        self.assertEqual(fake.stream_args, ('GET', '/sessions/sess_w/events/stream'))
+        self.assertTrue(fake.closed, '短命流必须用完就关，不能吊着平台连接')
+
+    def test_agent_message_alone_does_not_end_the_turn(self):
+        """多步轮次里 agent.message 会提前出现：只认 status_idle，否则没写完的轮次被提前收尾"""
+        result, _ = self._run([
+            'event: span.model_request_start',
+            'event: agent.tool_use',
+            'event: agent.message',
+            'data: {"type": "agent.message", "content": []}',
+            'event: session.status_idle',
+        ])
+        self.assertEqual(result, 'finished')
+        self.assertFalse(QoderAgentService.is_turn_terminal_event('agent.message'))
+
+    def test_progress_only_stream_carries_last_phase_to_the_budget(self):
+        """流上只有进度：到预算带最近阶段回去（前端据此换文案并挂下一拍）"""
+        def slow_lines():
+            yield 'event: span.model_request_start'
+            time.sleep(0.3)
+            yield 'event: agent.tool_use'
+
+        result, _ = self._run(slow_lines(), budget=0.1)
+        self.assertEqual(result, 'thinking',
+                         '第二拍已越过预算但第一拍的阶段不能丢 —— 进度文案靠它续着')
+
+    def test_quiet_stream_returns_empty_not_an_error(self):
+        """流安静地结束/没解析出事件：空串 =「没信号」，调用方退回普通轮询"""
+        result, _ = self._run([': ping', '', 'id: evt_1'])
+        self.assertEqual(result, '')
+
+    def test_handshake_failure_returns_empty(self):
+        """流建不起来（非 200）：不抛，只当没收到信号"""
+        result, _ = self._run(['event: session.status_idle'], status_code=403)
+        self.assertEqual(result, '')
+
+    def test_broken_stream_anywhere_returns_empty(self):
+        """连接抛异常与读到一半断流，两种坏法都必须被吞掉"""
+        result, _ = self._run([], stream_exc=ConnectionError('reset by peer'))
+        self.assertEqual(result, '')
+        result, _ = self._run(['event: x'], iter_exc=ConnectionError('halfway break'))
+        self.assertEqual(result, '')
+
+    def test_parse_sse_chunk_field_precedence_and_garbage(self):
+        """解析器只认 event 字段，缺省从 data JSON 的 type 兜底；认不出就空串"""
+        p = QoderAgentService.parse_sse_chunk
+        self.assertEqual(p('event: session.status_idle'), 'session.status_idle')
+        self.assertEqual(p('id: evt_1\nevent: agent.message\ndata: {"type": "x"}'),
+                         'agent.message', 'event 字段优先于 data，不能被兜底通道顶掉')
+        self.assertEqual(p('data: {"type": "session.status_running"}'),
+                         'session.status_running')
+        self.assertEqual(p(': ping'), '')
+        self.assertEqual(p('data: not-json{'), '')
+        self.assertEqual(p('id: evt_1'), '')
+        self.assertEqual(p(''), '')
+
+    def test_phase_from_event_maps_only_progress_semantics(self):
+        """进度阶段映射：模型请求 → thinking，任何 tool 事件 → tooling，其余不编阶段"""
+        ph = QoderAgentService.phase_from_event
+        self.assertEqual(ph('span.model_request_start'), 'thinking')
+        self.assertEqual(ph('agent.tool_use'), 'tooling')
+        self.assertEqual(ph('agent.tool_result'), 'tooling')
+        self.assertEqual(ph('agent.message'), '')
+        self.assertEqual(ph('session.status_running'), '')

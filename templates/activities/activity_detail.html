@@ -994,7 +994,7 @@ function appendExpenseTag(name) {
                 .then(function (html) {
                     // 片段来自服务端模板渲染（同一份 _message.html），不是拼用户数据
                     messagesEl.innerHTML = html;
-                    mount({ send: d.urls.send, poll: d.urls.poll, cancel: d.urls.cancel });
+                    mount({ send: d.urls.send, poll: d.urls.poll, wait: d.urls.wait, cancel: d.urls.cancel });
                     input.focus();
                 });
         }).catch(function () {

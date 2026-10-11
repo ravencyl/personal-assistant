@@ -4,6 +4,7 @@ Qoder Cloud Agents API 服务层
 """
 
 import logging
+import threading
 import time
 
 import httpx
@@ -207,6 +208,100 @@ class QoderAgentService:
         events = self.get_recent_events(session_id)
         text = self.extract_latest_reply(events)
         return {'state': 'ready' if text else 'empty', 'text': text}
+
+    # ==================== SSE 通知器（长轮询收口用） ====================
+
+    @staticmethod
+    def parse_sse_chunk(chunk: str) -> str:
+        """把一条 SSE 帧解析成平台事件类型；解析不出返回空串
+
+        帧形如 `id: evt_x\\nevent: session.status_idle\\ndata: {...}`（2026-10-11 实测）。
+        只认 event 字段，缺省再从 data JSON 的 type 兜底；`:` 开头的注释行（ping）不算事件。
+        解析不出**不能抛**：通知器坏掉的样子必须是「没收到信号」，而不是把一个正常轮次弄挂。
+        """
+        if not chunk:
+            return ''
+        event_field = ''
+        data_line = ''
+        for line in chunk.splitlines():
+            if line.startswith(':'):
+                continue
+            if line.startswith('event:'):
+                event_field = line[6:].strip()
+            elif line.startswith('data:'):
+                data_line = line[5:].strip()
+        if event_field:
+            return event_field
+        if data_line:
+            try:
+                import json
+                payload = json.loads(data_line)
+                if isinstance(payload, dict):
+                    return str(payload.get('type', ''))
+            except (ValueError, TypeError):
+                pass
+        return ''
+
+    @staticmethod
+    def is_turn_terminal_event(event_type: str) -> bool:
+        """本轮结束信号：session.status_idle（probe2 实测与 agent.message 同刻成组到达）
+
+        **只认 status_idle，不认 agent.message**：多步工具轮次里模型会先吐一条
+        agent.message 再继续干活，把它当收口信号会把没写完的轮次提前收尾。
+        """
+        return event_type == 'session.status_idle'
+
+    @staticmethod
+    def phase_from_event(event_type: str) -> str:
+        """过程事件 → 给用户看的进度阶段（长轮询期间的「等得安心」就靠这个）"""
+        if event_type == 'span.model_request_start':
+            return 'thinking'
+        if 'tool' in event_type:
+            return 'tooling'
+        return ''
+
+    def wait_turn_finished(self, session_id: str, budget: float = 25.0) -> str:
+        """开一条**短命** SSE 流等本轮结束信号；预算内没有信号返回空串
+
+        与 poll_turn 的分工（2026-10-11 SSE 实测取证，docs/sse-streaming-evaluation.md）：
+        - 这个方法是**通知器**：只回答「本轮结束了没有 / 现在进行到哪一步」，
+          **永远不解析正文**。F3：流不回放历史、Last-Event-ID 实测无效，断线补事件
+          不可依赖 —— 正文永远以 REST desc 窗口（poll_turn / get_recent_events）为准。
+        - 收益：完成感知延迟从轮询间隔（最坏 1.5s）压到 ~100ms，且能把
+          「模型思考中 / 查资料中」的过程事件实时带回来。
+
+        契约（F1/F2/F4 实测）：agent.message 整条一次性到达（无 token 增量）；
+        本轮结束时 status_idle 实时推达；idle 时流**不自动关闭** —— 所以生命周期
+        必须自己管：budget 秒到点就走，绝不把平台流挂成常驻连接。
+
+        任何异常（网络、解析、平台侧流断了）都吞掉并返回空串：调用方按「没收到
+        信号」继续用老轮询兜底，通知器坏掉的代价只是回到旧节奏，不能是报错。
+        """
+        deadline = time.monotonic() + budget
+        last_phase = ''
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                headers=self.headers,
+                timeout=httpx.Timeout(budget + 5.0, connect=10.0),
+            ) as client, client.stream('GET', f'/sessions/{session_id}/events/stream') as stream:
+                if stream.status_code != 200:
+                    logger.warning(f'SSE 流建立失败（session {session_id}）: HTTP {stream.status_code}')
+                    return ''
+                for chunk in stream.iter_lines():
+                    if time.monotonic() >= deadline:
+                        return last_phase  # 预算到点：本轮还没完，带最近的阶段回去
+                    event_type = self.parse_sse_chunk(chunk)
+                    if not event_type:
+                        continue
+                    if self.is_turn_terminal_event(event_type):
+                        return 'finished'
+                    phase = self.phase_from_event(event_type)
+                    if phase:
+                        last_phase = phase
+        except Exception as e:
+            logger.warning(f'SSE 通知器异常（session {session_id}）: {e}')
+        return last_phase
 
     @staticmethod
     def extract_latest_reply(events_desc: list) -> str:

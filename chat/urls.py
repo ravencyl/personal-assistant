@@ -18,6 +18,8 @@ urlpatterns = [
     path('<int:conversation_id>/local-card/', views.local_card_create, name='local_card_create'),
     # 异步收发：发送秒返回，结果靠轮询；两个端点都回 JSON，由原生 fetch 消费（禁止挂 hx-*）
     path('<int:conversation_id>/turn/', views.turn_poll, name='turn_poll'),
+    # 长轮询收口：请求内挂 SSE 通知器等本轮结束（≤25s），收到信号走同一个收尾路径；同 JSON 口径
+    path('<int:conversation_id>/turn-wait/', views.turn_wait, name='turn_wait'),
     path('<int:conversation_id>/turn/cancel/', views.turn_cancel, name='turn_cancel'),
     # @ 钉选：会话级「正在讨论哪个活动」，两个端点都回 JSON（原生 fetch，禁挂 hx-*）
     path('<int:conversation_id>/pin/', views.pin_conversation, name='pin_conversation'),

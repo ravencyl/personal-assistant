@@ -25,6 +25,16 @@ CHAT_HISTORY_DAYS = 3
 # 未取走的回复，但无法完全排除竞态。重试用尽才落 error 气泡（手动重试仍可用）。
 TURN_MAX_RETRIES = 1
 
+# 长轮询收口（turn-wait 端点）的单次请求预算与通知器切片（秒，2026-10-11）。
+# 背景：SSE 实测（docs/sse-streaming-evaluation.md）平台 agent.message 整条一次性
+# 到达、无 token 增量，且流不回放历史 —— 端到端打字机今天做不了，但流可以当
+# 「本轮结束了/进行到哪一步」的**通知器**，把完成感知延迟从轮询间隔（最坏 1.5s）
+# 压到 ~100ms。budget=25 刻意远小于 gunicorn --timeout(180)：撞上限的形态必须是
+# 「我们的读超时先到」，而不是网关掐断请求。切片=8 让进度阶段（思考中→查资料中）
+# 最多滞后 8 秒就能返给前端换文案，不必等整段预算走完。
+TURN_WAIT_BUDGET_SECONDS = 25
+TURN_WAIT_SLICE_SECONDS = 8
+
 
 class Conversation(models.Model):
     """AI 对话"""

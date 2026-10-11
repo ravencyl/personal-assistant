@@ -25,6 +25,25 @@ none → queued → awaiting → finalizing → done
 - 等 AI 的循环搬到 `GET /chat/<id>/turn/`（轮询端点，每拍一次无副作用状态读取）
 - 收尾（跑编排器 + 落库）在轮询请求里完成
 
+## turn-wait 长轮询收口（Phase 1.2，docs/sse-streaming-evaluation.md）
+
+`GET /chat/<id>/turn-wait/` 在请求内挂平台 SSE 流等本轮结束信号（一拍 ≤ `TURN_WAIT_BUDGET_SECONDS`=25s，
+按 `TURN_WAIT_SLICE_SECONDS`=8s 切片），把完成感知从轮询间隔（最坏 1.5s）压到 ~100ms，顺带带回
+thinking/tooling 进度阶段。三条不可拆的口径：
+
+- **SSE 只当通知器，永远不是数据源**：实测流不回放历史、Last-Event-ID 无效、`agent.message` 整条一次性
+  到达。收到 `session.status_idle` 后走的仍是 REST desc 窗口（`_resolve_awaiting` → `poll_turn`），
+  正文一个字节都不从流里取
+- **副作用只属于 turn_poll**：queued 的（重）发送、TTL 超时的抢救/重试/中断裁决，turn_wait 一律
+  早退报对应 phase；收尾也**只有一份实现**（`_resolve_awaiting`，turn_poll 的 awaiting 分支与
+  turn_wait 收到信号后共用），出现第二份收尾路径 = claim_turn/宽限期/自动重试语义各自漂移
+- **名额闸门 `_WAIT_SLOTS`**：gthread 线程共享，同对话最多一条平台流；抢不到立刻空返
+  `phase='wait_busy'`，前端退回普通轮询节奏。前提是 worker 模型已切 gthread（3×8，见 DEPLOY.md），
+  sync 模型下挂这个端点会饿死全站
+
+前端（chat-turn.js）每拍先 `turn_poll` 再决定挂不挂 `turn-wait`：页面隐藏不挂（后台标签烧服务端线程）、
+宿主没带 wait 不挂、wait 连续 3s 内秒回（名额被占/端点异常的形态）退回 intervalMs 节奏。
+
 ## claim_turn 并发保护
 
 `Conversation.claim_turn(from_state, to_state)` 是**条件 UPDATE**，不是普通赋值：
@@ -45,7 +64,7 @@ SQLite 下单行 UPDATE 自带原子性，不需要额外锁。
 
 - 等回复期间**只锁发送按钮、输入框保持可编辑**（能接着打字是异步化的目的）
 - 切对话调 `halt()`（只停轮询），`stop()` 才是取消服务端本轮
-- 三个 JSON 端点（send/turn/cancel）一律原生 `fetch`，**严禁 `hx-*`**
+- 四个 JSON 端点（send/turn/turn-wait/cancel）一律原生 `fetch`，**严禁 `hx-*`**
 - fetch **必须带 `Accept: application/json`**：视图靠它区分 fetch 与无 JS 表单提交
 
 ## 协议 JSON 与透传分支的分流

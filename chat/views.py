@@ -1,5 +1,7 @@
 import hmac
 import logging
+import threading
+import time
 from datetime import timedelta
 
 import httpx
@@ -13,6 +15,7 @@ from django.utils import timezone
 
 from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      TURN_IDLE_GRACE_SECONDS, TURN_MAX_RETRIES,
+                     TURN_WAIT_BUDGET_SECONDS, TURN_WAIT_SLICE_SECONDS,
                      CHAT_HISTORY_DAYS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
@@ -469,6 +472,7 @@ def activity_conversation(request, activity_id):
         'urls': {
             'send': f'{base}/send/',
             'poll': f'{base}/turn/',
+            'wait': f'{base}/turn-wait/',
             'cancel': f'{base}/turn/cancel/',
             'messages': f'{base}/widget-messages/',
         },
@@ -916,6 +920,101 @@ def turn_poll(request, conversation_id):
         return _poll_json({'phase': 'sent'})
 
     # awaiting：读一次平台状态（与上面不同，这一步无副作用，不需要抢锁）
+    return _resolve_awaiting(request, conversation, service)
+
+
+# 同一对话的 turn-wait 长轮询名额（gthread 线程里共享，锁本身只护这几个 set 操作，
+# 不在持锁期间挂住平台流）。长轮询一拍挂 25s，客户端拿到回复又立刻挂下一拍，
+# 名额保证「一个对话最多一条平台流」；抢不到名额的请求立刻空返 processing，
+# 前端照常用普通轮询节奏 —— 宁可不加速，也不能双标签页把流和线程翻倍挂上去。
+_WAIT_SLOTS = set()
+_WAIT_SLOTS_LOCK = threading.Lock()
+
+
+def _claim_wait_slot(conversation_id):
+    with _WAIT_SLOTS_LOCK:
+        if conversation_id in _WAIT_SLOTS:
+            return False
+        _WAIT_SLOTS.add(conversation_id)
+        return True
+
+
+def _release_wait_slot(conversation_id):
+    with _WAIT_SLOTS_LOCK:
+        _WAIT_SLOTS.discard(conversation_id)
+
+
+@json_login_required
+@require_GET
+def turn_wait(request, conversation_id):
+    """长轮询收口一拍：在请求内挂 SSE 通知器等本轮结束信号（≤TURN_WAIT_BUDGET_SECONDS）
+
+    与 turn_poll 的分工（docs/sse-streaming-evaluation.md，2026-10-11 实测）：
+    - turn_poll 是无副作用的单次状态读（几十毫秒），负责推进 queued/发送/收尾判定；
+    - 本端点负责「等」：调 agents.services.wait_turn_finished 在请求内听平台
+      events/stream，收到本轮 session.status_idle 就**回来走 turn_poll 同一个
+      _resolve_awaiting 收尾**（claim_turn 语义原封不动），正文永远以 REST desc
+      窗口为准 —— 流不回放历史、Last-Event-ID 实测无效，只当通知器不当数据源。
+    - 收益：完成感知延迟从轮询间隔（最坏 1.5s）压到 ~100ms，并带回进度阶段
+      （thinking/tooling）。这是 worker 模型已切 gthread（3×8 线程）之后才允许的
+      形状：sync 单 worker 挂 25s 两人聊天就饿死全站。
+
+    非活跃轮次不挂等待：立刻按现状返回（done/queued/expired 各回各的 phase），
+    前端拿到的返回结构与 turn_poll 完全同构，循环里不需要分叉处理。
+    """
+    conversation = get_visible(Conversation, request.user, id=conversation_id)
+
+    if conversation.turn_state in (Conversation.TURN_NONE, Conversation.TURN_DONE):
+        return _poll_json({'state': 'done'})
+    if conversation.turn_state == Conversation.TURN_ERROR:
+        return _turn_error_json(request, conversation, TURN_INTERRUPTED_NOTE)
+    if conversation.turn_state == Conversation.TURN_FINALIZING:
+        # 别处正在收尾（另一拍 turn_poll / 另一个等待者）：不挂流，前端下一拍自会见 done
+        return _poll_json({'phase': 'finalizing'})
+    if conversation.turn_expired():
+        # 超时裁决（抢救/自动重试/中断）只属于 turn_poll：那里才有那条路径的锁与文案，
+        # 在这里重复一份就是两份会漂移的收尾判定
+        return _poll_json({'phase': 'expired'})
+    if conversation.turn_state == Conversation.TURN_QUEUED:
+        # 还没发出去（首发撞了 409 / 发送失败待重发）：发送同样只属于 turn_poll
+        return _poll_json({'phase': 'queued'})
+
+    if not _claim_wait_slot(conversation.id):
+        return _poll_json({'phase': 'wait_busy'})
+
+    service = get_service()
+    deadline = time.monotonic() + TURN_WAIT_BUDGET_SECONDS
+    last_phase = ''
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # 预算到点本轮还没完（慢轮常态）：把最近进度带回去，前端立刻挂下一拍
+                return _poll_json({'phase': last_phase} if last_phase else {})
+            signal = service.wait_turn_finished(
+                conversation.session_id, min(remaining, TURN_WAIT_SLICE_SECONDS))
+            if signal == 'finished':
+                return _resolve_awaiting(request, conversation, service)
+            if signal:
+                # 进度事件（thinking/tooling）：换了新阶段就提前返回，让前端把文案
+                # 立刻换上；同阶段重复信号继续听，不为一句「还在想」烧掉一次往返
+                if signal != last_phase:
+                    return _poll_json({'phase': signal})
+                last_phase = signal
+            # signal 为空串：这一片预算内流上没动静（或通知器本身坏了），换下一片。
+            # 普通轮询仍在循环里兜底：这里什么都不做也不会把轮次弄丢。
+            if conversation.turn_expired():
+                return _poll_json({'phase': 'expired'})
+    finally:
+        _release_wait_slot(conversation.id)
+
+
+def _resolve_awaiting(request, conversation, service):
+    """awaiting 的收口判定：读一次 REST 事件窗口 → 宽限期 → 抢锁收尾
+
+    turn_poll 与 turn_wait（收到结束信号后）共用这**一份**实现：收尾路径不允许有
+    第二个版本，否则 claim_turn、空回复宽限期、自动重试的语义会在两处各自漂移。
+    """
     try:
         result = service.poll_turn(conversation.session_id)
     except Exception as e:

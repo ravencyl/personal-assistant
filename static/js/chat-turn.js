@@ -22,7 +22,11 @@
         idle_grace: '正在整理回复…',
         finalizing: '正在落地结果…',
         poll_error: '网络抖动，重试中…',
-        auto_retry: '回应慢了，自动重试中…'
+        auto_retry: '回应慢了，自动重试中…',
+        // 长轮询带回的过程事件（agents.services.wait_turn_finished 从平台流上读到）：
+        // 慢轮从「干等数字跳动」变成真实阶段 —— 用户「等得安心」的来源
+        thinking: 'AI 思考中…',
+        tooling: '正在查资料、执行操作…'
     };
 
     var ACTIVE_STATES = ['queued', 'awaiting', 'finalizing'];
@@ -151,13 +155,15 @@
         var statusEl = opts.statusEl;
         var form = opts.form;
         var input = opts.input;
-        var urls = opts.urls;                       // function() -> {send, poll, cancel}
+        var urls = opts.urls;                       // function() -> {send, poll, wait, cancel}
         var intervalMs = opts.intervalMs || 1500;
         var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
         var sendBtn = form ? form.querySelector('button[type="submit"]') : null;
         var timer = null;
         var ticking = false;                        // 上一拍没回来就不叠加发请求
-        var ceiling = 0;                            // 兜底轮次上限（服务端 TTL 才是权威裁决）
+        var deadline = 0;                           // 兜底截止（服务端 TTL 才是权威裁决）
+        var turnStart = 0;                          // 本轮循环起点（auto_retry 续预算的合理性判据）
+        var waitFastStreak = 0;                     // 连续秒回的 wait 拍数（>=2 退回普通轮询节奏）
         var running = false;
         var sentAt = 0;                             // 本轮发出时刻（状态行「已等 N 秒」的基准）
 
@@ -211,51 +217,111 @@
             timer = setTimeout(tick, delay || intervalMs);
         }
 
+        // ── 一拍收发：poll（单次状态读）与 wait（长轮询，服务端最多挂 25s）共用 ──
+        //
+        // 旧循环是纯 1.5s setTimeout 轮询：完成感知延迟最坏 1.7s。现在活跃期间
+        // 挂 turn-wait（服务端在请求内听平台 SSE 结束信号，docs/sse-streaming-
+        // evaluation.md Phase 1.2），收口延迟压到 ~100ms，顺带带回 thinking/tooling
+        // 进度阶段。以下情形自动退回普通轮询（每一拍先 poll 一下再决定挂不挂）：
+        //  - 页面隐藏：后台标签不该挂长连接（浏览器还会节流定时器，回来靠轮询追上）
+        //  - urls 没带 wait（旧宿主未更新）：端点留着没人调，行为与旧版一致
+        //  - 上一拍 3s 内就返回：wait 在秒回（名额被占/端点未注册 404 等异常形态），
+        //    连续秒回退回 intervalMs —— 快速循环烧的是服务端线程，不是本机的 CPU
+        function handleBeat(d, fast) {
+            if (d.state === 'processing') {
+                setPhase(d.phase);
+                // 自动重试（服务端把本轮拉回 queued 重发）：预算重算 ——
+                // 重试是服务端显式裁决的续期，享有完整 TTL；与 deadline 到点的
+                // 兜底不冲突（服务端不裁决时到点自己停，交给下次刷新恢复）
+                if (d.phase === 'auto_retry' || d.phase === 'sent') {
+                    deadline = Date.now() + ((d.ttl || 180) + 60) * 1000;
+                }
+                if (Date.now() > deadline) {
+                    setBusy(false);
+                    showStatus('这一轮还没有结束，稍后回到本页可继续查看');
+                    return;
+                }
+                if (fast) { schedule(waitFastStreak >= 2 ? undefined : 200); return; }
+                tick();
+                return;
+            }
+            stopLoop();
+            append(d.html);                 // done → 回复片段；error → 服务端渲染的中断气泡
+            setBusy(false);
+            if (d.changed && opts.onActivityChanged) opts.onActivityChanged();
+        }
+
+        function beat(url, fast) {
+            if (ticking) { schedule(); return; }
+            ticking = true;
+            var startedAt = Date.now();
+            apiFetch(url, { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    ticking = false;
+                    var returnedFast = Date.now() - startedAt < 3000 && url === (api().wait || '?');
+                    // 连续秒回 = 这个长轮询没在等到东西（名额被占、端点异常等），
+                    // 退回 intervalMs 节奏，不用 200ms 快环去烧服务端线程
+                    if (returnedFast) { waitFastStreak += 1; } else { waitFastStreak = 0; }
+                    handleBeat(d, fast || returnedFast);
+                })
+                .catch(function () {
+                    ticking = false;
+                    // 轮询失败不算本轮失败（平台抽风/网络抖动），继续轮到服务端定论为止
+                    setPhase('poll_error');
+                    if (Date.now() <= deadline) { schedule(); } else { setBusy(false); }
+                });
+        }
+
         function tick() {
             var u = api();
             if (!u.poll) return;
+            // 每次先拍一次无副作用的状态读（几十毫秒）：queued 的（重）发送、
+            // TTL 超时裁决都只属于 turn_poll；仍 processing 且允许挂等待时才上长轮询
             if (ticking) { schedule(); return; }
             ticking = true;
             apiFetch(u.poll, { cache: 'no-store' })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     ticking = false;
-                    if (d.state === 'processing') {
-                        setPhase(d.phase);
-                        // 自动重试（服务端把本轮拉回 queued 重发）：预算重算 ——
-                        // 重试是服务端显式裁决的续期，享有完整 TTL；与服务端一直
-                        // 不裁决时 ceiling 慢慢减到 0 的兕底不冲突
-                        if (d.phase === 'auto_retry') {
-                            ceiling = Math.ceil(((d.ttl || 180) + 60) / (intervalMs / 1000));
-                        }
-                        // ceiling 只在 start() 里算一次：它是「服务端一直不裁决」的兕底，
-                        // 每拍重算就永远达不到（服务端只要还在应答，它总会在 TTL 到时给出 error）
-                        if (--ceiling > 0) { schedule(); return; }
-                        // 兜底：服务端一直没裁决（理论上不会）就停止轮询，交给下次刷新恢复
+                    if (d.state !== 'processing') { handleBeat(d, false); return; }
+                    setPhase(d.phase);
+                    if (d.phase === 'auto_retry' || d.phase === 'sent') {
+                        deadline = Date.now() + ((d.ttl || 180) + 60) * 1000;
+                    }
+                    if (Date.now() > deadline) {
                         setBusy(false);
                         showStatus('这一轮还没有结束，稍后回到本页可继续查看');
                         return;
                     }
-                    stopLoop();
-                    append(d.html);                 // done → 回复片段；error → 服务端渲染的中断气泡
-                    setBusy(false);
-                    if (d.changed && opts.onActivityChanged) opts.onActivityChanged();
+                    if (u.wait && !document.hidden) { beat(u.wait, false); return; }
+                    handleBeat(d, false);
                 })
                 .catch(function () {
                     ticking = false;
-                    // 轮询失败不算本轮失败（平台抽风/网络抖动），继续轮到服务端定论为止
                     setPhase('poll_error');
-                    if (ceiling > 0) { ceiling -= 1; schedule(); }
+                    if (Date.now() <= deadline) { schedule(); } else { setBusy(false); }
                 });
         }
 
         function start(ttl) {
-            ceiling = Math.ceil(((ttl || 180) + 60) / (intervalMs / 1000));
+            var budgetMs = ((ttl || 180) + 60) * 1000;
+            turnStart = Date.now();
+            deadline = turnStart + budgetMs;
+            waitFastStreak = 0;
             stopLoop();
             // 首拍 500ms：快轮（简单问答 5~15s 是常态）不必等满一个周期才见结果；
-            // 之后回到常规间隔，不给服务端加压
+            // 之后长轮询自己连着挂，不再靠间隔驱动
             schedule(500);
         }
+
+        // 从后台切回前台：后台期间只走了低频轮询，立刻补一拍把进度追回来
+        document.addEventListener('visibilitychange', function () {
+            if (running && !document.hidden && !ticking) {
+                if (timer) { clearTimeout(timer); timer = null; }
+                tick();
+            }
+        });
 
         function clearDraft(content) {
             // 只在输入框仍是刚发出去那段话时清空：用户等回复期间又改了内容就不能覆盖

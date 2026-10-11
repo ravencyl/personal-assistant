@@ -413,15 +413,22 @@ class FakeQoderService:
     调用就会 AttributeError 让测试当场炸掉 —— 这比断言「没被调用」更硬。
     """
 
-    def __init__(self, send_raises=None, poll_script=None, send_script=None):
+    def __init__(self, send_raises=None, poll_script=None, send_script=None,
+                 wait_script=None, wait_default=None):
         self.sent = []
         self.cancelled = 0
         self.poll_calls = 0
+        self.wait_calls = 0
         self._send_raises = send_raises
         self.poll_script = list(poll_script or [])
         # send_script: 逐个弹出；是 Exception 就抛，否则本次发送成功。
         # 用于「首发失败、重发成功」的自动重试场景
         self.send_script = list(send_script or [])
+        # wait_script: 长轮询通知器的脚本化返回（'finished' / 进度阶段 / ''）。
+        # 耗尽后走 wait_default；两者都不给就断言失败 —— turn_wait 的循环会
+        # 「没信号就继续听」，让没写脚本的测试挂满 25 秒预算比立刻报错难查得多。
+        self.wait_script = list(wait_script or [])
+        self.wait_default = wait_default
 
     def send_message(self, session_id, text):
         if self.send_script:
@@ -442,6 +449,23 @@ class FakeQoderService:
     def cancel_session(self, session_id):
         self.cancelled += 1
         return {}
+
+    def wait_turn_finished(self, session_id, budget=25.0):
+        """长轮询通知器替身：按脚本返回 'finished' / 进度阶段 / ''（没动静）
+
+        脚本耗尽后回退到 wait_default（给 '' 就是「一直听到预算用尽」）；
+        两者都没配置时直接断言失败，而不是返回 '' —— 后者会让测试在
+        turn_wait 的等待循环里空转到真实 25s 才结束，坏用例比好用例跑得久。
+        """
+        self.wait_calls += 1
+        if self.wait_script:
+            action = self.wait_script.pop(0)
+            if isinstance(action, Exception):
+                raise action
+            return action
+        if self.wait_default is not None:
+            return self.wait_default
+        raise AssertionError('wait_script 耗尽且未配置 wait_default（测试会空转，补脚本）')
 
 
 class ChatTurnModelTest(TestCase):
@@ -755,6 +779,146 @@ class ChatTurnPollTest(TestCase):
         self.assertEqual(self.client.get(self.url, HTTP_ACCEPT='application/json').status_code, 404)
 
 
+class ChatTurnWaitTest(TestCase):
+    """长轮询收口端点 turn-wait（Phase 1.2，docs/sse-streaming-evaluation.md）
+
+    与 turn_poll 的分工在这里逐条锁死：
+    - 副作用只属于 turn_poll：queued 的（重）发送、TTL 超时的抢救/重试/中断
+      判定，turn_wait 一律早退，不挂流也不重复一份裁决；
+    - 收到结束信号后走的是**同一个** _resolve_awaiting（收尾实现唯一），
+      claim_turn 的抢锁语义必须原样生效 —— 否则两个等待者会各落一条回复；
+    - 名额闸门：同对话最多一条平台流，抢不到名额立刻空返。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('t', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_w', agent_id='ag_w', title='新对话',
+            status='processing', turn_state=Conversation.TURN_AWAITING,
+            turn_started_at=timezone.now())
+        self.msg = Message.objects.create(conversation=self.conv, role='user', content='查一下活动')
+        self.conv.turn_message = self.msg
+        self.conv.save()
+        self.url = f'/chat/{self.conv.id}/turn-wait/'
+        # 名额集合是模块级进程状态：残留会让下一条用例莫名拿到 wait_busy
+        chat_views._WAIT_SLOTS.clear()
+        self.addCleanup(chat_views._WAIT_SLOTS.clear)
+
+    def _wait(self, service, **extra):
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.get(self.url, HTTP_ACCEPT='application/json', **extra)
+        return resp.status_code, (resp.json() if resp.status_code == 200 else {})
+
+    def test_finished_signal_finalizes_through_the_shared_path(self):
+        """收到结束信号 → 走 _resolve_awaiting 收尾：落且只落一条回复，状态收口"""
+        service = FakeQoderService(
+            wait_script=['finished'],
+            poll_script=[{'state': 'ready', 'text': '找到了 3 个活动'}])
+        _, data = self._wait(service)
+        self.assertEqual(data['state'], 'done')
+        self.assertIn('找到了 3 个活动', data['html'])
+        self.assertEqual(self.conv.messages.filter(role='assistant').count(), 1)
+        self.assertEqual(service.poll_calls, 1,
+                         '收尾必须复用那一份 REST 窗口读取，正文不来自流')
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_DONE)
+        self.assertNotIn(self.conv.id, chat_views._WAIT_SLOTS, '请求结束必须放名额')
+
+    def test_second_waiter_while_finalizing_elsewhere_writes_nothing(self):
+        """信号到点时别的标签页已抢走收尾锁：本请求必须空手而回，不落第二条回复"""
+        with patch.object(Conversation, 'claim_turn', return_value=False):
+            _, data = self._wait(FakeQoderService(
+                wait_script=['finished'],
+                poll_script=[{'state': 'ready', 'text': '不能重复执行'}]))
+        self.assertEqual(data['state'], 'processing')
+        self.assertEqual(data['phase'], 'finalizing')
+        self.assertEqual(self.conv.messages.filter(role='assistant').count(), 0)
+
+    def test_progress_signal_returns_the_phase_without_finalizing(self):
+        """过程事件（thinking/tooling）提前返回，让前端立刻换文案；不碰收尾"""
+        service = FakeQoderService(wait_script=['thinking'])
+        _, data = self._wait(service)
+        self.assertEqual(data['state'], 'processing')
+        self.assertEqual(data['phase'], 'thinking')
+        self.assertEqual(service.poll_calls, 0, '进度阶段不触发 REST 读取收尾')
+        self.assertNotIn(self.conv.id, chat_views._WAIT_SLOTS)
+
+    def test_budget_exhausted_returns_plain_processing(self):
+        """通知器一直「没动静」（坏流/平台不推）：到预算空手而回，普通轮询照常兜底"""
+        with patch('chat.views.TURN_WAIT_BUDGET_SECONDS', 0.05):
+            _, data = self._wait(FakeQoderService(wait_default=''))
+        self.assertEqual(data['state'], 'processing')
+        self.assertNotIn('phase', data, '没有进度信号就不该编一个阶段出来')
+
+    def test_slot_is_released_even_when_the_notifier_throws(self):
+        """通知器抛异常（真实实现会吞，这里模拟的是坏得更狠的版本）：名额必须在
+        finally 里放掉，否则该对话永远拿不到长轮询，加速通道被一次异常焊死"""
+        service = FakeQoderService(wait_script=[RuntimeError('流断了')])
+        with self.assertRaises(RuntimeError):
+            self._wait(service)
+        self.assertNotIn(self.conv.id, chat_views._WAIT_SLOTS)
+
+    def test_second_waiter_on_the_same_conversation_gets_wait_busy(self):
+        """名额互斥：已有一个等待者挂着流时，第二个请求立刻空返且完全不碰通知器"""
+        chat_views._WAIT_SLOTS.add(self.conv.id)
+        service = FakeQoderService(wait_script=['finished'])
+        _, data = self._wait(service)
+        self.assertEqual(data['state'], 'processing')
+        self.assertEqual(data['phase'], 'wait_busy')
+        self.assertEqual(service.wait_calls, 0)
+        self.assertIn(self.conv.id, chat_views._WAIT_SLOTS,
+                      '抢不到名额的一方不许顺手释放别人的名额')
+
+    def test_inactive_and_side_effect_states_never_attach_a_stream(self):
+        """done/queued/expired/finalizing/error 全部早退：不占名额、不挂流。
+
+        发送与超时裁决只属于 turn_poll（那份路径才有锁与文案），这里重复一份
+        就是两份会漂移的收尾判定 —— 尤其 expired：在 wait 里做抢救/重发会绕过
+        turn_poll 的自动重试预算。
+        """
+        cases = [
+            (Conversation.TURN_NONE, 'done', None),
+            (Conversation.TURN_DONE, 'done', None),
+            (Conversation.TURN_ERROR, 'error', None),
+            (Conversation.TURN_QUEUED, 'processing', 'queued'),
+            (Conversation.TURN_FINALIZING, 'processing', 'finalizing'),
+        ]
+        for state, expected_state, expected_phase in cases:
+            with self.subTest(state=state):
+                self.conv.turn_state = state
+                self.conv.save(update_fields=['turn_state'])
+                service = FakeQoderService()
+                _, data = self._wait(service)
+                self.assertEqual(data['state'], expected_state)
+                if expected_phase:
+                    self.assertEqual(data['phase'], expected_phase)
+                self.assertEqual(service.wait_calls, 0, f'{state} 不该挂平台流')
+                self.assertEqual(service.poll_calls, 0, f'{state} 不该触发收尾')
+                self.assertNotIn(self.conv.id, chat_views._WAIT_SLOTS)
+
+    def test_expired_turn_defers_the_ruling_to_turn_poll(self):
+        """TTL 到点：turn_wait 只报 expired，绝不抢救/重发/中断（那是 turn_poll 的裁决）"""
+        self.conv.turn_started_at = timezone.now() - timedelta(seconds=models_TTL + 5)
+        self.conv.save(update_fields=['turn_started_at'])
+        service = FakeQoderService()
+        _, data = self._wait(service)
+        self.assertEqual(data['state'], 'processing')
+        self.assertEqual(data['phase'], 'expired')
+        self.assertEqual(service.poll_calls, 0, '抢救 = 在等待端点里落库，收尾路径出现第二份实现')
+        self.assertEqual(service.sent, [])
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.turn_state, Conversation.TURN_AWAITING,
+                         '超时裁决不得由 turn_wait 改轮次状态')
+
+    def test_wait_never_leaks_another_users_conversation(self):
+        other = User.objects.create_user('o', password='p')
+        self.client.force_login(other)
+        resp = self.client.get(self.url, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(chat_views._WAIT_SLOTS, set())
+
+
 class AutoRetryTurnTest(TestCase):
     """自动重试（2026-09-21）：发送失败 / TTL 超时 / 空回复时自动重发同一份
     turn_prompt，用户不再需要手动点「重试」
@@ -1011,6 +1175,7 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
         cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
         cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
+        cls.drawer = (root / 'templates' / 'activities' / 'activity_detail.html').read_text(encoding='utf-8')
 
     @staticmethod
     def _strip_js_comments(src):
@@ -1084,6 +1249,33 @@ class ChatTurnFlowJsTest(SimpleTestCase):
                       'stop() 里的广播必须看 d.changed')
         self.assertNotIn('if (opts.onActivityChanged)', body, '不允许无条件广播数据已变更')
         self.assertIn('apiFetch(u.cancel', body, 'cancel 也必须走共用出口')
+
+    def test_flow_keeps_the_three_long_poll_fallbacks(self):
+        """长轮询（turn-wait）的三层回退都得在源码里（docs/sse-streaming-evaluation.md Phase 1.2）
+
+        少任何一层，坏形态都不报错、只是静默烧资源：
+        - 页面隐藏仍挂长连接 → 后台标签占住服务端名额与线程；
+        - 宿主没带 wait（旧模板未更新）→ 直接请求不存在的路径；
+        - wait 在秒回（名额被占/端点异常）却不退回 intervalMs → 200ms 快环
+          把 gunicorn 线程点燃 —— 快速循环烧的是服务端，不是本机。
+        只扫剔了注释的代码：这几条的说明注释自己包含这些词。
+        """
+        self.assertIn('u.wait && !document.hidden', self.flow_code,
+                      '挂等待前先确认宿主带 wait 且页面可见')
+        self.assertIn('waitFastStreak', self.flow_code,
+                      '连续秒回计数是退回普通轮询节奏的依据')
+        self.assertIn("document.addEventListener('visibilitychange'", self.flow_code,
+                      '切回前台必须立刻补一拍，后台期间只走了低频轮询')
+
+    def test_all_three_hosts_hand_the_wait_url(self):
+        """三个宿主（分栏页、详情页、活动抽屉）都要把 turn-wait 递给 PaChatTurn
+
+        递不到就是该入口静默回到旧节奏（不算坏，但 Phase 1.2 的收益漏了一个门）；
+        抽屉走服务端 urls dict，另两个模板自己拼路径。
+        """
+        for src, name in ((self.split, '分栏页'), (self.detail, '详情页')):
+            self.assertIn("wait: base + 'turn-wait/'", src, name)
+        self.assertIn('wait: d.urls.wait', self.drawer, '抽屉的 wait 来自 activity_conversation')
 
 
 class ChatMarkdownRenderTest(TestCase):
@@ -1389,11 +1581,12 @@ class ActivityConversationEndpointTest(TestCase):
         self.assertIn('新西兰旅游', conv.title)
         self.assertTrue(data['created'])
         self.assertEqual(data['activity_name'], '新西兰旅游')
-        # urls 四件套齐全（抽屉全靠它们挂 PaChatTurn）
+        # urls 五件套齐全（抽屉全靠它们挂 PaChatTurn；wait 漏了抽屉就静默退回普通轮询）
         base = f'/chat/{conv.id}'
         self.assertEqual(data['urls'], {
             'send': f'{base}/send/',
             'poll': f'{base}/turn/',
+            'wait': f'{base}/turn-wait/',
             'cancel': f'{base}/turn/cancel/',
             'messages': f'{base}/widget-messages/',
         })
@@ -1670,6 +1863,7 @@ JSON_FETCH_ENDPOINTS = {
     'activity_conversation': ('get', '/chat/for-activity/1/'),
     'send_message': ('post', '/chat/1/send/'),
     'turn_poll': ('get', '/chat/1/turn/'),
+    'turn_wait': ('get', '/chat/1/turn-wait/'),
     'turn_cancel': ('post', '/chat/1/turn/cancel/'),
     'pin_conversation': ('post', '/chat/1/pin/'),
     'pin_candidates': ('get', '/chat/pin/search/'),

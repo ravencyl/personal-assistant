@@ -97,6 +97,10 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # gthread（3 workers × 8 threads，2026-10-11）后同进程多线程并发写 SQLite 成为
+        # 可能：显式 busy timeout，锁冲突排队等而不是立刻抛 database is locked。
+        # Django 默认也是 5s，写死它是把「切线程模型后锁兜底还在」变成可见配置而非隐式默认。
+        'OPTIONS': {'timeout': 5.0},
     }
 }
 

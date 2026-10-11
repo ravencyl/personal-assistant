@@ -101,7 +101,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
         form: document.getElementById('message-form'),
         input: document.getElementById('message-input'),
         urls: function () {
-            return { send: base + 'send/', poll: base + 'turn/', cancel: base + 'turn/cancel/' };
+            return { send: base + 'send/', poll: base + 'turn/', wait: base + 'turn-wait/', cancel: base + 'turn/cancel/' };
         },
         // 页面上下文的 hint 由 base.html 的 paPageContext 统一探测，这里复用同一份，避免两处判定漂移
         extraParams: function () {

@@ -130,16 +130,22 @@ python manage.py generate_daily_insights [--dry-run]
 
 ### gunicorn 注意事项
 
-启动命令必须带 `--timeout 180`：
+启动命令必须带 `--timeout 180`，worker 模型为 **gthread（`--workers 3 --threads 8`）**：
 
 ```bash
-gunicorn --workers 3 --timeout 180 --bind unix:/var/www/personal-website/gunicorn.sock \
+gunicorn --workers 3 --threads 8 --timeout 180 --bind unix:/var/www/personal-website/gunicorn.sock \
   personal_assistant.wsgi:application
 ```
 
 理由：周报/月报、活动页的 AI 快速输入解析等仍在请求内同步调用 AI（`core/ai.py` 最长 `timeout=90`）。gunicorn 同步 worker 的看门狗只在请求间隙收到心跳，因此**只要单次 AI 调用超过 gunicorn timeout，worker 就被 SIGKILL**，用户看到 502、日志里出现 `WORKER TIMEOUT` + `SystemExit`（默认 30s 时实测 `GET /reports/weekly/` 要 30.3s，必被杀）。改完 unit 记得 `systemctl daemon-reload && systemctl restart gunicorn`。
 
-**AI 对话不在这条链上**：`/chat/<id>/send/` 只做「落库 + 一次发起」则立即返回，等 AI 的循环被摊成 `turn_poll` 短轮询（每拍几十毫秒），所以一轮问答跑多久都不会撞看门狗；本轮上限由 `chat/models.py::TURN_TTL_SECONDS` 控制。
+`--threads 8` 是聊天长轮询收口（`/chat/<id>/turn-wait/`，一拍在请求内挂 SSE 通知器最多 25s）的前提：sync 模型下 3 个 worker 挂两人聊天就饿死全站，gthread 给到 24 个并发请求位。配套约束：
+
+- SQLite 并发写依赖 busy timeout，已在 `settings.DATABASES.OPTIONS` 显式写 `timeout: 5.0`（不要删）
+- 同一对话最多一条平台流（服务端 `_WAIT_SLOTS` 名额闸门），单用户再多标签页也只占一个线程
+- gthread 下看门狗按线程心跳计，`--timeout 180` 语义不变；25s ≪ 180s，等待端点不在这条链的边缘
+
+**AI 对话基本不在这条链上**：`/chat/<id>/send/` 只做「落库 + 一次发起」则立即返回，等 AI 的循环被摊成 `turn_poll` 短轮询（每拍几十毫秒）+ `turn-wait` 长轮询（每拍 ≤25s，只等信号不做裁决），所以一轮问答跑多久都不会撞看门狗；本轮上限由 `chat/models.py::TURN_TTL_SECONDS` 控制。
 
 ### 超时链口径（改任何一个都要同时看其余两个）
 
@@ -147,7 +153,7 @@ gunicorn --workers 3 --timeout 180 --bind unix:/var/www/personal-website/gunicor
 nginx proxy_read_timeout (180s)  ≥  gunicorn --timeout (180s)  >  请求内 ai_round_trip timeout（最大 90s）
 ```
 
-外大内小：AI 真的跑满时应该是**应用层先超时并降级回一句普通回复**，而不是网关/看门狗把进程杀掉（后者用户只能看到 502）。报告类请求真的会走满 60-90s，这三个值不对齐时必现随机失败。`chat/tests.py::AiTimeoutChainTest` 会扫全仓库所有 `ai_round_trip(..., timeout=N)` 调用取最大值来对照本文的 `--timeout`，并单独断言聊天视图里没有 `wait_for_response` / `sleep`（防止同步阻塞长回来）。
+外大内小：AI 真的跑满时应该是**应用层先超时并降级回一句普通回复**，而不是网关/看门狗把进程杀掉（后者用户只能看到 502）。报告类请求真的会走满 60-90s，这三个值不对齐时必现随机失败。`chat/tests.py::AiTimeoutChainTest` 会扫全仓库所有 `ai_round_trip(..., timeout=N)` 调用取最大值来对照本文的 `--timeout`，并单独断言聊天视图里没有 `wait_for_response` / `sleep`（防止同步阻塞长回来）。例外要认清：`/turn-wait/` 允许在请求内挂最长 `TURN_WAIT_BUDGET_SECONDS`（25s）等 SSE 结束信号——阻塞发生在 `agents.services.wait_turn_finished` 的 httpx 流里、视图不含那两个词，所以这条断言仍然成立；**要调大这个预算必须先重算本链**（25s 的余量是 180s 的七分之一，不是随便取的）。
 
 ### nginx 配置要点
 
