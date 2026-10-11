@@ -71,7 +71,8 @@
                 </div>
             </div>
 
-            <!-- 快捷状态按钮 -->
+            <!-- 快捷状态按钮：icon-only（2026-10-11 用户要求，文字在移动端太占地方）；
+                 状态名走 title + aria-label，当前态靠 accent 实心底识别 -->
             <div class="mt-6 pt-4 border-t border-[var(--border)]">
                 <p class="text-xs text-[var(--text-muted)] mb-2">快捷修改状态</p>
                 <div class="flex flex-wrap gap-2">
@@ -79,15 +80,23 @@
                     <form method="post" action="{% url 'activities:activity_set_status' activity.id %}">
                         {% csrf_token %}
                         <input type="hidden" name="status" value="{{ value }}">
-                        <button type="submit" {% if activity.status == value %}disabled{% endif %}
-                            class="tap-target rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors
+                        <button type="submit" {% if activity.status == value %}disabled aria-pressed="true"{% endif %} title="{{ label }}" aria-label="设为{{ label }}"
+                            class="tap-target inline-flex items-center justify-center w-10 h-10 rounded-full transition-colors
                             {% if activity.status == value %}
                                 bg-[var(--accent)] text-white cursor-default
                             {% else %}
                                 {% if value == 'done' or value == 'cancelled' %}bg-[var(--bg)] text-[var(--text-muted)] hover:bg-[var(--accent-light)]
                                 {% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}
                             {% endif %}">
-                            {% if activity.status == value %}&#10003; {% endif %}{{ label }}
+                            {% if value == 'planned' %}
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-6.75h18"/></svg>
+                            {% elif value == 'in_progress' %}
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"/></svg>
+                            {% elif value == 'done' %}
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            {% else %}
+                            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            {% endif %}
                         </button>
                     </form>
                     {% endfor %}
@@ -372,13 +381,8 @@
 
         <!-- 附件区域：data-mobile-collapse 由页尾脚本在移动端收起（模板保留 open 供桌面/无 JS 展开） -->
     <details data-mobile-collapse open class="fold-card app-card px-4 py-2.5 sm:px-6">
-        <summary class="text-sm font-medium text-[var(--text)] flex items-center gap-2 cursor-pointer select-none list-none">
-            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-            </svg>
-            附件
-            <span class="text-xs text-[var(--text-muted)]">({{ attachments|length }})</span>
-            <span class="ml-auto text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+        <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
+            <span>附件（{{ attachments|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         <div class="mt-1">
 
