@@ -165,6 +165,7 @@ none → queued → awaiting → finalizing → done
 - **`POST /chat/<id>/send/` 只做「落库 + 一次发起」并立即返回**；等 AI 的循环搬到 `GET /chat/<id>/turn/`（每拍一次无副作用状态读取，几十毫秒）。收尾（跑编排器 + 落库）在轮询请求里完成，回 `{'state','html','changed','ttl'}`
 - **`turn_prompt` 必须落库**：撞 409 留在 `queued` 时要由轮询拿**同一份组装好的文本**（页面上下文 + 知识库注入 + 原文）重发；用户消息只存原文（现有约定），塞上下文会污染历史
 - **`claim_turn(from, to)` 是条件 UPDATE，不是普通赋值**：两个标签页都从 `awaiting` 拿到同一段文本时，抢不到锁的必须空手而回，否则会落两条一样的回复并把写操作工具执行两遍。`test_second_poll_after_done_does_not_duplicate_the_reply` **单独不能**当这条锁（第二轮在入口就短路返回），真正生效的是 `test_turn_being_finalized_elsewhere_is_not_executed_again`
+- **`send_message` 也在抢轮闸门后面**：入口的 `turn_active` 检查是先读后写，双标签页/抽屉与分栏页同时提交会双双通过、各落一条消息（2026-10-11 线上实锤：对话 52/58 各出现间隔 0~1 秒的相同消息）。现在落用户消息**之前**必须先 `claim_turn(库里的当前态, TURN_QUEUED)`，抢不到直接 409（前端 409 分支把草稿留在输入框）。TTL 残留分支**必须先 `save` 中断态再抢轮**——只改内存的话 claim 拿库里的旧活跃态去比，永远抢不过自己。锁：`test_second_concurrent_send_loses_the_race_and_writes_nothing` + `test_expired_residue_is_interrupted_in_db_before_the_claim`
 - **空回复要过宽限期**（`TURN_IDLE_GRACE_SECONDS`）：平台 `status` 变 idle 比事件写入快，立即判定“真的没回复”会把正常回复丢掉。旧同步版靠 `idle_hits >= 3` 计数，现在轮询跨请求了改用时间
 - **前端只有一份实现**：`static/js/chat-turn.js`（分栏页与详情页都 `PaChatTurn(...)`；曾与右下角浮窗三方共用，浮窗已于 2026-09 整体下线），别再写第二套。等回复期间**只锁发送按钮、输入框保持可编辑**（能接着打下一条是异步化的目的）；切对话调 `halt()`（只停轮询），`stop()` 才是取消服务端本轮
 - **三个 JSON 端点一律原生 fetch，严禁 `hx-*`**（HTMX 会把 JSON 当纯文本插进 DOM）。fetch **必须带 `Accept: application/json`**：视图靠它区分 fetch 与无 JS 表单提交，漏了会被 302 重定向而消息其实已落库（本地实测：前端报「发送失败」，用户再点一次就是重复提问）
