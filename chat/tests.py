@@ -312,7 +312,8 @@ class ConversationListDesktopLayoutTest(TestCase):
         self.client.login(username='raven', password='test')
         Conversation.objects.create(user=self.user, session_id='sess_lay',
                                     title='新西兰之旅怎么安排')
-        self.html = self.client.get('/chat/').content.decode()
+        # 2026-10-11：/chat/ 纯入口自动重定向到最近对话，布局断言跟随重定向后的页面
+        self.html = self.client.get('/chat/', follow=True).content.decode()
         self.src = self.TEMPLATE.read_text(encoding='utf-8')
 
     def test_split_layout_structure(self):
@@ -326,9 +327,15 @@ class ConversationListDesktopLayoutTest(TestCase):
         self.assertIn('搜索对话...', self.html)
         self.assertIn('新西兰之旅怎么安排', self.html)
 
-    def test_empty_state_when_no_active_conversation(self):
-        """未选中对话时右栏显示空状态引导"""
-        self.assertIn('选择一个对话开始', self.html)
+    def test_empty_state_when_no_conversations_at_all(self):
+        """没有任何对话时 /chat/ 不重定向，右栏显示空状态引导
+
+        2026-10-11 起有对话时纯入口会自动进入最近对话，空态只剩「零对话」这一条路，
+        它同时也是新建入口，必须留在列表页。
+        """
+        Conversation.objects.all().delete()
+        html = self.client.get('/chat/').content.decode()
+        self.assertIn('选择一个对话开始', html)
 
     def test_ai_not_configured_banner_in_sidebar(self):
         """AI 未配置提示在左栏头部"""
@@ -3468,7 +3475,8 @@ class AutoArchiveStaleConversationTest(TestCase):
         self.stale.save(update_fields=['status'])
         self.fresh.status = 'idle'
         self.fresh.save(update_fields=['status'])
-        html = self.client.get('/chat/').content.decode()
+        # 2026-10-11：有活跃对话时 /chat/ 自动重定向进最近对话，列表断言跟随重定向页
+        html = self.client.get('/chat/', follow=True).content.decode()
         self.assertIn('活跃', html)
         self.assertNotIn('>超期<', html)
         html = self.client.get('/chat/?archived=1').content.decode()
@@ -3681,3 +3689,52 @@ class ChatUiAuditFixesTest(TestCase):
         Conversation.objects.filter(pk=self.conv.pk).update(pin_activity=pinned)
         drawer_pinned = self.client.get(base + '?chrome=drawer').content.decode()
         self.assertIn('钉住的活動', drawer_pinned, '抽屉上下文里 chip（已钉状态）要照常显示')
+
+
+class ChatAutoEnterLatestTest(TestCase):
+    """打开 /chat/ 自动进入最近一次对话（2026-10-11 用户要求，不再让用户从列表里选）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('raven', password='test')
+        self.client.login(username='raven', password='test')
+
+    def _make(self, sid, title, minutes_ago):
+        conv = Conversation.objects.create(user=self.user, session_id=sid, title=title)
+        Conversation.objects.filter(pk=conv.pk).update(
+            updated_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return conv
+
+    def test_root_redirects_to_most_recent_conversation(self):
+        self._make('sess_old', '旧对话', 60)
+        latest = self._make('sess_new', '最近对话', 5)
+        resp = self.client.get('/chat/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, f'/chat/{latest.id}/')
+
+    def test_redirect_target_lands_in_chat_view(self):
+        """重定向后的页面必须直接带活跃对话（data-active-id），移动端 JS 才会进聊天视图"""
+        latest = self._make('sess_x', '直接可聊', 1)
+        html = self.client.get('/chat/', follow=True).content.decode()
+        self.assertIn(f'data-active-id="{latest.id}"', html)
+        self.assertIn('直接可聊', html, '左栏列表仍要完整渲染，☰ 可回列表')
+
+    def test_ask_deeplink_is_not_redirected(self):
+        """?ask= 深链自带对话创建/预填逻辑，不能被重定向劫走"""
+        self._make('sess_y', '占位', 1)
+        resp = self.client.get('/chat/?ask=帮我记一笔')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_archived_view_is_not_redirected(self):
+        self._make('sess_z', '占位', 1)
+        resp = self.client.get('/chat/?archived=1')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_search_is_not_redirected(self):
+        self._make('sess_s', '占位', 1)
+        resp = self.client.get('/chat/?q=占位')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_no_conversations_stays_on_list_page(self):
+        """零对话时没有可进入的目标，留在列表页（空态 + 新建入口）"""
+        resp = self.client.get('/chat/')
+        self.assertEqual(resp.status_code, 200)

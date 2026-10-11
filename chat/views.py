@@ -336,6 +336,14 @@ def conversation_list(request, conversation_id=None):
         filtered.append(conv)
     conversations = filtered
 
+    # 2026-10-11 用户要求：打开 /chat/ 自动进入最近一次对话，不再让用户从列表里选。
+    # 只重定向「纯入口」：?ask= 深链（自带对话创建/预填）、?archived=1 归档区、?q= 搜索
+    # 都留在列表页；没有对话时同样留在列表页（空态 + 新建入口）。目标页里列表整列仍
+    # 渲染（移动端 ☰/返回键可回列表），重定向不丢入口。
+    if (conversation_id is None and not show_archived and not query
+            and not request.GET.get('ask') and conversations):
+        return redirect('chat:conversation_list_with_active', conversations[0].id)
+
     # 如果指定了 conversation_id，额外加载该对话的消息（右栏用）。
     # 展示层只取最近 3 天（_history_window），?history=all 展开全量。
     active_conversation = None
