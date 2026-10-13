@@ -19,7 +19,8 @@ from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      CHAT_HISTORY_DAYS)
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
-from core.agent_registry import (PROTOCOL_REF_REMINDER, PROTOCOL_TRUNCATED_NOTE,
+from core.agent_registry import (MEMORY_META_REMINDER, PROTOCOL_REF_REMINDER,
+                                 PROTOCOL_TRUNCATED_NOTE,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
                                  CandidateToolError, ToolError,
                                  build_protocol_prompt,
@@ -263,15 +264,9 @@ def _create_conversation_for_user(user, title='新对话', agent_id=None):
     except Exception as e:
         logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
 
-    # 首帧注入用户记忆（让 AI 天然「认识」用户）
-    try:
-        from memory.services import retrieve_memories, format_memory_for_injection
-        top_memories = retrieve_memories(user, limit=10)
-        if top_memories:
-            memory_context = format_memory_for_injection(top_memories)
-            service.send_message(session_data['id'], memory_context)
-    except Exception as e:
-        logger.warning(f'记忆注入失败（对话 {conversation.id}）: {e}')
+    # 记忆注入已迁移到每轮通道（_build_ai_content → build_memory_index_context）：
+    # 首帧一次性注入与首帧协议是同一个坑——存量会话永远看不到后来新增的记忆，
+    # 且这里的 send_message 还会与协议首帧撞 409。
 
     return conversation
 
@@ -696,6 +691,15 @@ def _build_ai_content(request, conversation, content):
             ai_content = PROTOCOL_REF_REMINDER + ai_content
     except Exception as exc:
         logger.warning('reference reminder injection failed: %s', exc)
+    try:
+        # 记忆每轮注入（ROA 改进 Phase A）：元规则先于记忆内容（防记忆条目把
+        # 指令提升为最高优先级），确定性输出（turn_prompt 落库重试重发）
+        from memory.services import build_memory_index_context
+        memory_block = build_memory_index_context(conversation.user)
+        if memory_block:
+            ai_content = MEMORY_META_REMINDER + memory_block + '\n' + ai_content
+    except Exception as exc:
+        logger.warning('memory injection failed: %s', exc)
     try:
         # 钉选放最后置前：它是用户显式点名的对象，优先级高于“按关键词猜”的知识库注入
         pinned = conversation.pinned_context()

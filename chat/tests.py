@@ -3960,3 +3960,79 @@ class ChatAutoEnterLatestTest(TestCase):
         """零对话时没有可进入的目标，留在列表页（空态 + 新建入口）"""
         resp = self.client.get('/chat/')
         self.assertEqual(resp.status_code, 200)
+
+
+class MemoryPerTurnInjectionTest(TestCase):
+    """记忆每轮注入通道（ROA 改进 Phase A）
+
+    修复的坑与首帧协议同构：旧实现在 create_conversation 里注入一次记忆，
+    存量会话永远看不到后来新增的记忆。现在注入挂在 _build_ai_content（每轮），
+    这里用「发送动作后 turn_prompt 含记忆块」做行为锁——与
+    StaleSessionReferenceReminderTest 锁协议补发是同一个思路。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('memuser', password='p')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_m', agent_id='ag_m', title='旧对话')
+        self.url = f'/chat/{self.conv.id}/send/'
+
+    def _post(self, content='继续'):
+        service = FakeQoderService()
+        with patch('chat.views.get_service', return_value=service):
+            resp = self.client.post(self.url, {'content': content, 'page_context': 'home'},
+                                    HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.conv.refresh_from_db()
+        return self.conv.turn_prompt
+
+    def _make_memories(self):
+        from memory.models import Memory
+        Memory.objects.create(user=self.user, content='回复别铺满 bullet，先给大纲',
+                              type='procedural', importance=8)
+        Memory.objects.create(user=self.user, content='住在杭州', category='fact',
+                              importance=6)
+
+    def test_existing_conversation_gets_memories_on_send(self):
+        """存量会话发送时注入记忆（修复核心：不再只在新建时注入一次）"""
+        self._make_memories()
+        prompt = self._post()
+        self.assertIn('[用户记忆', prompt)
+        self.assertIn('回复别铺满 bullet，先给大纲', prompt)
+        self.assertIn('住在杭州', prompt)
+
+    def test_meta_rules_precede_memory_content(self):
+        """元规则必须先于记忆内容下发（防记忆条目把指令提升为最高优先级）"""
+        self._make_memories()
+        prompt = self._post()
+        self.assertIn('记忆使用规则', prompt)
+        self.assertLess(prompt.index('记忆使用规则'), prompt.index('[用户记忆'))
+
+    def test_user_message_stays_after_memory_block(self):
+        """记忆块在正文之前，用户原文仍在末尾（历史只存原文的约定不破）"""
+        self._make_memories()
+        prompt = self._post('明天几点开会')
+        self.assertIn('明天几点开会', prompt)
+        self.assertGreater(prompt.index('明天几点开会'), prompt.index('[用户记忆'))
+        self.assertNotIn('用户记忆', self.conv.messages.filter(role='user').first().content)
+
+    def test_candidate_sensitive_episodic_are_not_injected(self):
+        """candidate 不进常驻（等复验）；sensitive 不进注入；episodic 只走检索"""
+        from memory.models import Memory
+        Memory.objects.create(user=self.user, content='可能在准备考证',
+                              status='candidate', importance=6)
+        Memory.objects.create(user=self.user, content='正在服用舍曲林',
+                              sensitivity='sensitive', importance=7)
+        Memory.objects.create(user=self.user, content='2026-10-12 讨论了搬家',
+                              type='episodic', importance=5)
+        prompt = self._post()
+        self.assertNotIn('可能在准备考证', prompt)
+        self.assertNotIn('正在服用舍曲林', prompt)
+        self.assertNotIn('讨论了搬家', prompt)
+
+    def test_no_memories_means_no_marker(self):
+        """零记忆时不注入空壳标记，turn_prompt 也不因此报错"""
+        prompt = self._post()
+        self.assertNotIn('[用户记忆', prompt)
+        self.assertIn('继续', prompt)

@@ -34,6 +34,19 @@ EXTRACTION_PATTERNS = [
     (r'我(?:来自|是)([^。，！？,\n]+?)人', 'fact', 5),
 ]
 
+# 纠正/方法类句式 → type=procedural（PRD §3.1：把「用户纠正过我」单独成层，
+# 否则该遵守的规则会被当成可选背景知识稀释掉）。category 兜 'other'，type 才是层。
+CORRECTION_PATTERNS = [
+    # (正则, importance)。「别」与「不要」都要接得住（用户实际说法两种都有，
+    # 只写「不要」会漏「以后别用 bullet 铺满整页」这类高频纠正），
+    # 「下次直接/以后就」这类直陈式也算纠正
+    (r'(?:以后|下次|往后)(?:都)?(?:请)?不要([^。，！？,\n]{2,80})', 8),
+    (r'(?:以后|下次|往后)(?:都)?(?:请)?别再?([^。，！？,\n]{2,80})', 8),
+    (r'(?:以后|下次|往后)(?:都)?(?:要|记得|尽量|直接|就)([^。，！？,\n]{2,80})', 7),
+    (r'别再([^。，！？,\n]{2,80})', 8),
+    (r'我(?:一般|通常|习惯)(?:都是)?(?:用|按|先)([^。，！？,\n]{2,80})', 6),
+]
+
 
 # ────────────────────────────────────────────────
 # 检索 + 注入
@@ -136,8 +149,58 @@ def format_memory_for_injection(memories):
 # 规则兜底提取
 # ────────────────────────────────────────────────
 
-def _is_similar_content(user, content, threshold=0.8):
-    """检查是否已存在相似内容的记忆
+# ────────────────────────────────────────────────
+# 写入门控（ROA PRD §5.2 / §5.2.1 / §9.2 / §9.3.1）
+# 原则：少记、快记、记不准就先不记。所有写入路径必须经过 gate_and_write。
+# ────────────────────────────────────────────────
+
+# denylist：命中即拒绝入库。可推导的信息（代码/文件全文）不存——用陈旧快照
+# 冒充事实比不存更糟；证件/凭证/内网标识不存——公网服务器 + 第三方模型推理，
+# 写入即出境。返回值是给审计日志与用户提示看的类别标签。
+# 数字类用环视不用 \b：Python 3 的 \b 把中文也算 \w，「身份证号是1101…」里
+# 汉字与数字之间不存在词边界，\b 版本整条静默落空（tests.py 实测抓到）。
+DENYLIST_PATTERNS = [
+    (r'(?<!\d)\d{17}[\dXx](?!\d)', '证件号'),
+    (r'(?<!\d)\d{16,19}(?!\d)', '卡号/账号'),
+    (r'(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token)\b\s*[:=＝]\s*\S+', '凭证'),
+    (r'(?:密码|口令|密钥)\s*[:：是为]?\s*\S{4,}', '凭证'),
+    (r'\.(?:loreal|corp|local|internal|intra|lan)\b', '内网域名'),
+    (r'(?<![\d.])'
+     r'(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}'
+     r'|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?!\d)', '内网地址'),
+]
+
+# sensitivity=sensitive 的内容类别（PRD §9.2）：默认不写，owner 明确要求记住才写
+SENSITIVE_HINTS = [
+    '确诊', '病史', '体检报告', '处方', '用药', '抑郁', '心理咨询',
+    '工资', '房贷', '车贷', '存款', '负债', '征信',
+    '性取向', '出轨', '离婚', '流产',
+]
+
+# confidence 分档（PRD 附录 B）。阈值刻意先松后紧：线上没有独立小模型评估，
+# 置信来自云端 Agent 的自我估计，跑一周看候选堆积情况再收紧。
+CONF_ACTIVE = 0.55      # ≥ → 直接 active（进常驻注入池）
+CONF_CANDIDATE = 0.35   # [candidate, active) → candidate，不进常驻，等冷路径复验
+
+# 用户显式要求记住的标记（敏感内容唯一的写入通行证，PRD §9.2）
+EXPLICIT_REMEMBER_RE = re.compile(r'记住|记一下|记下来|帮我记|别忘了')
+
+
+def check_denylist(text):
+    """命中 denylist 返回类别标签，否则 None"""
+    for pattern, label in DENYLIST_PATTERNS:
+        if re.search(pattern, text or ''):
+            return label
+    return None
+
+
+def assess_sensitivity(text):
+    """健康/财务/证件/亲密关系类内容 → sensitive（默认拒绝写入）"""
+    return any(hint in (text or '') for hint in SENSITIVE_HINTS)
+
+
+def _find_similar(user, content):
+    """返回内容高度相似的已有记忆（合并计数用），无则 None
 
     注意这里的 filter(user=user) 不是可见性漏改：注入 / 查重属于「这个人的个人
     上下文」，超级用户也不应把别人的记忆灌进自己的对话；页面浏览类的“超管见全部”
@@ -146,19 +209,139 @@ def _is_similar_content(user, content, threshold=0.8):
     from core.utils import char_overlap_ratio
     from .models import Memory
 
-    existing = Memory.objects.filter(user=user, consolidated=False).values_list('content', flat=True)[:100]
-    for existing_content in existing:
-        if len(content) < 3 or len(existing_content) < 3:
+    if len(content) < 3:
+        return None
+    existing = Memory.objects.filter(
+        user=user, consolidated=False, status__in=['active', 'candidate'],
+    ).order_by('-importance', '-updated_at')[:100]
+    for memory in existing:
+        if len(memory.content) < 3:
             continue
-        if char_overlap_ratio(content, existing_content, mode='contains') > threshold:
-            return True
-    return False
+        if char_overlap_ratio(content, memory.content, mode='contains') > 0.8:
+            return memory
+    return None
+
+
+def _is_similar_content(user, content, threshold=0.8):
+    """兼容旧签名的查重判断（阈值参数保留，合并逻辑统一走 _find_similar）"""
+    from core.utils import char_overlap_ratio
+
+    memory = _find_similar(user, content)
+    if memory is None:
+        return False
+    return char_overlap_ratio(content, memory.content, mode='contains') > threshold
+
+
+def gate_and_write(user, candidate, source_message=None, user_text=''):
+    """统一写入口：denylist → 敏感闸门 → 近似合并 → confidence 分档
+
+    candidate: {'content', 'category', 'importance', 'type', 'hook',
+                'confidence', 'sensitivity'}（后四个可省）
+    user_text: 触发本轮写入的用户原话——敏感内容只有用户显式说「记住」才放行。
+    返回 (action, memory_or_None, note)：
+      action ∈ written / merged / candidate / dropped / denied / blocked
+      note 为给用户的提示（denied/blocked 时非空，其余为空）。
+    失败仅 logger.warning，不抛异常（容错铁律）。
+    """
+    from .models import Memory
+
+    content = str(candidate.get('content', '')).strip()
+    if not content or len(content) < 2 or len(content) > 500:
+        return 'dropped', None, ''
+
+    label = check_denylist(content)
+    if label:
+        logger.warning(f'记忆写入被 denylist 拦截（{label}）: {content[:60]}')
+        return ('denied', None,
+                f'有一段内容涉及{label}，按隐私规则我不会把它存进记忆。')
+
+    memory_type = str(candidate.get('type') or 'semantic').strip()
+    if memory_type not in dict(Memory.TYPE_CHOICES):
+        memory_type = 'semantic'
+
+    explicit = bool(EXPLICIT_REMEMBER_RE.search(user_text or ''))
+    is_sensitive = (str(candidate.get('sensitivity') or '').strip() == 'sensitive'
+                    or assess_sensitivity(content))
+    if is_sensitive and not explicit:
+        logger.warning(f'敏感记忆未获用户显式确认，已拦下: {content[:60]}')
+        return ('blocked', None,
+                '有一条涉及个人敏感信息的记忆我没有保存；'
+                '确实要记的话请直接说「记住：……」。')
+
+    similar = _find_similar(user, content)
+    if similar is not None:
+        # 近似命中从「跳过」改为「合并计数」（PRD §5.2）：被反复确认的事实
+        # 应该变强，而不是被当成重复丢掉。
+        try:
+            Memory.objects.filter(id=similar.id).update(
+                access_count=F('access_count') + 1,
+                last_verified=timezone.now(),
+            )
+        except Exception as e:
+            logger.warning(f'记忆合并计数失败: {e}')
+        return 'merged', similar, ''
+
+    try:
+        importance = candidate.get('importance', 5)
+        try:
+            importance = max(1, min(10, int(importance)))
+        except (TypeError, ValueError):
+            importance = 5
+
+        category = str(candidate.get('category') or 'other').strip()
+        if category not in dict(Memory.CATEGORY_CHOICES):
+            category = 'other'
+
+        confidence = candidate.get('confidence')
+        try:
+            confidence = None if confidence in (None, '') else max(0.0, min(1.0, float(confidence)))
+        except (TypeError, ValueError):
+            confidence = None
+        # 未给置信度时按重要度折算（AI 路径两者同源）；规则兜底路径固定 0.8
+        if confidence is None:
+            confidence = round(importance / 10, 2)
+
+        hook = str(candidate.get('hook') or '').strip()[:150]
+        salience = str(candidate.get('salience') or 'normal').strip()
+        if salience not in ('high', 'normal', 'low'):
+            salience = 'normal'
+
+        if confidence >= CONF_ACTIVE:
+            action = 'written'
+        elif confidence >= CONF_CANDIDATE:
+            action = 'candidate'
+        else:
+            return 'dropped', None, ''
+        status = 'active' if action == 'written' else 'candidate'
+
+        memory = Memory.objects.create(
+            user=user,
+            content=content,
+            hook=hook,
+            type=memory_type,
+            category=category,
+            importance=importance,
+            confidence=confidence,
+            salience=salience,
+            sensitivity='sensitive' if is_sensitive else 'normal',
+            status=status,
+            last_verified=timezone.now(),
+            source_message=source_message,
+        )
+        logger.info(f'记忆写入 ({action}) type={memory_type} status={status} '
+                    f'conf={confidence}: {content[:60]}')
+        return action, memory, ''
+    except Exception as e:
+        logger.warning(f'记忆写入失败: {e}')
+        return 'dropped', None, ''
 
 
 def extract_memories_from_text(user, text, source_message=None):
-    """对用户消息做模式匹配，返回新创建的 Memory 列表
+    """对用户消息做模式匹配，返回新创建的 Memory 列表（规则兜底路径）
 
-    - 已存在相似内容的记忆则跳过，避免重复
+    - 命中即高置信（规则兜底本身是确定性正则，confidence 固定 0.8 → active）
+    - 纠正/方法句式单独成 procedural 层
+    - 相似命中走合并计数；denylist / 敏感闸门同样生效
     - 失败仅 logger.warning，不抛异常
     """
     from .models import Memory
@@ -169,26 +352,16 @@ def extract_memories_from_text(user, text, source_message=None):
     created = []
     try:
         for pattern, category, importance in EXTRACTION_PATTERNS:
-            matches = re.findall(pattern, text)
-            for match in matches:
-                content = match.strip()
-                # 过滤太短或太长的匹配
-                if len(content) < 2 or len(content) > 200:
-                    continue
+            for match in re.findall(pattern, text):
+                _rule_write(user, {'content': match, 'category': category,
+                                   'importance': importance},
+                            source_message, created)
 
-                # 去重检查
-                if _is_similar_content(user, content):
-                    continue
-
-                memory = Memory.objects.create(
-                    user=user,
-                    content=content,
-                    category=category,
-                    importance=importance,
-                    source_message=source_message,
-                )
-                created.append(memory)
-                logger.info(f'规则提取记忆: ({category}) {content}')
+        for pattern, importance in CORRECTION_PATTERNS:
+            for match in re.findall(pattern, text):
+                _rule_write(user, {'content': match.strip(), 'category': 'other',
+                                   'importance': importance, 'type': 'procedural'},
+                            source_message, created)
 
     except Exception as e:
         logger.warning(f'规则记忆提取失败: {e}')
@@ -196,59 +369,141 @@ def extract_memories_from_text(user, text, source_message=None):
     return created
 
 
+def _rule_write(user, candidate, source_message, created):
+    """规则兜底路径的单条写入：清洗 + 门控 + 收集新建条目"""
+    content = str(candidate.get('content', '')).strip()
+    # 过滤太短或太长的匹配
+    if len(content) < 2 or len(content) > 200:
+        return
+    candidate['content'] = content
+    candidate['confidence'] = 0.8
+    action, memory, _note = gate_and_write(user, candidate,
+                                           source_message=source_message,
+                                           user_text=source_message.content
+                                           if source_message else '')
+    if action in ('written', 'candidate') and memory:
+        created.append(memory)
+        logger.info(f'规则提取记忆: ({candidate.get("category")}) {content}')
+
+
 # ────────────────────────────────────────────────
 # AI 提取（由 orchestrator 调用）
 # ────────────────────────────────────────────────
 
-def save_ai_extracted_memories(user, memory_list, source_message=None):
-    """存储 AI 主动提取的记忆
+def save_ai_extracted_memories_ex(user, memory_list, source_message=None,
+                                  user_text=''):
+    """存储 AI 主动提取的记忆，返回 (created, blocked_notes)
 
-    memory_list: [{'content': str, 'category': str, 'importance': int}, ...]
-    失败仅 logger.warning，不抛异常
+    blocked_notes 是给用户的可见提示（denylist/敏感闸门拦下的条目）——
+    闸门必须可见，静默丢弃会让用户以为「它记住了」。
     """
     from .models import Memory
 
+    created, blocked = [], []
     if not memory_list:
-        return []
-
-    created = []
-    valid_categories = dict(Memory.CATEGORY_CHOICES).keys()
+        return created, blocked
 
     try:
         for item in memory_list:
+            if not isinstance(item, dict):
+                continue
             content = str(item.get('content', '')).strip()
             if not content or len(content) < 2 or len(content) > 500:
                 continue
-
-            category = str(item.get('category', 'other')).strip()
-            if category not in valid_categories:
-                category = 'other'
-
-            importance = item.get('importance', 5)
-            try:
-                importance = max(1, min(10, int(importance)))
-            except (TypeError, ValueError):
-                importance = 5
-
-            # 去重检查
-            if _is_similar_content(user, content):
-                continue
-
-            memory = Memory.objects.create(
-                user=user,
-                content=content,
-                category=category,
-                importance=importance,
-                source_message=source_message,
-            )
-            created.append(memory)
-            logger.info(f'AI 提取记忆: ({category}) {content}')
-
+            action, memory, note = gate_and_write(
+                user, item, source_message=source_message, user_text=user_text)
+            if action in ('written', 'candidate') and memory:
+                created.append(memory)
+                logger.info(f'AI 提取记忆: ({memory.category}) {content}')
+            elif note:
+                blocked.append(note)
     except Exception as e:
         logger.warning(f'AI 记忆存储失败: {e}')
 
+    return created, blocked
+
+
+def save_ai_extracted_memories(user, memory_list, source_message=None):
+    """兼容旧签名：只返回新建列表（编排器用 _ex 变体拿拦截明细）"""
+    created, _blocked = save_ai_extracted_memories_ex(
+        user, memory_list, source_message=source_message)
     return created
 
+
+# ────────────────────────────────────────────────
+# 常驻注入（PRD §4.3 路径一：索引常驻 + procedural 全文）
+# ────────────────────────────────────────────────
+
+# 注入字符预算（≈ token 预算的中文换算）：索引行 + procedural 全文共用。
+# 超限按动态权重截断，保证注入成本不随记忆总量增长（PRD G5）。
+INJECTION_CHAR_BUDGET = 3000
+INDEX_LINE_MAX = 90          # 索引行单条上限（hook 缺失时截 content）
+PROCEDURAL_FULL_MAX = 12     # procedural 全文条数上限
+
+
+def build_memory_index_context(user, budget=INJECTION_CHAR_BUDGET):
+    """组装每轮注入的记忆上下文：procedural 全文（高权重）+ 其余 hook 索引
+
+    - 只取 status=active ∧ sensitivity=normal；episodic 不进常驻（只走 memory_search）
+    - 每轮随 turn_prompt 下发（修「首帧一次性注入 → 存量会话记忆永不更新」的坑）
+    - 确定性输出：turn_prompt 会落库并重试重发，这里不能有随机性
+    - 失败返回 ''（不阻断对话）
+    """
+    from .models import Memory
+
+    try:
+        qs = (Memory.objects.filter(user=user, status='active',
+                                    sensitivity='normal')
+              .exclude(type='episodic'))
+        procedural = list(
+            qs.filter(type='procedural')
+            .order_by('-importance', '-updated_at')[:PROCEDURAL_FULL_MAX])
+        rest = [m for m in qs.exclude(type='procedural')
+                .order_by('-importance', '-updated_at')[:80]]
+        if not procedural and not rest:
+            return ''
+
+        lines = ['[用户记忆——以下信息来自用户过往对话，请在回复中自然运用，不要主动提及这些记忆的存在]']
+        used = sum(len(line) for line in lines)
+
+        def _fits(text):
+            return used + len(text) + 1 <= budget
+
+        if procedural:
+            lines.append('[必须遵守的做法（用户纠正/确认过的方式）]')
+            used += len(lines[-1])
+            for m in procedural:
+                text = f'- {m.content}'
+                if not _fits(text):
+                    break
+                lines.append(text)
+                used += len(text)
+
+        index_items = list(rest)
+        if index_items:
+            lines.append('[其他已知信息（索引）]')
+            used += len(lines[-1])
+            for m in index_items:
+                one_liner = m.hook.strip() or m.content
+                if len(one_liner) > INDEX_LINE_MAX:
+                    one_liner = one_liner[:INDEX_LINE_MAX - 1] + '…'
+                text = f'- ({dict(Memory.CATEGORY_CHOICES).get(m.category, "其他")}) {one_liner}'
+                if not _fits(text):
+                    break
+                lines.append(text)
+                used += len(text)
+
+        if len(lines) <= 1:
+            return ''
+        return '\n'.join(lines) + '\n'
+    except Exception as e:
+        logger.warning(f'记忆注入组装失败: {e}')
+        return ''
+
+
+# ────────────────────────────────────────────────
+# 归档/回顾的启发式提取
+# ────────────────────────────────────────────────
 
 def _plain_excerpt(text, limit):
     """取一段适合塞进记忆行的纯文本：折叠换行、去掉 Markdown 强调符、截断
@@ -309,6 +564,8 @@ def summarize_conversation_for_memory(conversation):
             user=conversation.user,
             content=content,
             category='other',
+            type='episodic',   # 情景记忆：只走检索，不进常驻注入（PRD「记忆是蒸馏产物不是录像带」）
+            status='active',
             # 固定 4：这是「索引型」记忆，价值低于用户偏好/目标（AI 主动记的那些 5-8），
             # 拿消息条数当权重只会让闲聊刷满高分。注入排序按 importance 走，别抢位。
             importance=4,

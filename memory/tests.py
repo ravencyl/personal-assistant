@@ -944,3 +944,179 @@ class MemoryDisplayFixesTest(TestCase):
             self.assertNotIn('zinc-', src, f'{name} 还有硬编码 zinc 色')
             self.assertNotIn('bg-white', src, f'{name} 还有 bg-white')
 
+
+
+# ══════════════════════════════════════════════
+# Phase A（ROA PRD 移植，2026-10-13）：写入门控 / procedural 分层 / 每轮注入
+# ══════════════════════════════════════════════
+
+class MemoryGateTest(TestCase):
+    """gate_and_write 是唯一写入路径：denylist / 敏感闸门 / confidence 分档 / 近似合并
+
+    PRD §5.2/§5.2.1/§9.2。这些闸门不存在时，「记住我的身份证号」会被原样落库
+    并随每轮注入出境到第三方模型——T6（敏感泄漏必须 0）的唯一防线。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('gater', password='p')
+
+    def _save(self, items, user_text=''):
+        from .services import save_ai_extracted_memories_ex
+        return save_ai_extracted_memories_ex(self.user, items, user_text=user_text)
+
+    def test_denylist_id_number_is_never_written(self):
+        created, blocked = self._save(
+            [{'content': '我的身份证号是110101199003077777', 'importance': 9}])
+        self.assertEqual(created, [])
+        self.assertTrue(blocked)
+        self.assertEqual(Memory.objects.filter(user=self.user).count(), 0)
+
+    def test_denylist_card_and_password(self):
+        for content in ('卡号6222020200112233445', '我的密码是abc12345'):
+            created, blocked = self._save([{'content': content, 'importance': 9}])
+            self.assertEqual(created, [], content)
+            self.assertTrue(blocked, content)
+        self.assertEqual(Memory.objects.filter(user=self.user).count(), 0)
+
+    def test_denylist_intranet_markers(self):
+        created, _ = self._save(
+            [{'content': '内网门户是 portal.corp.example', 'importance': 6},
+             {'content': '数据库在 10.20.30.40', 'importance': 6}])
+        self.assertEqual(created, [])
+
+    def test_sensitive_without_explicit_ask_is_blocked(self):
+        created, blocked = self._save(
+            [{'content': '正在服用舍曲林治疗抑郁', 'importance': 8}])
+        self.assertEqual(created, [])
+        self.assertTrue(any('没有保存' in n for n in blocked))
+
+    def test_sensitive_with_explicit_ask_is_written_and_marked(self):
+        # 显式确认判定由编排器传 user_text 决定，这里用 gate_and_write
+        # 直接造「已获显式确认」的形态
+        from .services import gate_and_write
+        action, memory, _ = gate_and_write(
+            self.user, {'content': '正在服用舍曲林治疗抑郁',
+                        'sensitivity': 'sensitive', 'confidence': 0.9},
+            user_text='记住这个：正在服用舍曲林治疗抑郁')
+        self.assertEqual(action, 'written')
+        self.assertEqual(memory.sensitivity, 'sensitive')
+
+    def test_confidence_bands_route_status(self):
+        from .services import gate_and_write
+        _, high, _ = gate_and_write(
+            self.user, {'content': '喜欢简洁排版', 'confidence': 0.9})
+        self.assertEqual(high.status, 'active')
+        _, mid, _ = gate_and_write(
+            self.user, {'content': '可能在准备考证', 'confidence': 0.45})
+        self.assertEqual(mid.status, 'candidate')
+        _, low, _ = gate_and_write(
+            self.user, {'content': '或许喜欢蓝色', 'confidence': 0.2})
+        self.assertIsNone(low)
+
+    def test_similar_hit_merges_instead_of_duplicating(self):
+        """近似命中从「跳过」改为「合并计数」：被反复确认的事实应该变强"""
+        from .services import gate_and_write
+        _, first, _ = gate_and_write(
+            self.user, {'content': '喜欢简洁的排版', 'confidence': 0.9})
+        base_count = first.access_count
+        action, second, _ = gate_and_write(
+            self.user, {'content': '喜欢简洁的排版', 'confidence': 0.9})
+        self.assertEqual(action, 'merged')
+        self.assertEqual(Memory.objects.filter(user=self.user).count(), 1)
+        first.refresh_from_db()
+        self.assertEqual(first.access_count, base_count + 1)
+
+    def test_type_passthrough_procedural(self):
+        from .services import gate_and_write
+        _, memory, _ = gate_and_write(
+            self.user, {'content': '回复别铺满 bullet', 'type': 'procedural',
+                        'confidence': 0.9})
+        self.assertEqual(memory.type, 'procedural')
+
+
+class CorrectionExtractionTest(TestCase):
+    """纠正句式单独落 procedural 层（PRD §3.1：该遵守的规则不得被当背景知识稀释）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('corrector', password='p')
+
+    def test_correction_phrase_becomes_procedural(self):
+        memories = extract_memories_from_text(self.user, '以后别用 bullet 铺满整页')
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0].type, 'procedural')
+
+    def test_next_time_pattern(self):
+        memories = extract_memories_from_text(self.user, '下次直接给我结论')
+        self.assertTrue(memories)
+        self.assertTrue(all(m.type == 'procedural' for m in memories))
+
+    def test_ordinary_preference_stays_semantic(self):
+        memories = extract_memories_from_text(self.user, '我喜欢喝美式')
+        self.assertEqual(memories[0].type, 'semantic')
+
+
+class MemoryIndexContextTest(TestCase):
+    """build_memory_index_context：每轮注入的组装规则（PRD §4.3 路径一 + G5 预算）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('injectee', password='p')
+        Memory.objects.create(user=self.user, content='交付前先给大纲再动手',
+                              type='procedural', importance=8)
+        Memory.objects.create(user=self.user, content='住在杭州', category='fact',
+                              importance=6)
+        Memory.objects.create(user=self.user, content='2026-10-12 讨论了搬家',
+                              type='episodic', importance=4)
+        Memory.objects.create(user=self.user, content='待复验的低置信条目',
+                              status='candidate')
+        Memory.objects.create(user=self.user, content='已被取代的旧住址',
+                              status='superseded')
+
+    def _ctx(self):
+        from .services import build_memory_index_context
+        return build_memory_index_context(self.user)
+
+    def test_procedural_full_text_is_injected(self):
+        ctx = self._ctx()
+        self.assertIn('交付前先给大纲再动手', ctx)
+
+    def test_semantic_goes_in_as_index_line(self):
+        ctx = self._ctx()
+        self.assertIn('住在杭州', ctx)
+
+    def test_episodic_never_enters_constant_injection(self):
+        self.assertNotIn('讨论了搬家', self._ctx())
+
+    def test_non_active_and_sensitive_are_excluded(self):
+        ctx = self._ctx()
+        self.assertNotIn('待复验的低置信条目', ctx)
+        self.assertNotIn('已被取代的旧住址', ctx)
+
+    def test_budget_truncates(self):
+        from .services import build_memory_index_context
+        for i in range(50):
+            Memory.objects.create(user=self.user, content=f'事实条目{i}号很长很长很长',
+                                  category='fact', importance=5)
+        ctx = build_memory_index_context(self.user, budget=400)
+        self.assertTrue(ctx)
+        self.assertLessEqual(len(ctx), 400)
+
+    def test_empty_user_returns_empty_string(self):
+        other = User.objects.create_user('nobody', password='p')
+        from .services import build_memory_index_context
+        self.assertEqual(build_memory_index_context(other), '')
+
+    def test_output_is_deterministic(self):
+        """turn_prompt 会落库重试重发：同一状态两次组装必须逐字节一致"""
+        self.assertEqual(self._ctx(), self._ctx())
+
+
+class LegacyRowDefaultsTest(TestCase):
+    """additive 迁移：存量行默认 semantic/active，不丢注入资格"""
+
+    def test_defaults(self):
+        user = User.objects.create_user('legacy', password='p')
+        memory = Memory.objects.create(user=user, content='旧格式记忆')
+        self.assertEqual(memory.type, 'semantic')
+        self.assertEqual(memory.status, 'active')
+        self.assertEqual(memory.sensitivity, 'normal')
+        self.assertFalse(memory.review_flag)

@@ -3,7 +3,16 @@ from django.conf import settings
 
 
 class Memory(models.Model):
-    """AI 长期记忆——跨对话持久化的用户信息"""
+    """AI 长期记忆——跨对话持久化的用户信息
+
+    字段口径对齐 ROA PRD（docs/roa-agent-improvement-plan.md）：
+    - type 四层记忆里的三层（working 是会话内临时态，不落这张表）；
+      procedural（被纠正的行为/方法）与 semantic 分层，是注入权重最高的层
+    - status 生命周期：candidate（门控低置信，等冷路径复验）/ active / stale /
+      superseded（被新事实取代，保留推理依据）/ archived / expired
+    - superseded_by 取代链：改写记忆不原位覆盖，新建新条 + 旧条指向新条
+    - sensitivity 敏感闸门：仅用户显式要求记住时才落库
+    """
     CATEGORY_CHOICES = [
         ('preference', '偏好'),
         ('fact', '事实'),
@@ -12,6 +21,19 @@ class Memory(models.Model):
         ('habit', '习惯'),
         ('other', '其他'),
     ]
+    TYPE_CHOICES = [
+        ('semantic', '语义'),        # 关于用户的稳定事实（默认，存量条目全归此）
+        ('procedural', '程序性'),    # 怎么做对事：纠正、方法。注入权重最高
+        ('episodic', '情景'),        # 何时发生了什么。只走检索，不进常驻注入
+    ]
+    STATUS_CHOICES = [
+        ('candidate', '待复验'),
+        ('active', '生效'),
+        ('stale', '陈旧'),
+        ('superseded', '已取代'),
+        ('archived', '已归档'),
+        ('expired', '已过期'),
+    ]
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -19,10 +41,41 @@ class Memory(models.Model):
         related_name='memories',
     )
     content = models.CharField('记忆内容', max_length=500)
+    # 索引行一句话（≤150 字）：常驻注入的是索引不是正文，超预算时的裁剪单位
+    hook = models.CharField('一句话索引', max_length=150, blank=True, default='')
+    type = models.CharField(
+        '记忆类型', max_length=12, choices=TYPE_CHOICES, default='semantic',
+    )
     category = models.CharField(
         '类别', max_length=20, choices=CATEGORY_CHOICES, default='other',
     )
     importance = models.IntegerField('重要度', default=5)
+    # 模型写入时的置信估计 [0,1]；空 = 未评估（规则兜底路径固定给高值）
+    confidence = models.FloatField('置信度', null=True, blank=True)
+    salience = models.CharField(
+        '显著度', max_length=8,
+        choices=[('high', '高'), ('normal', '普通'), ('low', '低')],
+        default='normal',
+    )
+    sensitivity = models.CharField(
+        '敏感级', max_length=10,
+        choices=[('normal', '普通'), ('sensitive', '敏感')],
+        default='normal',
+    )
+    status = models.CharField(
+        '状态', max_length=12, choices=STATUS_CHOICES, default='active',
+    )
+    valid_from = models.DateField('生效起点', null=True, blank=True)
+    invalid_at = models.DateField('失效时间', null=True, blank=True)
+    superseded_by = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='supersedes', verbose_name='被取代为',
+    )
+    review_flag = models.BooleanField(
+        '待复核', default=False,
+        help_text='矛盾消解决定为「存疑」时置位，提醒 owner 求证',
+    )
+    last_verified = models.DateTimeField('最近证实', null=True, blank=True)
     source_message = models.ForeignKey(
         'chat.Message',
         null=True, blank=True,
