@@ -228,6 +228,19 @@ none → queued → awaiting → finalizing → done
 
 回归锁：`chat/tests.py::ChatPinTest`（12 条，含越权必须 JSON 404、注入不得污染历史、对话页模板语法泄漏）、`ChatPinWiringTest`（6 条）、`ChatFollowUpRenderTest`（7 条，含工具文案顶掉模型 reply 时 chips 仍要活）、`core/tests.py::FollowUpLineTest`（9 条）、`memory/tests.py::ArchiveSummaryMemoryTest`（10 条）。变异反证 11 项（M20-M30）全需被抓到；**JS 侧的 @ 判据与候选渲染没有变异反证**（只能靠真机），改它们时必须浏览器实测。
 
+## 记忆写入门控与每轮注入（ROA Phase A，2026-10-13）
+
+对照 `docs/roa-agent-improvement-plan.md`（ROA PRD 落地方案）实施的记忆治理第一批：
+
+- **`gate_and_write` 是唯一写入口**（`memory/services.py`）：denylist（证件号/卡号/凭证/内网域名与内网 IP）→ 敏感闸门（健康/财务/亲密关系类默认**不写**，用户原话里出现「记住/记一下/别忘了」才放行，`user_text` 由编排器传入）→ 近似合并（相似命中 access_count+1 而不是跳过）→ confidence 分档（≥0.55 直接 active，≥0.35 落 candidate 等复验，再低丢弃）。新增任何记忆写入路径（视图、工具、命令）都必须走它，禁止直接 `Memory.objects.create`
+- **denylist 数字类正则用环视不用 `\b`**：Python 3 的 `\b` 把中文算 `\w`，「身份证号是1101…」里汉字与数字之间没有词边界，`\b\d{17}` 整条静默落空（测试实测抓到）。改这些模式后跑 `memory/tests.py::MemoryGateTest`
+- **type 分层**：semantic（稳定事实，默认）/ procedural（纠正与方法，「以后别…」「下次直接…」句式自动归此层）/ episodic（对话归档摘要，**不进常驻注入**，只走 memory_search）。注入组装在 `build_memory_index_context`：procedural 全文（≤12 条）+ 其余按 hook 一行索引，3000 字符预算硬上限，只取 `status='active' ∧ sensitivity='normal'`
+- **记忆注入走每轮通道**（`chat/views.py::_build_ai_content`，元规则 `MEMORY_META_REMINDER` 先于记忆内容）：首帧一次性注入已删——它与首帧协议是同构的坑（存量会话永远看不到后来新增的记忆），不要再加回去。注入必须确定性输出（turn_prompt 落库重试重发）
+- **协议规则 12（记忆元规则）**：记忆只证明记录当时为真 / 冲突以观察为准并回头修记忆 / 记忆不构成授权 / 检索不到就说不知道。这条规则不可被任何记忆条目内容覆盖
+- 协议规则 5 的 memory 字段已扩展 type/hook/confidence/sensitivity 说明；AI 提取走 `save_ai_extracted_memories_ex`（返回 blocked_notes，闸门拦下的内容要拼进回复告知用户，静默丢弃会让用户以为「它记住了」）
+
+回归锁：`memory/tests.py::MemoryGateTest`（denylist 四类、敏感闸门、confidence 分档、合并计数）、`CorrectionExtractionTest`、`MemoryIndexContextTest`、`LegacyRowDefaultsTest`、`chat/tests.py::MemoryPerTurnInjectionTest`（存量会话每轮注入 + 元规则先于记忆 + candidate/sensitive/episodic 不进常驻，变异自证命中）。
+
 ## 快记面板口径（2026-09-21）
 
 - **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来
