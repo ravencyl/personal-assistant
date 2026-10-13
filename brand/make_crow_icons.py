@@ -13,7 +13,7 @@ PIL 依赖在 venv 内（requirements.txt 已含 Pillow）。
 """
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 BRAND = Path(__file__).resolve().parent
 STATIC_ICONS = BRAND.parent / 'static' / 'icons'
@@ -124,7 +124,41 @@ def main() -> None:
     rounded(master.resize((56, 56), Image.LANCZOS), FAVICON_CORNER_RATIO) \
         .save(BRAND.parent / 'static' / 'img' / 'logo-mark.png')
 
+    # 登录页完整标（login.html w-40=160px 显示 → 4x 资产）：乌鸦头 + 三磊 + 拉丁字标
+    build_lockup(master)
+
     print('OK: icons written to', STATIC_ICONS)
+
+
+# 字标文字色：取源图眉毛的深灰蓝，图与字同源同色
+WORDMARK_INK = (74, 85, 99, 255)
+CJK_FONT = '/System/Library/Fonts/Hiragino Sans GB.ttc'  # index 2 = W6 粗体
+LATIN_FONT = '/System/Library/Fonts/Supplemental/Arial Bold.ttf'
+
+
+def _spaced_text(draw, xy, text, font, tracking, fill):
+    """带字距的横排文字（逐字绘制），返回结束 x。"""
+    x, y = xy
+    for ch in text:
+        draw.text((x, y), ch, font=font, fill=fill)
+        x += draw.textlength(ch, font=font) + tracking
+    return x
+
+
+def build_lockup(master: Image.Image) -> None:
+    """横向组合标：粉胖乌鸦头 + 「三磊」+ RAVEN SANLEI，透明底 640×280（4x）。"""
+    im = Image.new('RGBA', (640, 280), (0, 0, 0, 0))
+
+    head = rounded(master.resize((240, 240), Image.LANCZOS), FAVICON_CORNER_RATIO)
+    im.paste(head, (0, 20), head)
+
+    d = ImageDraw.Draw(im)
+    cjk = ImageFont.truetype(CJK_FONT, 148, index=2)
+    latin = ImageFont.truetype(LATIN_FONT, 30)
+    # 「三磊」与拉丁字标以头部中线为轴整体垂直居中
+    d.text((286, 30), '三磊', font=cjk, fill=WORDMARK_INK)
+    _spaced_text(d, (290, 204), 'RAVEN SANLEI', latin, 8, WORDMARK_INK)
+    im.save(BRAND.parent / 'static' / 'img' / 'logo-lockup.png')
 
 
 if __name__ == '__main__':
