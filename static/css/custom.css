@@ -170,12 +170,15 @@ tr.tag-wash:hover {
    写成 div.tag-wash（特异性 0,1,1）而非 .tag-wash：必须盖过下方 .app-card
    的白底 background（同特异性时后者胜，段位先后不可靠）。
    基色色条用 ::before 而不是 box-shadow——.app-card 也定义 box-shadow，
-   wash 的内阴影会被卡片阴影整个覆盖。chip/dot 同源。 */
+   wash 的内阴影会被卡片阴影整个覆盖。chip/dot 同源。
+   ⚠️ 色条伪元素必须限定 div.tag-wash：桌面行也带 .tag-wash 类，tr 上出
+   现 ::before 会被 Chrome 包成匿名单元格，把整行所有 td 顶后一列并抬高
+   行高（线上实测错位）——tr 的色条走下方 td:first-child 内阴影。 */
 div.tag-wash {
     position: relative;
     background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
 }
-.tag-wash::before {
+div.tag-wash::before {
     content: '';
     position: absolute;
     left: 0;
