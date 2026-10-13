@@ -22,6 +22,23 @@ from .models import Tag
 _SPLIT_RE = re.compile(r'[,，、]')
 MAX_TAGS_PER_OBJECT = 10
 
+
+def random_tag_color():
+    """随机生成一枚活动标签底色（#RRGGBB，中饱和中亮度）
+
+    页面不直接拿它铺卡片：custom.css 用 color-mix 从这个基色派生
+    浅底（~8%）/描边（~35%）等层级，所以基色要足够饱和才有派生空间。
+    色相全随机、饱和/亮度限制在窄区间，保证任意两枚都不会一个刺眼
+    一个发灰；具体一枚不喜欢，后台 admin 直接改 hex。
+    """
+    import colorsys
+    import random
+    h = random.random()
+    s = random.uniform(0.58, 0.72)
+    l = random.uniform(0.48, 0.60)
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return '#%02x%02x%02x' % (round(r * 255), round(g * 255), round(b * 255))
+
 # scope → 业务模型 app 路径；M2M 反向查询名（related query name）单独列出，
 # knowledge 的模型类是 Article，scope 名与反向名不同
 _SCOPE_MODEL_PATHS = {

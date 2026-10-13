@@ -2972,6 +2972,56 @@ class ListCountColumnsRemovedTest(SimpleTestCase):
         self.assertNotIn('{{ activity.sub_count }}', src)
 
 
+class TagColorCardTest(TestCase):
+    """活动列表卡片按标签底色呈现（2026-10-13）：
+    桌面表格行 / 移动卡片 / 置顶卡挂首个标签的 --tag-color + tag-wash 浅底，
+    标签列 chip 用 tag-chip 着色并带 tag-dot 色点；无标签卡片保持素面。
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user('tagcolor', password='test')
+        cls.tagged = Activity.objects.create(
+            user=cls.user, name='有标签的活动', status='in_progress',
+            start_date=date.today())
+        Activity.objects.create(
+            user=cls.user, name='无标签活动', status='planned',
+            start_date=date.today())
+        tag = Tag.objects.create(scope='activity', name='旅游', color='#34d399')
+        cls.tagged.tags.add(tag)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='tagcolor', password='test')
+
+    def _page(self):
+        resp = self.client.get('/activities/')
+        self.assertEqual(resp.status_code, 200)
+        return resp.content.decode()
+
+    def test_tagged_row_and_card_carry_first_tag_color(self):
+        html = self._page()
+        # 桌面行 + 移动卡 + chip 共 3 处样式变量；wash 只在行/卡 2 处
+        self.assertEqual(html.count('tag-wash'), 2)
+        self.assertEqual(html.count('--tag-color: #34d399'), 3)
+
+    def test_chip_colored_with_dot(self):
+        html = self._page()
+        self.assertIn('tag-chip', html)
+        self.assertIn('tag-dot', html)
+
+    def test_untagged_card_stays_plain(self):
+        """无标签活动的行/卡不挂 wash（按 data-id 定位各自行/卡的 class）"""
+        html = self._page()
+        plain_id = Activity.objects.get(user=self.user, name='无标签活动').id
+        row = re.search(r'<tr class="([^"]*)" data-id="%d"' % plain_id, html)
+        card = re.search(r'<div class="([^"]*tree-row app-card[^"]*)" data-id="%d"' % plain_id, html)
+        self.assertIsNotNone(row)
+        self.assertIsNotNone(card)
+        self.assertNotIn('tag-wash', row.group(1))
+        self.assertNotIn('tag-wash', card.group(1))
+
+
 class MobileActivityCardDisplayTest(TestCase):
     """移动端活动卡（2026-10-11 用户反馈两条）：
     ① 活动名不得截断 —— 换行把名字展示全（break-words，禁 truncate）；

@@ -11,7 +11,8 @@ from django.test import (TestCase, Client, RequestFactory, SimpleTestCase,
 from django.urls import reverse
 
 from core.tags import (add_tags, apply_tags, active_tag_names, split_tag_names,
-                       tag_names, tag_suggestions, used_tags)
+                       tag_names, tag_suggestions, used_tags, ensure_tags,
+                       random_tag_color)
 from core.models import Tag
 from activities.models import Activity, Expense
 from knowledge.models import Article
@@ -542,7 +543,8 @@ class BrandAssetTest(TestCase):
 
     def test_base_template_links_all_icon_sizes(self):
         html = (Path(settings.BASE_DIR) / 'templates' / 'base.html').read_text(encoding='utf-8')
-        referenced = re.findall(r"\{%\s*static '([^']+)'\s*%\}", html)
+        # staticv 升级后品牌图引用带内容哈希版本号（static 和 staticv 都认）
+        referenced = re.findall(r"\{%\s*staticv? '([^']+)'\s*%\}", html)
         for name in ('icons/favicon-16.png', 'icons/favicon-32.png', 'icons/favicon-48.png',
                      'icons/apple-touch-icon.png', 'img/logo-mark.png'):
             self.assertIn(name, referenced, f'base.html 没引用 {name}')
@@ -1394,6 +1396,58 @@ class ChitchatMemoryExtractionTest(TestCase):
         content, _, _ = orchestrator.process(user, text)
         self.assertEqual(content, '嗯')
         self.assertFalse(Memory.objects.filter(user=user).exists())
+
+
+class TagColorTest(TestCase):
+    """活动标签底色（core.Tag.color）：activity scope 建签即随机赋色、
+    显式色保留、其余 scope 不赋色；admin 列表色块预览不炸"""
+
+    COLOR_RE = re.compile(r'^#[0-9a-f]{6}$')
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.activity = Activity.objects.create(user=self.user, name='测试活动')
+
+    def test_random_tag_color_format(self):
+        for _ in range(20):
+            self.assertRegex(random_tag_color(), self.COLOR_RE)
+
+    def test_activity_tag_gets_color_on_create(self):
+        """ensure_tags 创建活动标签时自动随机赋底色"""
+        tag = ensure_tags('activity', ['新标签'])[0]
+        self.assertRegex(tag.color, self.COLOR_RE)
+
+    def test_non_activity_scope_stays_blank(self):
+        """非活动用途不赋色（底色只服务活动卡片）"""
+        for scope in ('expense', 'note', 'knowledge'):
+            tag = ensure_tags(scope, ['通用'])[0]
+            self.assertEqual(tag.color, '')
+
+    def test_explicit_color_preserved(self):
+        """显式给定的底色不被随机覆盖（admin 改完再保存不能变色）"""
+        tag = Tag.objects.create(scope='activity', name='指定色', color='#123456')
+        tag.name = '指定色改名'
+        tag.save()
+        tag.refresh_from_db()
+        self.assertEqual(tag.color, '#123456')
+
+    def test_blank_color_regenerated_on_save(self):
+        """活动标签底色被清空后保存会重新随机一枚（不会留空渲染失败）"""
+        tag = ensure_tags('activity', ['会变色'])[0]
+        Tag.objects.filter(pk=tag.pk).update(color='')
+        tag.refresh_from_db()
+        self.assertEqual(tag.color, '')
+        tag.save()
+        self.assertRegex(tag.color, self.COLOR_RE)
+
+    def test_admin_color_preview_smoke(self):
+        import django.contrib.admin as dj_admin
+        from core.admin import TagAdmin as TagModelAdmin
+        model_admin = TagModelAdmin(Tag, dj_admin.site)
+        colored = ensure_tags('activity', ['有色'])[0]
+        self.assertIn(colored.color, model_admin.color_preview(colored))
+        plain = ensure_tags('note', ['无色'])[0]
+        self.assertEqual(model_admin.color_preview(plain), '—')
 
 
 class TagConfigTest(TestCase):

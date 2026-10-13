@@ -25,6 +25,11 @@ class Tag(models.Model):
 
     scope = models.CharField('用途', max_length=20, choices=SCOPE_CHOICES, db_index=True)
     name = models.CharField('标签名', max_length=50)
+    # 活动标签的展示底色（#RRGGBB）。创建时留空 → 随机生成一枚中饱和色，
+    # 页面用 color-mix 派生浅底/描边（见 custom.css 的 .tag-wash/.tag-chip）；
+    # 仅 activity scope 使用，其余 scope 留空。
+    color = models.CharField('底色', max_length=7, blank=True, default='',
+                             help_text='活动标签的展示底色，留空保存时自动随机生成')
     sort = models.PositiveIntegerField('排序', default=100)
     is_active = models.BooleanField('启用', default=True)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
@@ -40,6 +45,13 @@ class Tag(models.Model):
 
     def __str__(self):
         return f'{self.name}（{self.get_scope_display()}）'
+
+    def save(self, *args, **kwargs):
+        # 随机底色只在「落库且仍为空」这一刻生成：admin 改过就保留，改回空再存会重发一枚
+        if self.scope == 'activity' and not self.color:
+            from .tags import random_tag_color
+            self.color = random_tag_color()
+        super().save(*args, **kwargs)
 
 
 class PushSubscription(models.Model):

@@ -130,6 +130,39 @@
 .badge-status--done { background: #dcfce7; color: #15803d; }
 .badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
+/* 活动标签底色（core.Tag.color，仅 activity scope；2026-10-13）
+   卡片/行挂 --tag-color（首个标签基色）+ .tag-wash：浅底用内阴影铺
+   （不占 background，Tailwind 的 hover:bg 得以继续工作），左侧 3px
+   色条点出归属；标签 chip 挂自己的 --tag-color + .tag-chip，色点
+   .tag-dot 用基色本体。所有层级由 color-mix 从基色派生——后台改
+   hex 即全链生效，无需再动 CSS。基色饱和度区间见 core.tags.random_tag_color */
+.tag-wash {
+    box-shadow: inset 3px 0 0 0 var(--tag-color),
+                inset 0 0 0 999px color-mix(in srgb, var(--tag-color) 8%, transparent);
+}
+/* 表格行不保证渲染 box-shadow，行用 background 铺浅底；hover 加深一档
+   （tr.tag-wash:hover 特异性高于 Tailwind 的 hover:bg-*，行为确定） */
+tr.tag-wash {
+    background: color-mix(in srgb, var(--tag-color) 7%, var(--bg-card));
+}
+tr.tag-wash:hover {
+    background: color-mix(in srgb, var(--tag-color) 12%, var(--bg-card));
+}
+.tag-chip {
+    background: color-mix(in srgb, var(--tag-color) 14%, var(--bg-card));
+    border-color: color-mix(in srgb, var(--tag-color) 38%, var(--border));
+}
+.tag-chip:hover {
+    background: color-mix(in srgb, var(--tag-color) 26%, var(--bg-card));
+}
+.tag-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--tag-color);
+    flex: none;
+}
+
 /* 活动表单状态点选 chips（ChipRadioSelect）：radio 隐藏，label 即点选区，
    选中态复用状态徽章同源语义色； :has() 需现代浏览器（iOS 15.4+）*/
 .status-chip {
