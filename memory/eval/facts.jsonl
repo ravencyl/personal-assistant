@@ -1,0 +1,30 @@
+{"content": "用户对花生过敏，吃花生制品会起疹子", "type": "semantic", "category": "fact", "importance": 9, "probes": [{"q": "他吃花生会怎么样？", "keys": ["花生"]}, {"q": "用户对什么东西过敏？", "keys": ["过敏"]}]}
+{"content": "用户习惯每周二晚上去健身房练力量", "type": "semantic", "category": "habit", "importance": 6, "probes": [{"q": "他一般哪天练力量？", "keys": ["健身"]}, {"q": "用户的运动习惯是什么？", "keys": ["运动", "健身"]}]}
+{"content": "用户的妹妹在杭州做产品经理", "type": "semantic", "category": "relationship", "importance": 5, "probes": [{"q": "他妹妹在哪个城市工作？", "keys": ["妹妹"]}, {"q": "用户家里都有谁？", "keys": ["妹妹"]}]}
+{"content": "用户今年计划考下 PMP 项目管理证书", "type": "semantic", "category": "goal", "importance": 8, "probes": [{"q": "他今年想考什么证？", "keys": ["PMP"]}, {"q": "用户今年的学习目标是什么？", "keys": ["证书"]}]}
+{"content": "用户喝咖啡只喝美式，不加糖不加奶", "type": "semantic", "category": "preference", "importance": 5, "probes": [{"q": "他喝咖啡有什么讲究？", "keys": ["咖啡"]}, {"q": "点咖啡的时候应该给他点什么？", "keys": ["美式"]}]}
+{"content": "用户的猫叫团子，今年三岁", "type": "semantic", "category": "other", "importance": 4, "probes": [{"q": "他的猫叫什么名字？", "keys": ["猫"]}, {"q": "用户养宠物吗？", "keys": ["团子"]}]}
+{"content": "用户办公用 Mac，写代码用 VS Code", "type": "semantic", "category": "fact", "importance": 5, "probes": [{"q": "他用什么电脑办公？", "keys": ["Mac"]}, {"q": "用户写代码用什么编辑器？", "keys": ["VS Code"]}]}
+{"content": "以后给用户排日程尽量避开周五下午", "type": "procedural", "category": "other", "importance": 7, "probes": [{"q": "排日程有什么要注意的？", "keys": ["日程"]}, {"q": "周五下午能给他安排会议吗？", "keys": ["周五"]}]}
+{"content": "用户对香菜极其厌恶，点餐时必须注明不要香菜", "type": "semantic", "category": "preference", "importance": 7, "probes": [{"q": "他点外卖要注意什么？", "keys": ["香菜"]}, {"q": "用户讨厌吃什么？", "keys": ["厌恶"]}]}
+{"content": "用户的老家在四川绵阳，父母还在那边住", "type": "semantic", "category": "fact", "importance": 6, "probes": [{"q": "他是哪里人？", "keys": ["绵阳"]}, {"q": "用户父母住在哪？", "keys": ["老家"]}]}
+{"content": "用户在做个人助手网站，技术栈是 Django", "type": "semantic", "category": "fact", "importance": 8, "probes": [{"q": "他的个人项目用什么框架？", "keys": ["Django"]}, {"q": "用户在做什么 side project？", "keys": ["个人助手"]}]}
+{"content": "用户喜欢在周末上午睡到自然醒，不要早上九点前打扰他", "type": "semantic", "category": "habit", "importance": 5, "probes": [{"q": "周末早上可以叫他起床吗？", "keys": ["周末"]}, {"q": "他什么时候起床？", "keys": ["自然醒"]}]}
+{"content": "用户的嗓子有慢性咽炎，说话多了会哑", "type": "semantic", "category": "fact", "importance": 6, "probes": [{"q": "他嗓子有什么毛病？", "keys": ["咽炎"]}, {"q": "为什么用户说话多了会哑？", "keys": ["咽炎"]}]}
+{"content": "用户和大学室友阿凯每个月聚餐一次", "type": "semantic", "category": "relationship", "importance": 4, "probes": [{"q": "他和阿凯多久见一次？", "keys": ["阿凯"]}, {"q": "用户常和谁聚餐？", "keys": ["聚餐"]}]}
+{"content": "用户想攒钱明年去冰岛看极光", "type": "semantic", "category": "goal", "importance": 7, "probes": [{"q": "他明年想去哪旅行？", "keys": ["冰岛"]}, {"q": "用户攒钱是为了什么？", "keys": ["极光"]}]}
+{"content": "汇报工作要用结论先行的结构，用户不喜欢铺垫", "type": "procedural", "category": "other", "importance": 8, "probes": [{"q": "给用户汇报要注意什么？", "keys": ["结论先行"]}, {"q": "用户喜欢什么样的沟通方式？", "keys": ["结论"]}]}
+{"content": "用户的手机号尾号是 8877，验证码短信经常被拦", "type": "semantic", "category": "other", "importance": 3, "probes": [{"q": "他手机尾号是多少？", "keys": ["8877"]}, {"q": "为什么用户收不到验证码？", "keys": ["验证码"]}]}
+{"content": "用户中午习惯十二点半吃午饭", "type": "semantic", "category": "habit", "importance": 3, "probes": [{"q": "他几点吃午饭？", "keys": ["午饭"]}, {"q": "用户的午饭时间是什么时候？", "keys": ["午饭"]}]}
+{"content": "用户在学日语，目标是能看懂动画原声", "type": "semantic", "category": "goal", "importance": 6, "probes": [{"q": "他在学什么语言？", "keys": ["日语"]}, {"q": "用户学日语是为了什么？", "keys": ["动画"]}]}
+{"content": "写周报时直接列出关键数字，用户不要形容词堆砌", "type": "procedural", "category": "other", "importance": 7, "probes": [{"q": "写周报有什么要求？", "keys": ["周报"]}, {"q": "用户对报告风格的偏好是什么？", "keys": ["数字"]}]}
+{"content": "用户的 bicycle 是捷安特的公路车，周末会骑行", "type": "semantic", "category": "habit", "importance": 4, "probes": [{"q": "他骑什么车？", "keys": ["公路车"]}, {"q": "用户周末除了健身还做什么运动？", "keys": ["骑行"]}]}
+{"content": "用户的同事玲玲负责设计，找她对接视觉稿", "type": "semantic", "category": "relationship", "importance": 5, "probes": [{"q": "视觉稿该找谁？", "keys": ["玲玲"]}, {"q": "用户团队里谁负责设计？", "keys": ["设计"]}]}
+{"content": "用户喝牛奶会胀气，早餐习惯喝豆浆", "type": "semantic", "category": "fact", "importance": 5, "probes": [{"q": "他早上喝什么？", "keys": ["豆浆"]}, {"q": "用户能喝牛奶吗？", "keys": ["胀气"]}]}
+{"content": "用户希望 AI 回答尽量简短，先给结论再给细节", "type": "procedural", "category": "other", "importance": 8, "probes": [{"q": "他希望 AI 怎么回答？", "keys": ["简短"]}, {"q": "用户对回复长度的要求是什么？", "keys": ["简短"]}]}
+{"content": "用户的弟弟在成都读研究生", "type": "semantic", "category": "relationship", "importance": 4, "probes": [{"q": "他弟弟在哪上学？", "keys": ["弟弟"]}, {"q": "用户家谁在成都？", "keys": ["成都"]}]}
+{"content": "用户对番茄工作法不感冒，更喜欢整块时间深度工作", "type": "semantic", "category": "preference", "importance": 5, "probes": [{"q": "他用番茄工作法吗？", "keys": ["番茄"]}, {"q": "用户喜欢什么样的工作节奏？", "keys": ["深度工作"]}]}
+{"content": "用户习惯把重要文件备份到移动硬盘，云盘只放临时文件", "type": "semantic", "category": "habit", "importance": 4, "probes": [{"q": "他的文件备份习惯是什么？", "keys": ["备份"]}, {"q": "重要文件存哪里？", "keys": ["移动硬盘"]}]}
+{"content": "回答技术问题时先给可运行的最小示例", "type": "procedural", "category": "other", "importance": 7, "probes": [{"q": "技术问题应该怎么答？", "keys": ["示例"]}, {"q": "用户喜欢什么形式的答案？", "keys": ["最小示例"]}]}
+{"content": "用户记得上次体检是今年三月，指标基本正常", "type": "semantic", "category": "fact", "importance": 5, "probes": [{"q": "他上次体检是什么时候？", "keys": ["体检"]}, {"q": "用户体检结果怎么样？", "keys": ["体检"]}]}
+{"content": "用户给团队微信群起名叫「摸鱼互助会」", "type": "semantic", "category": "other", "importance": 2, "probes": [{"q": "他们的群叫什么？", "keys": ["摸鱼互助会"]}, {"q": "用户的团队群名是什么？", "keys": ["群"]}]}

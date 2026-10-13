@@ -4,6 +4,13 @@
         <div class="flex-1 min-w-0">
             <!-- 内容 -->
             <p class="text-sm leading-relaxed">{{ memory.content }}</p>
+            {% if memory.superseded_by_id %}
+            <p class="mt-1.5 text-xs text-[var(--text-muted)]">
+                已被取代 →
+                <a href="#memory-{{ memory.superseded_by_id }}"
+                   class="text-[var(--accent)] hover:underline">{{ memory.superseded_by.content|truncatechars:40 }}</a>
+            </p>
+            {% endif %}
             <!-- 元信息 -->
             <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
                 <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">
@@ -16,11 +23,40 @@
                 <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">
                     重要度{% if memory.importance >= 7 %}高{% elif memory.importance >= 4 %}中{% else %}低{% endif %}
                 </span>
+                {% if memory.type == 'procedural' %}
+                <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">做法</span>
+                {% elif memory.type == 'episodic' %}
+                <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">情景</span>
+                {% endif %}
+                {% if memory.status != 'active' %}
+                <span class="rounded-full border border-[var(--border-strong)] px-2 py-0.5">
+                    {{ memory.get_status_display }}</span>
+                {% endif %}
                 <span>{{ memory.created_at|date:"Y-m-d" }}</span>
                 {% if memory.access_count > 0 %}
                 <span>使用 {{ memory.access_count }} 次</span>
                 {% endif %}
+                {# 溯源（ROA Phase C 降级版 D.2）：「它凭什么这么记」一屏自证 #}
+                {% if memory.source_message %}
+                <a href="{% url 'chat:conversation_detail' memory.source_message.conversation_id %}"
+                   class="text-[var(--accent)] hover:underline">来源对话</a>
+                {% endif %}
             </div>
+            {% if memory.audits.all %}
+            <details class="mt-2">
+                <summary class="cursor-pointer select-none text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+                    历史（{{ memory.audits.all|length }}）</summary>
+                <ul class="mt-1.5 space-y-1 border-l-2 border-[var(--border)] pl-3">
+                    {% for audit in memory.audits.all %}
+                    <li class="text-xs text-[var(--text-muted)]">
+                        <span class="text-[var(--text-secondary)]">{{ audit.get_action_display }}</span>
+                        {% if audit.detail %}· {{ audit.detail }}{% endif %}
+                        <span class="ml-1">{{ audit.created_at|date:"m-d H:i" }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
         </div>
         <!-- 操作按钮 -->
         <div class="flex items-center gap-1 hover-actions">

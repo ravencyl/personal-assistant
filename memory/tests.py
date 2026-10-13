@@ -1358,3 +1358,68 @@ class MemoryExportTest(TestCase):
         anon = Client()
         resp = anon.get(reverse('memory:memory_export'))
         self.assertEqual(resp.status_code, 302)
+
+
+class MemoryTraceUiTest(TestCase):
+    """溯源 UI（ROA Phase C 降级版 D.2）：「它凭什么这么记」一屏自证"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('tracer', password='p')
+        self.conversation = Conversation.objects.create(
+            user=self.user, title='聊过敏')
+        message = Message.objects.create(
+            conversation=self.conversation, role='user', content='我对花生过敏')
+        self.old = Memory.objects.create(user=self.user, content='旧住址在北京',
+                                         category='fact', importance=5)
+        self.memory = Memory.objects.create(
+            user=self.user, content='现住杭州滨江', category='fact',
+            importance=6, status='superseded', superseded_by=self.old,
+            source_message=message)
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_source_conversation_link_rendered(self):
+        resp = self.client.get(reverse('memory:memory_list'))
+        self.assertContains(resp, '来源对话')
+        self.assertContains(resp, str(self.conversation.id))
+
+    def test_superseded_pointer_and_status_rendered(self):
+        resp = self.client.get(reverse('memory:memory_list'))
+        self.assertContains(resp, '已被取代')
+        self.assertContains(resp, f'#memory-{self.old.id}')
+        # 非 active 状态要显式标出（superseded 不进注入，列表页是唯一回溯处）
+        self.assertContains(resp, '已取代')
+
+    def test_audit_timeline_rendered(self):
+        from .services import log_audit
+        log_audit(self.user, 'supersede', memory=self.memory,
+                  detail='「旧住址在北京」→「现住杭州滨江」')
+        resp = self.client.get(reverse('memory:memory_list'))
+        self.assertContains(resp, '历史（1）')
+        self.assertContains(resp, '取代')
+
+    def test_export_entry_on_page(self):
+        resp = self.client.get(reverse('memory:memory_list'))
+        self.assertContains(resp, reverse('memory:memory_export'))
+        self.assertContains(resp, '导出全部记忆')
+
+
+class RunEvalSmokeTest(TestCase):
+    """评测命令冒烟：T6 敏感写入门槛（最快、无填充数据的套件）"""
+
+    def test_t6_suite_passes(self):
+        from django.core.management import call_command
+        try:
+            call_command('run_eval', suite='t6', verbosity=0)
+        except SystemExit as e:
+            self.fail(f'run_eval t6 未达标：exit {e.code}')
+
+    def test_facts_fixture_loads_and_is_wellformed(self):
+        from memory.management.commands.run_eval import load_facts, FACTS_PATH
+        facts = load_facts()
+        self.assertGreaterEqual(len(facts), 30)
+        for fact in facts:
+            self.assertIn('content', fact)
+            self.assertIn('probes', fact)
+            for probe in fact['probes']:
+                self.assertTrue(probe.get('keys'), f'probe 缺 keys: {probe}')

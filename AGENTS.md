@@ -256,6 +256,20 @@ none → queued → awaiting → finalizing → done
 
 回归锁：`memory/tests.py::SupersedeTest`（取代链 / 精确相等重述 / exclude 防自我合并）、`MemoryAuditTrailTest`（write+merge 审计、硬删后审计行在、candidate 审计）、`SweepMemoriesTest`（TTL / 取代清除 / 归档降级 / dry-run / 敏感跳过）、`MemoryExportTest`、`AgentToolMemoryUpdateTest`（取代口径）。
 
+## 记忆评测集与溯源 UI（ROA Phase C，2026-10-13）
+
+对照 ROA PRD §3.7/§3.8 的第三批：
+
+- **评测走离线确定性管线，不走 AI 端到端**：`memory/eval/facts.jsonl`（30 条真实感夹具，每条 2 个换说法提问 + 关键词 keys）+ `manage.py run_eval`（临时用户灌库 → 六套件 → 指标门槛，失败 exit 1）。端到端评测要真调云端 Agent，慢且不确定，不适合当回归卡点。夹具里 keys 的口径是「AI 检索时会选的关键词」，probe 叙述可以换说法但 keys 必须与内容共享实词
+- **六套件门槛（PRD §10.2）**：T1 换说法召回 ≥85%（retrieve_memories 检索路径 top-5 命中 + 夹具 100% 进常驻注入）、T2 取代失忆（supersede 后旧值立即退出注入与检索，S4）、T3 近 3 条 episodic 进「最近聊过」、T4 503 条记忆时注入 ≤ 预算（G5）、T5 注入纯度 0 违规（superseded/candidate/sensitive/他人记忆绝不出现）、T6 敏感写入 0（无「记住」确认时；对照组确认后放行）。`--suite t1..t6|all` 可单跑，`--keep` 保留评测数据
+- **改 prompt/阈值/权重后必须跑 `run_eval` 前后对比，任一指标回退不合入**——长期纪律
+- **T6 的价值实例（2026-10-13 首跑）**：抓到 SENSITIVE_HINTS 盲区「服用/月薪/分手」不在词表（8 条样本漏过 3 条），已补齐。新增敏感类内容先想想该不该进词表
+- **评测时间回填必须走 queryset.update**：`updated_at` 是 auto_now，`save(update_fields=['updated_at'])` 会被重置回当前时间（T3 首跑踩过）——给测试/评测构造时间梯度时一律 `Memory.objects.filter(id=...).update(updated_at=...)`
+- **溯源 UI（降级版 D.2，citation spans 不做**：需要模型稳定输出引用偏移，PRD 自己都说拿不准宁可不标）：记忆条目卡片展示 type 徽章（做法/情景）+ 非 active 状态徽章 + superseded_by 指针（锚到 `#memory-<id>`）+ source_message 的「来源对话」链接 + `<details>` 折叠的审计时间线（`_memory_list_context` 统一 `prefetch_related('source_message__conversation', 'superseded_by', Prefetch('audits', ...))`，挂在 Paginator 切片**之前**的 queryset 上）
+- 记忆页右栏有「导出全部记忆」入口（Phase B 端点的 UI 落点）；D.1 聊天页注入清单侧栏暂不做（PWA 场景按需，不与活动右 rail 抢位）
+
+回归锁：`memory/tests.py::MemoryTraceUiTest`（来源链接 / 取代指针与状态徽章 / 审计时间线 / 导出入口）、`RunEvalSmokeTest`（t6 套件冒烟 + 夹具格式机检）。
+
 ## 快记面板口径（2026-09-21）
 
 - **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来

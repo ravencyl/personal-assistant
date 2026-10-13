@@ -8,12 +8,13 @@ from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_POST
 
 from core.utils import visible_qs, get_visible
-from .models import Memory
+from .models import Memory, MemoryAudit
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,12 @@ def _memory_list_context(request):
         memories = memories.filter(category=category)
     if query:
         memories = memories.filter(content__icontains=query)
-    memories = memories.order_by('-importance', '-updated_at')
+    memories = memories.order_by('-importance', '-updated_at').prefetch_related(
+        # 溯源 UI（ROA Phase C）：来源消息→对话、取代指针、审计时间线一次取齐，
+        # 避免 30 张卡片各查三次
+        'source_message__conversation', 'superseded_by',
+        Prefetch('audits', queryset=MemoryAudit.objects.order_by('-created_at')),
+    )
 
     paginator = Paginator(memories, MEMORY_PAGE_SIZE)
     page_obj = paginator.get_page(page)
