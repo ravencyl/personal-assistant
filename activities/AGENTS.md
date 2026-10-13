@@ -11,7 +11,6 @@ Activity (user FK)
 ├── expenses (Expense, activity FK)              一活动对多费用
 ├── tags (M2M → core.Tag, scope='activity')
 ├── participants (M2M → Participant, user FK)
-├── comments (ActivityComment, activity FK)      正序展示
 ├── attachments (Attachment, activity FK)
 └── logs (ActivityLog, activity FK)              操作时间线
 ```
@@ -63,3 +62,27 @@ suggestions = tag_suggestions('expense', request.user)  # 活跃标签 ∪ 用�
 `filter_activities(user, params)` 是列表视图与 Agent 查询工具的共用筛选入口，
 支持 `status` / `tag` / `date_from` / `date_to` / `name` / `participant` / `keyword`，
 非法值静默忽略。排序与分页由各自视图自取，不属于筛选职责。
+
+## 已下线功能（不要以「有用」为由加回来）
+
+| 功能 | 下线时间 | 说明 |
+|------|----------|------|
+| 活动模板 / 循环活动 | 2026-09 | 模型、视图、路由、cron 全删 |
+| 列表多选批量操作 | 2026-09-23 | 使用率低；对话里的 `activities.batch_status` 不受影响 |
+| 列表「笔数 / 子活动」列 | 2026-09-23 | 费用格的「含子活动」标注保留 |
+| 前置依赖 `blocked_by` + 依赖关系图 | 2026-10-13 | 用户决定，含数据一并删除（M2M 表已 drop） |
+| 活动评论 `ActivityComment` | 2026-10-13 | 用户决定，含数据一并删除 |
+
+前置依赖与评论的删除范围：模型字段/模型、`is_blocked`·`blocking_names`·`would_create_cycle`、
+表单 `blocked_by` 字段与 `save_blocked_by`、`blocked_search/add/remove` 与
+`activity_comment_add/delete` 五个路由、`dependency_data` 路由与 `dependency_views.py`、
+`static/js/dependency-graph.js`、Agent 工具 `activities.comments`·`activities.add_comment`·
+`activities.check_blocked` 及 `INTENT_TOOL_MAP` 的三个意图、卡片快照的
+`comments_count`·`comments`·`add_comment_url`·`is_blocked`·`blocking_names`、
+Daily 的 `_annotate_blocked` 与「等待前置」徽标、详情页评论卡与前置依赖卡。
+
+**唯一有意保留的残留**：`ActivityLog.ACTION_CHOICES` 里的 `('commented', '评论了活动')`。
+线上仍有 9 条历史评论日志，删掉 choice 会让详情页时间线把这些行渲染成空白；
+它现在纯展示，没有任何写入路径。
+
+防复活锁：`activities/tests.py::DependencyAndCommentRemovedTest`（字段/路由/工具/模板/源码五组静态断言）。

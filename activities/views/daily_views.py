@@ -18,14 +18,6 @@ from ._common import attach_costs
 logger = logging.getLogger(__name__)
 
 
-def _annotate_blocked(activities):
-    """标注活动的阻塞状态：is_blocked + blocking_names"""
-    for a in activities:
-        a.is_blocked = a.is_blocked()
-        a.blocking_names = a.blocking_names()
-    return activities
-
-
 def _detect_conflicts(activities):
     """检测时间冲突：同一天有多个带时间的活动（全天活动不参与冲突检测）
 
@@ -148,7 +140,6 @@ def gather_daily(user):
     # 原先每组各发 2 条聚合（共 12 条），现在固定 2 条
     all_activities = [*ongoing, *starting_today, *ending_today,
                       *upcoming, *recently_done, *in_progress, *overdue_rolled_in]
-    _annotate_blocked(all_activities)
     attach_costs(all_activities)
 
     # 行为模式洞察：从已有 habit 类记忆读取（cron 每日 07:00 已算好存库），不再实时重算
@@ -206,7 +197,6 @@ def daily_brief_payload(user):
                 'name': a.name,
                 'meta': meta,
                 'cost': float(getattr(a, 'total_cost', 0) or 0),
-                'blocked': bool(getattr(a, 'is_blocked', False)),
             })
         return {'key': key, 'title': title, 'items': rows, 'total': len(items)}
 

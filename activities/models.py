@@ -72,15 +72,6 @@ class Activity(models.Model):
         related_name='children',
         verbose_name='父活动'
     )
-    # 活动依赖关系：前置未完成时后续活动标灰提醒
-    # symmetrical=False：A 阻塞 B 不等于 B 阻塞 A
-    blocked_by = models.ManyToManyField(
-        'self',
-        symmetrical=False,
-        blank=True,
-        related_name='blocking',
-        verbose_name='前置依赖',
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived_at = models.DateTimeField('归档时间', null=True, blank=True)
@@ -130,54 +121,6 @@ class Activity(models.Model):
             return f'~ {fmt(self.end_date, self.end_time)}'
         return '未设定'
 
-    def is_blocked(self):
-        """检查此活动是否被阻塞（前置依赖中有未完成的活动）"""
-        if not self.pk:
-            return False
-        return self.blocked_by.exclude(status='done').exists()
-
-    def blocking_names(self):
-        """返回阻塞此活动的未完成前置依赖名称列表"""
-        if not self.pk:
-            return []
-        return list(
-            self.blocked_by.exclude(status='done')
-            .values_list('name', flat=True)
-        )
-
-    def would_create_cycle(self, target_ids):
-        """检测将 blocked_by 设为 target_ids 是否会形成环
-
-        环检测策略：从每个 target 出发沿 blocked_by 反向链（blocking）向上走，
-        如果能走到 self，说明形成了环。
-        """
-        if not self.pk or not target_ids:
-            return False
-        target_ids = set(target_ids)
-        if self.pk in target_ids:
-            return True  # 自己依赖自己
-
-        # BFS：从每个 target 出发，沿 blocking 反向链查找是否可达 self
-        visited = set()
-        queue = list(target_ids)
-        while queue:
-            current_id = queue.pop(0)
-            if current_id in visited:
-                continue
-            visited.add(current_id)
-            if current_id == self.pk:
-                return True  # 从 target 能走到 self，形成环
-            # 找 current 的 blocked_by（它的前置依赖）
-            try:
-                blockers = list(
-                    Activity.objects.filter(id=current_id)
-                    .values_list('blocked_by__id', flat=True)
-                )
-                queue.extend(b for b in blockers if b and b not in visited)
-            except Exception:
-                pass
-        return False
-
 
 class ActivityLog(models.Model):
     """活动操作日志（创建/编辑/删除/活动安排/状态变更）"""
@@ -187,6 +130,8 @@ class ActivityLog(models.Model):
         ('deleted', '删除了活动'),
         ('sub_created', '创建了活动安排'),
         ('status_changed', '修改了状态'),
+        # 「评论」功能已于 2026-10-13 整体下线，但线上仍有历史 commented 日志行，
+        # 保留这个 choice 只为了详情页时间线能把旧日志渲染成人话（纯展示，不再写入）
         ('commented', '评论了活动'),
     ]
 
@@ -216,38 +161,6 @@ class ActivityLog(models.Model):
 
     def __str__(self):
         return f'{self.created_at:%Y-%m-%d %H:%M} {self.user.username} {self.get_action_display()} {self.activity_name}'
-
-
-class ActivityComment(models.Model):
-    """活动评论（追加式讨论时间线，正序展示）
-
-    可见性跟随活动：能看见活动的人（所有者/超级用户）就能看见其评论，
-    不单独设 user 过滤——视图层经 get_visible(Activity) 门禁后才能触达。
-    AI 决策链路：activities.get / activities.comments 工具读取，
-    activities.add_comment 工具写入（写操作同样走 log_activity）。
-    """
-    activity = models.ForeignKey(
-        Activity,
-        on_delete=models.CASCADE,
-        related_name='comments',
-        verbose_name='活动'
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='activity_comments',
-        verbose_name='评论人'
-    )
-    content = models.TextField('评论内容')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['created_at']
-        verbose_name = '活动评论'
-        verbose_name_plural = '活动评论'
-
-    def __str__(self):
-        return f'{self.created_at:%Y-%m-%d %H:%M} {self.user.username} @ {self.activity.name}: {self.content[:20]}'
 
 
 class Expense(models.Model):

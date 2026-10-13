@@ -107,13 +107,13 @@ const features: Feature[] = [
   },
   {
     id: 'C1',
-    name: '活动依赖关系图',
-    desc: '在活动列表页增加「依赖图」视图，用 SVG 绘制 blocked_by 关系的有向无环图。',
+    name: '活动依赖关系图（已下线）',
+    desc: '曾实现为详情页的 blocked_by 有向图；2026-10-13 随「前置依赖」功能一并彻底删除（含数据），不再复活。',
     effort: 'M',
-    impact: '中',
+    impact: '无',
     category: '数据可视化',
     deps: [],
-    highlights: ['SVG 力导向布局（纯 JS）', '节点颜色按状态着色', '点击节点跳转详情'],
+    highlights: ['已删除 dependency-graph.js', '已删除 blocked_by 字段与 M2M 表', '保留此条仅为路线图历史'],
   },
   {
     id: 'C2',

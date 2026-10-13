@@ -313,7 +313,7 @@ class SubactivityManualCreateTest(TestCase):
         Activity.objects.create(user=self.user, parent=self.parent, name='没日期')
         resp = self.client.get(f'/activities/{self.parent.id}/')
         content = resp.content.decode()
-        # 只看活动安排时间轴区块：「未设定」等字样在页面其它卡（如前置依赖）也会出现
+        # 只看活动安排时间轴区块：「未设定」等字样在页面其它卡也会出现
         block = content[content.index('id="subtask-list"'):]
         self.assertLess(block.index('>新<'), block.index('>旧<'),
                         '时间轴应从晚到早：新任务在旧任务前面')
@@ -1675,13 +1675,13 @@ class ActivityDetailDesktopLayoutTest(TestCase):
             self.assertNotIn('hidden', c, '列容器加了显隐类会让移动端少一整列')
 
     def test_left_column_long_cards_are_details_collapsed_by_default(self):
-        """左列三张长卡（费用明细/活动安排/评论）用 details 默认折叠（2026-09-21 用户要求）
+        """左列两张长卡（费用明细/活动安排）用 details 默认折叠（2026-09-21 用户要求）
 
         锁两层：① 必须是 details 而不是普通 div（可点击展开）；② 摘要标签后不得紧跟
         open 属性（默认收起，页面才不会拉得太长）。已有 data-mobile-collapse 的
         右列卡不受影响（那些是桌面展开、移动端 JS 收起的口径）。
         """
-        for title in ('费用明细', '活动安排', '评论'):
+        for title in ('费用明细', '活动安排'):
             i = self.html.index(f'>{title}（')
             summary_start = self.html.rindex('<summary', 0, i)
             details_start = self.html.rindex('<details', 0, summary_start)
@@ -2503,241 +2503,6 @@ class ActivityListPaginationTest(TestCase):
         self.assertNotIn('select-none">…</span>', r.content.decode())
 
 
-# ==================== 活动评论 ====================
-
-class ActivityCommentTest(TestCase):
-    """活动评论：详情页添加/删除 + 可见性跟随活动 + AI 工具读写"""
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.other = User.objects.create_user('other', password='test')
-        self.superuser = User.objects.create_superuser('admin', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='新西兰之旅')
-        self.client.login(username='raven', password='test')
-
-    def _add(self, activity_id=None, content='追加一条评论'):
-        return self.client.post(
-            reverse('activities:activity_comment_add',
-                    args=[activity_id or self.activity.id]),
-            {'content': content})
-
-    def test_add_comment_renders_in_detail_and_logs(self):
-        r = self._add(content='记得带冲锋衣')
-        self.assertRedirects(r, reverse('activities:activity_detail', args=[self.activity.id]))
-        comment = self.activity.comments.get()
-        self.assertEqual(comment.user, self.user)
-        self.assertEqual(comment.content, '记得带冲锋衣')
-        # 写操作必须留痕：commented 日志
-        self.assertTrue(ActivityLog.objects.filter(
-            activity=self.activity, action='commented').exists())
-        # 详情页渲染评论
-        html = self.client.get(reverse('activities:activity_detail',
-                                       args=[self.activity.id])).content.decode()
-        self.assertIn('记得带冲锋衣', html)
-        self.assertIn('评论（1）', html)
-
-    def test_add_empty_content_rejected(self):
-        self._add(content='   ')
-        self.assertFalse(self.activity.comments.exists())
-
-    def test_comment_ordering_chronological(self):
-        from activities.models import ActivityComment
-        c1 = ActivityComment.objects.create(activity=self.activity, user=self.user, content='第一条')
-        c2 = ActivityComment.objects.create(activity=self.activity, user=self.user, content='第二条')
-        self.assertEqual(list(self.activity.comments.all()), [c1, c2])
-
-    def test_author_can_delete_own_comment(self):
-        from activities.models import ActivityComment
-        c = ActivityComment.objects.create(activity=self.activity, user=self.user, content='x')
-        r = self.client.post(reverse('activities:activity_comment_delete', args=[c.id]))
-        self.assertRedirects(r, reverse('activities:activity_detail', args=[self.activity.id]))
-        self.assertFalse(ActivityComment.objects.filter(id=c.id).exists())
-
-    def test_non_author_cannot_delete(self):
-        from activities.models import ActivityComment
-        c = ActivityComment.objects.create(activity=self.activity, user=self.user, content='x')
-        self.client.logout()
-        self.client.login(username='other', password='test')
-        self.client.post(reverse('activities:activity_comment_delete', args=[c.id]))
-        self.assertTrue(ActivityComment.objects.filter(id=c.id).exists())
-
-    def test_superuser_can_delete_others_comment(self):
-        from activities.models import ActivityComment
-        c = ActivityComment.objects.create(activity=self.activity, user=self.user, content='x')
-        self.client.logout()
-        self.client.login(username='admin', password='test')
-        self.client.post(reverse('activities:activity_comment_delete', args=[c.id]))
-        self.assertFalse(ActivityComment.objects.filter(id=c.id).exists())
-
-    def test_other_user_cannot_comment_on_invisible_activity(self):
-        """数据可见性：用户 B 无法评论用户 A 的活动（get_visible → 404）"""
-        self.client.logout()
-        self.client.login(username='other', password='test')
-        r = self._add()
-        self.assertEqual(r.status_code, 404)
-        self.assertFalse(self.activity.comments.exists())
-
-    def test_add_requires_post(self):
-        r = self.client.get(reverse('activities:activity_comment_add', args=[self.activity.id]))
-        self.assertEqual(r.status_code, 405)
-
-
-class ActivityCommentAgentToolTest(TestCase):
-    """AI 读写评论：activities.add_comment 写入 + activities.get/comments 读取"""
-
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='周末游')
-        from core.agent_registry import get_tool
-        self.get_tool = get_tool
-
-    def test_add_comment_tool_creates_and_logs(self):
-        tool = self.get_tool('activities.add_comment')
-        result = tool['fn'](self.user, {'target': '周末游', 'content': '改期到下周六'})
-        self.assertTrue(result['changed'])
-        comment = self.activity.comments.get()
-        self.assertEqual(comment.content, '改期到下周六')
-        self.assertTrue(ActivityLog.objects.filter(
-            activity=self.activity, action='commented', summary__contains='改期').exists())
-        self.assertIn('周末游', result['reply'])
-
-    def test_add_comment_tool_requires_content(self):
-        tool = self.get_tool('activities.add_comment')
-        with self.assertRaises(ToolError):
-            tool['fn'](self.user, {'target': '周末游', 'content': '  '})
-
-    def test_comments_tool_reads_all(self):
-        from activities.models import ActivityComment
-        ActivityComment.objects.create(activity=self.activity, user=self.user, content='带帐篷')
-        ActivityComment.objects.create(activity=self.activity, user=self.user, content='查天气')
-        tool = self.get_tool('activities.comments')
-        result = tool['fn'](self.user, {'target': '周末游'})
-        self.assertIn('2 条评论', result['reply'])
-        self.assertIn('带帐篷', result['reply'])
-        self.assertIn('查天气', result['reply'])
-        self.assertEqual(result['activity_ids'], [self.activity.id])
-
-    def test_comments_tool_empty(self):
-        tool = self.get_tool('activities.comments')
-        result = tool['fn'](self.user, {'target': '周末游'})
-        self.assertIn('还没有评论', result['reply'])
-
-    def test_get_tool_card_includes_comments(self):
-        """AI 决策读评论的主通道：activities.get 的 card_data 快照带评论"""
-        from activities.models import ActivityComment
-        ActivityComment.objects.create(activity=self.activity, user=self.user, content='优先订机票')
-        result = self.get_tool('activities.get')['fn'](self.user, {'target': '周末游'})
-        card = result['card_data']
-        self.assertEqual(card['comments_count'], 1)
-        self.assertEqual(card['comments'][0]['content'], '优先订机票')
-        self.assertEqual(card['comments'][0]['author'], 'testuser')
-
-    def test_other_user_tool_cannot_touch_invisible_activity(self):
-        other = User.objects.create_user('other', password='test')
-        tool = self.get_tool('activities.add_comment')
-        with self.assertRaises(Exception):
-            tool['fn'](other, {'target': '周末游', 'content': '越权'})
-        self.assertFalse(self.activity.comments.exists())
-
-
-class BlockedByEditTest(TestCase):
-    """详情页前置依赖手动配置：搜索 / 添加（环检测）/ 移除，均为 JSON 端点"""
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.other = User.objects.create_user('other', password='test')
-        self.activity = Activity.objects.create(user=self.user, name='意大利旅游')
-        self.client.login(username='raven', password='test')
-
-    def _search(self, q=''):
-        url = reverse('activities:blocked_search', args=[self.activity.id])
-        return self.client.get(url + ('?q=' + q if q else ''))
-
-    def _add(self, dep_id, activity=None):
-        target = activity or self.activity
-        return self.client.post(
-            reverse('activities:blocked_add', args=[target.id]),
-            data=json.dumps({'activity_id': dep_id}), content_type='application/json')
-
-    def _remove(self, dep_id):
-        return self.client.post(
-            reverse('activities:blocked_remove', args=[self.activity.id, dep_id]))
-
-    def test_search_excludes_self_and_linked(self):
-        visa = Activity.objects.create(user=self.user, name='办理签证')
-        hotel = Activity.objects.create(user=self.user, name='订酒店')
-        self.activity.blocked_by.add(visa)
-        data = self._search().json()
-        ids = {i['id'] for i in data['items']}
-        self.assertNotIn(self.activity.id, ids)      # 排除自己
-        self.assertNotIn(visa.id, ids)               # 排除已添加的
-        self.assertIn(hotel.id, ids)
-
-    def test_search_q_filters_by_name(self):
-        Activity.objects.create(user=self.user, name='办理签证')
-        Activity.objects.create(user=self.user, name='订酒店')
-        data = self._search('签证').json()
-        self.assertEqual([i['name'] for i in data['items']], ['办理签证'])
-
-    def test_add_success_with_log(self):
-        visa = Activity.objects.create(user=self.user, name='办理签证')
-        resp = self._add(visa.id)
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.json()['ok'])
-        self.assertIn(visa, self.activity.blocked_by.all())
-        self.assertTrue(ActivityLog.objects.filter(
-            activity=self.activity, action='edited',
-            summary__contains='办理签证').exists())
-
-    def test_add_rejects_self_duplicate_and_cycle(self):
-        a = Activity.objects.create(user=self.user, name='A')
-        b = Activity.objects.create(user=self.user, name='B')
-        a.blocked_by.add(b)   # a 的前置是 b → 再给 b 添加 a 就成环
-        self.assertEqual(self._add(self.activity.id).status_code, 400)  # 依赖自己
-        self._add(a.id)
-        self.assertEqual(self._add(a.id).status_code, 400)              # 重复添加
-        resp = self._add(a.id, activity=b)                               # b←a 成环
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('循环', resp.json()['error'])
-        self.assertFalse(b.blocked_by.filter(id=a.id).exists())
-
-    def test_add_foreign_activity_returns_json_404(self):
-        foreign = Activity.objects.create(user=self.other, name='别人的活动')
-        resp = self._add(foreign.id)
-        self.assertEqual(resp.status_code, 404)
-        self.assertIn('error', resp.json())
-
-    def test_foreign_user_on_target_activity_gets_json_404(self):
-        visa = Activity.objects.create(user=self.user, name='办理签证')
-        self.client.login(username='other', password='test')
-        resp = self._add(visa.id)
-        self.assertEqual(resp.status_code, 404)
-        self.assertIn('error', resp.json())
-        self.assertFalse(self.activity.blocked_by.exists())
-
-    def test_remove_success_then_404(self):
-        visa = Activity.objects.create(user=self.user, name='办理签证')
-        self.activity.blocked_by.add(visa)
-        resp = self._remove(visa.id)
-        self.assertEqual(resp.status_code, 200)
-        self.assertFalse(self.activity.blocked_by.exists())
-        self.assertTrue(ActivityLog.objects.filter(
-            activity=self.activity, action='edited',
-            summary__contains='移除前置依赖').exists())
-        self.assertEqual(self._remove(visa.id).status_code, 404)
-
-    def test_detail_page_renders_dep_section(self):
-        visa = Activity.objects.create(user=self.user, name='办理签证', status='in_progress')
-        self.activity.blocked_by.add(visa)
-        html = self.client.get(reverse(
-            'activities:activity_detail', args=[self.activity.id])).content.decode()
-        # 计数渲染在 <span id="dep-count"> 内，不能按纯文本「前置依赖（1）」断言
-        self.assertIn('前置依赖（', html)
-        self.assertIn('<span id="dep-count">1</span>', html)
-        self.assertIn('办理签证', html)
-        self.assertIn('搜索活动，添加为前置依赖', html)
-
-
 class CsvExportTest(TestCase):
     """⑦ CSV 导出：BOM / 可见性隔离 / 字段齐全（数据主权兜底，可直接进 Excel）"""
 
@@ -2831,94 +2596,6 @@ class AdminExportActionTest(TestCase):
         self.assertTrue(body.startswith('\ufeff'))
         self.assertIn('120.5', body)
         self.assertIn('机票', body)
-
-
-class DependencyGraphJsTest(SimpleTestCase):
-    """⑨ 依赖图升级：SVG 必须用 DOM API 构建，禁止 innerHTML 拼用户数据
-
-    活动名是用户输入，旧版用 innerHTML 拼 SVG 字符串会把名字里的 <、"
-    直接注进 DOM；这个锁剔注释后扫禁用词，防止回潮。
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.js = (Path(settings.BASE_DIR) / 'static' / 'js'
-                  / 'dependency-graph.js').read_text(encoding='utf-8')
-
-    @staticmethod
-    def _strip_js_comments(src):
-        # 注释里写的「禁止 innerHTML」自己包含这个词，不剔就是假失败（本项目三次坑）
-        no_block = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
-        return re.sub(r'^\s*//.*$', '', no_block, flags=re.M)
-
-    def test_no_innerhtml_in_svg_construction(self):
-        code = self._strip_js_comments(self.js)
-        self.assertNotIn('innerHTML', code)
-
-    def test_uses_dom_api_and_accessibility_attrs(self):
-        code = self._strip_js_comments(self.js)
-        self.assertIn('createElementNS', code)
-        self.assertIn('textContent', code)   # 活动名走 textContent
-        self.assertIn('aria-label', code)    # 节点可访问名
-        self.assertIn("createElementNS(NS, 'title')", code)  # SVG hover 全名
-
-
-class DependencyGraphLocationTest(TestCase):
-    """依赖图只活在详情页（2026-10-08 用户反馈：图是绑定活动的，在列表页出现很奇怪）
-
-    - 列表页不得再有入口按钮与图容器；
-    - 详情页按钮 + 容器接线（data-url 带 ?activity=<id>）；
-    - API ?activity= 只返回与该活动连通的依赖子图（双向 BFS），
-      无关活动/越权 id 返回空图。
-    """
-
-    def setUp(self):
-        self.user = User.objects.create_user('testuser', password='test')
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-
-    def test_list_page_has_no_dependency_graph(self):
-        Activity.objects.create(user=self.user, name='普通活动')
-        html = self.client.get(reverse('activities:activity_list')).content.decode()
-        self.assertNotIn('toggle-dep-graph', html)
-        self.assertNotIn('dependency-graph', html)
-
-    def test_detail_page_has_lazy_graph_wired_to_activity(self):
-        a = Activity.objects.create(user=self.user, name='本活动')
-        html = self.client.get(reverse('activities:activity_detail', args=[a.id])).content.decode()
-        self.assertIn('id="toggle-dep-graph"', html)
-        self.assertIn('id="dependency-graph"', html)
-        self.assertIn(f'data-url="/activities/dependency-data/?activity={a.id}"', html)
-
-    def test_api_activity_param_returns_connected_subgraph(self):
-        a = Activity.objects.create(user=self.user, name='本活动')
-        pre = Activity.objects.create(user=self.user, name='前置')
-        prepre = Activity.objects.create(user=self.user, name='前置的前置')
-        post = Activity.objects.create(user=self.user, name='后续')
-        a.blocked_by.set([pre])
-        pre.blocked_by.set([prepre])
-        post.blocked_by.set([a])
-        stranger = Activity.objects.create(user=self.user, name='无关活动')
-
-        resp = self.client.get(reverse('activities:dependency_data'), {'activity': a.id})
-        data = resp.json()
-        names = {n['name'] for n in data['nodes']}
-        self.assertEqual(names, {'本活动', '前置', '前置的前置', '后续'},
-                         '应含双向连通的依赖网络，不含无关活动')
-        self.assertEqual(len(data['edges']), 3)
-
-        # 没有任何依赖关系的活动：空图（前端显示空态而不是孤点）
-        resp2 = self.client.get(reverse('activities:dependency_data'), {'activity': stranger.id})
-        self.assertEqual(resp2.json()['nodes'], [])
-
-        # 非法/越权 id：同样给空图（消费方是 fetch 组件只认 JSON）
-        resp3 = self.client.get(reverse('activities:dependency_data'), {'activity': 'abc'})
-        self.assertEqual(resp3.json()['nodes'], [])
-        other = User.objects.create_user('other', password='p')
-        foreign = Activity.objects.create(user=other, name='别人的活动')
-        resp4 = self.client.get(reverse('activities:dependency_data'), {'activity': foreign.id})
-        self.assertEqual(resp4.json()['nodes'], [])
 
 
 class AiTagGuardTest(TestCase):
@@ -3188,6 +2865,75 @@ class ActivityPinAgentToolTest(TestCase):
         from core.agent_registry import ToolError
         with self.assertRaises(ToolError):
             self.tool['fn'](self.user, {})
+
+
+class DependencyAndCommentRemovedTest(SimpleTestCase):
+    """前置依赖（blocked_by）+ 依赖关系图 + 活动评论整体下线（2026-10-13 用户要求，
+    含数据一并删除）。防复活静态锁：字段、路由、Agent 工具、详情页 UI、依赖图 JS
+    都不得回来。
+
+    唯一有意保留的残留是 `ActivityLog.ACTION_CHOICES` 里的 `commented`：线上仍有
+    9 条历史评论日志，删掉 choice 会让详情页时间线渲染成空白（纯展示，不再写入）。
+    """
+
+    ROOT = Path(settings.BASE_DIR)
+
+    def test_model_has_no_dependency_field_or_comment_model(self):
+        from activities import models
+        self.assertFalse(hasattr(models.Activity, 'blocked_by'),
+                         'blocked_by 字段已删，不得复活')
+        self.assertFalse(hasattr(models, 'ActivityComment'),
+                         'ActivityComment 模型已删，不得复活')
+        for meth in ('is_blocked', 'blocking_names', 'would_create_cycle'):
+            self.assertFalse(hasattr(models.Activity, meth), f'{meth} 已删，不得复活')
+
+    def test_routes_modules_and_assets_removed(self):
+        for name, args in [('activities:blocked_search', [1]),
+                           ('activities:blocked_add', [1]),
+                           ('activities:blocked_remove', [1, 2]),
+                           ('activities:activity_comment_add', [1]),
+                           ('activities:activity_comment_delete', [1]),
+                           ('activities:dependency_data', [])]:
+            with self.assertRaises(NoReverseMatch, msg=name):
+                reverse(name, args=args)
+        self.assertIsNone(importlib.util.find_spec('activities.views.dependency_views'))
+        self.assertFalse((self.ROOT / 'static' / 'js' / 'dependency-graph.js').exists())
+
+    def test_agent_tools_and_intents_removed(self):
+        from core.agent_registry import INTENT_TOOL_MAP, get_tool
+        for tool in ('activities.comments', 'activities.add_comment',
+                     'activities.check_blocked'):
+            self.assertIsNone(get_tool(tool), f'{tool} 已下线，不得复活')
+        for intent in ('add_comment', 'list_comments', 'check_blocked'):
+            self.assertNotIn(intent, INTENT_TOOL_MAP)
+
+    def test_templates_have_no_dependency_or_comment_ui(self):
+        tpl = self.ROOT / 'templates'
+        detail = (tpl / 'activities' / 'activity_detail.html').read_text()
+        for token in ('blocked_deps', 'dep-search', 'dep-count', 'dependency-graph',
+                      '前置依赖', 'activities:activity_comment_add',
+                      'data-fold-key="comment"'):
+            self.assertNotIn(token, detail, f'详情页残留 {token}')
+        card = (tpl / 'activities' / '_daily_card.html').read_text()
+        self.assertNotIn('is_blocked', card)
+        self.assertNotIn('等待前置', card)
+        brief = (tpl / 'chat' / 'cards' / 'daily_brief_card.html').read_text()
+        self.assertNotIn('item.blocked', brief)
+
+    def test_python_sources_have_no_dependency_or_comment_plumbing(self):
+        for rel, tokens in [
+            ('activities/forms.py', ['blocked_by']),
+            ('activities/agent_tools.py', ['blocked_by', 'ActivityComment',
+                                          '_comment_summary', 'comments_count',
+                                          'is_blocked', 'add_comment_url']),
+            ('activities/views/detail_views.py', ['ActivityComment', 'blocked_by',
+                                                 'comments']),
+            ('activities/views/daily_views.py', ['_annotate_blocked', 'is_blocked']),
+            ('activities/views/form_views.py', ['save_blocked_by']),
+        ]:
+            src = (self.ROOT / rel).read_text()
+            for token in tokens:
+                self.assertNotIn(token, src, f'{rel} 残留 {token}')
 
 
 class BatchOpsRemovedTest(SimpleTestCase):

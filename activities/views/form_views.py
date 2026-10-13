@@ -30,7 +30,6 @@ def activity_create(request):
             # 标签只能由用户显式输入（AI 自动加标签的三个入口同批拆除）
             apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
-            form.save_blocked_by(activity)
             children = form.save_children(activity)
             expense = form.save_cost(activity)
             log_activity(request.user, activity, 'created')
@@ -75,7 +74,6 @@ def activity_edit(request, activity_id):
             form.save()
             apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
-            form.save_blocked_by(activity)
             log_activity(request.user, activity, 'edited', edit_summary(old, activity))
             messages.success(request, f'活动「{activity.name}」已更新')
             return redirect('activities:activity_detail', activity.id)

@@ -26,8 +26,7 @@ sections[].items 只带 id/name/meta/cost 标量，活动行链到详情页。
         <div class="mt-1 space-y-1">
             {% for item in section.items %}
             <div class="flex items-center gap-2 text-sm min-w-0 flex-wrap">
-                {% if item.blocked %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" title="被其他活动阻塞"></span>
-                {% else %}<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-secondary)]"></span>{% endif %}
+                <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-secondary)]"></span>
                 <a href="{% url 'activities:activity_detail' item.id %}" class="text-[var(--text)] hover:text-[var(--text-secondary)] truncate">{{ item.name }}</a>
                 <span class="text-[10px] text-[var(--text-muted)] shrink-0 tabular-nums">#{{ item.id }}</span>
                 {# 手机上 meta（费用+状态+日期段）很长且不缩，活动名会被 truncate 挤没：换行整行展示，桌面保持右对齐 #}

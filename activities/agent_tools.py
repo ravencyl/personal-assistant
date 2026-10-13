@@ -20,7 +20,7 @@ from core.utils import get_visible, visible_qs
 
 from core.tags import apply_tags, tag_names, resolve_existing_tags
 from chat.models import Message
-from .models import Activity, Expense, ActivityComment
+from .models import Activity, Expense
 from .services import (InputError, add_expense, change_activity_status,
                        clean_amount, create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
@@ -50,15 +50,6 @@ def _child_summary(child):
     }
 
 
-def _comment_summary(c):
-    """评论摘要：card_data 快照用，全部可 JSON 序列化"""
-    return {
-        'author': c.user.username,
-        'content': c.content,
-        'created_at': c.created_at.strftime('%Y-%m-%d %H:%M'),
-    }
-
-
 def _activity_card_data(activity):
     """单活动卡片快照：字段全部可 JSON 序列化，历史消息回放不依赖实时查询"""
     return {
@@ -76,16 +67,8 @@ def _activity_card_data(activity):
         'participants': list(activity.participants.values_list('name', flat=True)),
         'children': [_child_summary(c) for c in activity.children.all()[:6]],
         'children_count': activity.children.count(),
-        # 评论（最近 10 条，时间正序）：AI 决策可从此读用户的追加讨论/备注
-        'comments_count': activity.comments.count(),
-        'comments': [_comment_summary(c)
-                     for c in activity.comments.select_related('user')[:10]],
-        'add_comment_url': reverse('activities:activity_comment_add', args=[activity.id]),
         'detail_url': reverse('activities:activity_detail', args=[activity.id]),
         'edit_url': reverse('activities:activity_edit', args=[activity.id]),
-        # 依赖关系
-        'is_blocked': activity.is_blocked() if activity.pk else False,
-        'blocking_names': activity.blocking_names() if activity.pk else [],
     }
 
 
@@ -186,7 +169,7 @@ def tool_query(user, params):
     }
 
 
-@agent_tool('activities.get', '查看某个活动的详情（含最近评论）', 'target（目标活动名称关 键词）')
+@agent_tool('activities.get', '查看某个活动的详情', 'target（目标活动名称关 键词）')
 def tool_get(user, params):
     activity = _resolve_single(user, params.get('target') or params.get('name'),
                                    target_id=params.get('target_id'), pick=params.get('pick'))
@@ -195,41 +178,6 @@ def tool_get(user, params):
         'card': 'activity',
         'activity_ids': [activity.id],
         'card_data': _activity_card_data(activity),
-    }
-
-
-@agent_tool('activities.comments', '查看某个活动的全部评论（时间正序）',
-            'target（目标活动名称关键词）')
-def tool_comments(user, params):
-    activity = _resolve_single(user, params.get('target') or params.get('name'),
-                               target_id=params.get('target_id'), pick=params.get('pick'))
-    comments = list(activity.comments.select_related('user'))
-    if not comments:
-        return {'reply': f'「{activity.name}」还没有评论。', 'activity_ids': [activity.id]}
-    lines = [f"{c.created_at:%m-%d %H:%M} {c.user.username}：{c.content[:100]}"
-             for c in comments]
-    return {
-        'reply': f'「{activity.name}」共 {len(comments)} 条评论：\n' + '\n'.join(lines),
-        'activity_ids': [activity.id],
-    }
-
-
-@agent_tool('activities.add_comment', '给指定活动追加一条评论（讨论/备注/进展记录，后续决策可读）',
-            'target（目标活动名称关键词）、content（评论内容，必填）')
-def tool_add_comment(user, params):
-    content = str(params.get('content') or '').strip()
-    if not content:
-        raise ToolError('请告诉我评论内容')
-    activity = _resolve_single(user, params.get('target') or params.get('name'),
-                               target_id=params.get('target_id'), pick=params.get('pick'))
-    ActivityComment.objects.create(activity=activity, user=user, content=content)
-    log_activity(user, activity, 'commented', content[:100])
-    return {
-        'reply': f'已在「{activity.name}」添加评论：{content[:80]}',
-        'card': 'activity',
-        'activity_ids': [activity.id],
-        'card_data': _activity_card_data(activity),
-        'changed': True,
     }
 
 
@@ -337,21 +285,6 @@ def _create_plan(user, params):
         matched_tags, tag_skipped = resolve_existing_tags(data['tags'], 'activity', user)
         data['tags'] = [t.name for t in matched_tags]
 
-    # 解析前置依赖（blocked_by）：传前置活动名称列表
-    blocked_by_ids = []
-    blocked_by_raw = params.get('blocked_by')
-    if blocked_by_raw:
-        if isinstance(blocked_by_raw, str):
-            blocked_by_names = [n.strip() for n in blocked_by_raw.split(',') if n.strip()]
-        elif isinstance(blocked_by_raw, (list, tuple)):
-            blocked_by_names = [str(n).strip() for n in blocked_by_raw if str(n).strip()]
-        else:
-            blocked_by_names = []
-        for name in blocked_by_names:
-            blocker = visible_qs(Activity, user).filter(name__icontains=name).first()
-            if blocker:
-                blocked_by_ids.append(blocker.id)
-
     # 参与者预解析：只匹配已有（大小写不敏感），匹配不到不新建；
     # 未命中的名字不进 data，预览与回复都要明说（不静默丢弃）
     participant_skipped = []
@@ -360,7 +293,7 @@ def _create_plan(user, params):
             parent.user if parent else user, data['participants'])
         data['participants'] = [p.name for p in matched]
 
-    return {'data': data, 'parent': parent, 'blocked_by_ids': blocked_by_ids,
+    return {'data': data, 'parent': parent,
             'tag_skipped': tag_skipped, 'participant_skipped': participant_skipped}
 
 
@@ -371,20 +304,11 @@ def apply_create(user, params):
                                          source='AI 对话')
     activity = result['activity']
 
-    if plan['blocked_by_ids']:
-        # 环检测：新建活动还没 ID 关联，不会形成环，但保险起见检查
-        activity.blocked_by.set(plan['blocked_by_ids'])
-
     suffix = f'，归属于「{plan["parent"].name}」' if plan['parent'] else ''
     tag_note = ('，自动添加标签：' + '、'.join(tag_names(activity))
                 if tag_names(activity) else '')
-    blocked_note = ''
-    if plan['blocked_by_ids']:
-        blocked_names = list(Activity.objects.filter(
-            id__in=plan['blocked_by_ids']).values_list('name', flat=True))
-        blocked_note = f'，前置依赖：{"、".join(blocked_names)}'
     return {
-        'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}{tag_note}{blocked_note}'
+        'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}{tag_note}'
                  + _participant_skip_note(result['skipped'])
                  + _tag_skip_note(plan['tag_skipped']),
         'card': 'activity',
@@ -415,10 +339,6 @@ def _create_fields(user, plan):
         fields.append({'label': '标签', 'value': '、'.join(data['tags'])})
     if data.get('participants'):
         fields.append({'label': '参与者', 'value': '、'.join(data['participants'])})
-    if plan['blocked_by_ids']:
-        names = list(Activity.objects.filter(
-            id__in=plan['blocked_by_ids']).values_list('name', flat=True))
-        fields.append({'label': '前置依赖', 'value': '、'.join(names)})
     return fields
 
 
@@ -1363,46 +1283,4 @@ def tool_unarchive(user, params):
         'card': 'activity',
         'activity_ids': [activity.id],
         'changed': True,
-    }
-
-
-@agent_tool('activities.check_blocked', '检查活动的前置依赖是否都已完成',
-            'target（活动名称关键词）或 target_id')
-def tool_check_blocked(user, params):
-    """检查活动是否被阻塞（前置依赖中有未完成的活动）"""
-    activity = _resolve_single(user, params.get('target') or params.get('name'),
-                               target_id=params.get('target_id'))
-
-    blocking = activity.blocked_by.all()
-    if not blocking:
-        return {
-            'reply': f'活动「{activity.name}」没有前置依赖，可以自由开始',
-            'card': 'activity',
-            'activity_ids': [activity.id],
-            'card_data': {**_activity_card_data(activity), 'is_blocked': False},
-        }
-
-    blocking_names = []
-    blocking_done = []
-    for b in blocking:
-        if b.status == 'done':
-            blocking_done.append(b.name)
-        else:
-            blocking_names.append(b.name)
-
-    if not blocking_names:
-        return {
-            'reply': f'活动「{activity.name}」的前置依赖都已完成：{"、".join(blocking_done)}，可以开始',
-            'card': 'activity',
-            'activity_ids': [activity.id],
-            'card_data': {**_activity_card_data(activity), 'is_blocked': False},
-        }
-
-    return {
-        'reply': f'活动「{activity.name}」被阻塞：等待{"、".join(blocking_names)}完成' +
-                 (f'（已完成：{"、".join(blocking_done)}）' if blocking_done else ''),
-        'card': 'activity',
-        'activity_ids': [activity.id],
-        'card_data': {**_activity_card_data(activity), 'is_blocked': True,
-                      'blocking': blocking_names},
     }

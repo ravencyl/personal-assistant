@@ -22,11 +22,6 @@ urlpatterns = [
     path('<int:activity_id>/quick-sub/', views.activity_quick_sub, name='activity_quick_sub'),
     path('<int:activity_id>/subactivities/manual-create/', views.subactivity_manual_create,
          name='subactivity_manual_create'),
-    path('<int:activity_id>/comments/add/', views.activity_comment_add, name='activity_comment_add'),
-    path('<int:activity_id>/blocked/search/', views.blocked_search, name='blocked_search'),
-    path('<int:activity_id>/blocked/add/', views.blocked_add, name='blocked_add'),
-    path('<int:activity_id>/blocked/<int:dep_id>/remove/', views.blocked_remove, name='blocked_remove'),
-    path('comments/<int:comment_id>/delete/', views.activity_comment_delete, name='activity_comment_delete'),
     path('<int:activity_id>/expenses/add/', views.expense_create, name='expense_create'),
     path('<int:activity_id>/delete/', views.activity_delete, name='activity_delete'),
     path('expenses/<int:expense_id>/edit/', views.expense_edit, name='expense_edit'),
@@ -50,5 +45,4 @@ urlpatterns = [
     path('templates/create/', views.template_create, name='template_create'),
     path('templates/<int:template_id>/use/', views.template_use, name='template_use'),
     path('<int:pk>/move-date/', views.move_date_view, name='move_date'),
-    path('dependency-data/', views.dependency_data, name='dependency_data'),
 ]
