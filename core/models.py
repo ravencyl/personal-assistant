@@ -46,6 +46,19 @@ class Tag(models.Model):
     def __str__(self):
         return f'{self.name}（{self.get_scope_display()}）'
 
+    @property
+    def rgb_triplet(self):
+        """'#34d399' → '52, 211, 153'（模板 rgba(var(--tag-rgb), α) 用）。
+
+        不走 color-mix 派生浅底：iOS 16.2 以下不认 color-mix，整条声明
+        会被静默丢弃（手机端卡片不显色的根因之一）；rgba + 三通道变量
+        全平台通用。兜底灰只在 color 字段异常（非 6 位 hex）时出现。
+        """
+        c = self.color.lstrip('#')
+        if len(c) != 6:
+            return '113, 113, 122'
+        return ', '.join(str(int(c[i:i + 2], 16)) for i in (0, 2, 4))
+
     def save(self, *args, **kwargs):
         # 随机底色只在「落库且仍为空」这一刻生成：admin 改过就保留，改回空再存会重发一枚
         if self.scope == 'activity' and not self.color:

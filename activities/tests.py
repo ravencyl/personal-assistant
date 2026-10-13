@@ -3004,6 +3004,8 @@ class TagColorCardTest(TestCase):
         # 桌面行 + 移动卡 + chip 共 3 处样式变量；wash 只在行/卡 2 处
         self.assertEqual(html.count('tag-wash'), 2)
         self.assertEqual(html.count('--tag-color: #34d399'), 3)
+        # rgba 浅底依赖 --tag-rgb 三通道值（color-mix 在旧 iOS 上整条失效）
+        self.assertEqual(html.count('--tag-rgb: 52, 211, 153'), 3)
 
     def test_chip_colored_with_dot(self):
         html = self._page()

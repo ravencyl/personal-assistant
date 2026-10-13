@@ -163,6 +163,72 @@ tr.tag-wash:hover {
     flex: none;
 }
 
+/* 活动标签底色（core.Tag.color，仅 activity scope；2026-10-13）
+   卡片/行挂 --tag-color（基色）+ --tag-rgb（三通道值）与 .tag-wash：
+   浅底用 rgba(var(--tag-rgb), α) 叠在卡片底上（不用 color-mix——iOS 16.2
+   以下不认，整条声明会被静默丢弃，手机端曾因此完全不显色）。
+   写成 div.tag-wash（特异性 0,1,1）而非 .tag-wash：必须盖过下方 .app-card
+   的白底 background（同特异性时后者胜，段位先后不可靠）。
+   基色色条用 ::before 而不是 box-shadow——.app-card 也定义 box-shadow，
+   wash 的内阴影会被卡片阴影整个覆盖。chip/dot 同源。 */
+div.tag-wash {
+    position: relative;
+    background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
+}
+.tag-wash::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--tag-color);
+    border-radius: var(--radius-card) 0 0 var(--radius-card);
+}
+/* 桌面表格行同样按圆角卡片渲染（#activity-list 限定，不影响别处表格）。
+   行的 background 挂在 (1,0,2) 特异性上，会压过 Tailwind 的 hover:bg-*，
+   所以悬停底色也在同一作用域里自己定义（未打色行用 accent-light） */
+@media (min-width: 768px) {
+    #activity-list table {
+        border-collapse: separate;
+        border-spacing: 0 0.5rem;
+    }
+    #activity-list tbody tr {
+        background: var(--bg-card);
+        border: 1px solid rgba(100, 120, 232, 0.08);
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-sm);
+        transition: background 0.15s ease;
+    }
+    #activity-list tbody tr:hover {
+        background: var(--accent-light);
+    }
+    #activity-list tbody tr.tag-wash {
+        background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
+    }
+    /* tr 上不保证渲染 box-shadow/伪元素，色条落在首个单元格（td 是真盒子） */
+    #activity-list tbody tr.tag-wash td:first-child {
+        box-shadow: inset 3px 0 0 0 var(--tag-color);
+    }
+    #activity-list tbody tr.tag-wash:hover {
+        background: linear-gradient(rgba(var(--tag-rgb), 0.16), rgba(var(--tag-rgb), 0.16)), var(--bg-card);
+    }
+}
+.tag-chip {
+    background: rgba(var(--tag-rgb), 0.13);
+    border-color: rgba(var(--tag-rgb), 0.4);
+}
+.tag-chip:hover {
+    background: rgba(var(--tag-rgb), 0.24);
+}
+.tag-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--tag-color);
+    flex: none;
+}
+
 /* 活动表单状态点选 chips（ChipRadioSelect）：radio 隐藏，label 即点选区，
    选中态复用状态徽章同源语义色； :has() 需现代浏览器（iOS 15.4+）*/
 .status-chip {

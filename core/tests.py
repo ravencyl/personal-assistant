@@ -1440,6 +1440,13 @@ class TagColorTest(TestCase):
         tag.save()
         self.assertRegex(tag.color, self.COLOR_RE)
 
+    def test_rgb_triplet(self):
+        """rgb_triplet 供 rgba(var(--tag-rgb), α) 派生浅底；异常值回退中性灰"""
+        tag = Tag.objects.create(scope='activity', name='换算', color='#34d399')
+        self.assertEqual(tag.rgb_triplet, '52, 211, 153')
+        broken = Tag.objects.create(scope='activity', name='坏值', color='#xyz')
+        self.assertEqual(broken.rgb_triplet, '113, 113, 122')
+
     def test_admin_color_preview_smoke(self):
         import django.contrib.admin as dj_admin
         from core.admin import TagAdmin as TagModelAdmin
