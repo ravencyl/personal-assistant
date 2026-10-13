@@ -1,6 +1,6 @@
 {# 新建活动弹窗（lightbox）：活动列表页等宿主共用的唯一实现（原 Daily 页已下线）；依赖宿主页 extra_head 已加载 pinyin-pro.js / activity-form.js / quick-parse.js；渲染上下文需提供 form、all_participants、all_tags（校验失败 422 换体时同） #}
 <div id="create-activity-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-    <div class="w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl bg-[var(--bg-card)] shadow-2xl border border-[var(--border)]" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+    <div class="panel w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
         <div class="flex items-center justify-between px-5 sm:px-6 pt-4 pb-3 border-b border-[var(--border)] shrink-0">
             <h3 id="create-modal-title" class="text-lg font-bold text-[var(--text)]">新建活动</h3>
             <button type="button" id="create-modal-close" class="tap-target inline-flex items-center justify-center w-8 h-8 rounded-full text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="关闭">&#10005;</button>
@@ -40,9 +40,10 @@
                 </div>
                 {# 提交失败走行内错误条（不用原生 alert，弹窗里提示不能被 alert 挡） #}
                 <p id="create-modal-error" class="hidden text-sm text-[var(--text)] font-semibold"></p>
-                <div class="flex gap-3 pt-2">
-                    <button type="submit" id="create-modal-submit" class="rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2 text-sm font-medium text-[var(--bg)] transition-colors">创建</button>
-                    <button type="button" id="create-modal-cancel" class="rounded-full bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors">取消</button>
+                {# sticky 提交条：键盘弹出时提交按钮保持可见（2026-10-13 建活动提速） #}
+                <div class="sticky bottom-0 -mx-5 sm:-mx-6 px-5 sm:px-6 py-3 bg-[var(--bg-card)] border-t border-[var(--border)] flex gap-3">
+                    <button type="submit" id="create-modal-submit" class="flex-1 rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2.5 text-sm font-semibold text-[var(--bg)] transition-colors">创建</button>
+                    <button type="button" id="create-modal-cancel" class="rounded-full bg-[var(--accent-light)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors">取消</button>
                 </div>
             </form>
         </div>
@@ -90,7 +91,9 @@
         if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeModal();
     });
 
-    // AI 一句话解析：确认创建走快速通道（创建后刷新列表）；「填入下方表单」就地回填完整表单
+    // AI 一句话解析：确认创建走快速通道；「填入下方表单」就地回填完整表单。
+    // onCreated：不整页刷新（2026-10-13 提速）——广播 activities:changed 让宿主页的
+    // 列表区自己刷新，700ms 后收弹窗；顺手点一次收起钮把预览/输入复位，下次打开是干净态。
     PaQuickParse.init({
         input: 'modal-quick-input',
         parseBtn: 'modal-quick-parse-btn',
@@ -103,6 +106,23 @@
         sourceEl: 'modal-quick-source',
         parseUrl: PARSE_URL,
         submitUrl: SUBMIT_URL,
+        onCreated: function (d) {
+            // 活动列表页：新建的数据就在眼前，直接刷新列表（比让用户自己找入口直观）；
+            // 其他页只广播事件（base.html 弹「活动数据已更新」提示条），不整页重载
+            var ctx = window.paPageContext ? window.paPageContext() : {};
+            if (ctx.page_context === 'activity_list') {
+                window.location.reload();
+                return;
+            }
+            document.dispatchEvent(new CustomEvent('activities:changed'));
+            setTimeout(function () {
+                closeModal();
+                var resetBtn = document.getElementById('modal-quick-close-btn');
+                if (resetBtn) resetBtn.click();
+                var input = document.getElementById('modal-quick-input');
+                if (input) input.value = '';
+            }, 700);
+        },
         onEdit: function (d) {
             PaActivityForm.fillForm(d);
             form.scrollIntoView({ behavior: 'smooth', block: 'start' });

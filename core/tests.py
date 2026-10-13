@@ -2293,3 +2293,100 @@ class VisualAlignmentTest(SimpleTestCase):
                           if 'font-semibold' in t.group(0)], [])
         self.assertIsNotNone(self.BAD_FOCUS.search('focus:border-zinc-900 focus:outline-none'))
         self.assertIsNone(self.BAD_FOCUS.search('focus:border-[var(--accent)] focus:outline-none'))
+
+
+class MobileUiRevampLockTest(SimpleTestCase):
+    """移动端 UI revamp（2026-10-13）定稿口径的静态锁，补 VisualAlignmentTest 没覆盖的三块：
+
+    ① 字号只有 Tailwind 档位一份：模板 class 里禁止 text-[11px]/text-[15px] 这类
+       私造档位（revamp 前两档各成一片），任意 px 字号只允许 10px 一档 —— 那是
+       micro 档（ID 标签等 ≤2 字符计量信息），移动端 custom.css 已统一抬到 12px。
+    ② 标题档位只有两档：h1 = text-xl（页面主标题）或 text-2xl sm:text-3xl（展示页），
+       h2 = text-sm font-semibold（卡片标题）。revamp 前 h1 有 4 档、h2 有 4 档。
+    ③ 圆角单一来源：控件圆角由 custom.css 的 --radius-ctl(12px) !important 统一下发，
+       chips 的 pill 靠同文件更高特异性的 rounded-full 豁免规则保留 —— 两条规则
+       任何一条被删，另一个世代就会回来（rounded-md 时代模板与渲染两套真相）。
+       模板里不再允许 rounded-md（revamp 时已全量收编为 rounded-xl）。
+    """
+
+    BAD_TEXT_PX = re.compile(r'text-\[(?!10px\b)\d+px\]')
+    H1_TAG = re.compile(r'<h1\b[^>]*>')
+    H2_TAG = re.compile(r'<h2\b[^>]*>')
+    BAD_RADIUS = re.compile(r'\brounded-md\b')
+
+    def _templates(self):
+        base = Path(settings.BASE_DIR)
+        files = list((base / 'templates').rglob('*.html'))
+        for app_dir in sorted(base.glob('*/templates')):
+            files.extend(app_dir.rglob('*.html'))
+        return sorted(set(files))
+
+    def test_no_private_font_tiers(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for m in re.finditer(r'class="([^"]*)"', src):
+                bad = self.BAD_TEXT_PX.search(m.group(1))
+                if bad:
+                    offenders.append(f'{tpl.name}: {bad.group(0)}')
+        self.assertEqual(offenders, [],
+                         f'模板里出现私造字号档位（只允许 Tailwind 档位 + text-[10px] micro）：{offenders}')
+
+    def test_h1_only_two_tiers(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for tag in self.H1_TAG.finditer(src):
+                cls = tag.group(0)
+                ok = ('text-xl' in cls
+                      or ('text-2xl' in cls and 'sm:text-3xl' in cls))
+                if not ok:
+                    offenders.append(f'{tpl.name}: {cls[:80]}')
+        self.assertEqual(offenders, [],
+                         f'h1 字号不在两档口径内（text-xl / text-2xl sm:text-3xl）：{offenders}')
+
+    def test_h2_is_card_title_tier(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            for tag in self.H2_TAG.finditer(src):
+                cls = tag.group(0)
+                if 'text-sm' not in cls or 'font-semibold' not in cls:
+                    offenders.append(f'{tpl.name}: {cls[:80]}')
+        self.assertEqual(offenders, [],
+                         f'h2 卡标题不在 text-sm font-semibold 口径内：{offenders}')
+
+    def test_no_rounded_md_left_in_templates(self):
+        offenders = []
+        for tpl in self._templates():
+            src = code_only(tpl.read_text(encoding='utf-8'))
+            if self.BAD_RADIUS.search(src):
+                offenders.append(tpl.name)
+        self.assertEqual(offenders, [],
+                         f'模板里还有 rounded-md（控件圆角已由 --radius-ctl 统一，表面档是 rounded-xl）：{offenders}')
+
+    def test_radius_single_source_rules_present(self):
+        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        self.assertIn('--radius-ctl: 12px', css, '控件圆角令牌丢了')
+        self.assertRegex(css, r'button,\s*\.btn,[^}]*border-radius:\s*var\(--radius-ctl\)\s*!important',
+                         '控件 12px !important 下发规则丢了')
+        self.assertRegex(css, r'button\.rounded-full[^}]*border-radius:\s*999px\s*!important',
+                         'chips pill 豁免规则丢了（删了它按钮全变胶囊/直角二选一）')
+
+    def test_scanners_detect_the_bad_shapes(self):
+        # 变异反证：坏形状必须响，好形状不得误伤
+        self.assertIsNotNone(self.BAD_TEXT_PX.search('text-[11px]'))
+        self.assertIsNotNone(self.BAD_TEXT_PX.search('text-[15px]'))
+        self.assertIsNone(self.BAD_TEXT_PX.search('text-[10px]'))
+        self.assertIsNone(self.BAD_TEXT_PX.search('text-xs'))
+        self.assertTrue('text-xl' in '<h1 class="text-xl font-bold">x</h1>')
+        for bad in ['<h1 class="text-lg font-bold">x</h1>',
+                    '<h1 class="text-2xl font-bold">x</h1>',
+                    '<h1 class="text-base font-bold">x</h1>']:
+            cls = self.H1_TAG.search(bad).group(0)
+            self.assertFalse('text-xl' in cls or ('text-2xl' in cls and 'sm:text-3xl' in cls),
+                             f'坏形状被误判为合规: {bad}')
+        self.assertTrue('text-sm' in '<h2 class="text-sm font-semibold">x</h2>'
+                        and 'font-semibold' in '<h2 class="text-sm font-semibold">x</h2>')
+        self.assertIsNotNone(self.BAD_RADIUS.search('rounded-md'))
+        self.assertIsNone(self.BAD_RADIUS.search('rounded-xl'))

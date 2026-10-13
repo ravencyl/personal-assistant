@@ -27,7 +27,7 @@
     <!-- 步骤 1：数据摘要 -->
     {% if step == 1 %}
     <div class="app-card p-6 sm:p-8 fade-in">
-        <h1 class="text-2xl font-bold text-[var(--text)] mb-2">本周回顾</h1>
+        <h1 class="text-xl font-bold text-[var(--text)] mb-2">本周回顾</h1>
         <p class="text-sm text-[var(--text-muted)] mb-6">{{ week_start|date:"m月d日" }} - {{ today|date:"m月d日" }}</p>
 
         <!-- 统计卡片 -->
@@ -56,7 +56,7 @@
             <h2 class="text-sm font-semibold text-[var(--text)] mb-3">已完成的活动</h2>
             <div class="space-y-2">
                 {% for activity in completed_activities %}
-                <div class="flex items-center gap-3 p-2 rounded-lg bg-[var(--bg)] border border-[var(--border)]">
+                <div class="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg)] border border-[var(--border)]">
                     <div class="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
                         <svg class="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
@@ -82,7 +82,7 @@
     {% if step == 2 %}
     <form method="post" class="app-card p-6 sm:p-8 fade-in">
         {% csrf_token %}
-        <h1 class="text-2xl font-bold text-[var(--text)] mb-6">花几分钟反思一下</h1>
+        <h1 class="text-xl font-bold text-[var(--text)] mb-6">花几分钟反思一下</h1>
 
         {% if error %}
         <p class="mb-4 rounded-xl border border-[var(--border-strong)] bg-[var(--accent-light)] px-4 py-3 text-sm text-[var(--text)]" role="alert">{{ error }}</p>

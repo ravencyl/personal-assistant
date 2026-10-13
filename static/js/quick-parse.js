@@ -131,7 +131,13 @@
         }
 
         parseBtn.addEventListener('click', doParse);
-        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doParse(); });
+        // Enter 两次即建（2026-10-13 建活动提速）：第一次解析出预览，第二次直接确认。
+        // 确认仍是显式动作（写操作确认口径不变），只是键盘路径不用再摸按钮。
+        input.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            if (parsed && !preview.classList.contains('hidden')) performConfirm();
+            else doParse();
+        });
         if (closeBtn) {
             closeBtn.addEventListener('click', function () { hidePreview(); hideError(); parsed = null; });
         }
@@ -150,7 +156,7 @@
             });
         }
 
-        confirmBtn.addEventListener('click', function () {
+        function performConfirm() {
             if (!parsed || confirmBtn.disabled) return;
             confirmBtn.disabled = true;
             confirmBtn.textContent = '创建中…';
@@ -164,16 +170,19 @@
                     showError(res.data.error || '创建失败');
                     return;
                 }
-                previewBody.innerHTML = '<span class="text-zinc-900 font-medium">' + createdLabel + '「'
+                previewBody.innerHTML = '<span class="font-medium text-[var(--text)]">' + createdLabel + '「'
                     + esc(res.data.name) + '」'
-                    + (res.data.note ? '（' + esc(res.data.note) + '）' : '') + '，即将刷新…</span>';
+                    + (res.data.note ? '（' + esc(res.data.note) + '）' : '') + '</span>';
                 confirmBtn.textContent = '已创建';
+                if (opts.onCreated) { opts.onCreated(res.data); return; }
                 setTimeout(function () { window.location.reload(); }, 700);
             }).catch(function () {
                 resetConfirm();
                 showError('网络异常，请重试');
             });
-        });
+        }
+
+        confirmBtn.addEventListener('click', performConfirm);
     }
 
     window.PaQuickParse = {

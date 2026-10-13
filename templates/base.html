@@ -120,23 +120,23 @@
                             {# 「今日」/「工作台」导航已删：/daily/ 与 /today/ 页均已下线 #}
                             {# 信息在任一对话里点「daily」/「工作台」按钮直出（chat/partials/local_cards.html） #}
                             <a href="{% url 'activities:activity_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'activities' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'activities' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 活动记录
                             </a>
                             <a href="{% url 'chat:conversation_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'chat' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'chat' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 AI 对话
                             </a>
                             <a href="{% url 'notes:note_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'notes' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'notes' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 备忘
                             </a>
                             <a href="{% url 'knowledge:article_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'knowledge' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'knowledge' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 知识库
                             </a>
                             <a href="{% url 'memory:memory_list' %}"
-                               class="inline-flex items-center px-3 py-2 rounded-md {% if request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 记忆
                             </a>
                         </div>
@@ -144,7 +144,7 @@
                     </div>
                     <div class="flex items-center space-x-3">
                         {% if user.is_authenticated %}
-                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索（Cmd+K 打开命令面板）">
+                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索（Cmd+K 打开命令面板）">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                 </svg>
@@ -316,7 +316,16 @@
         var panel = document.getElementById('quick-panel');
         var csrf = document.querySelector('meta[name="csrf-token"]').content;
 
-        function openPanel() { panel.classList.remove('hidden'); }
+        function openPanel() {
+            panel.classList.remove('hidden');
+            // 记住上次用的 Tab（2026-10-13 建活动提速：默认停在备忘让建活动每次多切一下）
+            try {
+                var last = localStorage.getItem('pa_quick_tab');
+                if (last && tabBtns.some(function (b) { return b.getAttribute('data-quick-tab') === last; })) {
+                    switchTab(last);
+                }
+            } catch (e) { /* 隐私模式等 localStorage 不可用：保持默认 Tab */ }
+        }
         function closePanel() { panel.classList.add('hidden'); }
 
         Array.prototype.forEach.call(document.querySelectorAll('[data-quick-toggle]'), function (btn) {
@@ -330,6 +339,7 @@
         var tabBtns = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-tab]'));
         var panes = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-pane]'));
         function switchTab(name) {
+            try { localStorage.setItem('pa_quick_tab', name); } catch (e) { /* 同 openPanel */ }
             tabBtns.forEach(function (b) {
                 var active = b.getAttribute('data-quick-tab') === name;
                 b.classList.toggle('bg-[var(--accent)]', active);
@@ -562,12 +572,12 @@
                          且任何后续往串里掺用户数据的改动都是注入面） -->
                     <div class="space-y-1">
                         <p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>
-                        <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-                            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
+                        <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+                            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
                             <span class="text-sm text-[var(--text)]">新建活动</span>
                         </a>
-                        <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-                            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
+                        <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+                            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
                             <span class="text-sm text-[var(--text)]">写备忘</span>
                         </a>
                     </div>

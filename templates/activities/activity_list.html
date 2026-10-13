@@ -17,7 +17,7 @@
     <!-- 移动端：简洁问候 -->
     <div class="md:hidden">
         <p class="text-xs text-[var(--text-muted)] mb-1">{{ today_display }}</p>
-        <h1 class="text-2xl font-bold tracking-tight text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
+        <h1 class="text-xl font-bold tracking-tight text-[var(--text)]">{{ greeting }}，{{ user.username }}</h1>
         {% if ongoing_count or today_count %}
         <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
             {% if ongoing_count %}<span class="font-semibold text-[var(--text)]">{{ ongoing_count }}</span> 项进行中{% endif %}
@@ -43,7 +43,7 @@
             </div>
             <div class="min-w-0">
                 <p class="text-sm text-[var(--text-muted)] mb-0.5">{{ today_display }}</p>
-                <h1 class="text-2xl font-bold tracking-tight text-[var(--text)] truncate">{{ greeting }}，{{ user.username }}</h1>
+                <h1 class="text-xl font-bold tracking-tight text-[var(--text)] truncate">{{ greeting }}，{{ user.username }}</h1>
                 {% if ongoing_count or today_count %}
                 <p class="mt-1 text-sm text-[var(--text-secondary)]">
                     {% if ongoing_count %}<span class="font-semibold text-[var(--text)]">{{ ongoing_count }}</span> 项进行中{% endif %}
@@ -104,7 +104,7 @@
     <div class="flex flex-wrap items-center gap-2 px-4 py-2.5">
         <button type="button" id="filter-toggle"
                 aria-expanded="{% if filters_active %}true{% else %}false{% endif %}"
-                class="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+                class="tap-target flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
             筛选
             <span id="filter-arrow" class="text-[var(--text-muted)]">{% if filters_active %}&#9660;{% else %}&#9654;{% endif %}</span>
         </button>
@@ -132,18 +132,18 @@
         <form method="get" action="{% url 'activities:activity_list' %}" class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-[var(--text-secondary)]">日期筛选</span>
         <input type="date" name="date_from" value="{{ date_from }}"
-               class="rounded-md border-[var(--border-strong)] text-sm px-2 py-1 border focus:ring-[var(--accent)] focus:border-[var(--accent)]">
+               class="border-[var(--border-strong)] text-sm px-2 py-1 border focus:ring-[var(--accent)] focus:border-[var(--accent)]">
         <span class="text-sm text-[var(--text-muted)]">至</span>
         <input type="date" name="date_to" value="{{ date_to }}"
-               class="rounded-md border-[var(--border-strong)] text-sm px-2 py-1 border focus:ring-[var(--accent)] focus:border-[var(--accent)]">
+               class="border-[var(--border-strong)] text-sm px-2 py-1 border focus:ring-[var(--accent)] focus:border-[var(--accent)]">
         {% if status_filter or tag_filter or sort %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         {% if tag_filter %}<input type="hidden" name="tag" value="{{ tag_filter }}">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
         {% if keyword_filter %}<input type="hidden" name="keyword" value="{{ keyword_filter }}">{% endif %}
-        <button type="submit" class="px-3 py-1 text-sm rounded-md bg-[var(--accent)] text-[var(--bg)] hover:opacity-90">筛选</button>
+        <button type="submit" class="tap-target px-3 py-1 text-sm bg-[var(--accent)] text-[var(--bg)] hover:opacity-90">筛选</button>
         {% if date_from or date_to %}
         <a href="{% url 'activities:activity_list' %}?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if tag_filter %}tag={{ tag_filter|urlencode }}&{% endif %}{% if keyword_filter %}keyword={{ keyword_filter|urlencode }}&{% endif %}{% if sort %}sort={{ sort }}{% endif %}"
-           class="px-3 py-1 text-sm rounded-md bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除日期</a>
+           class="tap-target px-3 py-1 text-sm bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">清除日期</a>
         {% endif %}
         <span class="mx-1 text-[var(--text-muted)]">|</span>
         <!-- Select Time 时间片网格同构（截图第二屏）：快捷日期片，激活片 accent 实心 -->
@@ -188,7 +188,7 @@
     {# Pin 的开关只在详情页（2026-10-08 用户要求列表不展示 pin），这里只展示置顶效果 #}
     <div class="space-y-2">
         {% for activity in pinned_activities %}
-        <div class="app-card px-3 py-2.5 flex items-center gap-2 flex-wrap" data-id="{{ activity.id }}">
+        <div class="app-card px-4 py-3 flex items-center gap-2 flex-wrap" data-id="{{ activity.id }}">
             {% if activity.depth %}<span class="text-[var(--text-muted)] select-none" style="margin-left: {% widthratio activity.depth 1 1 %}em">&#9492;</span>{% endif %}
             <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-[var(--text)] hover:text-[var(--text-secondary)] break-words min-w-0">{{ activity.name }}</a>
             {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
@@ -271,7 +271,7 @@
                     <div class="flex items-center justify-center gap-1">
                         {% if tree_mode and activity.has_children %}
                         {# 树形钮放行尾操作区（2026-10-08 用户反馈：放名字前同一列名字对不齐） #}
-                        <button type="button" class="tree-toggle inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] select-none"
+                        <button type="button" class="tree-toggle inline-flex items-center justify-center w-7 h-7 rounded-xl text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] select-none"
                                 data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                         {% endif %}
                     </div>
@@ -290,15 +290,15 @@
      （编辑走详情页，ID 在详情页与对话卡片里仍可口述，费用看详情页）。整卡空白处仍是进详情的触区 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
-    <div class="tree-row app-card flex items-center gap-1.5 px-3.5 py-2.5" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+    <div class="tree-row app-card flex items-center gap-1.5 px-4 py-3" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
          {% if not expand_all and activity.depth %}style="display:none"{% endif %}>
         <a href="{% url 'activities:activity_detail' activity.id %}"
-           class="flex-1 min-w-0 break-words text-[15px] font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
+           class="flex-1 min-w-0 break-words text-sm font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
            style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">{{ activity.name }}</a>
         <span class="shrink-0 w-11 flex items-center justify-center">
             {# 折叠钮槽位恒占 44px（tap-target 宽度），无子活动留空：状态列才逐行对齐 #}
             {% if tree_mode and activity.has_children %}
-            <button type="button" class="tree-toggle tap-target -my-2.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)] select-none"
+            <button type="button" class="tree-toggle tap-target -my-2.5 text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)] select-none"
                     data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
             {% endif %}
         </span>
@@ -342,8 +342,8 @@
 <!-- 友好空状态 -->
 <div class="text-center py-16 fade-in">
     <div class="text-6xl mb-4">📝</div>
-    <p class="text-xl font-medium text-[var(--text)] mb-2">还没有活动记录</p>
-    <p class="text-base text-[var(--text-secondary)]">点击右上角「新建活动」按钮开始，或在弹窗里用一句话让 AI 帮你创建 ✨</p>
+    <p class="text-xl font-bold text-[var(--text)] mb-2">还没有活动记录</p>
+    <p class="text-sm text-[var(--text-secondary)]">点击右上角「新建活动」按钮开始，或在弹窗里用一句话让 AI 帮你创建 ✨</p>
 </div>
 {% endif %}
 

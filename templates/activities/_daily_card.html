@@ -1,5 +1,5 @@
-<!-- 卡式容器：截图 Popular Doctors 白卡同构（大圆角白底 + 淡描边 + 轻阴影） -->
-<div class="daily-card group relative rounded-[1.25rem] bg-[var(--bg-card)] border border-[var(--border)] shadow-[var(--shadow-sm)] px-4 py-4 transition-shadow hover:shadow-[var(--shadow-md)]"
+<!-- 卡式容器：挂 .app-card 基类（圆角/描边/阴影单一来源），daily-card 只补交互态 -->
+<div class="daily-card app-card group relative px-4 py-4 transition-shadow hover:shadow-[var(--shadow-md)]"
      data-activity-id="{{ activity.id }}"
      data-status="{{ activity.status }}"
      data-status-url="{% url 'activities:activity_set_status' activity.id %}"
@@ -32,7 +32,7 @@
             <!-- 内容 -->
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1">
-                    <h3 class="text-[15px] font-medium text-[var(--text)] truncate group-hover:text-[var(--text-secondary)]">
+                    <h3 class="text-sm font-semibold text-[var(--text)] truncate group-hover:text-[var(--text-secondary)]">
                         {{ activity.name }}
                     </h3>
                     <!-- 角标只有 today / ending 两种取值（分组语义由各 section 标题承担）-->

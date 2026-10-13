@@ -9,7 +9,7 @@
     <div class="flex items-center justify-between mb-4 sm:mb-6 flex-wrap gap-3">
         <div class="flex items-center gap-3">
             <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 列表</a>
-            <h1 class="text-lg sm:text-2xl font-bold text-[var(--text)]">{{ title }}</h1>
+            <h1 class="text-xl font-bold text-[var(--text)]">{{ title }}</h1>
         </div>
         <div class="flex items-center gap-2">
             <!-- 视图切换 -->
@@ -47,7 +47,7 @@
         <a href="?mode=day&date={{ d.date_str }}"
            class="flex-1 min-w-[44px] flex flex-col items-center gap-0.5 py-2 rounded-2xl transition-colors
                   {% if d.is_today %}bg-[var(--accent)] text-white shadow-sm{% elif d.is_selected %}bg-[var(--accent-light)] text-[var(--text)]{% else %}bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">
-            <span class="text-[11px] leading-none {% if d.is_today %}text-white/80{% else %}text-[var(--text-muted)]{% endif %}">周{{ d.weekday }}</span>
+            <span class="text-xs leading-none {% if d.is_today %}text-white/80{% else %}text-[var(--text-muted)]{% endif %}">周{{ d.weekday }}</span>
             <span class="text-sm font-semibold tabular-nums leading-tight">{{ d.day }}</span>
         </a>
         {% endfor %}
@@ -170,7 +170,7 @@
                 block.href = a.url;
                 var textCls = 'status-fg-on--' + a.status;
                 if (mode === 'week') {
-                    block.className = 'block rounded px-1.5 py-0.5 text-[11px] ' + textCls + ' truncate hover:opacity-80 mb-1';
+                    block.className = 'block rounded px-1.5 py-0.5 text-xs ' + textCls + ' truncate hover:opacity-80 mb-1';
                 } else {
                     block.className = 'block rounded-full px-1 py-px sm:px-1.5 sm:py-0.5 text-[9px] sm:text-xs ' + textCls + ' truncate hover:opacity-80 transition-opacity';
                     // 月视图活动卡片可拖拽

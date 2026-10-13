@@ -20,19 +20,19 @@
         {% endif %}
     </div>
 
-    <div class="bg-[var(--bg-card)] rounded-lg shadow-sm border border-[var(--border-strong)] p-6">
+    <div class="bg-[var(--bg-card)] rounded-xl shadow-sm border border-[var(--border-strong)] p-6">
         <h1 class="text-xl font-bold text-[var(--text)] mb-6">{{ title }}</h1>
 
         {% if not activity %}
         <!-- 快速输入（仅创建模式）：一句话解析后自动填入下方表单 -->
-        <div class="mb-6 rounded-md bg-[var(--accent-light)] border border-[var(--border-strong)] p-3">
+        <div class="mb-6 rounded-xl bg-[var(--accent-light)] border border-[var(--border-strong)] p-3">
             <div class="flex gap-2">
                 <input type="text" id="form-quick-input" data-parse-url="{% url "activities:parse_quick_input" %}" maxlength="500"
                        placeholder="快速输入，如：8月25到28日去上海出差 #工作 @小王"
                        autocomplete="off"
-                       class="flex-1 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="flex-1 rounded-xl border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                 <button type="button" id="form-quick-btn"
-                        class="shrink-0 rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed">解析</button>
+                        class="shrink-0 rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed">解析</button>
             </div>
             <p id="form-quick-msg" class="hidden mt-2 text-sm"></p>
         </div>
@@ -40,17 +40,17 @@
         <!-- 从模板创建 -->
         <div id="template-section" class="mb-4">
             <div class="flex items-center gap-2">
-                <select id="template-select" class="flex-1 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                <select id="template-select" class="flex-1 rounded-xl border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
                     <option value="">从模板创建…</option>
                 </select>
                 <button type="button" id="template-use-btn" disabled
-                        class="shrink-0 rounded-md bg-[var(--accent-light)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed">使用</button>
+                        class="shrink-0 rounded-xl bg-[var(--accent-light)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent)] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed">使用</button>
             </div>
         </div>
         {% endif %}
 
         {% if form.non_field_errors %}
-        <div class="mb-4 rounded-md bg-[var(--bg)] border border-[var(--border-strong)] p-3 text-sm text-[var(--text)]">
+        <div class="mb-4 rounded-xl bg-[var(--bg)] border border-[var(--border-strong)] p-3 text-sm text-[var(--text)]">
             错误：{{ form.non_field_errors }}
         </div>
         {% endif %}
@@ -60,15 +60,15 @@
             {% include "activities/_activity_form_fields.html" %}
 
             <div class="flex gap-3 pt-2">
-                <button type="submit" id="activity-save-btn" class="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button type="submit" id="activity-save-btn" class="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
                     保存
                 </button>
                 {% if activity %}
-                <a href="{% url 'activities:activity_detail' activity.pk %}" class="rounded-md bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+                <a href="{% url 'activities:activity_detail' activity.pk %}" class="rounded-xl bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
                     取消
                 </a>
                 {% else %}
-                <a href="{% url 'activities:activity_list' %}" class="rounded-md bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
+                <a href="{% url 'activities:activity_list' %}" class="rounded-xl bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
                     取消
                 </a>
                 {% endif %}
@@ -83,13 +83,13 @@
                 {% csrf_token %}
                 <input type="text" name="name" placeholder="输入活动安排名称，回车添加"
                        autocomplete="off"
-                       class="flex-1 rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
-                <button type="submit" class="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">+ 添加</button>
+                       class="flex-1 rounded-xl border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                <button type="submit" class="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90">+ 添加</button>
             </form>
             {% if children %}
             <div class="space-y-2">
                 {% for child in children %}
-                <div class="flex items-center justify-between bg-[var(--accent-light)] rounded-md border border-[var(--border-strong)] px-3 py-2">
+                <div class="flex items-center justify-between bg-[var(--accent-light)] rounded-xl border border-[var(--border-strong)] px-3 py-2">
                     <div class="flex items-center gap-2 text-sm">
                         <a href="{% url 'activities:activity_detail' child.id %}" class="text-[var(--text)] hover:text-[var(--text-secondary)]">{{ child.name }}</a>
                         <span class="text-xs text-[var(--text-muted)]">{{ child.get_status_display }}</span>

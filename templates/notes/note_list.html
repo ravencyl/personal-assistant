@@ -25,7 +25,7 @@
             <div class="flex items-end gap-2">
                 <textarea name="content" rows="2" id="noteContentInput" aria-label="备忘内容"
                           placeholder="记点什么..."
-                          class="flex-1 rounded-xl border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-3.5 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
+                          class="flex-1 border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-3.5 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
                 <!-- 语音速记按钮：不支持 Web Speech API 时由脚本保持 hidden -->
                 <button type="button" id="voiceBtn" hidden
                         class="tap-target shrink-0 inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors"
@@ -65,12 +65,12 @@
     {% if all_tags %}
     <div class="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1" id="note-tag-filter">
         <a href="{% url 'notes:note_list' %}{% if q %}?q={{ q|urlencode }}{% endif %}"
-           class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if not tag_filter %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
+           class="tap-target shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-colors {% if not tag_filter %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             全部
         </a>
         {% for tag in all_tags %}
         <a href="{% url 'notes:note_list' %}?tag={{ tag|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
-           class="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors {% if tag_filter == tag %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
+           class="tap-target shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-colors {% if tag_filter == tag %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             {{ tag }}
         </a>
         {% endfor %}
@@ -98,7 +98,7 @@
     <!-- 编辑模式（内联编辑） -->
     {% if edit_note %}
     <div class="app-card p-3 sm:p-4 border-2 border-[var(--accent)]">
-        <form method="post" action="{% url 'notes:note_edit' edit_note.id %}" class="space-y-3">
+        <form method="post" action="{% url 'notes:note_edit' edit_note.id %}" class="space-y-4">
             {% csrf_token %}
             <div>
                 <label class="block text-xs text-[var(--text-muted)] mb-1">内容</label>
@@ -137,7 +137,7 @@
             <div>
                 <!-- 置顶徽章：块级摆在内容上方，灰阶加深扫一眼能分出置顶组 -->
                 {% if note.pinned %}
-                <span class="inline-flex items-center rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-medium text-white mb-1.5" title="已置顶">置顶</span>
+                <span class="inline-flex items-center rounded-full bg-[var(--accent)] px-2 py-2 text-[10px] font-medium text-white mb-1.5" title="已置顶">置顶</span>
                 {% endif %}
                 <!-- 内容：超过约 6 行折叠（JS 检测后才收起，无 JS 全文展示） -->
                 <div class="note-fold" data-note-fold>
@@ -152,7 +152,7 @@
                 <div class="flex flex-wrap gap-1.5 mt-2">
                     {% for tag in note.tags.all %}
                     <a href="{% url 'notes:note_list' %}?tag={{ tag.name|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
-                       class="tap-target inline-flex items-center rounded-full bg-[var(--accent-light)] text-[var(--text-secondary)] px-3 py-0.5 text-xs hover:bg-[var(--border)] transition-colors">
+                       class="tap-target inline-flex items-center rounded-full bg-[var(--accent-light)] text-[var(--text-secondary)] px-3 py-2 text-xs hover:bg-[var(--border)] transition-colors">
                         {{ tag.name }}
                     </a>
                     {% endfor %}

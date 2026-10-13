@@ -64,7 +64,7 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
                 <div class="space-y-2">
                     {% for item in related_activities %}
                     <a href="{% url 'activities:activity_detail' item.object.id %}"
-                       class="block p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+                       class="block p-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
                         <div class="flex items-center gap-2">
                             <p class="text-sm text-[var(--text)] truncate">{{ item.object.name }}</p>
                             {% include "activities/_status_badge.html" with status=item.object.status label=item.object.get_status_display %}
@@ -82,7 +82,7 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
                     {% for item in related_notes %}
                     {# 备忘没有独立详情页（编辑即列表内联），与活动条目同可达性：整卡可点 #}
                     <a href="{% url 'notes:note_edit' item.object.id %}"
-                       class="block p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+                       class="block p-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
                         <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
                         <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
                     </a>

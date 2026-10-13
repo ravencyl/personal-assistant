@@ -111,9 +111,16 @@ class ActivityForm(PlainTagFormMixin, forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        # 日期字段均非必填，不设置任何默认值
+        # 日期字段均非必填；新建时预填今天（省一次手选，建活动提速项）。
+        # 只在无 instance（新建）时给 initial：编辑表单有 instance，Django 会优先取实例值，
+        # 但显式限定避免任何路径下覆盖回显。
         self.fields['start_date'].required = False
         self.fields['end_date'].required = False
+        if not self.instance.pk:
+            from django.utils import timezone
+            today = timezone.localdate().isoformat()
+            self.fields['start_date'].initial = today
+            self.fields['end_date'].initial = today
         # 具体时间均非必填（可选增强：带时间导出日历为定点事件）
         self.fields['start_time'].required = False
         self.fields['end_time'].required = False

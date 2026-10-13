@@ -11,12 +11,12 @@
     <div class="mt-3 space-y-1.5">
         {% for c in card.categories %}
         <div class="flex items-center gap-2">
-            <span class="w-12 shrink-0 text-[11px] text-[var(--text-muted)]">{{ c.label }}</span>
+            <span class="w-12 shrink-0 text-xs text-[var(--text-muted)]">{{ c.label }}</span>
             <div class="h-2 flex-1 rounded-full bg-[var(--accent-light)] overflow-hidden">
                 <div class="h-full rounded-full bg-[var(--accent)] {% if not c.pct %}opacity-10{% endif %}"
                      style="width: {% if c.pct %}{{ c.pct }}{% else %}4{% endif %}%"></div>
             </div>
-            <span class="w-24 shrink-0 text-right text-[11px] tabular-nums text-[var(--text-secondary)]">
+            <span class="w-24 shrink-0 text-right text-xs tabular-nums text-[var(--text-secondary)]">
                 &#165;{{ c.total|floatformat:"-2" }} · {{ c.count }}笔
             </span>
         </div>
@@ -27,7 +27,7 @@
     {% if card.activities %}
     <!-- 按活动汇总 Top 5 -->
     <div class="mt-3 pt-2 border-t border-[var(--border)]">
-        <div class="text-[11px] text-[var(--text-muted)]">花钱最多的活动</div>
+        <div class="text-xs text-[var(--text-muted)]">花钱最多的活动</div>
         <div class="mt-1 space-y-1">
             {% for a in card.activities %}
             <div class="flex items-baseline justify-between gap-2 text-xs">

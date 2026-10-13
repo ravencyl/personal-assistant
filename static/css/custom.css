@@ -9,11 +9,15 @@
    - 阴影仅限灰黑 rgba(0,0,0,*)；动效克制：150-250ms，尊重 prefers-reduced-motion
    - 仍然禁止：渐变、大面积色块填充
 
-   【字体层级】
-   - 页面标题：text-2xl font-bold
-   - 区块标题：text-base font-semibold
-   - 正文：text-sm leading-relaxed
-   - 辅助信息：text-xs
+   【字体层级】（2026-10-13 revamp 收敛为 7 档，同角色禁止多档并存：
+   此前 h1 有 4 档、h2 有 4 档、徽章 3 档并存——「不同文字大小完全不一样」的根因）
+   - display：text-2xl sm:text-3xl（报告/登录大标题）
+   - title：text-xl font-bold（页面 h1 唯一档）
+   - card-title：text-sm font-semibold（卡片 h2 唯一档）
+   - body：text-base（正文、输入框文字——输入框必须 16px 防 iOS 聚焦缩放）
+   - secondary：text-sm（列表主行、按钮、表单 label）
+   - caption：text-xs（元信息、badge、表格、底栏）
+   - micro：text-[10px]（仅 ID 角标等极小字；移动端已被抬到 12px，见文件尾触控铁律块）
 
    【间距规则】
    - 页面容器：整宽由 base.html 的 main（max-w-7xl）给，两列页不再自套 max-w-* 居中壳
@@ -77,6 +81,12 @@
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(100, 120, 232, 0.10);
     /* 卡片内发光（顶部高光模拟光源从上方向下） */
     --card-inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+    /* 圆角 4 档（2026-10-13 移动端 revamp，用户拍板控件弃胶囊收敛为 12px）：
+       R-card 页面一级卡 / R-surface 卡内二级面·弹窗·气泡 / R-ctl 按钮·输入框·select / R-pill 徽章·chip */
+    --radius-card: 1.25rem;     /* 20px，.app-card/.panel */
+    --radius-surface: 1rem;     /* 16px */
+    --radius-ctl: 12px;
 }
 
 /* Apple 毛玻璃 Tab 栏：低透明白底 + backdrop-filter 模糊，iPhone Chrome/Safari 均支持 -webkit- 前缀 */
@@ -157,25 +167,31 @@
     outline-offset: 2px;
 }
 
-/* 控件圆角：Things 3 式大而少的圆角（10px）。
-   模板里带 rounded-full 的按钮也被这里压平 —— 胶囊满屏是「模板感」的主因之一；
-   徽章/chip（.badge、span.rounded-full 非按钮）保持 pill 不受影响。 */
+/* 控件圆角：12px 单一口径（2026-10-13 revamp，用户拍板弃 09-13 的全面胶囊化——
+   胶囊满屏是「模板感/IT 感」的主因之一）。!important 是单源手段：模板里遗留的
+   rounded-md/lg/xl 不再各自为政，按钮/输入框/select 全站一个圆角；
+   唯一例外是显式标了 rounded-full 的控件（chips/胶囊按钮），走下一条规则保持 pill。 */
 button, .btn, input[type="submit"],
 input[type="text"], input[type="email"], input[type="password"],
 input[type="number"], input[type="search"], select, input[type="date"] {
-    border-radius: 999px !important;   /* 全面胶囊化（截图风格 2026-09-13） */
+    border-radius: var(--radius-ctl) !important;   /* 12px */
 }
 
-/* 多行输入保持柔和大圆角，不胶囊（胶囊化会把多行框顶成怪形） */
+button.rounded-full, .btn.rounded-full,
+input.rounded-full, select.rounded-full {
+    border-radius: 999px !important;   /* chips 专属 pill（特异性高于上一条） */
+}
+
+/* 多行输入与单行控件统一 12px（不再单独放大，形状全站一致） */
 textarea {
-    border-radius: 1rem !important;
+    border-radius: var(--radius-ctl) !important;
 }
 
 /* 卡片：白底浮在淡灰画布上——大圆角 + 内发光 + 分层阴影 + hover 上浮（精致细腻风） */
 .app-card, .card {
     background: var(--bg-card);
     border: 1px solid rgba(100, 120, 232, 0.08);
-    border-radius: 1.25rem;
+    border-radius: var(--radius-card);
     box-shadow: var(--shadow-sm), var(--card-inner-glow);
     transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
@@ -193,7 +209,7 @@ textarea {
 .panel {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 1.25rem;
+    border-radius: var(--radius-card);
     box-shadow: var(--shadow-md), var(--card-inner-glow);
 }
 
@@ -268,7 +284,7 @@ textarea {
     color: var(--text-secondary);
     font-size: 0.875rem;
     transition: color 0.2s ease, background-color 0.2s ease;
-    border-radius: 0.5rem;
+    border-radius: var(--radius-ctl);
     padding: 0.375rem 0.75rem;
 }
 
@@ -293,7 +309,7 @@ input[type="checkbox"], input[type="radio"] {
     accent-color: var(--accent);
 }
 
-/* 徽章 pill 形（仅徽章/chip 保持全圆角，控件已收敛到 10px） */
+/* 徽章 pill 形（仅徽章/chip 保持全圆角，控件已收敛到 12px，见上方圆角块） */
 .badge, span.rounded-full {
     border-radius: 9999px;
 }
@@ -806,7 +822,7 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 
 .pin-chip-clear:hover { color: var(--text); }
 
-.pin-hint { font-size: 0.7rem; color: var(--text-muted); }
+.pin-hint { font-size: 0.75rem; color: var(--text-muted); }
 
 .pin-key { font-weight: 700; color: var(--text-secondary); }
 
@@ -849,7 +865,7 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     white-space: nowrap;
 }
 
-.pin-item-meta { font-size: 0.7rem; color: var(--text-muted); }
+.pin-item-meta { font-size: 0.75rem; color: var(--text-muted); }
 
 .pin-empty { padding: 0.4rem 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
 
@@ -865,7 +881,7 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     border-top: 1px dashed var(--border);
 }
 
-.follow-ups-label { font-size: 0.7rem; color: var(--text-muted); }
+.follow-ups-label { font-size: 0.75rem; color: var(--text-muted); }
 
 /* chips 收敛（paTidyFollowUps）：历史消息的 chips 整组藏起、只留最新一条；
    单条超过 2 个的由 JS 加「还有 N 条建议…」展开钮（按钮本身不带 data-followup，

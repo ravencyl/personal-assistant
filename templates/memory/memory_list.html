@@ -19,8 +19,8 @@
         </div>
         <!-- 视图切换 Tab -->
         <div class="flex items-center rounded-full border border-[var(--border-strong)] overflow-hidden text-sm">
-            <button type="button" data-view="list" aria-pressed="true" class="px-3 py-1 font-medium transition-colors bg-[var(--accent)] text-white">列表</button>
-            <button type="button" data-view="map" aria-pressed="false" class="px-3 py-1 font-medium transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
+            <button type="button" data-view="list" aria-pressed="true" class="tap-target px-3 py-1 font-medium whitespace-nowrap transition-colors bg-[var(--accent)] text-white">列表</button>
+            <button type="button" data-view="map" aria-pressed="false" class="tap-target px-3 py-1 font-medium whitespace-nowrap transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
         </div>
     </div>
 </div>
@@ -55,7 +55,7 @@
            hx-target="#memory-list"
            hx-include="#memory-search"
            hx-push-url="true"
-           class="rounded-full px-3 py-1 text-sm {% if not category %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
+           class="tap-target rounded-full px-3 py-1 text-sm {% if not category %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             全部
             <input type="hidden" name="category" value="">
         </a>
@@ -65,7 +65,7 @@
            hx-target="#memory-list"
            hx-include="#memory-search"
            hx-push-url="true"
-           class="rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
+           class="tap-target rounded-full px-3 py-1 text-sm {% if category == cat_value %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:bg-[var(--border)]{% endif %}">
             {{ cat_label }}
         </a>
         {% endfor %}
@@ -74,7 +74,7 @@
     {# owner 导出权（ROA PRD §9.1）：全部记忆含取代链，Markdown 附件 #}
     <div class="pt-1">
         <a href="{% url 'memory:memory_export' %}"
-           class="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">
+           class="tap-target inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
@@ -101,8 +101,8 @@
 <!-- 目标进度区 -->
 {% if goals %}
 <div class="mt-6">
-    <h2 class="text-base font-semibold text-[var(--text)] mb-3">目标进度</h2>
-    <div class="space-y-3">
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-3">目标进度</h2>
+    <div class="space-y-4">
         {% for goal in goals %}
         <div class="app-card rounded-xl p-4">
             <div class="flex items-center justify-between mb-2">
@@ -112,7 +112,7 @@
             <div class="h-2 rounded-full bg-[var(--border)] overflow-hidden">
                 <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {{ goal.percent }}%"></div>
             </div>
-            <p class="text-[11px] text-[var(--text-muted)] mt-1.5">{{ goal.done }}/{{ goal.total }} 个相关活动已完成</p>
+            <p class="text-xs text-[var(--text-muted)] mt-1.5">{{ goal.done }}/{{ goal.total }} 个相关活动已完成</p>
         </div>
         {% endfor %}
     </div>

@@ -21,7 +21,7 @@
             <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <h1 class="text-2xl font-bold text-[var(--text)]">{{ activity.name }}</h1>
+                        <h1 class="text-xl font-bold text-[var(--text)]">{{ activity.name }}</h1>
                         {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
                         <!-- 编辑/删除：小 icon 圆钮，贴标题行右侧（长标题 flex-wrap 自动换行避让） -->
                         <div class="ml-auto flex items-center gap-1.5 shrink-0">
@@ -109,15 +109,15 @@
     <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">累计费用</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">&#165;{{ activity.total_cost|floatformat:"-2" }}</p>
+            <p class="mt-0.5 text-base font-bold text-[var(--text)]">&#165;{{ activity.total_cost|floatformat:"-2" }}</p>
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">费用条目</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ expenses|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">笔</span></p>
+            <p class="mt-0.5 text-base font-bold text-[var(--text)]">{{ expenses|length }} <span class="text-xs font-normal text-[var(--text-muted)]">笔</span></p>
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">活动安排</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
+            <p class="mt-0.5 text-base font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
             {% if children|length %}
             {# 完成度进度条：仅看个数读不出推到哪了；新建活动安排后靠刷新页面跟上（JS 只更新计数） #}
             <div class="mt-2 h-1 bg-[var(--accent-light)] rounded-full overflow-hidden" title="活动安排完成度 {{ subtask_done_count }}/{{ children|length }}">
@@ -127,7 +127,7 @@
         </div>
         <div class="app-card p-3 sm:p-4">
             <p class="text-xs text-[var(--text-secondary)]">参与者</p>
-            <p class="mt-0.5 text-lg sm:text-xl font-bold text-[var(--text)]">{{ participants|length }} <span class="text-xs sm:text-sm font-normal text-[var(--text-muted)]">人</span></p>
+            <p class="mt-0.5 text-base font-bold text-[var(--text)]">{{ participants|length }} <span class="text-xs font-normal text-[var(--text-muted)]">人</span></p>
         </div>
     </div>
 
@@ -145,7 +145,7 @@
     {% if activity.description %}
     <div class="app-card p-4 sm:p-6">
         <h2 class="text-sm font-semibold text-[var(--text)] mb-3">活动描述</h2>
-        <p class="text-sm text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
+        <p class="text-base text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">{{ activity.description }}</p>
     </div>
     {% endif %}
 
@@ -158,7 +158,7 @@
         {% if expenses %}
         <div class="space-y-2">
             {% for e in expenses %}
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-1 sm:gap-2 rounded-lg bg-[var(--accent-light)] px-3 py-2" id="expense-{{ e.id }}">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-1 sm:gap-2 rounded-xl bg-[var(--accent-light)] px-3 py-2" id="expense-{{ e.id }}">
                 <div class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span class="text-sm font-medium text-[var(--text)]">&#165;{{ e.amount|floatformat:"-2" }}</span>
                     {% if e.paid_at %}<span class="text-xs text-[var(--text-muted)]">{{ e.paid_at }}</span>{% endif %}
@@ -197,22 +197,22 @@
             <!-- 移动端：每行一个字段（全宽）；桌面端（sm+）：金额+日期同行，备注/标签同行 -->
             <div class="md:w-28 md:shrink-0">
                 <input type="number" name="amount" step="0.01" min="0" required placeholder="金额" aria-label="金额"
-                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full rounded-xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
             </div>
             <!-- 日期：移动端全宽独占一行，桌面端固定宽度 -->
             <div class="md:w-40 md:shrink-0">
                 <input type="date" name="paid_at" value="{{ today_date }}" aria-label="消费日期"
-                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full rounded-xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
             </div>
             <!-- 备注：移动端全宽独占一行，桌面端自适应剩余宽度 -->
             <div class="col-span-2 flex-1 md:min-w-[10rem]">
                 <input type="text" name="note" maxlength="255" placeholder="备注" aria-label="备注"
-                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full rounded-xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
             </div>
             <!-- 费用标签（scope=expense，与活动标签隔离；逗号分隔，datalist 提供建议） -->
             <div class="md:w-44 md:shrink-0">
                 <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" aria-label="费用标签" list="expense-tag-options"
-                       class="tap-target w-full rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full rounded-xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
                 <datalist id="expense-tag-options">
                     {% for t in expense_tag_suggestions %}<option value="{{ t }}"></option>{% endfor %}
                 </datalist>
@@ -235,9 +235,9 @@
                 <input type="text" id="sub-quick-input" maxlength="500" aria-label="快速记一笔活动安排"
                        placeholder="快速记一笔活动安排，如：下周三去杭州团建 #团建 @小王"
                        autocomplete="off"
-                       class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
+                       class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-base focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
                 <button type="button" id="sub-quick-parse-btn"
-                        class="btn-accent shrink-0 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
+                        class="btn-accent tap-target shrink-0 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
                     解析
                 </button>
             </div>
@@ -246,8 +246,8 @@
                 <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]"></div>
                 <div class="flex flex-wrap items-center gap-2 mt-3">
                     <button type="button" id="sub-quick-confirm-btn"
-                            class="btn-accent rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">确认创建活动安排</button>
-                    <button type="button" id="sub-quick-close-btn" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1" title="收起">&#10005;</button>
+                            class="btn-accent tap-target rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">确认创建活动安排</button>
+                    <button type="button" id="sub-quick-close-btn" class="tap-target text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1" title="收起">&#10005;</button>
                     <span id="sub-quick-source" class="ml-auto text-xs text-[var(--text-muted)]"></span>
                 </div>
             </div>
@@ -265,22 +265,22 @@
                     <div class="md:col-span-2">
                         <label for="sub-manual-name" class="block text-xs text-[var(--text-muted)] mb-1">名称 <span class="text-[var(--text-secondary)]">*</span></label>
                         <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="活动安排名称" autocomplete="off" aria-label="活动安排名称"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-start" class="block text-xs text-[var(--text-muted)] mb-1">开始日期</label>
                         <input type="date" id="sub-manual-start" name="start_date" aria-label="活动安排开始日期"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-end" class="block text-xs text-[var(--text-muted)] mb-1">结束日期</label>
                         <input type="date" id="sub-manual-end" name="end_date" aria-label="活动安排结束日期"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-status" class="block text-xs text-[var(--text-muted)] mb-1">状态</label>
                         <select id="sub-manual-status" name="status" aria-label="活动安排状态"
-                                class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+                                class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                             {% for value, label in status_choices %}
                             <option value="{{ value }}" {% if value == 'planned' %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
@@ -289,12 +289,12 @@
                     <div>
                         <label for="sub-manual-amount" class="block text-xs text-[var(--text-muted)] mb-1">费用金额</label>
                         <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选" aria-label="活动安排金额（可选）"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-tags" class="block text-xs text-[var(--text-muted)] mb-1">标签</label>
                         <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排标签"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                         <datalist id="sub-manual-tag-options">
                             {% for tag_name in tag_suggestions %}<option value="{{ tag_name }}"></option>{% endfor %}
                         </datalist>
@@ -302,7 +302,7 @@
                     <div>
                         <label for="sub-manual-participants" class="block text-xs text-[var(--text-muted)] mb-1">参与者</label>
                         <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排参与者"
-                               class="tap-target w-full rounded-md border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                         <datalist id="sub-manual-participant-options">
                             {% for p_name in participant_suggestions %}<option value="{{ p_name }}"></option>{% endfor %}
                         </datalist>
@@ -352,7 +352,7 @@
         <!-- 图片附件网格 -->
         {% for att in attachments %}
             {% if att.is_image %}
-            <div class="relative group rounded-lg overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(50%-0.25rem)] mb-3 align-top">
+            <div class="relative group rounded-xl overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(50%-0.25rem)] mb-3 align-top">
                 <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
                 <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
                     <a href="{{ att.file.url }}" target="_blank" class="row-action text-white text-xs hover:underline">查看原图</a>
@@ -442,7 +442,7 @@
                 <div class="space-y-2">
                     {% for item in related_articles %}
                     <a href="{% url 'knowledge:article_detail' item.object.slug %}"
-                       class="block p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
+                       class="block p-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
                         <p class="text-sm text-[var(--text)] truncate">{{ item.object.title }}</p>
                         <p class="text-xs text-[var(--text-muted)]">{{ item.score }} 个共同标签</p>
                     </a>
@@ -477,7 +477,7 @@
             <span>操作历史（{{ logs|length }}）</span>
             <span class="text-[var(--text-muted)]">&#9654;</span>
         </summary>
-        <div class="px-6 pb-4 space-y-1.5 border-t border-[var(--border)] pt-3">
+        <div class="px-6 pb-4 space-y-2 border-t border-[var(--border)] pt-3">
             {% for log in logs %}
             <p class="text-xs text-[var(--text-muted)]">
                 {{ log.created_at|date:"Y-m-d H:i" }} · {{ log.user.username }} · {{ log.get_action_display }}{% if log.summary %} · <span class="text-[var(--text-muted)]">{{ log.summary }}</span>{% endif %}
@@ -701,7 +701,7 @@ function appendExpenseTag(name) {
     <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <span id="ask-drawer-title" class="font-medium text-sm text-[var(--text)] truncate min-w-0">问 AI</span>
         <button type="button" id="ask-drawer-close"
-                class="tap-target shrink-0 text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-2" aria-label="关闭">&times;</button>
+                class="tap-target shrink-0 text-[var(--text-muted)] hover:text-[var(--text)] text-base leading-none px-2" aria-label="关闭">&times;</button>
     </div>
     <div id="ask-drawer-messages" class="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
         <p class="text-center text-sm text-[var(--text-muted)] py-6">正在打开对话…</p>
@@ -711,7 +711,7 @@ function appendExpenseTag(name) {
         {% csrf_token %}
         <div class="flex items-end gap-2">
             <textarea id="ask-drawer-input" rows="1" data-auto-grow placeholder="问点什么…（Enter 换行）"
-                class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+                class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-base text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
             <button type="submit"
                 class="tap-target rounded-xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-[var(--bg)] hover:opacity-90 transition-opacity">发送</button>
         </div>

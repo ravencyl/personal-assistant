@@ -2153,8 +2153,8 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
 
     DESKTOP = '(min-width: 768px)'
     MOBILE = '(max-width: 767px)'
-    # 气泡元素的 class 属性串（用 rounded-lg p-3 md:p-4 这组工具类认出本体）
-    BUBBLE_CLASS = re.compile(r'class="([^"]*rounded-lg p-3 md:p-4[^"]*)"')
+    # 气泡元素的 class 属性串（用 rounded-xl p-3 md:p-4 这组工具类认出本体）
+    BUBBLE_CLASS = re.compile(r'class="([^"]*rounded-xl p-3 md:p-4[^"]*)"')
 
     @classmethod
     def setUpClass(cls):
@@ -2234,7 +2234,7 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
         from core.layout_asserts import code_only
         root = Path(__file__).resolve().parent.parent / 'templates'
         copiers = sorted(str(p.relative_to(root)) for p in root.rglob('*.html')
-                         if 'rounded-lg p-3 md:p-4' in code_only(p.read_text(encoding='utf-8')))
+                         if 'rounded-xl p-3 md:p-4' in code_only(p.read_text(encoding='utf-8')))
         self.assertEqual(copiers, ['chat/partials/_message.html',
                                    'chat/partials/turn_error.html'],
                          '气泡本体样式被抄了第三份：移动端的覆盖会漏掉新处')

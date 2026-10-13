@@ -33,7 +33,7 @@
             </div>
             {% if item.tags %}
             <div class="mt-0.5 flex flex-wrap gap-1">
-                {% for tag in item.tags %}<span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-light)] text-[var(--text-muted)]">{{ tag }}</span>{% endfor %}
+                {% for tag in item.tags %}<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent-light)] text-[var(--text-muted)]">{{ tag }}</span>{% endfor %}
             </div>
             {% endif %}
         </a>
@@ -71,7 +71,7 @@
         <p class="text-xs font-medium text-[var(--text-muted)]">相关记忆</p>
         {% for item in card.today_memories %}
         <div class="mt-1 flex items-start gap-2">
-            <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-light)] text-[var(--text-muted)]">{{ item.category }}</span>
+            <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent-light)] text-[var(--text-muted)]">{{ item.category }}</span>
             <p class="text-xs text-[var(--text-secondary)] min-w-0">{{ item.content }}</p>
         </div>
         {% endfor %}

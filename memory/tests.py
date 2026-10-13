@@ -928,7 +928,7 @@ class MemoryDisplayFixesTest(TestCase):
         src = self._read('_memory_items.html')
         self.assertEqual(src.count('aria-label="编辑这条记忆"'), 1)
         self.assertEqual(src.count('aria-label="删除这条记忆"'), 1)
-        self.assertEqual(src.count('tap-target rounded p-1.5'), 2,
+        self.assertEqual(src.count('tap-target rounded-xl p-1.5'), 2,
                          '两个图标按钮都要有 tap-target，少一个就是又漏一个')
 
     def test_importance_rendered_as_tier(self):

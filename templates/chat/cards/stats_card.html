@@ -14,7 +14,7 @@
         {% endif %}
         {% endfor %}
     </div>
-    <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
+    <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[var(--text-muted)]">
         {% for s in card.status_dist %}
         <span class="inline-flex items-center gap-1">
             <span class="w-1.5 h-1.5 rounded-full status-bg--{{ s.status }}"></span>
@@ -41,7 +41,7 @@
     {% if card.tags_top %}
     <div class="mt-2.5 pt-2 border-t border-[var(--border)] flex flex-wrap gap-1.5">
         {% for t in card.tags_top %}
-        <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]"># {{ t.name }} · {{ t.count }}</span>
+        <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ t.name }} · {{ t.count }}</span>
         {% endfor %}
     </div>
     {% endif %}

@@ -20,7 +20,7 @@
                 <button type="button" data-sidebar-toggle aria-expanded="true" aria-controls="chat-layout"
                         title="收起会话列表"
                         class="tap-target hidden md:flex w-8 h-8 shrink-0 rounded-full items-center justify-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent-light)]">&#9776;</button>
-                <h1 class="text-lg font-bold text-[var(--text)] truncate">AI 对话</h1>
+                <h1 class="text-xl font-bold text-[var(--text)] truncate">AI 对话</h1>
             </div>
             <form method="post" action="{% url 'chat:create_conversation' %}" class="shrink-0">
                 {% csrf_token %}
@@ -91,12 +91,12 @@
                         <div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-24">
                             <form method="post" action="{% url 'chat:archive_conversation' conv.id %}">
                                 {% csrf_token %}
-                                <button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button>
+                                <button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button>
                             </form>
                             <form method="post" action="{% url 'chat:conversation_delete' conv.id %}"
                                   data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
                                 {% csrf_token %}
-                                <button type="submit" class="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button>
+                                <button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button>
                             </form>
                         </div>
                     </details>
@@ -127,7 +127,7 @@
                 class="flex md:hidden w-7 h-7 -my-1 -ml-1 rounded-full items-center justify-center text-base text-[var(--text-secondary)] hover:text-[var(--text)]" title="返回列表">
             &larr;
         </button>
-        <h2 class="text-xs font-bold text-[var(--text)] truncate flex-1" id="split-chat-title">
+        <h2 class="text-sm font-semibold text-[var(--text)] truncate flex-1" id="split-chat-title">
             {{ active_conversation.title|default:'' }}
         </h2>
         {# 桌面端侧栏折叠：把空间还给消息流（状态存 localStorage，移动端不显示） #}
@@ -143,7 +143,7 @@
                     {# 菜单里只剩工作台卡；委托在 chat-turn.js，点击后由本页底部监听收起菜单 #}
                     <p class="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--text-muted)]">插入卡片</p>
                     <button type="button" data-local-card="today_brief"
-                            class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">工作台卡</button>
+                            class="tap-target w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">工作台卡</button>
                     <div class="my-1 border-t border-[var(--border)]"></div>
                     <form id="split-rename-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_rename' active_conversation.id %}{% endif %}">
                         {% csrf_token %}
@@ -151,16 +151,16 @@
                             <input type="text" name="title" value="{{ active_conversation.title|default:'' }}" maxlength="255" placeholder="对话名称"
                                 class="input-compact w-full rounded-full border border-[var(--border-strong)] px-2.5 py-1.5 text-xs bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
                         </div>
-                        <button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">保存名称</button>
+                        <button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">保存名称</button>
                     </form>
                     <form id="split-archive-form" method="post" action="{% if active_conversation %}{% url 'chat:archive_conversation' active_conversation.id %}{% endif %}">
                         {% csrf_token %}
-                        <button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button>
+                        <button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button>
                     </form>
                     <form id="split-delete-form" method="post" action="{% if active_conversation %}{% url 'chat:conversation_delete' active_conversation.id %}{% endif %}"
                           data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除">
                         {% csrf_token %}
-                        <button type="submit" class="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button>
+                        <button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button>
                     </form>
                 </div>
             </details>
@@ -184,7 +184,7 @@
         {% else %}
         {# 空状态占位（JS 切换对话时会替换此内容） #}
         <div id="split-empty-state" class="flex h-full flex-col items-center justify-center text-center px-4">
-            <p class="text-lg font-medium text-[var(--text)]">选择一个对话开始</p>
+            <p class="text-xl font-bold text-[var(--text)]">选择一个对话开始</p>
             <p class="mt-2 text-sm text-[var(--text-muted)]">从左侧列表选择已有对话，或点击「+ 新建」创建</p>
         </div>
         {% endif %}
@@ -201,15 +201,15 @@
         {# chatId 由 location.pathname 解析，切对话 replaceState 后天然跟随；无会话时不渲染 #}
         <div class="mb-2">
             <button type="button" data-local-card="daily_brief"
-                    class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">每日简报</button>
+                    class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">每日简报</button>
         </div>
         {% endif %}
         <div class="flex items-end gap-2">
             <textarea name="content" id="split-input" rows="1" data-auto-grow autofocus
                 placeholder="输入消息…（Enter 换行）"
-                class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-2.5 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+                class="chat-input flex-1 border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-2.5 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
             <button type="submit"
-                class="tap-target rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
+                class="tap-target bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
                 发送
             </button>
         </div>
@@ -494,9 +494,9 @@
             '<summary class="tap-target w-8 h-8 rounded-full flex items-center justify-center text-base leading-none text-[var(--text-muted)] cursor-pointer select-none list-none" title="更多操作">&#8943;</summary>' +
             '<div class="absolute right-0 top-full mt-1 z-20 panel bg-[var(--bg-card)] py-1 w-24">' +
             '<form method="post"><input type="hidden" name="csrfmiddlewaretoken">' +
-            '<button type="submit" class="w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button></form>' +
+            '<button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">归档</button></form>' +
             '<form method="post" data-confirm="确定删除这个对话吗？所有消息都会丢失。" data-confirm-tone="danger" data-confirm-label="确认删除"><input type="hidden" name="csrfmiddlewaretoken">' +
-            '<button type="submit" class="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button></form>' +
+            '<button type="submit" class="tap-target w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-[var(--accent-light)]">删除</button></form>' +
             '</div></details>';
         // onclick="event.stopPropagation()" 改监听器（DOM 构建口径下不再有内联字符串属性）
         var details = box.content ? box.content.firstElementChild : box.firstElementChild;

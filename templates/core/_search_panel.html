@@ -2,12 +2,12 @@
 <!-- 空状态：显示快捷操作 -->
 <div class="space-y-1">
     <p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>
-    <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-        <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
+    <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+        <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
         <span class="text-sm text-[var(--text)]">新建活动</span>
     </a>
-    <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-        <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
+    <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+        <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
         <span class="text-sm text-[var(--text)]">写备忘</span>
     </a>
 </div>
@@ -23,8 +23,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">活动</p>
         {% for a in results.activities %}
-        <a href="{% url 'activities:activity_detail' a.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📋</span>
+        <a href="{% url 'activities:activity_detail' a.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📋</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ a.name }}</p>
                 {% if a.description %}<p class="text-xs text-[var(--text-muted)] truncate">{{ a.description|truncatechars:40 }}</p>{% endif %}
@@ -39,8 +39,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">知识库</p>
         {% for a in results.articles %}
-        <a href="{% url 'knowledge:article_detail' a.slug %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📖</span>
+        <a href="{% url 'knowledge:article_detail' a.slug %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📖</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ a.title }}</p>
                 <p class="text-xs text-[var(--text-muted)] truncate">{{ a.content|truncatechars:40 }}</p>
@@ -55,8 +55,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">备忘</p>
         {% for n in results.notes %}
-        <a href="{% url 'notes:note_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📝</span>
+        <a href="{% url 'notes:note_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📝</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ n.content|truncatechars:60 }}</p>
             </div>
@@ -70,8 +70,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">对话</p>
         {% for c in results.conversations %}
-        <a href="{% url 'chat:conversation_list_with_active' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">💬</span>
+        <a href="{% url 'chat:conversation_list_with_active' c.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">💬</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ c.title }}</p>
             </div>
@@ -85,8 +85,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">消息记录</p>
         {% for msg, conv in results.messages %}
-        <a href="{% url 'chat:conversation_list_with_active' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">💬</span>
+        <a href="{% url 'chat:conversation_list_with_active' conv.id %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">💬</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ msg.content|truncatechars:60 }}</p>
                 <p class="text-xs text-[var(--text-muted)]">{{ conv.title }}</p>
@@ -101,8 +101,8 @@
     <div>
         <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">记忆</p>
         {% for m in results.memories %}
-        <a href="{% url 'memory:memory_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">🧠</span>
+        <a href="{% url 'memory:memory_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
+            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">🧠</span>
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ m.content|truncatechars:60 }}</p>
                 <p class="text-xs text-[var(--text-muted)]">{{ m.get_category_display }}</p>
