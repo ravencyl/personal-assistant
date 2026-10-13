@@ -130,9 +130,6 @@ class ActivityLog(models.Model):
         ('deleted', '删除了活动'),
         ('sub_created', '创建了活动安排'),
         ('status_changed', '修改了状态'),
-        # 「评论」功能已于 2026-10-13 整体下线，但线上仍有历史 commented 日志行，
-        # 保留这个 choice 只为了详情页时间线能把旧日志渲染成人话（纯展示，不再写入）
-        ('commented', '评论了活动'),
     ]
 
     user = models.ForeignKey(

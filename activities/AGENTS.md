@@ -81,8 +81,8 @@ suggestions = tag_suggestions('expense', request.user)  # 活跃标签 ∪ 用�
 `comments_count`·`comments`·`add_comment_url`·`is_blocked`·`blocking_names`、
 Daily 的 `_annotate_blocked` 与「等待前置」徽标、详情页评论卡与前置依赖卡。
 
-**唯一有意保留的残留**：`ActivityLog.ACTION_CHOICES` 里的 `('commented', '评论了活动')`。
-线上仍有 9 条历史评论日志，删掉 choice 会让详情页时间线把这些行渲染成空白；
-它现在纯展示，没有任何写入路径。
+**日志残留也已在 0028 清掉**：历史 `commented` 操作日志随数据迁移删除，
+`ActivityLog.ACTION_CHOICES` 里的 `commented` choice 一并移除（同日用户决定），
+不要以「兼容旧数据」为由加回来。
 
 防复活锁：`activities/tests.py::DependencyAndCommentRemovedTest`（字段/路由/工具/模板/源码五组静态断言）。

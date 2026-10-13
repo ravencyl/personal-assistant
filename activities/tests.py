@@ -2872,11 +2872,15 @@ class DependencyAndCommentRemovedTest(SimpleTestCase):
     含数据一并删除）。防复活静态锁：字段、路由、Agent 工具、详情页 UI、依赖图 JS
     都不得回来。
 
-    唯一有意保留的残留是 `ActivityLog.ACTION_CHOICES` 里的 `commented`：线上仍有
-    9 条历史评论日志，删掉 choice 会让详情页时间线渲染成空白（纯展示，不再写入）。
+    历史 commented 日志已由 0028 数据迁移清空，`ACTION_CHOICES` 里的
+    `commented` 也一并删除——这条锁防的是 choice 以「兼容旧数据」为由回来。
     """
 
     ROOT = Path(settings.BASE_DIR)
+
+    def test_commented_choice_removed_from_activity_log(self):
+        from activities.models import ActivityLog
+        self.assertNotIn('commented', dict(ActivityLog.ACTION_CHOICES))
 
     def test_model_has_no_dependency_field_or_comment_model(self):
         from activities import models
