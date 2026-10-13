@@ -256,9 +256,13 @@ class AgentToolMemoryUpdateTest(TestCase):
         return tool['fn']
 
     def test_update_content_by_keyword(self):
+        """改内容走取代链：旧条 superseded，新条 active（原位覆盖已废弃）"""
         result = self._tool()(self.user, {'target': '健身', 'content': '每周二晚上健身'})
         self.m1.refresh_from_db()
-        self.assertEqual(self.m1.content, '每周二晚上健身')
+        self.assertEqual(self.m1.status, 'superseded')
+        new = Memory.objects.get(user=self.user, content='每周二晚上健身')
+        self.assertEqual(self.m1.superseded_by, new)
+        self.assertEqual(new.status, 'active')
         self.assertIn('每周二晚上健身', result['reply'])
 
     def test_update_category_and_importance(self):
@@ -297,7 +301,9 @@ class AgentToolMemoryUpdateTest(TestCase):
     def test_pick_replay_by_target_id(self):
         self._tool()(self.user, {'target_id': self.m1.id, 'content': '每周五晚上健身'})
         self.m1.refresh_from_db()
-        self.assertEqual(self.m1.content, '每周五晚上健身')
+        self.assertEqual(self.m1.status, 'superseded')
+        new = Memory.objects.get(user=self.user, content='每周五晚上健身')
+        self.assertEqual(self.m1.superseded_by, new)
 
     def test_pick_replay_missing_target_raises(self):
         from core.agent_registry import ToolError
@@ -1083,8 +1089,17 @@ class MemoryIndexContextTest(TestCase):
         ctx = self._ctx()
         self.assertIn('住在杭州', ctx)
 
-    def test_episodic_never_enters_constant_injection(self):
-        self.assertNotIn('讨论了搬家', self._ctx())
+    def test_recent_three_episodes_injected_older_not(self):
+        """episodic 不进语义索引，但最近 3 条以单行进「最近聊过」块（跨会话
+        连续性，PRD §5.1 RECENT CONTINUITY）；第 4 条及更早不进"""
+        for i in range(3):
+            Memory.objects.create(user=self.user, content=f'最近情景{i}号',
+                                  type='episodic', importance=4)
+        ctx = self._ctx()
+        self.assertIn('最近聊过的事', ctx)
+        self.assertIn('最近情景2号', ctx)   # 创建最晚 = 最近一条
+        # setUp 里那条「讨论了搬家」排在 3 条新情景之后（最旧），不注入
+        self.assertNotIn('讨论了搬家', ctx)
 
     def test_non_active_and_sensitive_are_excluded(self):
         ctx = self._ctx()
@@ -1120,3 +1135,226 @@ class LegacyRowDefaultsTest(TestCase):
         self.assertEqual(memory.status, 'active')
         self.assertEqual(memory.sensitivity, 'normal')
         self.assertFalse(memory.review_flag)
+
+
+class SupersedeTest(TestCase):
+    """取代链（PRD §5.4）：改写记忆不原位覆盖，旧条保留可回溯"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('superseder', password='p')
+        self.old = Memory.objects.create(
+            user=self.user, content='在杭州工作', category='fact', importance=6)
+
+    def test_content_change_supersedes_old(self):
+        from .services import supersede_memory
+        from memory.models import MemoryAudit
+        action, new, _ = supersede_memory(
+            self.user, self.old,
+            {'content': '已搬到上海工作', 'category': 'fact', 'importance': 6,
+             'type': 'semantic', 'confidence': 0.8})
+        self.assertEqual(action, 'written')
+        self.old.refresh_from_db()
+        self.assertEqual(self.old.status, 'superseded')
+        self.assertEqual(self.old.superseded_by, new)
+        self.assertEqual(self.old.invalid_at, timezone.localdate())
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='supersede', memory=new).exists())
+
+    def test_restatement_merges_instead_of_superseding(self):
+        """重述（内容高度一致）不是变更：走合并计数，旧条保持 active"""
+        from .services import supersede_memory
+        action, memory, _ = supersede_memory(
+            self.user, self.old, {'content': self.old.content})
+        self.assertEqual(action, 'merged')
+        self.assertIs(memory, self.old)
+        self.old.refresh_from_db()
+        self.assertEqual(self.old.status, 'active')
+
+    def test_tool_update_routes_through_supersede(self):
+        """memory.update 工具：改内容 → 旧条 superseded + 新条 active"""
+        from .agent_tools import tool_memory_update
+        result = tool_memory_update(
+            self.user, {'target_id': self.old.id, 'content': '已搬到上海工作'})
+        self.assertIn('取代', result['reply'])
+        self.old.refresh_from_db()
+        new = Memory.objects.get(user=self.user, content='已搬到上海工作')
+        self.assertEqual(self.old.status, 'superseded')
+        self.assertEqual(self.old.superseded_by, new)
+        self.assertEqual(new.status, 'active')
+
+    def test_tool_update_denied_by_denylist_leaves_old_intact(self):
+        from .agent_tools import tool_memory_update
+        result = tool_memory_update(
+            self.user, {'target_id': self.old.id,
+                        'content': '新身份证号是110101199003077777'})
+        self.assertIn('不会把它存进记忆', result['reply'])
+        self.old.refresh_from_db()
+        self.assertEqual(self.old.status, 'active')
+        self.assertFalse(Memory.objects.filter(
+            user=self.user, content__icontains='110101').exists())
+
+    def test_tool_void_writes_audit_before_delete(self):
+        from .agent_tools import tool_memory_update
+        from .models import MemoryAudit
+        result = tool_memory_update(self.user, {'target_id': self.old.id,
+                                                'void': True})
+        self.assertIn('已忘掉', result['reply'])
+        self.assertFalse(Memory.objects.filter(id=self.old.id).exists())
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='forget',
+            detail__icontains='在杭州工作').exists())
+
+
+class MemoryAuditTrailTest(TestCase):
+    """gate_and_write 的写入/合并必须落 append-only 审计"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('auditee', password='p')
+
+    def test_write_and_merge_leave_audit_rows(self):
+        from .services import gate_and_write
+        from .models import MemoryAudit
+        gate_and_write(self.user, {'content': '喜欢简洁排版', 'confidence': 0.9})
+        gate_and_write(self.user, {'content': '喜欢简洁排版', 'confidence': 0.9})
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='write').exists())
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='merge').exists())
+
+    def test_audit_survives_memory_hard_delete(self):
+        """审计行是「它记过什么」的最终凭证：记忆硬删后行仍在（SET_NULL）"""
+        from .services import gate_and_write
+        from .models import MemoryAudit
+        _, memory, _ = gate_and_write(
+            self.user, {'content': '临时事实甲', 'confidence': 0.9})
+        memory.delete()
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='write', memory=None,
+            detail__icontains='临时事实甲').exists())
+
+    def test_candidate_writes_candidate_audit(self):
+        from .services import gate_and_write
+        from .models import MemoryAudit
+        gate_and_write(self.user, {'content': '可能在准备考证',
+                                   'confidence': 0.45})
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='candidate').exists())
+
+
+class SweepMemoriesTest(TestCase):
+    """遗忘批扫（PRD §5.5）：TTL 过期 / 取代清除 / 低分归档与降级"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('swept', password='p')
+
+    def _backdate(self, memory, days):
+        Memory.objects.filter(id=memory.id).update(
+            updated_at=timezone.now() - timedelta(days=days))
+
+    def test_episodic_past_ttl_expires(self):
+        from memory.management.commands.sweep_memories import EPISODIC_TTL_DAYS
+        m = Memory.objects.create(user=self.user, content='旧情景',
+                                  type='episodic', importance=4)
+        self._backdate(m, EPISODIC_TTL_DAYS + 10)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'expired')
+
+    def test_fresh_episodic_survives(self):
+        Memory.objects.create(user=self.user, content='新情景',
+                              type='episodic', importance=4)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        self.assertEqual(Memory.objects.get(
+            content='新情景').status, 'active')
+
+    def test_superseded_past_purge_age_is_hard_deleted_with_audit(self):
+        from memory.management.commands.sweep_memories import SUPERSEDED_PURGE_DAYS
+        from .models import MemoryAudit
+        m = Memory.objects.create(user=self.user, content='旧版本事实',
+                                  status='superseded', importance=5)
+        self._backdate(m, SUPERSEDED_PURGE_DAYS + 10)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        self.assertFalse(Memory.objects.filter(id=m.id).exists())
+        self.assertTrue(MemoryAudit.objects.filter(
+            user=self.user, action='purge',
+            detail__icontains='旧版本事实').exists())
+
+    def test_low_score_never_recalled_old_entry_is_archived(self):
+        m = Memory.objects.create(user=self.user, content='低分旧条',
+                                  importance=3, access_count=0)
+        self._backdate(m, 120)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'archived')
+
+    def test_mid_score_entry_is_demoted_to_low_salience(self):
+        m = Memory.objects.create(user=self.user, content='中分条目',
+                                  importance=4, access_count=0)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        m.refresh_from_db()
+        self.assertEqual(m.salience, 'low')
+        self.assertEqual(m.status, 'active')
+
+    def test_high_score_entry_untouched(self):
+        m = Memory.objects.create(user=self.user, content='高分核心条目',
+                                  importance=9, confidence=0.9,
+                                  salience='high', access_count=15)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'active')
+        self.assertEqual(m.salience, 'high')
+
+    def test_dry_run_changes_nothing(self):
+        m = Memory.objects.create(user=self.user, content='旧情景dry',
+                                  type='episodic', importance=4)
+        self._backdate(m, 999)
+        from django.core.management import call_command
+        call_command('sweep_memories', '--dry-run')
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'active')
+
+    def test_sweep_skips_sensitive_entries(self):
+        """敏感条目即使低分也不进自动批扫——隐私数据的去留只归 owner"""
+        m = Memory.objects.create(user=self.user, content='记着的用药记录',
+                                  importance=3, access_count=0,
+                                  sensitivity='sensitive')
+        self._backdate(m, 120)
+        from django.core.management import call_command
+        call_command('sweep_memories')
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'active')
+
+
+class MemoryExportTest(TestCase):
+    """一键导出（PRD §9.1：owner 拥有全部数据的导出权）"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('exporter', password='p')
+        Memory.objects.create(user=self.user, content='住在杭州',
+                              category='fact', importance=6)
+        Memory.objects.create(user=self.user, content='旧住址在北京',
+                              status='superseded', importance=5)
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_export_returns_markdown_attachment(self):
+        resp = self.client.get(reverse('memory:memory_export'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('text/markdown', resp['Content-Type'])
+        self.assertIn('attachment', resp['Content-Disposition'])
+        body = resp.content.decode('utf-8')
+        self.assertIn('住在杭州', body)
+        # 取代链也导出（「我认为过什么」是完整历史）
+        self.assertIn('旧住址在北京', body)
+        self.assertIn('已取代', body)
+
+    def test_export_requires_login(self):
+        anon = Client()
+        resp = anon.get(reverse('memory:memory_export'))
+        self.assertEqual(resp.status_code, 302)

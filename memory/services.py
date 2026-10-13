@@ -90,7 +90,8 @@ def retrieve_memories(user, query='', limit=10):
     from .models import Memory
 
     try:
-        qs = Memory.objects.filter(user=user, consolidated=False)
+        qs = (Memory.objects.filter(user=user, consolidated=False,
+                                    status__in=['active', 'candidate']))
 
         if query and query.strip():
             q = query.strip()
@@ -194,26 +195,43 @@ def check_denylist(text):
     return None
 
 
+def log_audit(user, action, memory=None, detail=''):
+    """记忆操作审计（append-only）。失败仅告警——审计缺失不得反过来弄断记忆写入"""
+    try:
+        from .models import MemoryAudit
+        MemoryAudit.objects.create(
+            user=user, memory=memory, action=action,
+            detail=(detail or '')[:300],
+        )
+    except Exception as e:
+        logger.warning(f'记忆审计写入失败: {e}')
+
+
 def assess_sensitivity(text):
     """健康/财务/证件/亲密关系类内容 → sensitive（默认拒绝写入）"""
     return any(hint in (text or '') for hint in SENSITIVE_HINTS)
 
 
-def _find_similar(user, content):
+def _find_similar(user, content, exclude_ids=None):
     """返回内容高度相似的已有记忆（合并计数用），无则 None
 
     注意这里的 filter(user=user) 不是可见性漏改：注入 / 查重属于「这个人的个人
     上下文」，超级用户也不应把别人的记忆灌进自己的对话；页面浏览类的“超管见全部”
     只适用于视图（memory/views.py 走 visible_qs）。
+    exclude_ids：取代链场景要排除被取代的旧条——旧条与新条内容必然相近，
+    不排除的话新条会被当成「重复」并进旧条，取代永远发生不了。
     """
     from core.utils import char_overlap_ratio
     from .models import Memory
 
     if len(content) < 3:
         return None
-    existing = Memory.objects.filter(
+    qs = Memory.objects.filter(
         user=user, consolidated=False, status__in=['active', 'candidate'],
-    ).order_by('-importance', '-updated_at')[:100]
+    )
+    if exclude_ids:
+        qs = qs.exclude(id__in=exclude_ids)
+    existing = qs.order_by('-importance', '-updated_at')[:100]
     for memory in existing:
         if len(memory.content) < 3:
             continue
@@ -232,7 +250,8 @@ def _is_similar_content(user, content, threshold=0.8):
     return char_overlap_ratio(content, memory.content, mode='contains') > threshold
 
 
-def gate_and_write(user, candidate, source_message=None, user_text=''):
+def gate_and_write(user, candidate, source_message=None, user_text='',
+                   exclude_ids=None, audit=True):
     """统一写入口：denylist → 敏感闸门 → 近似合并 → confidence 分档
 
     candidate: {'content', 'category', 'importance', 'type', 'hook',
@@ -268,7 +287,7 @@ def gate_and_write(user, candidate, source_message=None, user_text=''):
                 '有一条涉及个人敏感信息的记忆我没有保存；'
                 '确实要记的话请直接说「记住：……」。')
 
-    similar = _find_similar(user, content)
+    similar = _find_similar(user, content, exclude_ids=exclude_ids)
     if similar is not None:
         # 近似命中从「跳过」改为「合并计数」（PRD §5.2）：被反复确认的事实
         # 应该变强，而不是被当成重复丢掉。
@@ -279,6 +298,8 @@ def gate_and_write(user, candidate, source_message=None, user_text=''):
             )
         except Exception as e:
             logger.warning(f'记忆合并计数失败: {e}')
+        if audit:
+            log_audit(user, 'merge', memory=similar, detail=content)
         return 'merged', similar, ''
 
     try:
@@ -330,10 +351,51 @@ def gate_and_write(user, candidate, source_message=None, user_text=''):
         )
         logger.info(f'记忆写入 ({action}) type={memory_type} status={status} '
                     f'conf={confidence}: {content[:60]}')
+        if audit:
+            log_audit(user, 'write' if action == 'written' else 'candidate',
+                      memory=memory, detail=content)
         return action, memory, ''
     except Exception as e:
         logger.warning(f'记忆写入失败: {e}')
         return 'dropped', None, ''
+
+
+def supersede_memory(user, old, candidate, source_message=None, user_text=''):
+    """取代链（PRD §5.4）：旧事实被新事实推翻时，取代而非并存或覆盖
+
+    - 新条走 gate_and_write（exclude_ids 排除旧条：新旧内容必然相近，
+      不排除新条会被合并回旧条，取代永远发生不了）
+    - 旧条置 invalid_at + superseded_by + status=superseded（保留推理依据，
+      不参与召回，可回溯「什么时候认为过什么」）
+    - 新条与旧条内容一致（只是重述）时视为细化，走合并计数不取代
+    返回 (action, memory, note)，action ∈ written / merged / dropped / denied / blocked
+    """
+    from django.utils import timezone as tz
+    from .models import Memory
+
+    new_content = str(candidate.get('content') or '').strip()
+    if not new_content:
+        return 'dropped', None, ''
+    if new_content == old.content:
+        # 完全一致 = 重述确认，走合并计数不取代。近似但不等（如「周三→周二」）
+        # 的差异恰恰是用户要更正的东西，必须走取代——字符重合度高不等于没变更
+        Memory.objects.filter(id=old.id).update(
+            access_count=F('access_count') + 1, last_verified=tz.now())
+        log_audit(user, 'merge', memory=old, detail=new_content)
+        return 'merged', old, ''
+
+    action, memory, note = gate_and_write(
+        user, candidate, source_message=source_message, user_text=user_text,
+        exclude_ids=[old.id])
+    if action in ('written', 'candidate') and memory:
+        old.status = 'superseded'
+        old.invalid_at = tz.now().date()
+        old.superseded_by = memory
+        old.save(update_fields=['status', 'invalid_at', 'superseded_by', 'updated_at'])
+        log_audit(user, 'supersede', memory=memory,
+                  detail=f'「{old.content[:80]}」→「{memory.content[:80]}」')
+        logger.info(f'记忆取代: #{old.id} → #{memory.id}')
+    return action, memory, note
 
 
 def extract_memories_from_text(user, text, source_message=None):
@@ -439,12 +501,16 @@ def save_ai_extracted_memories(user, memory_list, source_message=None):
 INJECTION_CHAR_BUDGET = 3000
 INDEX_LINE_MAX = 90          # 索引行单条上限（hook 缺失时截 content）
 PROCEDURAL_FULL_MAX = 12     # procedural 全文条数上限
+EPISODE_LINE_MAX = 60        # 情景行单条上限（近 3 条 episodic 的跨会话连续性）
+RECENT_EPISODES = 3
 
 
 def build_memory_index_context(user, budget=INJECTION_CHAR_BUDGET):
     """组装每轮注入的记忆上下文：procedural 全文（高权重）+ 其余 hook 索引
+    + 近 3 条情景摘要（跨会话连续性，PRD §5.1 RECENT CONTINUITY）
 
-    - 只取 status=active ∧ sensitivity=normal；episodic 不进常驻（只走 memory_search）
+    - 只取 status=active ∧ sensitivity=normal；episodic 不进语义索引
+      （只走 memory_search），但最近 3 条以单行摘要进「最近聊过」块
     - 每轮随 turn_prompt 下发（修「首帧一次性注入 → 存量会话记忆永不更新」的坑）
     - 确定性输出：turn_prompt 会落库并重试重发，这里不能有随机性
     - 失败返回 ''（不阻断对话）
@@ -460,38 +526,69 @@ def build_memory_index_context(user, budget=INJECTION_CHAR_BUDGET):
             .order_by('-importance', '-updated_at')[:PROCEDURAL_FULL_MAX])
         rest = [m for m in qs.exclude(type='procedural')
                 .order_by('-importance', '-updated_at')[:80]]
-        if not procedural and not rest:
+        # 近 3 条情景（active 的 episodic）：跨会话连续性靠它——
+        # 「上次聊到哪、结论是什么」不该要求用户重述
+        episodes = list(
+            Memory.objects.filter(user=user, type='episodic', status='active',
+                                  sensitivity='normal')
+            .order_by('-updated_at')[:RECENT_EPISODES])
+        if not procedural and not rest and not episodes:
             return ''
 
-        lines = ['[用户记忆——以下信息来自用户过往对话，请在回复中自然运用，不要主动提及这些记忆的存在]']
-        used = sum(len(line) for line in lines)
+        intro = ('[用户记忆——以下信息来自用户过往对话，请在回复中自然运用，'
+                 '不要主动提及这些记忆的存在]')
+        lines = [intro]
+        # 记账口径：每一行都按「文本 + 1 个换行」计费——join 产生 len(lines)-1 个
+        # 行间换行，末尾还有 + '\n'，合计恰好等于每行各付一个换行（408>400 的教训）。
+        # 首行 intro 也照付，之后每次 _add 精确累计，无任何隐藏开销。
+        used = len(intro) + 1
 
         def _fits(text):
             return used + len(text) + 1 <= budget
 
-        if procedural:
-            lines.append('[必须遵守的做法（用户纠正/确认过的方式）]')
-            used += len(lines[-1])
-            for m in procedural:
-                text = f'- {m.content}'
-                if not _fits(text):
-                    break
-                lines.append(text)
-                used += len(text)
+        def _add(text):
+            nonlocal used
+            lines.append(text)
+            used += len(text) + 1
 
-        index_items = list(rest)
-        if index_items:
-            lines.append('[其他已知信息（索引）]')
-            used += len(lines[-1])
-            for m in index_items:
-                one_liner = m.hook.strip() or m.content
-                if len(one_liner) > INDEX_LINE_MAX:
-                    one_liner = one_liner[:INDEX_LINE_MAX - 1] + '…'
-                text = f'- ({dict(Memory.CATEGORY_CHOICES).get(m.category, "其他")}) {one_liner}'
-                if not _fits(text):
-                    break
-                lines.append(text)
-                used += len(text)
+        # 块头部同样要过预算：预算内放不下一个块就整块跳过，
+        # 否则「头部无条件 + 条目逐条检查」会在小预算下整体溢出
+        if procedural:
+            header = '[必须遵守的做法（用户纠正/确认过的方式）]'
+            if _fits(header):
+                _add(header)
+                for m in procedural:
+                    text = f'- {m.content}'
+                    if not _fits(text):
+                        break
+                    _add(text)
+
+        if episodes:
+            header = '[最近聊过的事（跨会话衔接，结论可能仍有效）]'
+            if _fits(header):
+                _add(header)
+                for m in episodes:
+                    one_liner = m.hook.strip() or m.content
+                    if len(one_liner) > EPISODE_LINE_MAX:
+                        one_liner = one_liner[:EPISODE_LINE_MAX - 1] + '…'
+                    text = (f'- {one_liner}'
+                            f'（{timezone.localdate(m.updated_at).strftime("%m-%d")}）')
+                    if not _fits(text):
+                        break
+                    _add(text)
+
+        if rest:
+            header = '[其他已知信息（索引）]'
+            if _fits(header):
+                _add(header)
+                for m in rest:
+                    one_liner = m.hook.strip() or m.content
+                    if len(one_liner) > INDEX_LINE_MAX:
+                        one_liner = one_liner[:INDEX_LINE_MAX - 1] + '…'
+                    text = f'- ({dict(Memory.CATEGORY_CHOICES).get(m.category, "其他")}) {one_liner}'
+                    if not _fits(text):
+                        break
+                    _add(text)
 
         if len(lines) <= 1:
             return ''
@@ -557,21 +654,16 @@ def summarize_conversation_for_memory(conversation):
             return None          # 只剩一个光标题的记忆没有信息量，不如不写
         content = (f'对话「{title}」' + '；'.join(parts))[:500]
 
-        if _is_similar_content(conversation.user, content):
+        # 门控统一出口：规则路径确定性高（confidence 0.8 → active），
+        # 但 denylist / 敏感闸门照常生效（对话内容也可能带凭证）
+        action, memory, _note = gate_and_write(
+            conversation.user,
+            {'content': content, 'category': 'other', 'type': 'episodic',
+             'importance': 4, 'confidence': 0.8},
+            source_message=last_answer)
+        if memory is None:
             return None
-
-        memory = Memory.objects.create(
-            user=conversation.user,
-            content=content,
-            category='other',
-            type='episodic',   # 情景记忆：只走检索，不进常驻注入（PRD「记忆是蒸馏产物不是录像带」）
-            status='active',
-            # 固定 4：这是「索引型」记忆，价值低于用户偏好/目标（AI 主动记的那些 5-8），
-            # 拿消息条数当权重只会让闲聊刷满高分。注入排序按 importance 走，别抢位。
-            importance=4,
-            source_message=last_answer,
-        )
-        logger.info(f'归档对话 {conversation.id} → 记忆: {content}')
+        logger.info(f'归档对话 {conversation.id} → 记忆 ({action}): {content[:60]}')
         return memory
     except Exception as e:
         logger.warning(f'归档对话摘要写入记忆失败: {e}')
@@ -627,32 +719,23 @@ def extract_review_insights(conversation):
             elif any(kw in msg_lower for kw in improvement_keywords):
                 improvement_parts.append(msg_lower[:150])
 
-        # 如果分类不明确，把整体作为回顾记忆
-        if not highlight_parts and not improvement_parts:
-            if full_text.strip():
-                memory = Memory.objects.create(
-                    user=conversation.user,
-                    content=f'[周回顾] {full_text[:400]}',
-                    category='other',
-                    importance=5,
-                )
-                created.append(memory)
-        else:
-            if highlight_parts:
-                memory = Memory.objects.create(
-                    user=conversation.user,
-                    content='[本周亮点] ' + '；'.join(highlight_parts)[:400],
-                    category='fact',
-                    importance=5,
-                )
-                created.append(memory)
-            if improvement_parts:
-                memory = Memory.objects.create(
-                    user=conversation.user,
-                    content='[改进方向] ' + '；'.join(improvement_parts)[:400],
-                    category='goal',
-                    importance=5,
-                )
+        # 如果分类不明确，把整体作为回顾记忆。
+        # 三条都走门控（confidence 0.8 → active）：review 是用户自己写的反思，
+        # 确定性高，但 denylist/敏感闸门照常生效
+        for item in (
+            {'content': f'[周回顾] {full_text[:400]}', 'category': 'other'}
+            if not highlight_parts and not improvement_parts and full_text.strip()
+            else None,
+            {'content': '[本周亮点] ' + '；'.join(highlight_parts)[:400],
+             'category': 'fact'} if highlight_parts else None,
+            {'content': '[改进方向] ' + '；'.join(improvement_parts)[:400],
+             'category': 'goal'} if improvement_parts else None,
+        ):
+            if not item:
+                continue
+            action, memory, _note = gate_and_write(
+                conversation.user, {**item, 'importance': 5, 'confidence': 0.8})
+            if memory is not None:
                 created.append(memory)
 
         if created:

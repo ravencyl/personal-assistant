@@ -123,13 +123,18 @@ class Command(BaseCommand):
             # 取组内最高 importance
             max_importance = max(m.importance for m in memories)
 
-            # 创建聚合记忆
-            Memory.objects.create(
+            # 创建聚合记忆（type=semantic 画像；hook 取首行供索引注入）
+            profile = Memory.objects.create(
                 user_id=user_id,
                 content=summary[:500],
+                hook=summary.strip().split('\n')[0][:150],
+                type='semantic',
                 category=category,
                 importance=max_importance,
             )
+            from memory.services import log_audit
+            log_audit(user_id, 'consolidate', memory=profile,
+                      detail=f'{len(memories)} 条同类别碎片聚合为画像')
 
             # 标记原始记忆为已聚合
             ids = [m.id for m in memories]

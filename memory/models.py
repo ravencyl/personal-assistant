@@ -104,3 +104,45 @@ class Memory(models.Model):
     def __str__(self):
         cat_label = dict(self.CATEGORY_CHOICES).get(self.category, self.category)
         return f'({cat_label}) {self.content[:40]}'
+
+
+class MemoryAudit(models.Model):
+    """记忆操作审计——append-only，只增不改不删（ROA PRD §9.5）
+
+    每次写入/合并/取代/修改/忘掉/遗忘批扫/聚合都落一条。硬删除的记忆靠
+    memory=SET_NULL 留下审计行（detail 里带内容摘要），回答「它记过什么、
+    什么时候没的」；user 也是溯源口径，user 删除时审计随之清理（CASCADE）。
+    """
+    ACTION_CHOICES = [
+        ('write', '写入'),
+        ('merge', '合并'),
+        ('candidate', '候选'),
+        ('edit', '修改'),
+        ('supersede', '取代'),
+        ('forget', '忘掉'),
+        ('archive', '归档'),
+        ('expire', '过期'),
+        ('purge', '清除'),
+        ('consolidate', '聚合'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='memory_audits',
+    )
+    memory = models.ForeignKey(
+        Memory, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='audits', verbose_name='关联记忆',
+    )
+    action = models.CharField('操作', max_length=20, choices=ACTION_CHOICES)
+    detail = models.CharField('摘要', max_length=300, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '记忆审计'
+        verbose_name_plural = '记忆审计'
+
+    def __str__(self):
+        return f'[{self.action}] {self.detail[:50]}'

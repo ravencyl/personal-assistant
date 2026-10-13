@@ -561,6 +561,11 @@ class ChatOrchestrator:
             return reply or '该能力暂未开放。', None, False
 
         try:
+            # user_text 透给工具（下划线前缀 = 非模型协议字段）：memory.update 的
+            # 取代路径要过敏感闸门，「更正一下：我在服药」里没有「记住」两个字，
+            # 但更正本身就是显式意志（协议规则 12：冲突以观察为准）
+            if user_text:
+                params = {**params, '_user_text': user_text}
             result = tool['fn'](user, params) or {}
         except CandidateToolError as e:
             logger.info(f'Agent 工具 {tool_name} 需要用户澄清: {e}')

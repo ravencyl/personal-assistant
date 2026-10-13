@@ -4018,7 +4018,8 @@ class MemoryPerTurnInjectionTest(TestCase):
         self.assertNotIn('用户记忆', self.conv.messages.filter(role='user').first().content)
 
     def test_candidate_sensitive_episodic_are_not_injected(self):
-        """candidate 不进常驻（等复验）；sensitive 不进注入；episodic 只走检索"""
+        """candidate 不进常驻（等复验）；sensitive 不进注入；episodic 只以
+        最近 3 条单行进「最近聊过」块——4 条情景中那条「搬家」最旧，应被挤出"""
         from memory.models import Memory
         Memory.objects.create(user=self.user, content='可能在准备考证',
                               status='candidate', importance=6)
@@ -4026,6 +4027,9 @@ class MemoryPerTurnInjectionTest(TestCase):
                               sensitivity='sensitive', importance=7)
         Memory.objects.create(user=self.user, content='2026-10-12 讨论了搬家',
                               type='episodic', importance=5)
+        for i in range(3):
+            Memory.objects.create(user=self.user, content=f'更新的情景{i}号',
+                                  type='episodic', importance=5)
         prompt = self._post()
         self.assertNotIn('可能在准备考证', prompt)
         self.assertNotIn('正在服用舍曲林', prompt)

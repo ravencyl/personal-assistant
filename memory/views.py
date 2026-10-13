@@ -272,3 +272,45 @@ def memory_stats_api(request):
         'monthly': monthly,
         'summary': summary,
     })
+
+
+@login_required
+def memory_export(request):
+    """一键导出全部记忆为 Markdown 附件（ROA PRD §9.1：owner 拥有导出权）
+
+    按 type 分组、组内按 importance 排序；包含状态/来源时间等元信息，
+    superseded 条目也导出（取代链是「我认为过什么」的完整历史）。
+    """
+    from django.utils import timezone
+
+    memories = (Memory.objects.filter(user=request.user)
+                .order_by('type', '-importance', '-updated_at'))
+
+    type_labels = dict(Memory.TYPE_CHOICES)
+    status_labels = dict(Memory.STATUS_CHOICES)
+    cat_labels = dict(Memory.CATEGORY_CHOICES)
+    lines = [
+        f'# 记忆导出 · {timezone.localdate().strftime("%Y-%m-%d")}',
+        '',
+        f'共 {memories.count()} 条。本文件由三磊自动生成，涵盖全部记忆'
+        f'（含已取代/已归档条目）。',
+    ]
+    current_type = None
+    for m in memories:
+        if m.type != current_type:
+            current_type = m.type
+            lines += ['', f'## {type_labels.get(m.type, m.type)}', '']
+        meta = (f'[{status_labels.get(m.status, m.status)} · '
+                f'{cat_labels.get(m.category, m.category)} · '
+                f'重要度 {m.importance} · 更新于 '
+                f'{timezone.localdate(m.updated_at).strftime("%Y-%m-%d")}]')
+        lines.append(f'- {m.content}')
+        lines.append(f'  - {meta}')
+        if m.superseded_by_id:
+            lines.append(f'  - 被取代为记忆 #{m.superseded_by_id}')
+
+    content = '\n'.join(lines) + '\n'
+    filename = f'memories-{timezone.localdate().strftime("%Y%m%d")}.md'
+    resp = HttpResponse(content, content_type='text/markdown; charset=utf-8')
+    resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return resp

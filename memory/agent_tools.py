@@ -23,7 +23,8 @@ def tool_memory_search(user, params):
 
     category = str(params.get('category') or '').strip()
 
-    qs = Memory.objects.filter(user=user, consolidated=False)
+    qs = (Memory.objects.filter(user=user, consolidated=False,
+                                status__in=['active', 'candidate']))
 
     # 关键词匹配
     qs = qs.filter(content__icontains=query)
@@ -51,6 +52,7 @@ def tool_memory_search(user, params):
 
 @agent_tool('memory.update',
             '修改或忘掉用户的某条长期记忆（用户明确说「更正一下/不对，改成…/把那条忘了」时用）。'
+            '改内容会以「取代」方式更新：旧条保留标记为已取代（可回溯），新内容单独成条。'
             '只处理用户明确点名的修改：不要因为对话里出现新信息就自动改写旧记忆，'
             '新信息与旧记忆不冲突时优先用 memory 字段新增',
             'target（定位旧记忆的关键词，必填）+ content（新内容，可选）+ '
@@ -73,20 +75,48 @@ def tool_memory_update(user, params):
         raise ToolError('请告诉我要改什么（新内容/类别/重要度），或者说「忘掉这条」')
 
     def _apply(memory):
-        """把已定位的记忆套用变更（候选重放与关键词匹配两条路共用）"""
+        """把已定位的记忆套用变更（候选重放与关键词匹配两条路共用）
+
+        内容变更走取代链（supersede_memory）：旧条置 superseded 保留推理依据、
+        新条走门控新建——原位覆盖会丢掉「什么时候认为过什么」（PRD §5.4）。
+        类别/重要度修订不涉及事实内容，原地改 + 审计。
+        """
+        from .services import log_audit, supersede_memory
+
+        user_text = str(params.get('_user_text') or '')
+
         if void:
             name = memory.content
+            # 审计先行：memory 硬删后 FK 置空，但审计行必须留下
+            log_audit(user, 'forget', detail=f'「{name}」')
             memory.delete()
             logger.info(f'AI 忘掉记忆: ({memory.category}) {name}')
             return {'reply': f'已忘掉这条记忆：「{name}」'}
 
-        changes = []
-        if new_content:
+        if new_content and new_content != memory.content:
             if len(new_content) < 2 or len(new_content) > 500:
                 raise ToolError('记忆内容长度需在 2-500 字之间')
-            if new_content != memory.content:
-                changes.append(f'内容「{memory.content}」→「{new_content}」')
-                memory.content = new_content
+            candidate = {
+                'content': new_content,
+                'type': memory.type,
+                'category': category or memory.category,
+                'importance': (importance_raw if importance_raw is not None
+                               else memory.importance),
+                'confidence': (memory.confidence
+                               if memory.confidence is not None
+                               else memory.importance / 10),
+            }
+            action, new_memory, note = supersede_memory(
+                user, memory, candidate, user_text=user_text)
+            if new_memory is None:
+                # denied（denylist）/ blocked（敏感闸门）/ dropped：旧条不动
+                return {'reply': note or '这条更新没有保存下来（内容无效）。'}
+            if action == 'merged':
+                return {'reply': f'已确认这条记忆：「{memory.content}」'}
+            return {'reply': f'已更新记忆：「{memory.content}」→「{new_memory.content}」'
+                             f'（旧条已标记被取代，可在记忆页回溯）'}
+
+        changes = []
         if category and category != memory.category:
             valid_categories = dict(Memory.CATEGORY_CHOICES).keys()
             if category not in valid_categories:
@@ -102,7 +132,10 @@ def tool_memory_update(user, params):
             if importance != memory.importance:
                 changes.append(f'重要度 {memory.importance} → {importance}')
                 memory.importance = importance
+        if not changes:
+            return {'reply': '这条记忆已经是这个内容了，无需修改'}
         memory.save()
+        log_audit(user, 'edit', memory=memory, detail='; '.join(changes))
         logger.info(f'AI 修改记忆: {"; ".join(changes)}')
         return {'reply': f'已更新记忆：{"; ".join(changes)}'}
 
@@ -132,6 +165,7 @@ def tool_memory_update(user, params):
         # 没有可用的候选上下文：忽略序号按关键词继续，宁慢勿错
 
     qs = (Memory.objects.filter(user=user, consolidated=False,
+                                status__in=['active', 'candidate'],
                                 content__icontains=target)
           .order_by('-importance', '-updated_at'))
     count = qs.count()

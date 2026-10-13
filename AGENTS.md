@@ -241,6 +241,21 @@ none → queued → awaiting → finalizing → done
 
 回归锁：`memory/tests.py::MemoryGateTest`（denylist 四类、敏感闸门、confidence 分档、合并计数）、`CorrectionExtractionTest`、`MemoryIndexContextTest`、`LegacyRowDefaultsTest`、`chat/tests.py::MemoryPerTurnInjectionTest`（存量会话每轮注入 + 元规则先于记忆 + candidate/sensitive/episodic 不进常驻，变异自证命中）。
 
+## 记忆取代链、遗忘批扫与审计（ROA Phase B，2026-10-13）
+
+对照 ROA PRD 的记忆治理第二批：取代链 + 保留分遗忘 + append-only 审计 + owner 导出 + 情景连续性注入。
+
+- **改写记忆走取代不走覆盖**：`memory/services.py::supersede_memory(user, old, candidate, …)` 是唯一入口——新条先过 `gate_and_write`（必须传 `exclude_ids=[old.id]`：新旧内容必然相近，不排除会被近似合并回旧条），成功后旧条置 `status='superseded'` + `invalid_at` + `superseded_by` 指向新条。**重述判定用精确相等**（`new_content == old.content`）而不是字符重合度——「每周三晚上健身 → 每周二晚上健身」重合度极高但正是要更正的内容，曾被 overlap>0.8 判成 merged 吞掉更正（测试实测抓到）
+- **memory.update 工具的内容变更走取代**：candidate 新条继承旧条 type/category/importance/confidence；void 先写审计再 delete。工具能拿到 `_user_text`（编排器 `_dispatch` 注入，下划线前缀 = 非模型协议字段）就是为了「更正一下：…」这类没有「记住」字样的显式意志能过敏感闸门
+- **注入与检索都只认 active/candidate**：`build_memory_index_context`、`retrieve_memories`、`tool_memory_search` 的 qs 一律 `status__in=['active','candidate']`；superseded/stale 条只能通过「最近聊过」以外的人工回溯（记忆页 / 导出）看到
+- **episode 注入（RECENT CONTINUITY，PRD §5.1）**：近 3 条 active 的 episodic 以单行摘要（hook 或 content 截 60 字 + MM-DD 日期）进「最近聊过的事」块，跨会话衔接不要求用户重述「上次聊到哪」。episodic 仍不进语义索引块
+- **注入预算记账口径（408>400 的教训）**：`build_memory_index_context` 里每一行（含 intro 与块头部）都按「文本 + 1 个换行」计费——`'\n'.join` 的行间换行加末尾 `+ '\n'` 恰好等于每行各付一个换行。追加一律走 `_add` 助手，禁止散落 `used += len(text)`（那是漏记换行的写法）
+- **遗忘批扫 `manage.py sweep_memories`**（默认 dry-run，`--apply` 才动手；服务器 cron 周日 03:30）：保留分 w=[confidence 0.30, salience 0.25, recency 0.20, recall 0.15, staleness 0.10]，θ_low=0.35 归档、θ_high=0.50 以下降级 salience=low、episodic TTL 180 天过期、superseded 180 天后硬删；四条规则独立执行。**sensitivity='sensitive' 一律跳过**——隐私条目的去留只归 owner。阈值全走 `MEM_*` 环境变量可调
+- **审计表 `MemoryAudit` 是 append-only**：所有记忆生命周期动作（write/merge/candidate/edit/supersede/forget/archive/expire/purge/consolidate）经 `log_audit()` 落行，`memory` FK 是 `SET_NULL`——硬删后审计行保留（memory=None 仍是凭证）。`log_audit` 失败只 warning 不阻断主流程
+- **owner 导出权（PRD §9.1）**：`GET /memory/export/` 返回 Markdown 附件（`memories-YYYYMMDD.md`），按 type 分组、取代条也导出并带 superseded_by 指针。归档摘要（`summarize_conversation_for_memory`）与周回顾（`extract_review_insights`）同样走 gate_and_write（confidence 0.8 → active，denylist/敏感闸门照常生效），不再直接 create
+
+回归锁：`memory/tests.py::SupersedeTest`（取代链 / 精确相等重述 / exclude 防自我合并）、`MemoryAuditTrailTest`（write+merge 审计、硬删后审计行在、candidate 审计）、`SweepMemoriesTest`（TTL / 取代清除 / 归档降级 / dry-run / 敏感跳过）、`MemoryExportTest`、`AgentToolMemoryUpdateTest`（取代口径）。
+
 ## 快记面板口径（2026-09-21）
 
 - **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来

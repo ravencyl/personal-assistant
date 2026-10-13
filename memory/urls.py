@@ -9,4 +9,5 @@ urlpatterns = [
     path('<int:memory_id>/delete/', views.memory_delete, name='memory_delete'),
     path('goal-progress/', views.goal_progress_view, name='goal_progress'),
     path('stats/', views.memory_stats_api, name='memory_stats'),
+    path('export/', views.memory_export, name='memory_export'),
 ]
