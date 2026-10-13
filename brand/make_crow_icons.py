@@ -120,6 +120,10 @@ def main() -> None:
     canvas.paste(head, ((512 - content_size) // 2, (512 - content_size) // 2))
     canvas.save(STATIC_ICONS / 'icon-maskable-512.png')
 
+    # 导航图形标（base.html h-7=28px 显示 → 56px 资产，宽高属性须与尺寸同步改）
+    rounded(master.resize((56, 56), Image.LANCZOS), FAVICON_CORNER_RATIO) \
+        .save(BRAND.parent / 'static' / 'img' / 'logo-mark.png')
+
     print('OK: icons written to', STATIC_ICONS)
 
 
