@@ -153,32 +153,41 @@ tr.tag-wash {
 tr.tag-wash:hover {
     background: linear-gradient(rgba(var(--tag-rgb), 0.12), rgba(var(--tag-rgb), 0.12)), var(--bg-card);
 }
-/* 桌面表格行同样按圆角卡片渲染（#activity-list 限定，不影响别处表格）。
-   行的 background 挂在 (1,0,2) 特异性上，会压过 Tailwind 的 hover:bg-*，
-   所以悬停底色也在同一作用域里自己定义（未打色行用 accent-light） */
+/* 桌面表格行按圆角卡片渲染（#activity-list 限定，不影响别处表格）。
+   ⚠️ 背景/边框/圆角必须落在单元格上而不是 tr：Chrome 不按 tr 的 border-radius
+   裁切行背景（computed 报 28px、实际渲染直角，2026-10-16 截图实测），separate
+   模型下行级边框同样不渲染。悬停底色用 tr:hover td 同域定义，压过模板里
+   Tailwind 的 hover:bg-*（未打色行用 accent-light，打色行叠深一档标签色）。 */
 @media (min-width: 768px) {
     #activity-list table {
         border-collapse: separate;
         border-spacing: 0 0.5rem;
     }
-    #activity-list tbody tr {
+    #activity-list tbody tr td {
         background: var(--bg-card);
-        border: 1px solid rgba(70, 99, 238, 0.08);
-        border-radius: var(--radius-card);
-        box-shadow: var(--shadow-sm);
+        border-top: 1px solid rgba(70, 99, 238, 0.08);
+        border-bottom: 1px solid rgba(70, 99, 238, 0.08);
         transition: background 0.15s ease;
     }
-    #activity-list tbody tr:hover {
+    #activity-list tbody tr td:first-child {
+        border-left: 1px solid rgba(70, 99, 238, 0.08);
+        border-radius: var(--radius-card) 0 0 var(--radius-card);
+    }
+    #activity-list tbody tr td:last-child {
+        border-right: 1px solid rgba(70, 99, 238, 0.08);
+        border-radius: 0 var(--radius-card) var(--radius-card) 0;
+    }
+    #activity-list tbody tr:hover td {
         background: var(--accent-light);
     }
-    #activity-list tbody tr.tag-wash {
+    #activity-list tbody tr.tag-wash td {
         background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
     }
-    /* tr 上不保证渲染 box-shadow/伪元素，色条落在首个单元格（td 是真盒子） */
+    /* 色条落在首个单元格（td 是真盒子） */
     #activity-list tbody tr.tag-wash td:first-child {
         box-shadow: inset 3px 0 0 0 var(--tag-color);
     }
-    #activity-list tbody tr.tag-wash:hover {
+    #activity-list tbody tr.tag-wash:hover td {
         background: linear-gradient(rgba(var(--tag-rgb), 0.16), rgba(var(--tag-rgb), 0.16)), var(--bg-card);
     }
 }
