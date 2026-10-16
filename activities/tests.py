@@ -3024,18 +3024,21 @@ class TagColorCardTest(TestCase):
         self.assertNotIn('tag-wash', card.group(1))
 
     def test_wash_color_bar_pseudo_never_targets_table_rows(self):
-        """色条 ::before 只许挂在 div.tag-wash 上。
+        """tag-wash 上不允许出现任何 ::before 色条。
 
-        桌面行也带 .tag-wash 类，tr 上的 ::before 会被 Chrome 包成匿名
-        单元格——整行 td 右移一列、行高 +5px（线上实测错位）。tr 的色条
-        走 td:first-child 内阴影，伪元素必须 div 限定。
-        """
+        2026-10-16 用户决定：卡片顶部颜色条整体删除，背景浅底即归属代言。
+        锁两层：① 裸 .tag-wash::before 禁止——桌面行也带 .tag-wash 类，tr 上
+        的 ::before 会被 Chrome 包成匿名单元格，整行 td 右移一列、行高 +5px
+        （线上实测错位）；② div 限定的版本也已随色条一起删除，防止它被
+        顺手加回来——行色条只走 td:first-child 内阴影。"""
         css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(
             encoding='utf-8')
         self.assertIsNone(
             re.search(r'(?<!div)\.tag-wash::before', css),
             '存在裸 .tag-wash::before——tr 命中后会生成匿名单元格导致整行错位')
-        self.assertIn('div.tag-wash::before', css)
+        self.assertIsNone(
+            re.search(r'div\.tag-wash::before', css),
+            'div.tag-wash::before 色条已按用户要求删除（2026-10-16），不要再加回来')
 
 
 class MobileActivityCardDisplayTest(TestCase):

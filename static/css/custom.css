@@ -138,23 +138,12 @@
    顺势删除旧 color-mix 版重复块，本段是唯一实现）。
    写成 div.tag-wash（特异性 0,1,1）而非 .tag-wash：必须盖过下方 .app-card
    的白底 background（同特异性时后者胜，段位先后不可靠）。
-   Bento 视觉下色条从左侧 3px 改为顶部 6px（demo .act 卡同款）。
-   ⚠️ 色条伪元素必须限定 div.tag-wash：桌面行也带 .tag-wash 类，tr 上出
-   现 ::before 会被 Chrome 包成匿名单元格，把整行所有 td 顶后一列并抬高
-   行高（线上实测错位）——tr 的色条走下方 td:first-child 内阴影。 */
+   卡片上的颜色条已按用户要求整体删除（2026-10-16）：背景浅底即归属代言。
+   ⚠️ 不要再往 .tag-wash 上挂 ::before 色条（无论裸写还是 div 限定）：桌面行
+   也带 .tag-wash 类，tr 上出现 ::before 会被 Chrome 包成匿名单元格，把整行
+   所有 td 顶后一列并抬高行高（线上实测错位）——行色条只走 td:first-child。 */
 div.tag-wash {
-    position: relative;
     background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
-}
-div.tag-wash::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    right: 0;
-    height: 6px;
-    background: var(--tag-color);
-    border-radius: var(--radius-card) var(--radius-card) 0 0;
 }
 /* 表格行不保证渲染 box-shadow/伪元素，行用 background 铺浅底；hover 加深一档
    （tr.tag-wash:hover 特异性高于 Tailwind 的 hover:bg-*，行为确定） */
