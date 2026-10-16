@@ -775,7 +775,8 @@ class DailyPageRetiredTest(TestCase):
 
 
 class QuickParseWiringTest(TestCase):
-    """快速记一笔前端通道：三处入口都复用 static/js/quick-parse.js
+    """快速记一笔前端通道：详情页抽屉等入口复用 static/js/quick-parse.js
+    （列表页创建弹窗的入口已于 2026-10-16 按用户决定下线，见反锁用例）
 
     init()/parse() 传的是元素 id 字符串，模板改了 id 就会静默失效
     （getElementById 返回 null → 交互没反应且无报错），这里把
@@ -811,9 +812,13 @@ class QuickParseWiringTest(TestCase):
             self.assertIn(f'id="{value}"', html,
                           f'配置 {key}: {value!r} 在页面上没有对应元素')
 
-    def test_activity_list_page(self):
+    def test_activity_list_modal_has_no_quick_parse(self):
+        """列表页创建弹窗的 AI 一句话解析入口已删（2026-10-16 用户决定：
+        统一走底部导航栏快记面板的活动 Tab）——quick-parse.js 不得再在列表页加载"""
         html = self.client.get(reverse('activities:activity_list')).content.decode()
-        self._assert_wired(html, 'PaQuickParse.init(')
+        self.assertNotIn('js/quick-parse.js', html, '列表页不应再加载解析通道')
+        self.assertNotIn('PaQuickParse.init(', html, '列表页不应再有解析接线')
+        self.assertNotIn('modal-quick-input', html, '弹窗不应再有一句话解析输入框')
 
     def test_detail_page_subtask_quick_entry(self):
         html = self.client.get(

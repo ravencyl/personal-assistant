@@ -1,4 +1,4 @@
-{# 新建活动弹窗（lightbox）：活动列表页等宿主共用的唯一实现（原 Daily 页已下线）；依赖宿主页 extra_head 已加载 pinyin-pro.js / activity-form.js / quick-parse.js；渲染上下文需提供 form、all_participants、all_tags（校验失败 422 换体时同） #}
+{# 新建活动弹窗（lightbox）：活动列表页等宿主共用的唯一实现（原 Daily 页已下线）；依赖宿主页 extra_head 已加载 pinyin-pro.js / activity-form.js；渲染上下文需提供 form、all_participants、all_tags（校验失败 422 换体时同）。AI 一句话解析入口已删（2026-10-16），统一走快记面板 #}
 <div id="create-activity-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
     <div class="panel w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
         <div class="flex items-center justify-between px-5 sm:px-6 pt-4 pb-3 border-b border-[var(--border)] shrink-0">
@@ -6,29 +6,7 @@
             <button type="button" id="create-modal-close" class="tap-target inline-flex items-center justify-center w-8 h-8 rounded-full text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="关闭">&#10005;</button>
         </div>
         <div class="overflow-y-auto px-5 sm:px-6 py-4">
-            <!-- AI 一句话解析：解析 → 预览 → 确认创建（快速通道）或填入下方表单（完整通道） -->
-            <div class="mb-5 rounded-xl bg-[var(--accent-light)] border border-[var(--border-strong)] p-3">
-                <div class="flex gap-2">
-                    <input type="text" id="modal-quick-input" maxlength="500"
-                           placeholder="一句话创建，如：8月25到28日去上海出差 #工作 @小王"
-                           autocomplete="off"
-                           class="flex-1 min-w-0 rounded-full bg-[var(--bg-card)] border border-[var(--border-strong)] px-4 py-2 text-sm focus:ring-2 focus:ring-[var(--accent)] focus:outline-none transition-all text-[var(--text)]">
-                    <button type="button" id="modal-quick-parse-btn"
-                            class="shrink-0 rounded-full bg-[var(--accent)] hover:opacity-90 px-4 py-2 text-sm font-semibold text-[var(--bg)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">解析</button>
-                </div>
-                <p id="modal-quick-error" class="hidden mt-2 text-sm text-[var(--text)] font-semibold"></p>
-                <div id="modal-quick-preview" class="hidden mt-3 rounded-xl bg-[var(--bg-card)] p-3">
-                    <div id="modal-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--text-secondary)]"></div>
-                    <div class="flex flex-wrap items-center gap-3 mt-3">
-                        <button type="button" id="modal-quick-confirm-btn"
-                                class="rounded-full bg-[var(--accent)] hover:opacity-90 px-4 py-1.5 text-sm font-semibold text-[var(--bg)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">确认创建</button>
-                        <button type="button" id="modal-quick-edit-btn"
-                                class="rounded-full bg-[var(--accent-light)] px-4 py-1.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors">填入下方表单</button>
-                        <button type="button" id="modal-quick-close-btn" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-2" title="收起">&#10005;</button>
-                        <span id="modal-quick-source" class="ml-auto text-xs text-[var(--text-muted)]"></span>
-                    </div>
-                </div>
-            </div>
+            {# AI 一句话解析入口已移除（2026-10-16 用户决定）：统一走底部导航栏快记面板的活动 Tab 创建 #}
 
             <form id="create-activity-form" class="space-y-4">
                 {% csrf_token %}
@@ -54,8 +32,6 @@
     var bodyEl = document.getElementById('create-modal-body');
     var submitBtn = document.getElementById('create-modal-submit');
     var errorEl = document.getElementById('create-modal-error');
-    var PARSE_URL = '{% url "activities:parse_quick_input" %}';
-    var SUBMIT_URL = '{% url "activities:activity_quick_create" %}';
     var CREATE_URL = '{% url "activities:activity_create" %}';
     if (!overlay || !form) return;
 
@@ -91,44 +67,7 @@
         if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeModal();
     });
 
-    // AI 一句话解析：确认创建走快速通道；「填入下方表单」就地回填完整表单。
-    // onCreated：不整页刷新（2026-10-13 提速）——广播 activities:changed 让宿主页的
-    // 列表区自己刷新，700ms 后收弹窗；顺手点一次收起钮把预览/输入复位，下次打开是干净态。
-    PaQuickParse.init({
-        input: 'modal-quick-input',
-        parseBtn: 'modal-quick-parse-btn',
-        confirmBtn: 'modal-quick-confirm-btn',
-        closeBtn: 'modal-quick-close-btn',
-        editBtn: 'modal-quick-edit-btn',
-        preview: 'modal-quick-preview',
-        previewBody: 'modal-quick-preview-body',
-        errEl: 'modal-quick-error',
-        sourceEl: 'modal-quick-source',
-        parseUrl: PARSE_URL,
-        submitUrl: SUBMIT_URL,
-        onCreated: function (d) {
-            // 活动列表页：新建的数据就在眼前，直接刷新列表（比让用户自己找入口直观）；
-            // 其他页只广播事件（base.html 弹「活动数据已更新」提示条），不整页重载
-            var ctx = window.paPageContext ? window.paPageContext() : {};
-            if (ctx.page_context === 'activity_list') {
-                window.location.reload();
-                return;
-            }
-            document.dispatchEvent(new CustomEvent('activities:changed'));
-            setTimeout(function () {
-                closeModal();
-                var resetBtn = document.getElementById('modal-quick-close-btn');
-                if (resetBtn) resetBtn.click();
-                var input = document.getElementById('modal-quick-input');
-                if (input) input.value = '';
-            }, 700);
-        },
-        onEdit: function (d) {
-            PaActivityForm.fillForm(d);
-            // 五个步都填好了：直接落到第⑤步让用户确认层级，逐帧走过没意义
-            if (window.PaActivityWizard) window.PaActivityWizard.goToLast();
-        },
-    });
+    // AI 一句话解析区块已删（2026-10-16）：PaQuickParse 接线随之拆除，解析入口统一在快记面板
 
     // 表单提交：fetch + FormData（HX-Request 头让视图走弹窗分支：
     // 成功回 JSON 跳详情页；校验失败回 422 片段，换入弹窗体并重挂 chips）

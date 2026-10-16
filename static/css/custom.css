@@ -383,11 +383,27 @@ input[type="checkbox"], input[type="radio"] {
     border-radius: 9999px;
 }
 
-/* 输入框内边距：用 :where() 把特异性降到 0，避免压过模板里 Tailwind 的 pl-10 等内边距类（活动列表搜索框 pl-10 曾被这条规则压回 1rem，placeholder 顶进放大镜图标） */
+/* 输入框内边距基准。⚠️ 本文件是「未分层」规则：未分层声明永远压过 Tailwind v4
+   @layer utilities —— 也就是说模板里写在 input/textarea 上的 Tailwind 内边距类
+   （pl-10 / pr-14 等）在这条基准面前全部不生效（活动列表搜索框 pl-10 被压回 1rem，
+   placeholder 顶进放大镜图标，2026-10-16 确认根因）。:where() 特异性 0 救不了
+   分层劣势，只对「同为未分层」的选择器有意义。个别输入框需要不同内边距时，
+   在下方用同层（未分层）自定义规则覆盖，不要指望 Tailwind 类。 */
 :where(input[type="text"], input[type="email"], input[type="password"],
 input[type="number"], input[type="search"], textarea) {
     padding-left: 1rem;
     padding-right: 1rem;
+}
+
+/* 活动列表搜索框：移动端右端悬浮 40px 圆形搜索钮，输入内容与 placeholder 不得
+   伸进钮下（上面基准只有 1rem）；桌面端搜索钮独立在框外，恢复 1rem */
+#activity-search-input {
+    padding-right: 3.5rem;
+}
+@media (min-width: 768px) {
+    #activity-search-input {
+        padding-right: 1rem;
+    }
 }
 
 /* 链接悬停动效 */
@@ -1246,7 +1262,10 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
 
 @media (min-width: 768px) {
     .bento {
-        grid-auto-rows: 5.5rem;
+        /* 行高允许随内容生长：进行中/过期待处理等 1 行瓦片内容多时整行变高，
+           同行的 hero/支出卡（row-span-2，均 mt-auto 底部对齐）自然吸收增量，
+           不会出现 overflow 裁切（2026-10-16「进行中」展示不全的修复） */
+        grid-auto-rows: minmax(5.5rem, auto);
         grid-auto-flow: dense;
     }
     .bento .tile:hover {

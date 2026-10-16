@@ -192,9 +192,9 @@
              quick-panel-surface：比普通 panel 更醒目（实底 + accent 描边 + 高阴影），
              浮层要明确「这是弹层」，否则淡背景点了像没点 -->
         <div id="quick-panel" class="panel quick-panel-surface hidden mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-                <span class="font-medium text-[var(--text)]">快记</span>
-                <button type="button" id="quick-close-btn" class="tap-target text-[var(--text-muted)] hover:text-[var(--text)] text-lg leading-none px-2" title="关闭">&times;</button>
+            <div class="flex items-center justify-between px-4 py-2 border-b border-[var(--border)]">
+                <span class="text-sm font-semibold text-[var(--text)]">快记</span>
+                <button type="button" id="quick-close-btn" class="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] text-lg leading-none" title="关闭">&times;</button>
             </div>
             <!-- Tab 切换（纯 JS）。费用 Tab 已删（2026-09-21，用户决定）：费用一定关联活动，
                  不会有单独的费用，记费用统一走活动详情页的费用表单 -->
@@ -214,9 +214,10 @@
             </form>
             <!-- 活动 Tab（一句话创建：parse-quick-input AI 优先 + 规则兜底） -->
             <form id="quick-activity-form" data-quick-pane="activity" class="hidden p-4 space-y-2">
-                <input type="text" name="text" maxlength="500" autocomplete="off"
-                       placeholder="一句话创建活动，如：8月25到28日去上海出差 预算3000 #工作"
-                       class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                <!-- 与备忘 Tab 同式样（2026-10-16 用户要求两端输入框一致）：rows=4 + rounded-xl，
+                     不再用胶囊单行 input；JS 仍读 [name="text"].value，textarea 直接兼容 -->
+                <textarea name="text" rows="4" maxlength="500" placeholder="一句话创建活动，如：8月25到28日去上海出差 预算3000 #工作"
+                          class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"></textarea>
                 <div class="flex justify-end">
                     <button type="submit"
                             class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">创建</button>
