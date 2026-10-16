@@ -184,10 +184,7 @@ tr.tag-wash:hover {
     #activity-list tbody tr.tag-wash td {
         background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
     }
-    /* 色条落在首个单元格（td 是真盒子） */
-    #activity-list tbody tr.tag-wash td:first-child {
-        box-shadow: inset 3px 0 0 0 var(--tag-color);
-    }
+    /* 左侧色条已移除（2026-10-16 用户决定：桌面列表只保留背景，不要左边那条） */
     #activity-list tbody tr.tag-wash:hover td {
         background: linear-gradient(rgba(var(--tag-rgb), 0.16), rgba(var(--tag-rgb), 0.16)), var(--bg-card);
     }
