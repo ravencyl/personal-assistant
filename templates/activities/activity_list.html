@@ -275,7 +275,7 @@
                     <div class="flex items-center justify-center gap-1">
                         {% if tree_mode and activity.has_children %}
                         {# 树形钮放行尾操作区（2026-10-08 用户反馈：放名字前同一列名字对不齐） #}
-                        <button type="button" class="tree-toggle inline-flex items-center justify-center w-7 h-7 rounded-xl text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] select-none"
+                        <button type="button" class="tree-toggle inline-flex items-center justify-center w-7 h-7 rounded-2xl text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] select-none"
                                 data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
                         {% endif %}
                     </div>

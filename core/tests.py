@@ -2380,10 +2380,10 @@ class MobileUiRevampLockTest(SimpleTestCase):
        micro 档（ID 标签等 ≤2 字符计量信息），移动端 custom.css 已统一抬到 12px。
     ② 标题档位只有两档：h1 = text-xl（页面主标题）或 text-2xl sm:text-3xl（展示页），
        h2 = text-sm font-semibold（卡片标题）。revamp 前 h1 有 4 档、h2 有 4 档。
-    ③ 圆角单一来源：控件圆角由 custom.css 的 --radius-ctl(12px) !important 统一下发，
+    ③ 圆角单一来源：控件圆角由 custom.css 的 --radius-ctl(16px) !important 统一下发，
        chips 的 pill 靠同文件更高特异性的 rounded-full 豁免规则保留 —— 两条规则
        任何一条被删，另一个世代就会回来（rounded-md 时代模板与渲染两套真相）。
-       模板里不再允许 rounded-md（revamp 时已全量收编为 rounded-xl）。
+       模板里不再允许 rounded-md（revamp 时收编为 rounded-xl，2026-10-16 圆角升级全量再抬为 rounded-2xl）。
     """
 
     BAD_TEXT_PX = re.compile(r'text-\[(?!10px\b)\d+px\]')
@@ -2440,13 +2440,13 @@ class MobileUiRevampLockTest(SimpleTestCase):
             if self.BAD_RADIUS.search(src):
                 offenders.append(tpl.name)
         self.assertEqual(offenders, [],
-                         f'模板里还有 rounded-md（控件圆角已由 --radius-ctl 统一，表面档是 rounded-xl）：{offenders}')
+                         f'模板里还有 rounded-md（控件圆角已由 --radius-ctl 统一，表面档是 rounded-2xl）：{offenders}')
 
     def test_radius_single_source_rules_present(self):
         css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
-        self.assertIn('--radius-ctl: 12px', css, '控件圆角令牌丢了')
+        self.assertIn('--radius-ctl: 16px', css, '控件圆角令牌丢了')
         self.assertRegex(css, r'button,\s*\.btn,[^}]*border-radius:\s*var\(--radius-ctl\)\s*!important',
-                         '控件 12px !important 下发规则丢了')
+                         '控件 16px !important 下发规则丢了')
         self.assertRegex(css, r'button\.rounded-full[^}]*border-radius:\s*999px\s*!important',
                          'chips pill 豁免规则丢了（删了它按钮全变胶囊/直角二选一）')
 
@@ -2466,4 +2466,4 @@ class MobileUiRevampLockTest(SimpleTestCase):
         self.assertTrue('text-sm' in '<h2 class="text-sm font-semibold">x</h2>'
                         and 'font-semibold' in '<h2 class="text-sm font-semibold">x</h2>')
         self.assertIsNotNone(self.BAD_RADIUS.search('rounded-md'))
-        self.assertIsNone(self.BAD_RADIUS.search('rounded-xl'))
+        self.assertIsNone(self.BAD_RADIUS.search('rounded-2xl'))

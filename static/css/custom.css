@@ -54,7 +54,7 @@
     /* 2026-10-16 全站切换 Bento 视觉（ui_demos/demo3 用户定稿）：
        画布微暖灰 #f4f4f2，强调色从 periwinkle #5568d8 换成亮蓝 #4663ee
        （demo 原值 #4f6ef7 对白字 4.26:1 不达 AA，加深一档 → 4.86:1），
-       卡片圆角放大到 28px，控件维持 12px */
+       卡片圆角放大到 28px；控件档 2026-10-16 二次上调到 16px（用户拍板整站圆角升级） */
     --accent: #4663ee;
     --accent-hover: #3a55e0;
     /* a11y（WCAG 1.4.3）：小字号 accent 文字（导航激活页签等）用加深版，
@@ -82,11 +82,12 @@
     /* 卡片内发光（顶部高光模拟光源从上方向下） */
     --card-inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
-    /* 圆角 4 档（2026-10-16 Bento 定稿：页面一级卡 28px / 二级面 20px / 控件 12px）：
+    /* 圆角 4 档（2026-10-16 Bento 定稿：页面一级卡 28px / 二级面 20px / 控件 16px；
+       控件档 12→16 为 2026-10-16 用户拍板的整站圆角升级）：
        R-card 页面一级卡 / R-surface 卡内二级面·弹窗·气泡 / R-ctl 按钮·输入框·select / R-pill 徽章·chip */
     --radius-card: 1.75rem;     /* 28px，.app-card/.panel/今日页 tile */
     --radius-surface: 1.25rem;  /* 20px */
-    --radius-ctl: 12px;
+    --radius-ctl: 16px;
 }
 
 /* Apple 毛玻璃 Tab 栏：低透明白底 + backdrop-filter 模糊，iPhone Chrome/Safari 均支持 -webkit- 前缀 */
@@ -244,14 +245,15 @@ tr.tag-wash:hover {
     outline-offset: 2px;
 }
 
-/* 控件圆角：12px 单一口径（2026-10-13 revamp，用户拍板弃 09-13 的全面胶囊化——
-   胶囊满屏是「模板感/IT 感」的主因之一）。!important 是单源手段：模板里遗留的
-   rounded-md/lg/xl 不再各自为政，按钮/输入框/select 全站一个圆角；
+/* 控件圆角：16px 单一口径（2026-10-13 revamp 单源化，用户拍板弃 09-13 的全面胶囊化——
+   胶囊满屏是「模板感/IT 感」的主因之一；2026-10-16 用户拍板控件档 12→16px 整站圆角升级）。
+   !important 是单源手段：模板里遗留的 rounded-md/lg/xl 不再各自为政，
+   按钮/输入框/select 全站一个圆角；
    唯一例外是显式标了 rounded-full 的控件（chips/胶囊按钮），走下一条规则保持 pill。 */
 button, .btn, input[type="submit"],
 input[type="text"], input[type="email"], input[type="password"],
 input[type="number"], input[type="search"], select, input[type="date"] {
-    border-radius: var(--radius-ctl) !important;   /* 12px */
+    border-radius: var(--radius-ctl) !important;   /* 16px */
 }
 
 button.rounded-full, .btn.rounded-full,
@@ -259,7 +261,7 @@ input.rounded-full, select.rounded-full {
     border-radius: 999px !important;   /* chips 专属 pill（特异性高于上一条） */
 }
 
-/* 多行输入与单行控件统一 12px（不再单独放大，形状全站一致） */
+/* 多行输入与单行控件统一 16px（不再单独放大，形状全站一致） */
 textarea {
     border-radius: var(--radius-ctl) !important;
 }
@@ -387,7 +389,7 @@ input[type="checkbox"], input[type="radio"] {
     accent-color: var(--accent);
 }
 
-/* 徽章 pill 形（仅徽章/chip 保持全圆角，控件已收敛到 12px，见上方圆角块） */
+/* 徽章 pill 形（仅徽章/chip 保持全圆角，控件已收敛到 16px，见上方圆角块） */
 .badge, span.rounded-full {
     border-radius: 9999px;
 }
@@ -932,7 +934,7 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     overflow-y: auto;
     padding: 0.25rem;
     border: 1px solid var(--border-strong);
-    border-radius: 0.5rem;
+    border-radius: 1rem;   /* 控件档 16px（2026-10-16 圆角升级收编，原 0.5rem） */
     background: var(--bg-card);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
@@ -944,7 +946,7 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     gap: 1px;
     width: 100%;
     padding: 0.4rem 0.5rem;
-    border-radius: 0.375rem;
+    border-radius: 0.75rem;   /* 浮层内条目：外层 16px - 4px padding */
     text-align: left;
 }
 

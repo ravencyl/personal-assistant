@@ -3,7 +3,7 @@
 整卡带 id：确认端点（chat/views.py confirm_action）返回整张卡的片段做 outerHTML
 替换 —— 只换动作区的话，正文里「点确认后才会创建」的 pending 文案会与 ✓ 结果态
 同框矛盾（2026-10 UI 走查 item 6）。{% endcomment %}
-<div id="confirm-card-{{ msg.id }}" class="mt-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] overflow-hidden text-left">
+<div id="confirm-card-{{ msg.id }}" class="mt-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-card)] overflow-hidden text-left">
     <div class="h-1 {% if card.kind == 'delete' %}bg-red-400{% else %}bg-[var(--accent)]{% endif %}"></div>
     <div class="p-3">
         {% if card.kind == 'delete' %}

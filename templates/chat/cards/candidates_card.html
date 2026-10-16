@@ -1,7 +1,7 @@
 {% comment %}澄清候选卡片：目标不唯一时列出候选活动供用户辨认。
 每行右侧「选它」按钮：HTMX POST pick_candidate，服务端用该 id 重放工具
 （不经 AI 再解释一轮），返回整条消息片段做 outerHTML 替换（确认卡/结果卡）。{% endcomment %}
-<div class="mt-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] p-3 text-left">
+<div class="mt-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-card)] p-3 text-left">
     <div class="space-y-1">
         {% for item in card.items %}
         <div class="flex items-center gap-2 text-sm min-w-0 flex-wrap">

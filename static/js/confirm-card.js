@@ -43,7 +43,7 @@
         overlay.style.background = 'rgba(0,0,0,0.4)';
         overlay.innerHTML =
             '<div role="alertdialog" aria-modal="true" ' +
-            'class="w-full max-w-xs rounded-xl border border-zinc-200 bg-white overflow-hidden text-left">' +
+            'class="w-full max-w-xs rounded-2xl border border-zinc-200 bg-white overflow-hidden text-left">' +
             '<div class="h-1 ' + (danger ? 'bg-zinc-400' : 'bg-zinc-900') + '"></div>' +
             '<div class="p-3">' +
             '<p class="text-sm font-semibold text-zinc-800 flex items-center gap-1.5">' +

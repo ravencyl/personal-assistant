@@ -7,7 +7,7 @@ note 缺省时按「刷新后渲染」兜底一句可读文案：轮询路径（
 改词两处都要动）。{% endcomment %}
 <div class="chat-message assistant">
     {# chat-bubble：与 _message.html 共用同一份移动端覆盖（满宽 + 左侧角色竖条），不必再写第三条规则 #}
-    <div class="chat-bubble rounded-xl p-3 md:p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
+    <div class="chat-bubble rounded-2xl p-3 md:p-4 bg-[var(--bg-card)] border border-[var(--border-strong)]">
         <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs text-[var(--text-secondary)]">⚠️ {% firstof note "上一轮没有完成，可以再问一次。" %}</span>
             {% if conversation.turn_message %}

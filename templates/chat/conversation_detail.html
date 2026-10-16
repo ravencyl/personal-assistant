@@ -18,7 +18,7 @@
         <form method="post" action="{% url 'chat:conversation_rename' conversation.id %}" class="flex items-center gap-1">
             {% csrf_token %}
             <input type="text" name="title" value="{{ conversation.title }}" maxlength="255"
-                class="w-40 rounded-xl border border-[var(--border-strong)] px-2 py-1 text-sm bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
+                class="w-40 rounded-2xl border border-[var(--border-strong)] px-2 py-1 text-sm bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
             <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">改名</button>
         </form>
         <form method="post" action="{% url 'chat:archive_conversation' conversation.id %}">
@@ -62,16 +62,16 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
     {% csrf_token %}
     <div class="flex items-end gap-3">
         {% comment %}多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮。
-           样式对齐全站输入框口径（同笔记页 composer）：rounded-xl + 纯边框聚焦，
+           样式对齐全站输入框口径（同笔记页 composer）：rounded-2xl + 纯边框聚焦，
            不用 ring、不用 bg-card；placeholder 必须单行——移动端 16px 规范字号下
            长文案会折两行，而 iOS Safari 不把 placeholder 算进 scrollHeight，
            paFitTextarea 会把第二行裁掉（2026-09-14 实测，曾用 min-height 保底，
            后改单行文案根治，避免输入框比全站其它输入框高出一截）。{% endcomment %}
         <textarea name="content" id="message-input" rows="1" data-auto-grow autofocus
             placeholder="输入消息…（Enter 换行）"
-            class="chat-input flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+            class="chat-input flex-1 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
         <button type="submit"
-            class="rounded-xl bg-[var(--accent)] px-4 py-3 sm:px-6 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
+            class="rounded-2xl bg-[var(--accent)] px-4 py-3 sm:px-6 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
             发送
         </button>
     </div>

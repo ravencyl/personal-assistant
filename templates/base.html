@@ -147,7 +147,7 @@
                     </div>
                     <div class="flex items-center space-x-3">
                         {% if user.is_authenticated %}
-                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索（Cmd+K 打开命令面板）">
+                            <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border border-[var(--border-strong)] text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="搜索（Cmd+K 打开命令面板）">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                 </svg>
@@ -176,7 +176,7 @@
         {% if messages %}
         <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-4">
             {% for message in messages %}
-            <div class="rounded-xl p-3.5 mb-2 text-sm bg-[var(--bg-card)] text-[var(--text)] border border-[var(--border-strong)]">
+            <div class="rounded-2xl p-3.5 mb-2 text-sm bg-[var(--bg-card)] text-[var(--text)] border border-[var(--border-strong)]">
                 {{ message }}
             </div>
             {% endfor %}
@@ -205,7 +205,7 @@
             <!-- 备忘 Tab -->
             <form id="quick-note-form" data-quick-pane="note" class="p-4 space-y-2">
                 <textarea name="content" rows="4" placeholder="记点什么…"
-                          class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"></textarea>
+                          class="w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"></textarea>
                 <div class="flex justify-end">
                     <button type="submit"
                             class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">保存</button>
@@ -214,10 +214,10 @@
             </form>
             <!-- 活动 Tab（一句话创建：parse-quick-input AI 优先 + 规则兜底） -->
             <form id="quick-activity-form" data-quick-pane="activity" class="hidden p-4 space-y-2">
-                <!-- 与备忘 Tab 同式样（2026-10-16 用户要求两端输入框一致）：rows=4 + rounded-xl，
+                <!-- 与备忘 Tab 同式样（2026-10-16 用户要求两端输入框一致）：rows=4 + rounded-2xl，
                      不再用胶囊单行 input；JS 仍读 [name="text"].value，textarea 直接兼容 -->
                 <textarea name="text" rows="4" maxlength="500" placeholder="一句话创建活动，如：8月25到28日去上海出差 预算3000 #工作"
-                          class="w-full rounded-xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"></textarea>
+                          class="w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"></textarea>
                 <div class="flex justify-end">
                     <button type="submit"
                             class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">创建</button>
@@ -550,7 +550,7 @@
     <div class="hidden md:block">
     <div id="search-overlay" class="fixed inset-0 z-[60] hidden" style="background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);">
         <div class="mx-auto mt-[15vh] max-w-lg px-4">
-            <div class="panel overflow-hidden bg-[var(--bg-card)]" style="border-radius: 1rem;">
+            <div class="panel overflow-hidden bg-[var(--bg-card)]"><!-- 圆角随 .panel 表面档（原内联 1rem 已收编，2026-10-16） -->
                 <!-- 搜索输入 -->
                 <div class="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)]">
                     <svg class="w-5 h-5 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -571,12 +571,12 @@
                          且任何后续往串里掺用户数据的改动都是注入面） -->
                     <div class="space-y-1">
                         <p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>
-                        <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
-                            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
+                        <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
+                            <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
                             <span class="text-sm text-[var(--text)]">新建活动</span>
                         </a>
-                        <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[var(--accent-light)] transition-colors">
-                            <span class="w-8 h-8 rounded-xl bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
+                        <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
+                            <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
                             <span class="text-sm text-[var(--text)]">写备忘</span>
                         </a>
                     </div>

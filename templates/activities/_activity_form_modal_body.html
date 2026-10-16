@@ -2,7 +2,7 @@
 {# 由前端 fetch 换入 create-modal-body 后调 PaActivityForm.initWidgets + PaActivityWizard.reinit #}
 {# （chips 先挂、标签墙后挂，顺序不能反）。hide_parent=1：弹窗不出现父活动选项（桶内挂靠会污染费用归属） #}
 {% if form.non_field_errors %}
-<div class="mb-4 rounded-xl bg-[var(--bg)] border border-[var(--border-strong)] p-3 text-sm text-[var(--text)]">
+<div class="mb-4 rounded-2xl bg-[var(--bg)] border border-[var(--border-strong)] p-3 text-sm text-[var(--text)]">
     错误：{{ form.non_field_errors }}
 </div>
 {% endif %}

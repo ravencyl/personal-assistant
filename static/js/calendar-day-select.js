@@ -56,7 +56,7 @@
 
         var card = document.createElement('a');
         card.href = a.url;
-        card.className = 'ml-[86px] block rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3.5 py-2.5 transition-colors hover:border-[var(--accent)]';
+        card.className = 'ml-[86px] block rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-3.5 py-2.5 transition-colors hover:border-[var(--accent)]';
 
         var row1 = document.createElement('div');
         row1.className = 'flex items-center gap-2';

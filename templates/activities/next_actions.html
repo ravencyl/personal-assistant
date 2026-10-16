@@ -20,7 +20,7 @@
         {% for a in upcoming %}
         {# 外 div 内 a 模式（与活动列表移动卡同款）：卡片名就是真链接，整卡空白由页尾委托跳详情；#}
         {# 不用 onclick location.href，行内「属于 xx」父活动链接不受影响（委托先排除 a/button/form） #}
-        <div class="group flex items-start gap-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors cursor-pointer">
+        <div class="group flex items-start gap-3 bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-4 hover:border-[var(--border-strong)] transition-colors cursor-pointer">
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 class="text-sm font-medium text-[var(--text)] group-hover:text-[var(--text-secondary)]"><a href="{% url 'activities:activity_detail' a.id %}" data-card-main>{{ a.name }}</a></h3>

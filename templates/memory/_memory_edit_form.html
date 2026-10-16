@@ -10,7 +10,7 @@
         <input type="hidden" name="filter_page" value="{{ filter_page }}">
         <!-- 内容编辑 -->
         <textarea name="content" rows="2"
-                  class="w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none"
+                  class="w-full rounded-2xl border border-[var(--border)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none"
                   >{{ memory.content }}</textarea>
         <!-- 类别 + 重要度（编辑态保持数字输入，档位折算只发生在展示侧） -->
         <div class="mt-2 flex flex-wrap items-center gap-3">
@@ -25,7 +25,7 @@
                 重要度
                 <input type="number" name="importance" value="{{ memory.importance }}"
                        min="1" max="10"
-                       class="w-14 rounded-xl border border-[var(--border)] px-2 py-1 text-center text-sm">
+                       class="w-14 rounded-2xl border border-[var(--border)] px-2 py-1 text-center text-sm">
             </label>
         </div>
         <!-- 操作按钮 -->

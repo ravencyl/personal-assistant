@@ -93,7 +93,7 @@
 
         dropdown = document.createElement('div');
         dropdown.id = 'tz-dropdown';
-        dropdown.className = 'fixed z-50 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-xl shadow-lg overflow-hidden';
+        dropdown.className = 'fixed z-50 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-2xl shadow-lg overflow-hidden';
         dropdown.style.cssText = 'top: 48px; right: 16px; width: 260px; max-height: 400px;';
 
         // 搜索框

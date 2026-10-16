@@ -31,7 +31,7 @@
                 // 失败态给一句可读文案（textContent 注入，不带 HTML）
                 container.innerHTML = '';
                 var p = document.createElement('p');
-                p.className = 'app-card rounded-xl p-4 text-sm text-[var(--text-muted)]';
+                p.className = 'app-card rounded-2xl p-4 text-sm text-[var(--text-muted)]';
                 p.textContent = '记忆统计加载失败，切回列表再点一次「记忆地图」重试。';
                 container.appendChild(p);
             });
@@ -52,7 +52,7 @@
         ];
         cards.forEach(function (c) {
             var div = document.createElement('div');
-            div.className = 'app-card rounded-xl p-4 text-center';
+            div.className = 'app-card rounded-2xl p-4 text-center';
             div.innerHTML = '<div class="text-2xl font-bold text-[var(--text)]">' + c.value + '</div>' +
                 '<div class="text-xs text-[var(--text-muted)] mt-1">' + c.label + '</div>';
             summaryRow.appendChild(div);
@@ -72,7 +72,7 @@
     /** 雷达图：6 类记忆数量分布 */
     function buildRadarChart(categories) {
         var card = document.createElement('div');
-        card.className = 'app-card rounded-xl p-4';
+        card.className = 'app-card rounded-2xl p-4';
 
         var title = document.createElement('p');
         title.className = 'text-sm font-medium text-[var(--text)] mb-3';
@@ -135,7 +135,7 @@
     /** 月度趋势柱状图 */
     function buildTimelineChart(monthly) {
         var card = document.createElement('div');
-        card.className = 'app-card rounded-xl p-4';
+        card.className = 'app-card rounded-2xl p-4';
 
         var title = document.createElement('p');
         title.className = 'text-sm font-medium text-[var(--text)] mb-3';

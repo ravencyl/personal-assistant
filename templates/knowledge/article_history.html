@@ -23,7 +23,7 @@
     {% if versions %}
     <div class="space-y-3">
         {% for v in versions %}
-        <div class="app-card rounded-xl p-4">
+        <div class="app-card rounded-2xl p-4">
             <div class="flex items-start justify-between gap-3">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
@@ -42,7 +42,7 @@
                     <!-- 内容预览（前 200 字） -->
                     <details class="mt-2">
                         <summary class="text-xs text-[var(--accent)] cursor-pointer hover:underline">查看内容</summary>
-                        <pre class="mt-2 text-xs text-[var(--text-secondary)] whitespace-pre-wrap bg-[var(--bg)] rounded-xl p-3 max-h-60 overflow-auto">{{ v.content|truncatechars:500 }}</pre>
+                        <pre class="mt-2 text-xs text-[var(--text-secondary)] whitespace-pre-wrap bg-[var(--bg)] rounded-2xl p-3 max-h-60 overflow-auto">{{ v.content|truncatechars:500 }}</pre>
                     </details>
                 </div>
                 <div class="shrink-0 text-xs text-[var(--text-muted)]">
