@@ -41,18 +41,20 @@
         </div>
     </div>
 
-    <!-- 长期进行中 -->
-    <div class="tile md:col-span-3">
+    <!-- 长期进行中：内容降级为首个名字 + 等 N 项（桌面瓦片固定 1 行放不下多行名字，
+         overflow:hidden 会把第二个名字拦腰裁掉，2026-10-16 用户确认方案 A；
+         整卡可点进列表的进行中筛选，与「过期待处理」瓦片同构） -->
+    <a href="{% url 'activities:activity_list' %}?status=in_progress" class="tile block md:col-span-3">
         <span class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold"
               style="background: var(--accent-light); color: var(--accent-text);">
             <i class="w-1.5 h-1.5 rounded-full" style="background: var(--accent);"></i>进行中
         </span>
-        <div class="mt-2 text-sm font-semibold leading-relaxed text-[var(--text)]">
-            {% for a in in_progress|slice:":3" %}{{ a.name }}{% if not forloop.last %}<br>{% endif %}{% empty %}
+        <div class="mt-auto pt-2 text-sm font-semibold leading-relaxed text-[var(--text-secondary)] truncate">
+            {% if in_progress %}{{ in_progress.0.name }}{% if in_progress|length > 1 %} 等 {{ in_progress|length }} 项{% endif %}{% else %}
             <span class="text-[var(--text-muted)] font-normal">没有长期进行中的活动</span>
-            {% endfor %}
+            {% endif %}
         </div>
-    </div>
+    </a>
 
     <!-- 过期待处理 -->
     <a href="{% url 'activities:activity_list' %}" class="tile block md:col-span-3">
