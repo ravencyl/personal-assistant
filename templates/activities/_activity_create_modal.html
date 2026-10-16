@@ -40,11 +40,7 @@
                 </div>
                 {# 提交失败走行内错误条（不用原生 alert，弹窗里提示不能被 alert 挡） #}
                 <p id="create-modal-error" class="hidden text-sm text-[var(--text)] font-semibold"></p>
-                {# sticky 提交条：键盘弹出时提交按钮保持可见（2026-10-13 建活动提速） #}
-                <div class="sticky bottom-0 -mx-5 sm:-mx-6 px-5 sm:px-6 py-3 bg-[var(--bg-card)] border-t border-[var(--border)] flex gap-3">
-                    <button type="submit" id="create-modal-submit" class="flex-1 rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2.5 text-sm font-semibold text-[var(--bg)] transition-colors">创建</button>
-                    <button type="button" id="create-modal-cancel" class="rounded-full bg-[var(--accent-light)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors">取消</button>
-                </div>
+                {# 提交/上一步/取消按钮在向导 partial 的 data-wizard-nav 里（submit_id 传 id，fetch 流程不变） #}
             </form>
         </div>
     </div>
@@ -54,7 +50,6 @@
 (function () {
     var overlay = document.getElementById('create-activity-modal');
     var closeBtn = document.getElementById('create-modal-close');
-    var cancelBtn = document.getElementById('create-modal-cancel');
     var form = document.getElementById('create-activity-form');
     var bodyEl = document.getElementById('create-modal-body');
     var submitBtn = document.getElementById('create-modal-submit');
@@ -70,8 +65,10 @@
     function openModal() {
         overlay.classList.remove('hidden');
         document.body.style.overflow = 'hidden';   // 弹窗滚动接管页面滚动
-        var first = document.getElementById('id_name');
-        if (first) first.focus();
+        // 分步向导：每次打开从第①步开始（上次走到一半关掉的进度不保留）
+        if (window.PaActivityWizard) window.PaActivityWizard.showStep(1);
+        var first = document.getElementById('tag-input');
+        if (first && !overlay.classList.contains('hidden')) first.focus();
     }
 
     function closeModal() {
@@ -84,7 +81,10 @@
         btn.addEventListener('click', openModal);
     });
     closeBtn.addEventListener('click', closeModal);
-    cancelBtn.addEventListener('click', closeModal);
+    // 取消按钮在向导导航条里（422 换体会随 body 一起换掉），绑定必须走 overlay 事件委托
+    overlay.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('[data-wizard-cancel]')) closeModal();
+    });
     // 点击遮罩空白处关闭（只拦截直接落在遮罩上的点击，弹窗内部冒泡不关）
     overlay.addEventListener('click', function (e) { if (e.target === overlay) closeModal(); });
     document.addEventListener('keydown', function (e) {
@@ -125,7 +125,8 @@
         },
         onEdit: function (d) {
             PaActivityForm.fillForm(d);
-            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // 五个步都填好了：直接落到第⑤步让用户确认层级，逐帧走过没意义
+            if (window.PaActivityWizard) window.PaActivityWizard.goToLast();
         },
     });
 
@@ -149,10 +150,13 @@
         }).then(function (res) {
             if (res.kind === 'ok') { window.location.href = res.data.redirect; return; }
             submitBtn.disabled = false;
-            submitBtn.textContent = '创建';
+            submitBtn.textContent = '创建活动';
             if (res.kind === 'invalid') {
                 bodyEl.innerHTML = res.html;
+                // 顺序不能反：chips 先挂好，向导的标签墙才能抓到 chips 实例做双向同步；
+                // reinit 会自动跳到含 js-form-error 的那一步
                 PaActivityForm.initWidgets();
+                if (window.PaActivityWizard) window.PaActivityWizard.reinit();
                 var scroller = overlay.querySelector('.overflow-y-auto');
                 if (scroller) scroller.scrollTop = 0;
             } else {
@@ -160,7 +164,7 @@
             }
         }).catch(function () {
             submitBtn.disabled = false;
-            submitBtn.textContent = '创建';
+            submitBtn.textContent = '创建活动';
             showError('网络异常，请重试');
         });
     });

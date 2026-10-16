@@ -7,6 +7,8 @@
 <script src="{% staticv 'js/pinyin-pro.js' %}"></script>
 <!-- 快速输入解析通道（原生 fetch + JSON，禁挂 hx-*） -->
 <script src="{% staticv 'js/quick-parse.js' %}"></script>
+{# 分步向导：依赖 activity-form.js 的 chips API（toggle/getSelected），必须排在其后 #}
+<script src="{% staticv 'js/activity-wizard.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -57,22 +59,22 @@
 
         <form method="post" class="space-y-4" id="activity-main-form">
             {% csrf_token %}
+            {% if activity %}
+            {# 编辑态保持单屏全字段（2026-10-16 分步只给创建：编辑时字段已填过，走五步反而多余） #}
             {% include "activities/_activity_form_fields.html" %}
 
             <div class="flex gap-3 pt-2">
                 <button type="submit" id="activity-save-btn" class="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">
                     保存
                 </button>
-                {% if activity %}
                 <a href="{% url 'activities:activity_detail' activity.pk %}" class="rounded-xl bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
                     取消
                 </a>
-                {% else %}
-                <a href="{% url 'activities:activity_list' %}" class="rounded-xl bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">
-                    取消
-                </a>
-                {% endif %}
             </div>
+            {% else %}
+            {# 创建态走分步向导（唯一实现 _activity_form_wizard.html，与列表页弹窗共用） #}
+            {% include "activities/_activity_form_wizard.html" with submit_label="创建活动" %}
+            {% endif %}
         </form>
 
         {% if activity %}
@@ -182,6 +184,9 @@
         [nameInput, descInput, tagsInput, partInput].forEach(function(el) {
             if (el) el.dispatchEvent(new Event('input', {bubbles: true}));
         });
+
+        // 分步向导：模板字段都填好了，直接落到第⑤步确认层级
+        if (window.PaActivityWizard) window.PaActivityWizard.goToLast();
 
         // 调用 template_use API 记录使用次数（异步，不阻塞）
         var templateId = data.id;

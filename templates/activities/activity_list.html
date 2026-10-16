@@ -9,6 +9,8 @@
 <script src="{% staticv 'js/activity-form.js' %}"></script>
 <!-- AI 一句话解析共用通道（原生 fetch + JSON，禁挂 hx-*） -->
 <script src="{% staticv 'js/quick-parse.js' %}"></script>
+<!-- 新建弹窗分步向导（依赖 activity-form.js 的 chips API，排在其后） -->
+<script src="{% staticv 'js/activity-wizard.js' %}"></script>
 {% endblock %}
 
 {% block content %}

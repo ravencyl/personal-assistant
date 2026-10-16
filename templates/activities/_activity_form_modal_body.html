@@ -1,9 +1,11 @@
-{# 新建活动弹窗表单体：校验失败时视图以 422 重渲染本模板由前端 fetch 换入 create-modal-body，json_script 随片段换入、chips 由 PaActivityForm.initWidgets 重新挂载 #}
+{# 新建活动弹窗·分步向导体（2026-10-16 改自单屏字段版）：校验失败时视图以 422 重渲染本模板， #}
+{# 由前端 fetch 换入 create-modal-body 后调 PaActivityForm.initWidgets + PaActivityWizard.reinit #}
+{# （chips 先挂、标签墙后挂，顺序不能反）。hide_parent=1：弹窗不出现父活动选项（桶内挂靠会污染费用归属） #}
 {% if form.non_field_errors %}
 <div class="mb-4 rounded-xl bg-[var(--bg)] border border-[var(--border-strong)] p-3 text-sm text-[var(--text)]">
     错误：{{ form.non_field_errors }}
 </div>
 {% endif %}
-{% include "activities/_activity_form_fields.html" with hide_parent=1 %}
+{% include "activities/_activity_form_wizard.html" with hide_parent=1 nav_bleed=1 submit_id="create-modal-submit" cancel_label="取消" %}
 {{ all_participants|json_script:"participant-options" }}
 {{ all_tags|json_script:"tag-options" }}

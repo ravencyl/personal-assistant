@@ -1,0 +1,193 @@
+{# 建活动分步向导（2026-10-16）：独立创建页与列表页「新建活动」弹窗共用的唯一实现。 #}
+{# 编辑页保持单屏全字段（_activity_form_fields.html）——编辑时字段已填过，分步反而多余。 #}
+{# 步序（用户定稿）：①标签 ②名称与描述 ③时间与状态 ④参与者 ⑤层级（父活动/子任务）。 #}
+{# 单页切步：整个向导仍在同一个 <form> 里，只是视觉分屏，服务端 POST/校验口径完全不变。 #}
+{# 字段的 label/widget/错误段与 _activity_form_fields.html 同口径（widget 渲染 {{ form.x }} 不可改）， #}
+{# 两边改字段属性时必须同步。错误段落 js-form-error 类：422/整页重渲染后向导据此跳回出错步骤。 #}
+{# submit_id 由宿主传入：独立页 activity-save-btn（防重复提交脚本绑它）、弹窗 create-modal-submit #}
+{# （弹窗 fetch 提交流程读它）；hide_parent=1 时第⑤步不出现父活动选项（弹窗口径，同字段 partial）。 #}
+<div data-wizard data-max-step="5">
+
+    {# 进度头：移动端「N/5 · 步名」+ 细进度条；桌面端完整五节点 stepper（可点回已走过的步） #}
+    <div class="mb-5">
+        <p class="md:hidden text-xs text-[var(--text-muted)] mb-2">
+            第 <span data-wizard-index>1</span> / 5 步 · <span data-wizard-title class="text-[var(--text)] font-medium">标签</span>
+        </p>
+        <div class="h-1 rounded-full bg-[var(--accent-light)] overflow-hidden">
+            <div data-wizard-bar class="h-full rounded-full bg-[var(--accent)] transition-all duration-300" style="width:20%"></div>
+        </div>
+        <div class="hidden md:flex items-center justify-between gap-2 mt-3" data-wizard-nodes>
+            {# 步名硬编码（与 data-title 一致）；点节点只能回已走过的步（activity-wizard.js 控制） #}
+            <button type="button" data-wizard-goto="1" aria-label="第1步：标签" class="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 text-[var(--text-muted)]"><span data-wizard-dot class="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[var(--border-strong)] text-[10px]">1</span><span data-wizard-node-label>标签</span></button>
+            <span class="flex-1 h-px bg-[var(--border)]" aria-hidden="true"></span>
+            <button type="button" data-wizard-goto="2" aria-label="第2步：名称与描述" class="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 text-[var(--text-muted)]"><span data-wizard-dot class="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[var(--border-strong)] text-[10px]">2</span><span data-wizard-node-label>名称与描述</span></button>
+            <span class="flex-1 h-px bg-[var(--border)]" aria-hidden="true"></span>
+            <button type="button" data-wizard-goto="3" aria-label="第3步：时间与状态" class="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 text-[var(--text-muted)]"><span data-wizard-dot class="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[var(--border-strong)] text-[10px]">3</span><span data-wizard-node-label>时间与状态</span></button>
+            <span class="flex-1 h-px bg-[var(--border)]" aria-hidden="true"></span>
+            <button type="button" data-wizard-goto="4" aria-label="第4步：参与者" class="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 text-[var(--text-muted)]"><span data-wizard-dot class="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[var(--border-strong)] text-[10px]">4</span><span data-wizard-node-label>参与者</span></button>
+            <span class="flex-1 h-px bg-[var(--border)]" aria-hidden="true"></span>
+            <button type="button" data-wizard-goto="5" aria-label="第5步：层级" class="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 text-[var(--text-muted)]"><span data-wizard-dot class="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[var(--border-strong)] text-[10px]">5</span><span data-wizard-node-label>层级</span></button>
+        </div>
+    </div>
+
+    {# ── 步骤① 标签 ── 标签墙：已有标签平铺成可点 chips（activity-wizard.js 渲染，与 #tag-box 同步）； #}
+    {# 下方保留原 chips 输入框用于新建标签/拼音搜索 #}
+    <div data-step="1" data-title="标签">
+        <p class="text-sm text-[var(--text-secondary)] mb-1">这个活动属于什么类型？<span class="text-[var(--text-muted)]">（可跳过）</span></p>
+        <div id="tag-wall" class="flex flex-wrap gap-2 mb-4" aria-label="可选标签"></div>
+
+        <label for="tag-input" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">或新建标签</label>
+        <div class="relative">
+            <div id="tag-box"
+                 class="flex flex-wrap gap-1.5 items-center rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] px-2 py-1.5 focus-within:border-[var(--accent)]">
+                <input type="text" id="tag-input" aria-label="添加标签" placeholder="输入标签，回车添加"
+                       autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
+            </div>
+            <div id="tag-suggest"
+                 class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-xl shadow-lg max-h-40 overflow-y-auto"></div>
+        </div>
+        {{ form.tags }}
+        {% if form.tags.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.tags.errors.0 }}</p>{% endif %}
+    </div>
+
+    {# ── 步骤② 名称与描述 ── 名称是全流程唯一必填项，点「下一步」时就地校验 #}
+    <div data-step="2" data-title="名称与描述" class="hidden">
+        <div>
+            <label for="id_name" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动名称 <span class="text-[var(--text)]">*</span></label>
+            {{ form.name }}
+            <p data-wizard-step-error class="hidden mt-1 text-xs text-[var(--text)] font-semibold">请先填写活动名称</p>
+            {% if form.name.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.name.errors.0 }}</p>{% endif %}
+        </div>
+        <div class="mt-4">
+            <label for="id_description" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述 <span class="text-xs font-normal text-[var(--text-muted)]">（可选）</span></label>
+            {{ form.description }}
+        </div>
+    </div>
+
+    {# ── 步骤③ 时间与状态 ── 全部可选/有默认值，纯确认步；具体时间沿用「开关展开」口径 #}
+    <div data-step="3" data-title="时间与状态" class="hidden">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label for="id_start_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
+                {{ form.start_date }}
+                {% if form.start_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
+            </div>
+            <div>
+                <label for="id_end_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
+                {{ form.end_date }}
+                {% if form.end_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
+            </div>
+        </div>
+
+        {# 具体时间（可选）：默认收起，开关展开后出现（展开逻辑在 activity-form.js initWidgets） #}
+        <div class="mt-4">
+            <button type="button" id="time-toggle"
+                    class="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-[var(--border-strong)] text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent-light)] transition-colors tap-target">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span id="time-toggle-label">添加具体时间（可选）</span>
+            </button>
+            <div id="time-fields" class="hidden mt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="id_start_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
+                    {{ form.start_time }}
+                    {% if form.start_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="id_end_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
+                    {{ form.end_time }}
+                    {% if form.end_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
+                </div>
+                <p class="sm:col-span-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <div>
+                <label for="id_status" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">状态</label>
+                {{ form.status }}
+            </div>
+            {% if form.parsed_cost %}
+            <div>
+                <label for="id_parsed_cost" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.parsed_cost.label }}</label>
+                {{ form.parsed_cost }}
+                <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.parsed_cost.help_text }}</p>
+                {% if form.parsed_cost.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.parsed_cost.errors.0 }}</p>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ── 步骤④ 参与者 ── 可整步跳过 #}
+    <div data-step="4" data-title="参与者" class="hidden">
+        <label for="participant-input" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">参与人员 <span class="text-xs font-normal text-[var(--text-muted)]">（可跳过）</span></label>
+        <div class="relative">
+            <div id="participant-box"
+                 class="flex flex-wrap gap-1.5 items-center rounded-xl border border-[var(--border-strong)] bg-[var(--bg-card)] px-2 py-1.5 focus-within:border-[var(--accent)]">
+                <input type="text" id="participant-input" aria-label="添加参与者" placeholder="输入姓名，回车添加"
+                       autocomplete="off" class="flex-1 min-w-[8rem] text-sm py-0.5 focus:outline-none">
+            </div>
+            <div id="participant-suggest"
+                 class="hidden absolute left-0 right-0 top-full mt-1 z-10 bg-[var(--bg-card)] border border-[var(--border-strong)] rounded-xl shadow-lg max-h-40 overflow-y-auto"></div>
+        </div>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">点输入框从已有联系人中选择，或输入新姓名回车添加（保存时自动创建）</p>
+        {{ form.participants_input }}
+        {% if form.participants_input.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.participants_input.errors.0 }}</p>{% endif %}
+    </div>
+
+    {# ── 步骤⑤ 层级 ── 三选一：独立（默认）/ 挂到父活动 / 添加子任务；选中即展开对应输入。 #}
+    {# hierarchy 是纯 UI 单选（不提交语义字段，Django 表单忽略未知键）；弹窗（hide_parent）只出两项 #}
+    <div data-step="5" data-title="层级" class="hidden">
+        <p class="text-sm text-[var(--text-secondary)] mb-2">这个活动的层级？</p>
+        <div class="space-y-2" role="radiogroup" aria-label="活动层级">
+            <label class="flex items-start gap-3 rounded-xl border border-[var(--border-strong)] p-3 cursor-pointer hover:bg-[var(--accent-light)] transition-colors">
+                <input type="radio" name="hierarchy" value="standalone" data-layer-option class="mt-0.5" checked>
+                <span class="text-sm text-[var(--text)]">独立活动
+                    <span class="block text-xs text-[var(--text-muted)]">不挂靠其他活动，也不添加子任务</span>
+                </span>
+            </label>
+            {% if not hide_parent %}
+            <label class="flex items-start gap-3 rounded-xl border border-[var(--border-strong)] p-3 cursor-pointer hover:bg-[var(--accent-light)] transition-colors">
+                <input type="radio" name="hierarchy" value="parent" data-layer-option class="mt-0.5">
+                <span class="text-sm text-[var(--text)]">挂到已有活动下
+                    <span class="block text-xs text-[var(--text-muted)]">作为它的子活动，费用与日程归属父活动</span>
+                </span>
+            </label>
+            {% endif %}
+            <label class="flex items-start gap-3 rounded-xl border border-[var(--border-strong)] p-3 cursor-pointer hover:bg-[var(--accent-light)] transition-colors">
+                <input type="radio" name="hierarchy" value="children" data-layer-option class="mt-0.5">
+                <span class="text-sm text-[var(--text)]">添加子任务
+                    <span class="block text-xs text-[var(--text-muted)]">一行一个，保存时一起创建</span>
+                </span>
+            </label>
+        </div>
+
+        {% if not hide_parent %}
+        <div data-layer-panel="parent" class="hidden mt-3">
+            <label for="id_parent" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">父活动</label>
+            {{ form.parent }}
+            {% if form.parent.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.parent.errors.0 }}</p>{% endif %}
+        </div>
+        {% endif %}
+        <div data-layer-panel="children" class="hidden mt-3">
+            <label for="id_new_children" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.new_children.label }}</label>
+            {{ form.new_children }}
+            <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.new_children.help_text }}</p>
+            {% if form.new_children.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.new_children.errors.0 }}</p>{% endif %}
+        </div>
+    </div>
+
+    {# ── 底部导航：sticky（弹窗键盘弹出时保持可见）；最后一步「下一步」变提交按钮。 #}
+    {# nav_bleed=1（弹窗）：负边距吃掉滚容器 px-5/sm:px-6 做通栏；独立页卡片是 p-6，用 -mx-6 #}
+    <div data-wizard-nav class="sticky bottom-0 {% if nav_bleed %}-mx-5 sm:-mx-6 px-5 sm:px-6{% else %}-mx-6 px-6{% endif %} mt-4 py-3 bg-[var(--bg-card)] border-t border-[var(--border)] flex items-center gap-3">
+        {# cancel_label：仅弹窗传（独立页的返回链接在页顶）；绑定走宿主 overlay 事件委托，422 换体不丢 #}
+        {% if cancel_label %}<button type="button" data-wizard-cancel class="rounded-full bg-[var(--accent-light)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors tap-target">{{ cancel_label }}</button>{% endif %}
+        <button type="button" data-wizard-back class="hidden rounded-full bg-[var(--accent-light)] px-4 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors tap-target">上一步</button>
+        <button type="button" data-wizard-next class="ml-auto rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2.5 text-sm font-semibold text-[var(--bg)] transition-colors tap-target">下一步</button>
+        <button type="submit" data-wizard-submit id="{{ submit_id|default:'activity-save-btn' }}"
+                class="hidden ml-auto rounded-full bg-[var(--accent)] hover:opacity-90 px-5 py-2.5 text-sm font-semibold text-[var(--bg)] transition-colors tap-target">
+            {% if submit_label %}{{ submit_label }}{% else %}创建活动{% endif %}
+        </button>
+    </div>
+</div>

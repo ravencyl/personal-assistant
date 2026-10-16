@@ -956,6 +956,51 @@ class ActivityCreateModalFormTest(TestCase):
         self.assertIn('YYX', json.loads(m2.group(1)), '弹窗参与者候选应含已有联系人')
 
 
+class ActivityCreateWizardTest(TestCase):
+    """建活动分步向导（2026-10-16）：创建页与新建弹窗共用五步制，编辑页保持单屏。
+
+    步序为用户定稿（标签 → 名称与描述 → 时间与状态 → 参与者 → 层级），改序即改产品口径；
+    单页切步（同一 <form>），服务端 POST/校验不变，所以锁只看结构标记不看字段本身。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.client = Client()
+        self.client.login(username='testuser', password='test')
+
+    def test_create_page_renders_five_steps(self):
+        html = self.client.get(reverse('activities:activity_create')).content.decode()
+        self.assertEqual(re.findall(r'data-step="(\d+)"', html), ['1', '2', '3', '4', '5'],
+                         '创建页五步结构缺失或步序变了')
+        self.assertIn('js/activity-wizard.js', html, '向导脚本未加载')
+        # 提交按钮必须保留防重复提交脚本绑定的 id
+        self.assertIn('id="activity-save-btn"', html)
+        # 标签墙（步①）与标签候选数据都要在
+        self.assertIn('id="tag-wall"', html)
+        self.assertIn('id="tag-options"', html)
+        # 层级三选一：独立 / 父活动 / 子任务
+        self.assertEqual(re.findall(r'name="hierarchy" value="(\w+)"', html),
+                         ['standalone', 'parent', 'children'])
+
+    def test_edit_page_stays_flat(self):
+        """编辑态不分步：字段已填过，走五步反而多余"""
+        activity = Activity.objects.create(user=self.user, name='编辑态')
+        html = self.client.get(
+            reverse('activities:activity_edit', args=[activity.id])).content.decode()
+        self.assertNotIn('data-wizard', html)
+        self.assertIn('id="activity-save-btn"', html)
+
+    def test_modal_carries_wizard(self):
+        html = self.client.get(reverse('activities:activity_list')).content.decode()
+        self.assertEqual(re.findall(r'data-step="(\d+)"', html), ['1', '2', '3', '4', '5'],
+                         '新建弹窗五步结构缺失')
+        self.assertIn('js/activity-wizard.js', html, '列表页未加载向导脚本')
+        self.assertIn('id="create-modal-submit"', html, '弹窗提交按钮 id 被 fetch 流程依赖，不能丢')
+        self.assertIn('data-wizard-cancel', html, '弹窗取消按钮（overlay 委托绑定）不能丢')
+        # 弹窗口径：不出现父活动选项（hide_parent）
+        self.assertNotIn('name="hierarchy" value="parent"', html)
+
+
 @override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
 class AttachmentUploadTest(TestCase):
     """附件上传：详情页是整页 POST（无 hx-*），必须回跳而不是把 JSON 渲染成页面"""

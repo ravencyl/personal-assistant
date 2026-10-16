@@ -56,6 +56,7 @@
                 box.insertBefore(chip, input);
             });
             hidden.value = selected.join(', ');
+            if (api && api.onChanged) api.onChanged(selected);   // 标签墙等外部同步点（向导步①；初始化时 api 尚未赋值，见下）
         }
 
         function addName(name) {
@@ -111,10 +112,21 @@
 
         renderTags();
 
-        // 外部设值接口（供快速输入填充使用）
-        return {
+        // 外部设值/取值接口（供快速输入填充与向导标签墙使用）
+        var api = {
             setNames: function (names) { selected = (names || []).slice(); renderTags(); },
+            getSelected: function () { return selected.slice(); },
+            // 点选切换：已选→移除，未选→追加（走 addName 的去重/去逗号口径）
+            toggle: function (name) {
+                if (selected.indexOf(name) !== -1) {
+                    selected = selected.filter(function (n) { return n !== name; });
+                    renderTags();
+                } else {
+                    addName(name);
+                }
+            },
         };
+        return api;
     }
 
     // 挂载 chips 组件（字段 DOM 不存在时跳过；可重复调用，每次整体重建）
@@ -304,6 +316,8 @@
                 onOk: function (d) {
                     done();
                     fillForm(d);
+                    // 分步向导（仅创建页渲染）：字段都填好了，直接落到第⑤步确认
+                    if (window.PaActivityWizard) window.PaActivityWizard.goToLast();
                     showMsg('已填入表单，请确认后保存' + (d.source === 'ai' ? '（AI 识别）' : '（规则识别）'), false);
                 },
                 onErr: function (m) { done(); showMsg(m, true); },
@@ -321,6 +335,7 @@
             try {
                 var d = JSON.parse(draft);
                 fillForm(d);
+                if (window.PaActivityWizard) window.PaActivityWizard.goToLast();   // 分步向导：落到第⑤步确认
                 showMsg('已从快速输入填入，请确认后保存', false);
                 qInput.value = d.name || '';
             } catch (e) { /* 草稿损坏时忽略 */ }
