@@ -7,8 +7,7 @@
 <script src="{% staticv 'js/pinyin-pro.js' %}"></script>
 <!-- 快速输入解析通道（原生 fetch + JSON，禁挂 hx-*） -->
 <script src="{% staticv 'js/quick-parse.js' %}"></script>
-{# 分步向导：依赖 activity-form.js 的 chips API（toggle/getSelected），必须排在其后 #}
-<script src="{% staticv 'js/activity-wizard.js' %}"></script>
+{# 分步向导脚本在 extra_js 末尾加载：依赖 activity-form.js 的 chips API（DOMContentLoaded 注册顺序 = 执行顺序） #}
 {% endblock %}
 
 {% block content %}
@@ -115,6 +114,8 @@
 {% block extra_js %}
 {# chips（拼音联想）与快速填表逻辑集中在 activity-form.js（与列表页创建弹窗共用） #}
 <script src="{% staticv 'js/activity-form.js' %}"></script>
+{# 分步向导必须排在 activity-form.js 之后：标签墙初始化要拿它的 chips 实例（曾因放 head 里先于 chips 初始化执行，独立页标签墙恒空） #}
+<script src="{% staticv 'js/activity-wizard.js' %}"></script>
 <script>
 // 保存防重复提交（抄 _activity_create_modal 的 submitBtn.disabled 守卫口径）：
 // submit 事件里禁用发生在本次提交开始之后，按钮无 name 不参与表单数据，不会吞掉提交；

@@ -131,12 +131,17 @@
         });
     }
 
+    var WALL_RETRY = 20;
     function initTagWall() {
         var chips = window.__chipsInputs && window.__chipsInputs.tags;
         if (chips) {
             chips.onChanged = renderTagWall;   // chips 任何增删都刷新墙
+            renderTagWall();
+        } else if (WALL_RETRY-- > 0) {
+            // chips 未就绪（本脚本先于 activity-form.js 执行）时稍后重试；
+            // 正常宿主页都会把本脚本排在 activity-form.js 之后，这里只是兜底
+            setTimeout(initTagWall, 50);
         }
-        renderTagWall();
     }
 
     // ── Enter 前进：只挂 form 元素；chips 输入/textarea/select/终步不走这里 ──
