@@ -119,6 +119,20 @@
 <!-- 右列：报告入口与状态分布（桌面端 320px 栏整列常驻，移动端顺排在主内容流之后） -->
 <div class="page-rail space-y-4 sm:space-y-6">
 
+<!-- 内容入口：备忘/知识库 2026-10-16 撤出移动底栏（用户要求），入口落在这里。
+     桌面顶栏仍有同功能入口，md:hidden 避免重复 -->
+<div class="app-card p-4 md:hidden">
+    <h2 class="text-sm font-semibold text-[var(--text)] mb-3">内容</h2>
+    <div class="flex flex-wrap gap-2">
+        <a href="{% url 'notes:note_list' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+            备忘
+        </a>
+        <a href="{% url 'knowledge:article_list' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+            知识库
+        </a>
+    </div>
+</div>
+
 <!-- 报告入口：移动端横排成 pills，桌面端宽 320px 的栏里改竖排免换行错乱。
      四个入口（周报/月报/年报/每周回顾）语义平级，统一同一套描边按钮样式
      （旧版周报是实心、其余描边，看着像周报才是主路径） -->

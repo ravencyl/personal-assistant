@@ -245,14 +245,15 @@
     </div>
 
     {% if user.is_authenticated %}
-    <!-- 移动端底部 Tab 栏：截图同款浮动胶囊条（2026-09-13），当前项 accent 胶囊高亮（2026-10-08 用户要求：
-         不显示中文名，只留图标，aria-label 保证可达性）；循环/模板的入口在活动页头部图标组，
-         记忆使用频率低且不在手机上读，暂不占位。
+    <!-- 移动端底部 Tab 栏：截图同款浮动胶囊条（2026-09-13），当前项深色胶囊高亮；
+         2026-10-16 用户要求：备忘/知识库撤出底栏，入口收进「我的」(dashboard) 页，
+         底栏只剩 快记 dock + 今日/活动/对话/我的；
+         循环/模板的入口在活动页头部图标组，记忆不在手机上读不占位。
          2026-10-08 顶栏合并：新增「我的」(dashboard) 承载低频全局操作（推送开关/退出登录），
          原 logo 链接 / 重定向到对话页与 Tab 重复，不再单独占位 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pointer-events-none">
         <div class="glass-tab-bar pointer-events-auto mx-auto max-w-sm flex items-center justify-between rounded-full px-2 py-1.5">
-            {# 快记 dock 仍在首位（移动端常驻快记入口）；「今日」2026-10-16 回归为首页后重新占一席 #}
+            {# 快记 dock 仍在首位（移动端常驻快记入口）；「今日」2026-10-16 回归为首页后重新占一席；备忘/知识库同日撤出底栏（用户要求），入口在「我的」页 #}
             <button type="button" data-quick-toggle aria-label="快记" class="tap-target flex items-center gap-1.5 rounded-full h-10 px-2.5 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
@@ -271,16 +272,6 @@
             <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'chat' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                </svg>
-            </a>
-            <a href="{% url 'notes:note_list' %}" aria-label="备忘" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'notes' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-            </a>
-            <a href="{% url 'knowledge:article_list' %}" aria-label="知识" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'knowledge' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                 </svg>
             </a>
             <a href="{% url 'dashboard' %}" aria-label="我的" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'dashboard' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">

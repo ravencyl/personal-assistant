@@ -597,8 +597,10 @@ class PrimaryNavTest(TestCase):
     DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
     # 移动底栏：「记忆」不占位（用户定的口径 —— 手机上不读记忆）；
     # 快记 dock（button，不算导航条目）仍在首位，「今日」随首页复活重新占一席。
-    # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里
-    MOBILE = ['今日', '活动', '对话', '备忘', '知识', '我的']
+    # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里。
+    # 2026-10-16 用户要求：备忘/知识库撤出底栏，入口收进「我的」(dashboard) 页
+    # （见 test_mobile_dropped_entries_live_in_dashboard 的防丢失锁）
+    MOBILE = ['今日', '活动', '对话', '我的']
     # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
 
     def _base(self):
@@ -645,6 +647,17 @@ class PrimaryNavTest(TestCase):
         items = re.findall(r'<a\b', block)
         self.assertEqual(len(items), len(re.findall(r'<a\b[^>]*aria-label="', block)),
                          '底栏 <a> 数与条目清单不一致：会有空位或孤立图标')
+
+    def test_mobile_dropped_entries_live_in_dashboard(self):
+        """撤出底栏的模块入口必须仍可达（2026-10-16：备忘/知识库收进「我的」页）。
+
+        防的是「从底栏删了条目、却忘了在 dashboard.html 补入口」——那两个模块
+        就从移动端彻底消失（全局搜索里还有入口，但那是兜底不是主路径）。"""
+        dash = (self.TEMPLATES / 'core' / 'dashboard.html').read_text(encoding='utf-8')
+        self.assertIn("{% url 'notes:note_list' %}", dash,
+                      'dashboard 缺备忘入口：移动端备忘将无处可去')
+        self.assertIn("{% url 'knowledge:article_list' %}", dash,
+                      'dashboard 缺知识库入口：移动端知识库将无处可去')
 
 
 class TodayPageRetiredTest(TestCase):
