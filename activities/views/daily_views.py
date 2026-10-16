@@ -1,14 +1,16 @@
-"""Daily 数据采集层与「下一步行动」页（daily 页面已于 2026-09-19 下线，/daily/ 重定向回对话）"""
-from datetime import timedelta
+"""Daily 数据采集层、「今日」首页与「下一步行动」页（daily 页已于 2026-09-19 下线）"""
+import calendar
+from datetime import time, timedelta
 import logging
 
 from django.contrib.auth.decorators import login_required
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
+from core.models import Tag
 from core.utils import visible_qs, week_monday, WEEKDAY_LABELS
 
 from ..models import Activity, Expense
@@ -259,6 +261,87 @@ def refresh_suggestion(request):
     except Exception as exc:
         logger.warning('手动刷新建议失败: %s', exc)
         return JsonResponse({'error': '刷新失败，请稍后重试'}, status=500)
+
+
+def _greeting(hour):
+    if hour < 5:
+        return '夜深了'
+    if hour < 11:
+        return '早上好'
+    if hour < 14:
+        return '中午好'
+    if hour < 18:
+        return '下午好'
+    return '晚上好'
+
+
+@login_required
+def today_home(request):
+    """「今日」首页（2026-10-16 复活，Bento 视觉，用户定策设为站点首页）
+
+    数据层复用 gather_daily（与 daily 简报卡同源，不另起一套口径）；
+    本页额外补三块：本月支出（个人指标，只算本人）、标签云（按可见活动计数）、
+    今日时间线（今日三组合并去重后按开始时间排序）。
+    """
+    user = request.user
+    data = gather_daily(user)
+    today = data['today']
+    now = timezone.localtime()
+
+    # ── 今日时间线：今日进行中 + 今日开始 + 今日结束（gather_daily 已互斥去重）──
+    timeline = [*data['ongoing'], *data['starting_today'], *data['ending_today']]
+    timeline.sort(key=lambda a: (a.start_time or time(23, 59), a.start_date or today))
+    for a in timeline:
+        a.time_label = a.start_time.strftime('%H:%M') if a.start_time else '全天'
+        tags = list(a.tags.all())
+        a.tile_color = tags[0].color if tags and tags[0].color else ''
+        a.tile_tag = tags[0].name if tags else ''
+
+    # ── 本月支出（个人指标口径：只算本人费用，不走 visible_qs）──
+    month_start = today.replace(day=1)
+    month_expense = float(Expense.objects.filter(
+        user=user, paid_at__gte=month_start,
+    ).aggregate(s=Sum('amount'))['s'] or 0)
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    month_pct = round(today.day / days_in_month * 100)
+    daily_avg = month_expense / today.day if today.day else 0
+
+    # ── 标签云：启用标签 × 可见活动计数，取前 8 ──
+    base_qs = visible_qs(Activity, user)
+    tag_rows = list(
+        Tag.objects.filter(scope='activity', is_active=True)
+        .annotate(n=Count('activity', filter=Q(activity__in=base_qs)))
+        .filter(n__gt=0)
+        .order_by('-n', 'sort', 'name')[:8]
+    )
+
+    # ── 接下来：7 天内将开始的计划活动（卡片流，颜色取首个标签否则回退状态色）──
+    for a in data['upcoming'][:6]:
+        tags = list(a.tags.all())
+        a.tile_color = tags[0].color if tags and tags[0].color else ''
+        a.tile_tag = tags[0].name if tags else ''
+
+    hour = now.hour
+    return render(request, 'activities/today.html', {
+        'today_display': f'{today.month} 月 {today.day} 日 · {WEEKDAY_LABELS[today.weekday()]}',
+        'greeting': _greeting(hour),
+        'username': user.username,
+        'ai_suggestion': data['ai_suggestion'],
+        'ai_suggestion_is_ai': data['ai_suggestion_is_ai'],
+        'timeline': timeline,
+        'covered_count': len(timeline),
+        'ongoing_count': data['ongoing_count'],
+        'in_progress': data['in_progress'],
+        'overdue': data['overdue_rolled_in'],
+        'month_expense': month_expense,
+        'month_pct': month_pct,
+        'daily_avg': daily_avg,
+        'today_expense': data['today_expense'],
+        'week_expense': data['this_week_expense'],
+        'tag_rows': tag_rows,
+        'upcoming': data['upcoming'][:6],
+        'hour': hour,
+    })
 
 
 @login_required

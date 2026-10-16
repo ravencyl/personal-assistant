@@ -592,14 +592,13 @@ class PrimaryNavTest(TestCase):
 
     TEMPLATES = Path(settings.BASE_DIR) / 'templates'
 
-    # 桌面顶栏：五个一级模块，顺序即视觉顺序（「今日」/「工作台」随 /daily/ 与
-    # /today/ 页下线移除，信息走对话里的 daily/工作台快捷卡）
-    DESKTOP = ['活动记录', 'AI 对话', '备忘', '知识库', '记忆']
+    # 桌面顶栏：六个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
+    # 模板管理/循环活动收在活动记录页头部按钮组，不进导航）
+    DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
     # 移动底栏：「记忆」不占位（用户定的口径 —— 手机上不读记忆）；
-    # 「今日」随页下线移除，原位置换成快记 dock（button，不算导航条目）。
-    # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里；
-    # 同日顶栏合并进底栏（登录后移动端顶栏隐藏），新增「我的」承载推送/退出等低频全局操作
-    MOBILE = ['活动', '对话', '备忘', '知识', '我的']
+    # 快记 dock（button，不算导航条目）仍在首位，「今日」随首页复活重新占一席。
+    # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里
+    MOBILE = ['今日', '活动', '对话', '备忘', '知识', '我的']
     # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
 
     def _base(self):
@@ -649,8 +648,11 @@ class PrimaryNavTest(TestCase):
 
 
 class TodayPageRetiredTest(TestCase):
-    """/today/ 工作台页下线（2026-09-19，与 /daily/ 同口径）：路由保留但重定向回首页，
-    旧书签 / 模板 url 标签不破；渲染层已删除，任何残留在 template 里都会 TemplateDoesNotExist"""
+    """core 侧旧 /today/ 工作台页（2026-09-19 下线）：路由保留但重定向回首页。
+
+    2026-10-16「今日」以 Bento 视觉复活为首页，但落点是 activities.today_home
+    （templates/activities/today.html）；core/today.html 保持不存在，
+    core.views.today_view 仍是纯重定向。渲染层复活不改变这条锁的口径。"""
 
     def setUp(self):
         self.user = User.objects.create_user('tb', password='p')
@@ -959,6 +961,7 @@ class DesktopLayoutCoverageTest(TestCase):
         'activities/activity_list.html': '宽表格 min-w-[760px]，吃满整宽才放得下',
         'activities/activity_calendar.html': '月/周视图是 7 列网格，压进左列每格不足 123px',
         'activities/next_actions.html': '单列待办列表，无辅助信息列可提',
+        'activities/today.html': 'Bento 网格自成分栏节奏，压进 320px 左列放不下',
         'activities/activity_form.html': '纯表单编辑页，输入宽度就是舒适宽度',
         'knowledge/article_form.html': '纯表单编辑页',
         'chat/conversation_detail.html': '消息流是单一线性时间轴，右列无天然内容',

@@ -3140,3 +3140,59 @@ class ListRowClutterRemovedTest(SimpleTestCase):
         table = table[table.index('id="activity-list"'):table.index('id="mobile-activity-list"')]
         self.assertIn('¥{{ activity.show_cost', table)
         self.assertIn("sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}", table)
+
+
+class TodayHomeTest(TestCase):
+    """「今日」首页（2026-10-16 复活，Bento 视觉，设为站点根路径）
+
+    数据层与 daily 简报卡同源（gather_daily），本锁盯三件事：
+    根路径渲染 / 时间线只收今日三组 / 标签云按可见活动计数。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('today', password='p')
+        self.client = Client()
+        self.client.login(username='today', password='p')
+        self.today = timezone.localdate()
+
+    def _activity(self, name, **kw):
+        defaults = dict(user=self.user, name=name, status='planned',
+                        start_date=self.today)
+        defaults.update(kw)
+        return Activity.objects.create(**defaults)
+
+    def test_root_renders_bento_tiles(self):
+        self._activity('今日待办', start_time='14:00')
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertIn('今日概览', html)
+        self.assertIn('本月支出', html)
+        self.assertIn('今天的时间线', html)
+        self.assertIn('按标签看', html)
+        self.assertIn('今日待办', html)
+
+    def test_timeline_only_takes_today_groups(self):
+        """未来 7 天活动进「接下来」卡片流，不混进今日时间线"""
+        self._activity('今日的事', start_time='09:00')
+        self._activity('下周的事', start_date=self.today + timedelta(days=5))
+        html = self.client.get('/').content.decode()
+        timeline = html[html.index('今天的时间线'):html.index('按标签看')]
+        self.assertIn('今日的事', timeline)
+        self.assertNotIn('下周的事', timeline)
+        rest = html[html.index('接下来'):]
+        self.assertIn('下周的事', rest)
+
+    def test_tag_cloud_counts_visible_activities(self):
+        tag = Tag.objects.create(scope='activity', name='旅游', color='#34d399')
+        act = self._activity('旅行计划')
+        act.tags.add(tag)
+        html = self.client.get('/').content.decode()
+        self.assertIn('--tag-color: #34d399', html)
+        self.assertIn('旅游', html)
+
+    def test_login_required(self):
+        self.client.logout()
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/login/', resp['Location'])

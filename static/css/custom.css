@@ -51,41 +51,41 @@
    ============================================================ */
 
 :root {
-    /* periwinkle 蓝紫强调色（2026-09-13 用户选定向医疗预约风截图，推翻 09-11 纯蓝）
-       同时解禁大面积色块卡与宽松大卡节奏，圆角/胶囊全面放大
-       2026-09-18 质感升级：背景加微妙暖灰调、阴影分层加色彩倾向、卡片内发光 */
-    /* 2026-10-11 走查修复：#6478e8 对白字实测 3.89:1，小字号按钮文案（text-sm）不达 AA 4.5:1。
-       主色加深一档到 #5568d8（白字 4.82:1，同 periwinkle 色相族），hover 相应加深。
-       旧值只达标大字/图形/描边用法；按钮底色的白字是全站最高频文字，按按钮口径取色 */
-    --accent: #5568d8;
-    --accent-hover: #4a5ac8;
+    /* 2026-10-16 全站切换 Bento 视觉（ui_demos/demo3 用户定稿）：
+       画布微暖灰 #f4f4f2，强调色从 periwinkle #5568d8 换成亮蓝 #4663ee
+       （demo 原值 #4f6ef7 对白字 4.26:1 不达 AA，加深一档 → 4.86:1），
+       卡片圆角放大到 28px，控件维持 12px */
+    --accent: #4663ee;
+    --accent-hover: #3a55e0;
     /* a11y（WCAG 1.4.3）：小字号 accent 文字（导航激活页签等）用加深版，
-       白底对比度 5.5:1 达 AA；#6478e8 仅 3.9:1，只用于大字/图形/按钮底色 */
-    --accent-text: #4a5cd6;
-    --accent-light: #eef0fe;    /* periwinkle 极浅底：hover/选中染色 */
+       白底对比度 6.4:1 达 AA */
+    --accent-text: #3451d6;
+    --accent-light: #eef0fe;    /* 极浅 accent 底：hover/选中染色 */
     --accent-soft: #eef0fe;     /* 选中态/强调底色专用 */
-    --bg: #f8f8fa;              /* 微暖灰画布（不再是纯白，增加层次） */
+    --bg: #f4f4f2;              /* 微暖灰画布（Bento 定稿色） */
     --bg-card: #ffffff;
-    --text: #18181b;
+    --text: #1c1c1e;
     --text-secondary: #52525b;
-    /* a11y（WCAG 1.4.3）：#a1a1aa 白底仅 2.1:1，加深到 #71717a（白底 4.83:1，
-       bg #f8f8fa 上 4.57:1）达 AA；灰阶层级仍保留（secondary #52525b 更深一档） */
+    /* a11y（WCAG 1.4.3）：#a1a1aa 白底仅 2.1:1，加深到 #71717a（白底 4.83:1）达 AA；
+       灰阶层级仍保留（secondary #52525b 更深一档） */
     --text-muted: #71717a;
     --border: rgba(0, 0, 0, 0.06);
     --border-strong: rgba(0, 0, 0, 0.12);
 
-    /* 阴影令牌：分层 + 微色彩倾向（蓝紫调混入外层阴影，增加精致感） */
+    /* 阴影令牌：分层 + 微色彩倾向（蓝调混入外层阴影，增加精致感） */
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(100, 120, 232, 0.04);
-    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(100, 120, 232, 0.07);
-    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(100, 120, 232, 0.10);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(70, 99, 238, 0.04);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(70, 99, 238, 0.07);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(70, 99, 238, 0.10);
+    /* Bento 悬浮阴影（demo 同款：大而收的下坠阴影，悬停上浮时用） */
+    --shadow-hover: 0 18px 36px -18px rgba(0, 0, 0, 0.18);
     /* 卡片内发光（顶部高光模拟光源从上方向下） */
     --card-inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
-    /* 圆角 4 档（2026-10-13 移动端 revamp，用户拍板控件弃胶囊收敛为 12px）：
+    /* 圆角 4 档（2026-10-16 Bento 定稿：页面一级卡 28px / 二级面 20px / 控件 12px）：
        R-card 页面一级卡 / R-surface 卡内二级面·弹窗·气泡 / R-ctl 按钮·输入框·select / R-pill 徽章·chip */
-    --radius-card: 1.25rem;     /* 20px，.app-card/.panel */
-    --radius-surface: 1rem;     /* 16px */
+    --radius-card: 1.75rem;     /* 28px，.app-card/.panel/今日页 tile */
+    --radius-surface: 1.25rem;  /* 20px */
     --radius-ctl: 12px;
 }
 
@@ -101,9 +101,10 @@
 /* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
    日历与图表靠 `var(--status-<status>)` 引用，不再各存一份 hex）*/
 :root {
-    /* 状态语义色（2026-09-11 用户解禁彩色）：计划=天蓝 / 进行中=品牌蓝 / 完成=绿 / 取消=灰 */
+    /* 状态语义色（2026-09-11 用户解禁彩色）：计划=天蓝 / 进行中=品牌蓝 / 完成=绿 / 取消=灰
+       2026-10-16 进行中跟随 Bento 品牌色 #4663ee（旧 periwinkle #6478e8 退役）*/
     --status-planned: #0284c7;      /* sky-600：白字对比 4.6:1 */
-    --status-in_progress: #6478e8;  /* periwinkle = 品牌色，进行中即「正在发生」 */
+    --status-in_progress: #4663ee;  /* 品牌蓝 = 进行中即「正在发生」，白字 4.86:1 */
     --status-done: #16a34a;         /* green-600 */
     --status-cancelled: #a1a1aa;    /* 退出语义不加色相，维持灰 */
 }
@@ -130,47 +131,14 @@
 .badge-status--done { background: #dcfce7; color: #15803d; }
 .badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
-/* 活动标签底色（core.Tag.color，仅 activity scope；2026-10-13）
-   卡片/行挂 --tag-color（首个标签基色）+ .tag-wash：浅底用内阴影铺
-   （不占 background，Tailwind 的 hover:bg 得以继续工作），左侧 3px
-   色条点出归属；标签 chip 挂自己的 --tag-color + .tag-chip，色点
-   .tag-dot 用基色本体。所有层级由 color-mix 从基色派生——后台改
-   hex 即全链生效，无需再动 CSS。基色饱和度区间见 core.tags.random_tag_color */
-.tag-wash {
-    box-shadow: inset 3px 0 0 0 var(--tag-color),
-                inset 0 0 0 999px color-mix(in srgb, var(--tag-color) 8%, transparent);
-}
-/* 表格行不保证渲染 box-shadow，行用 background 铺浅底；hover 加深一档
-   （tr.tag-wash:hover 特异性高于 Tailwind 的 hover:bg-*，行为确定） */
-tr.tag-wash {
-    background: color-mix(in srgb, var(--tag-color) 7%, var(--bg-card));
-}
-tr.tag-wash:hover {
-    background: color-mix(in srgb, var(--tag-color) 12%, var(--bg-card));
-}
-.tag-chip {
-    background: color-mix(in srgb, var(--tag-color) 14%, var(--bg-card));
-    border-color: color-mix(in srgb, var(--tag-color) 38%, var(--border));
-}
-.tag-chip:hover {
-    background: color-mix(in srgb, var(--tag-color) 26%, var(--bg-card));
-}
-.tag-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    background: var(--tag-color);
-    flex: none;
-}
-
-/* 活动标签底色（core.Tag.color，仅 activity scope；2026-10-13）
+/* 活动标签底色（core.Tag.color，仅 activity scope；2026-10-16 Bento 改版）
    卡片/行挂 --tag-color（基色）+ --tag-rgb（三通道值）与 .tag-wash：
    浅底用 rgba(var(--tag-rgb), α) 叠在卡片底上（不用 color-mix——iOS 16.2
-   以下不认，整条声明会被静默丢弃，手机端曾因此完全不显色）。
+   以下不认，整条声明会被静默丢弃，手机端曾因此完全不显色；2026-10-16
+   顺势删除旧 color-mix 版重复块，本段是唯一实现）。
    写成 div.tag-wash（特异性 0,1,1）而非 .tag-wash：必须盖过下方 .app-card
    的白底 background（同特异性时后者胜，段位先后不可靠）。
-   基色色条用 ::before 而不是 box-shadow——.app-card 也定义 box-shadow，
-   wash 的内阴影会被卡片阴影整个覆盖。chip/dot 同源。
+   Bento 视觉下色条从左侧 3px 改为顶部 6px（demo .act 卡同款）。
    ⚠️ 色条伪元素必须限定 div.tag-wash：桌面行也带 .tag-wash 类，tr 上出
    现 ::before 会被 Chrome 包成匿名单元格，把整行所有 td 顶后一列并抬高
    行高（线上实测错位）——tr 的色条走下方 td:first-child 内阴影。 */
@@ -183,10 +151,18 @@ div.tag-wash::before {
     position: absolute;
     left: 0;
     top: 0;
-    bottom: 0;
-    width: 3px;
+    right: 0;
+    height: 6px;
     background: var(--tag-color);
-    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+/* 表格行不保证渲染 box-shadow/伪元素，行用 background 铺浅底；hover 加深一档
+   （tr.tag-wash:hover 特异性高于 Tailwind 的 hover:bg-*，行为确定） */
+tr.tag-wash {
+    background: linear-gradient(rgba(var(--tag-rgb), 0.07), rgba(var(--tag-rgb), 0.07)), var(--bg-card);
+}
+tr.tag-wash:hover {
+    background: linear-gradient(rgba(var(--tag-rgb), 0.12), rgba(var(--tag-rgb), 0.12)), var(--bg-card);
 }
 /* 桌面表格行同样按圆角卡片渲染（#activity-list 限定，不影响别处表格）。
    行的 background 挂在 (1,0,2) 特异性上，会压过 Tailwind 的 hover:bg-*，
@@ -198,7 +174,7 @@ div.tag-wash::before {
     }
     #activity-list tbody tr {
         background: var(--bg-card);
-        border: 1px solid rgba(100, 120, 232, 0.08);
+        border: 1px solid rgba(70, 99, 238, 0.08);
         border-radius: var(--radius-card);
         box-shadow: var(--shadow-sm);
         transition: background 0.15s ease;
@@ -292,7 +268,7 @@ textarea {
 /* 卡片：白底浮在淡灰画布上——大圆角 + 内发光 + 分层阴影 + hover 上浮（精致细腻风） */
 .app-card, .card {
     background: var(--bg-card);
-    border: 1px solid rgba(100, 120, 232, 0.08);
+    border: 1px solid rgba(70, 99, 238, 0.08);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-sm), var(--card-inner-glow);
     transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
@@ -320,7 +296,7 @@ textarea {
 .quick-panel-surface {
     background: linear-gradient(180deg, var(--accent-light) 0%, var(--bg-card) 38%);
     border: 1.5px solid var(--accent);
-    box-shadow: var(--shadow-lg), 0 24px 64px rgba(100, 120, 232, 0.28);
+    box-shadow: var(--shadow-lg), 0 24px 64px rgba(70, 99, 238, 0.28);
 }
 
 /* 问 AI 抽屉：活动详情页内嵌对话（2026-09-21）。
@@ -329,7 +305,7 @@ textarea {
 .ask-drawer {
     display: none;
     flex-direction: column;
-    box-shadow: var(--shadow-lg), 0 24px 64px rgba(100, 120, 232, 0.22);
+    box-shadow: var(--shadow-lg), 0 24px 64px rgba(70, 99, 238, 0.22);
 }
 
 .ask-drawer.ask-drawer-open {
@@ -381,29 +357,30 @@ textarea {
 
 /* 导航链接（质感升级：柔和过渡 + 激活态微底色） */
 .nav-link {
-    /* a11y（WCAG 1.4.3）：导航文字用 text-muted（#a1a1aa，对比度约 2.1:1）不达 AA 4.5:1，
-       改 text-secondary（#52525b，约 7.4:1）；未激活页签的视觉弱化交给字重与背景 */
+    /* a11y（WCAG 1.4.3）：导航文字用 text-secondary（约 7.4:1）不弱化到不达 AA 的浅灰；
+       未激活页签的视觉弱化交给字重与背景 */
     color: var(--text-secondary);
     font-size: 0.875rem;
     transition: color 0.2s ease, background-color 0.2s ease;
-    border-radius: var(--radius-ctl);
-    padding: 0.375rem 0.75rem;
+    border-radius: 999px;   /* Bento 胶囊导航（demo 定稿） */
+    padding: 0.4rem 1rem;
 }
 
 .nav-link:hover {
-    color: var(--text-secondary);
-    background-color: rgba(100, 120, 232, 0.04);
+    color: var(--text);
+    background-color: rgba(70, 99, 238, 0.06);
 }
 
+/* 激活态 = 深色胶囊反白（Bento demo 同款；白色对 #1c1c1e 对比度 ~15:1） */
 .nav-link-active {
-    color: var(--accent-text);
+    color: #ffffff;
     font-weight: 600;
-    background-color: rgba(100, 120, 232, 0.08);
+    background-color: var(--text);
 }
 
 /* 品牌色的轻量落点：聚焦环 + 勾选框（模板未写 focus: 类，此处是全局唯一 focus 处理） */
 input:focus-visible, textarea:focus-visible, select:focus-visible {
-    outline: 2px solid rgba(100, 120, 232, 0.40);
+    outline: 2px solid rgba(70, 99, 238, 0.40);
     outline-offset: 0;
 }
 
@@ -456,7 +433,7 @@ input[type="number"], input[type="search"], select, textarea {
 }
 input:focus, textarea:focus, select:focus {
     border-color: var(--accent);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03), 0 0 0 3px rgba(100, 120, 232, 0.12);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03), 0 0 0 3px rgba(70, 99, 238, 0.12);
 }
 
 /* 分割线精致化：更细更淡 */
@@ -521,7 +498,7 @@ a.bg-\[var\(--accent\)\]:active {
     .app-card:hover, .card:hover {
         box-shadow: var(--shadow-md), var(--card-inner-glow);
         transform: translateY(-1px);
-        border-color: rgba(100, 120, 232, 0.14);
+        border-color: rgba(70, 99, 238, 0.14);
     }
 }
 
@@ -1249,3 +1226,101 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
     border-radius: 0.75rem;
     transition: outline-color 150ms ease;
 }
+
+/* ============================================================
+   今日页 Bento 网格（2026-10-16，视觉迁移自 ui_demos/demo3 定稿）
+   网格声明只能在这里：模板内联 grid-template-columns 被
+   DesktopLayoutCoverageTest 拦下；唯一分端断点 768px 与全站一致
+   ============================================================ */
+.bento {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+/* 瓦片：白卡浮起。移动端（<768px）全部通栏单列，行高自适应 */
+.bento .tile {
+    grid-column: span 12;
+    background: var(--bg-card);
+    border-radius: var(--radius-card);
+    padding: 1.25rem 1.375rem;
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+@media (min-width: 768px) {
+    .bento {
+        grid-auto-rows: 5.5rem;
+        grid-auto-flow: dense;
+    }
+    .bento .tile:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-hover);
+    }
+    .bento .md\:col-span-3 { grid-column: span 3; }
+    .bento .md\:col-span-4 { grid-column: span 4; }
+    .bento .md\:col-span-5 { grid-column: span 5; }
+    .bento .md\:col-span-6 { grid-column: span 6; }
+    .bento .md\:row-span-2 { grid-row: span 2; }
+    .bento .md\:row-span-3 { grid-row: span 3; }
+}
+
+/* 瓦片内文字档位 */
+.tile-k { font-size: 0.8125rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.375rem; }
+.tile-v { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.tile-v small { font-size: 0.9375rem; font-weight: 600; color: var(--text-muted); margin-left: 0.375rem; letter-spacing: 0; }
+
+/* 问候 hero：品牌渐变（今日页唯一大面积色块；Bento demo 定稿配色）。
+   选择器必须带上 .bento 前缀：.bento .tile 的白底 background 特异性
+   (0,2,0) 会压过裸 .tile--hero (0,1,0)，白字落白底上整块隐形 */
+.bento .tile--hero {
+    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cf6 55%, #b44df0 100%);
+    color: #ffffff;
+    box-shadow: 0 12px 32px -12px rgba(79, 110, 247, 0.55);
+}
+
+/* 接下来卡片：顶部 6px 色条（--c 由模板按标签色/状态色注入） */
+.act-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 9.5rem;
+    padding: 1.25rem 1.375rem;
+    background: var(--bg-card);
+    border-radius: var(--radius-card);
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    color: var(--text);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.act-card::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    height: 6px;
+    background: var(--c, var(--text-muted));
+}
+.act-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-hover);
+}
+.act-badge {
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    color: var(--c, var(--text-secondary));
+    background: var(--bg);
+    /* 不用 color-mix 从 --c 派生浅底：--c 可能是标签色，
+       color-mix 在 iOS 16.2 以下整条静默失效（项目禁令） */
+}
+.act-badge--plain { color: var(--text-secondary); background: var(--bg); }

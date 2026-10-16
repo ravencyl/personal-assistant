@@ -8,13 +8,13 @@ from core.views import (dashboard, search_api, weekly_report, monthly_report, ye
                         push_subscribe, push_unsubscribe, push_test,
                         weekly_review_view, weekly_review_complete_view,
                         today_view, set_timezone, get_timezone)
-from activities.views import daily_view, calendar_feed
-from chat.views import chat_home
+from activities.views import daily_view, calendar_feed, today_home
 
 urlpatterns = [
-    # 首页 = Agent 对话列表：对话是整个 app 的默认入口，
-    # 打开即落在对话里，零选择步骤；daily 创建失败自动退回对话列表
-    path('', chat_home, name='home'),
+    # 首页 = 「今日」Bento 概览（2026-10-16 用户定策：新做今日页并设为首页，
+    # 按全站 Bento 视觉；数据层与 daily 简报卡共用 gather_daily）。
+    # 旧口径「打开即落在对话里」由导航「AI 对话」承接
+    path('', today_home, name='home'),
 
     # /daily/ 简报页已下线（2026-09-19）：daily 信息与操作收进对话里的 daily 简报卡；
     # 路由保留重定向回首页（= 对话列表），name 不变让旧书签/模板 url 标签不破

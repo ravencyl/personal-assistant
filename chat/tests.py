@@ -3178,21 +3178,22 @@ class _FakeCreateService(FakeQoderService):
 
 
 class ChatHomeTest(TestCase):
-    """站点根路径：落到对话列表
+    """站点根路径口径（2026-10-16 起：根 = 「今日」Bento 首页，不再跳对话列表）
 
-    daily 常驻会话机制已下线（2026-09-19）：此前每次访问都会复活/重建
-    「daily」会话，用户删了又回来、看起来「无法删除」。现在根路径只跳
-    列表，删除就是真删除；daily 简报不依赖任何特定会话。
+    daily 常驻会话机制已下线（2026-09-19）：此前访问根路径会复活/重建
+    「daily」会话，用户删了又回来、看起来「无法删除」。根路径现在渲染
+    今日页、完全不碰 Conversation，下面的反证锁继续防回归。
     """
 
     def setUp(self):
         self.user = User.objects.create_user('d', password='p')
         self.client.force_login(self.user)
 
-    def test_root_redirects_to_conversation_list(self):
+    def test_root_serves_today_page(self):
         resp = self.client.get('/')
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp['Location'], '/chat/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '今日概览')
+        self.assertContains(resp, '本月支出')
 
     def test_root_does_not_create_any_conversation(self):
         """反证锁：删光全部对话后访问根路径，不得凭空冒出新会话

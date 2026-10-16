@@ -51,7 +51,7 @@ from .calendar_views import (  # noqa: F401
     calendar_feed_settings,
     move_date_view,
 )
-from .daily_views import daily_view, next_actions, refresh_suggestion  # noqa: F401
+from .daily_views import daily_view, next_actions, refresh_suggestion, today_home  # noqa: F401
 from .archive_views import archive_list, archive_activity, unarchive_activity  # noqa: F401
 from .template_views import (  # noqa: F401
     template_list,
@@ -72,7 +72,7 @@ __all__ = [
     'expense_create', 'expense_edit', 'expense_delete',
     'expense_report', 'expense_chart_data', 'expense_heatmap_data',
     'activity_calendar', 'calendar_data', 'calendar_feed', 'calendar_feed_settings',
-    'daily_view', 'next_actions', 'refresh_suggestion',
+    'daily_view', 'today_home', 'next_actions', 'refresh_suggestion',
     'archive_list', 'archive_activity', 'unarchive_activity',
     'template_list', 'template_create', 'template_use',
 ]

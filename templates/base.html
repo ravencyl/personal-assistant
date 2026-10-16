@@ -69,7 +69,7 @@
     <link rel="icon" type="image/png" sizes="48x48" href="{% static 'icons/favicon-48.png' %}">
     {# iOS 加到主屏只认这个文件名，且必须方角铺满（系统会再罩一层 mask） #}
     <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
-    <meta name="theme-color" content="#fafafa">
+    <meta name="theme-color" content="#f4f4f2">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="{{ SITE_NAME }}">
@@ -117,8 +117,11 @@
                         的页面本来就会点亮「活动记录」，归属关系是对的。
                         {% endcomment %}
                         <div class="hidden md:ml-10 md:flex md:space-x-2">
-                            {# 「今日」/「工作台」导航已删：/daily/ 与 /today/ 页均已下线 #}
-                            {# 信息在任一对话里点「daily」/「工作台」按钮直出（chat/partials/local_cards.html） #}
+                            {# 「今日」2026-10-16 复活为首页（Bento 视觉）；信息另有 daily 简报卡在对话里直出 #}
+                            <a href="/"
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.url_name == 'home' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                                今日
+                            </a>
                             <a href="{% url 'activities:activity_list' %}"
                                class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'activities' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 活动记录
@@ -249,34 +252,38 @@
          原 logo 链接 / 重定向到对话页与 Tab 重复，不再单独占位 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pointer-events-none">
         <div class="glass-tab-bar pointer-events-auto mx-auto max-w-sm flex items-center justify-between rounded-full px-2 py-1.5">
-            {# 原「今日」Tab 随 /daily/ 页下线换成快记 dock（Django 注释不支持跨行，拆单行） #}
-            {# Daily 页顶栏快记入口跟着页面一起消失了，移动端总得有常驻快记入口 #}
+            {# 快记 dock 仍在首位（移动端常驻快记入口）；「今日」2026-10-16 回归为首页后重新占一席 #}
             <button type="button" data-quick-toggle aria-label="快记" class="tap-target flex items-center gap-1.5 rounded-full h-10 px-2.5 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
             </button>
-            <a href="{% url 'activities:activity_list' %}" aria-label="活动" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'activities' %}bg-[var(--accent-hover)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+            <a href="/" aria-label="今日" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'home' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
+                </svg>
+            </a>
+            <a href="{% url 'activities:activity_list' %}" aria-label="活动" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'activities' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                 </svg>
             </a>
-            <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'chat' %}bg-[var(--accent-hover)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+            <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'chat' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                 </svg>
             </a>
-            <a href="{% url 'notes:note_list' %}" aria-label="备忘" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'notes' %}bg-[var(--accent-hover)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+            <a href="{% url 'notes:note_list' %}" aria-label="备忘" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'notes' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
             </a>
-            <a href="{% url 'knowledge:article_list' %}" aria-label="知识" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'knowledge' %}bg-[var(--accent-hover)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+            <a href="{% url 'knowledge:article_list' %}" aria-label="知识" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.app_name == 'knowledge' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                 </svg>
             </a>
-            <a href="{% url 'dashboard' %}" aria-label="我的" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'dashboard' %}bg-[var(--accent-hover)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
+            <a href="{% url 'dashboard' %}" aria-label="我的" class="tap-target flex items-center gap-1.5 rounded-full h-10 transition-colors {% if request.resolver_match.url_name == 'dashboard' %}bg-[var(--text)] text-white px-2.5 shadow-sm{% else %}text-[var(--text-muted)] px-2.5{% endif %}">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
                 </svg>

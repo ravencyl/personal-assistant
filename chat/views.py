@@ -272,18 +272,6 @@ def _create_conversation_for_user(user, title='新对话', agent_id=None):
 
 
 @login_required
-def chat_home(request):
-    """站点根路径：落到对话列表（Agent 对话仍是整个 app 的默认入口）
-
-    daily 常驻会话机制已按用户要求下线（2026-09-19）：此前每次访问都会
-    复活/重建「daily」会话，用户删了又回来，看起来「无法删除」。现在
-    删除就是真删除；daily 简报不依赖任何特定会话（任一对话点「daily」
-    按钮即可直出）。
-    """
-    return redirect('chat:conversation_list')
-
-
-@login_required
 def conversation_list(request, conversation_id=None):
     """对话列表 + 可选的当前对话详情（桌面端分栏 / 移动端聊天视图共用）
 
