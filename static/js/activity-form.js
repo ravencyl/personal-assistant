@@ -153,17 +153,22 @@
     }
 
     // ==================== 具体时间可选字段：默认收起，开关展开（表单减负，2026-09-17） ====================
+    // 2026-10-16 日期-时间配对改版：时间字段拆进开始/结束日期列（[data-time-slot]），
+    // 开关一次切换两个槽 + 提示行（[data-time-hint]），不再有单一 #time-fields 容器
     function initTimeToggle() {
         var toggle = document.getElementById('time-toggle');
-        var fields = document.getElementById('time-fields');
-        if (!toggle || !fields) return;
+        var slots = document.querySelectorAll('[data-time-slot]');
+        if (!toggle || !slots.length) return;
         var labelEl = document.getElementById('time-toggle-label');
+        var hint = document.querySelector('[data-time-hint]');
         function show() {
-            fields.classList.remove('hidden');
+            slots.forEach(function (el) { el.classList.remove('hidden'); });
+            if (hint) hint.classList.remove('hidden');
             if (labelEl) labelEl.textContent = '收起时间';
         }
         function hide() {
-            fields.classList.add('hidden');
+            slots.forEach(function (el) { el.classList.add('hidden'); });
+            if (hint) hint.classList.add('hidden');
             if (labelEl) labelEl.textContent = '添加具体时间（可选）';
         }
         // initWidgets 可被弹窗重挂重复调用：已绑定的 toggle 不能二次 addEventListener
@@ -171,7 +176,7 @@
         if (!toggle.dataset.timeToggleBound) {
             toggle.dataset.timeToggleBound = '1';
             toggle.addEventListener('click', function () {
-                fields.classList.contains('hidden') ? show() : hide();
+                slots[0].classList.contains('hidden') ? show() : hide();
             });
         }
         // 编辑已有时间的活动 / 解析出时间后自动展开（openTimeFields 供 fillForm 调用）

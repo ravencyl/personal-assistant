@@ -54,6 +54,11 @@ def activity_detail(request, activity_id):
 
     children = _subactivity_timeline(activity)
 
+    # 顶部色条颜色（2026-10-16 用户要求与标签一致）：取首个标签色，无标签/无色回退
+    # 状态色（模板侧 status-bg--<status>）——与今日页 act-card 的 tile_color 同口径
+    _tags = list(activity.tags.all())
+    activity.top_bar_color = _tags[0].color if _tags and _tags[0].color else ''
+
     # 费用明细（tags_str 供模板徽章展示与编辑回填一次取齐，避免模板里 join 不动 M2M）
     expenses = list(activity.expenses.all())
     for e in expenses:

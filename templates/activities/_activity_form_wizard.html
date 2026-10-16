@@ -64,22 +64,33 @@
         </div>
     </div>
 
-    {# ── 步骤③ 时间与状态 ── 全部可选/有默认值，纯确认步；具体时间沿用「开关展开」口径 #}
+    {# ── 步骤③ 时间与状态 ── 全部可选/有默认值，纯确认步；具体时间沿用「开关展开」口径， #}
+    {# 日期-时间配对（开始日期-开始时间一列）与编辑页 _activity_form_fields.html 同构 #}
     <div data-step="3" data-title="时间与状态" class="hidden">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <label for="id_start_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
                 {{ form.start_date }}
                 {% if form.start_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
+                <div data-time-slot class="hidden mt-3">
+                    <label for="id_start_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
+                    {{ form.start_time }}
+                    {% if form.start_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
+                </div>
             </div>
             <div>
                 <label for="id_end_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
                 {{ form.end_date }}
                 {% if form.end_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
+                <div data-time-slot class="hidden mt-3">
+                    <label for="id_end_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
+                    {{ form.end_time }}
+                    {% if form.end_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
+                </div>
             </div>
         </div>
 
-        {# 具体时间（可选）：默认收起，开关展开后出现（展开逻辑在 activity-form.js initWidgets） #}
+        {# 具体时间（可选）：开关展开日期列内的 data-time-slot（activity-form.js initWidgets） #}
         <div class="mt-4">
             <button type="button" id="time-toggle"
                     class="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-[var(--border-strong)] text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent-light)] transition-colors tap-target">
@@ -88,19 +99,7 @@
                 </svg>
                 <span id="time-toggle-label">添加具体时间（可选）</span>
             </button>
-            <div id="time-fields" class="hidden mt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label for="id_start_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
-                    {{ form.start_time }}
-                    {% if form.start_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
-                </div>
-                <div>
-                    <label for="id_end_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
-                    {{ form.end_time }}
-                    {% if form.end_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
-                </div>
-                <p class="sm:col-span-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
-            </div>
+            <p data-time-hint class="hidden mt-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
