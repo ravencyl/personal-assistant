@@ -111,7 +111,6 @@ def _create_weekly_review_conversation(user):
 
     失败返回 None（不阻断页面渲染，用户仍可用手动回顾入口）。
     """
-    from datetime import timedelta
     from activities.models import Activity, Expense
     from core.utils import visible_qs, week_monday
     from django.db.models import Sum
@@ -131,7 +130,6 @@ def _create_weekly_review_conversation(user):
         completed_count = completed.count()
         in_progress_count = in_progress.count()
         planned_count = planned.count()
-        total_count = week_activities.count()
 
         # 本周费用
         week_expense = Expense.objects.filter(

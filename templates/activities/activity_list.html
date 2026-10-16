@@ -4,7 +4,7 @@
 {% block title %}活动记录 · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
-<script src="{% staticv 'js/pinyin-pro.js' %}"></script>
+<script defer src="{% staticv 'js/pinyin-pro.js' %}"></script>
 <!-- 创建弹窗表单组件（chips + 解析回填，原生 fetch + JSON，禁挂 hx-*） -->
 <script src="{% staticv 'js/activity-form.js' %}"></script>
 <!-- 新建弹窗分步向导（依赖 activity-form.js 的 chips API，排在其后） -->

@@ -4,7 +4,7 @@
 {% block title %}{{ title }} · {{ SITE_NAME }}{% endblock %}
 
 {% block extra_head %}
-<script src="{% staticv 'js/pinyin-pro.js' %}"></script>
+<script defer src="{% staticv 'js/pinyin-pro.js' %}"></script>
 <!-- 快速输入解析通道（原生 fetch + JSON，禁挂 hx-*） -->
 <script src="{% staticv 'js/quick-parse.js' %}"></script>
 {# 分步向导脚本在 extra_js 末尾加载：依赖 activity-form.js 的 chips API（DOMContentLoaded 注册顺序 = 执行顺序） #}

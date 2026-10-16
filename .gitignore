@@ -19,3 +19,6 @@ spark-output/
 
 # UI 风格 demo（本地预览用，不入仓库）
 ui_demos/
+
+# AI 生成的 vibe 图（本地生成，不入仓库）
+vibe_images/

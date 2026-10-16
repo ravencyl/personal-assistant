@@ -135,6 +135,26 @@ def search_api(request):
     })
 
 
+def _report_context(user, report_type, period_start, period_end):
+    """周报/月报共用上下文构造（参数化消除 weekly/monthly 复制粘贴）"""
+    from datetime import datetime
+    today = timezone.localdate()
+    existing = Article.objects.filter(
+        user=user,
+        tags__name=f'report-{report_type}',
+        created_at__gte=timezone.make_aware(
+            datetime.combine(period_start, datetime.min.time())
+        ),
+    ).first()
+    markdown, data = generate_report(user, report_type, period_start, period_end)
+    title_map = {
+        'weekly': f'周报 · {today.year}年第{period_start.isocalendar()[1]}周 ({period_start.strftime("%m.%d")}-{period_end.strftime("%m.%d")})',
+        'monthly': f'月报 · {today.year}年{today.month}月',
+    }
+    title = title_map[report_type]
+    return existing, title, markdown, data
+
+
 @login_required
 def weekly_report(request):
     """生成/查看本周周报"""
@@ -142,47 +162,23 @@ def weekly_report(request):
     today = timezone.localdate()
     week_start = week_monday(today)
     week_end = today
-
-    # 检查是否已有本周报告
-    existing = Article.objects.filter(
-        user=user,
-        tags__name='report-weekly',
-        created_at__gte=timezone.make_aware(
-            timezone.datetime.combine(week_start, timezone.datetime.min.time())
-        ),
-    ).first()
+    existing, title, markdown, data = _report_context(user, 'weekly', week_start, week_end)
 
     if request.method == 'POST' or (not existing and request.GET.get('generate')):
-        markdown, data = generate_report(user, 'weekly', week_start, week_end)
-        title = f'周报 · {today.year}年第{week_start.isocalendar()[1]}周 ({week_start.strftime("%m.%d")}-{week_end.strftime("%m.%d")})'
-
         if request.method == 'POST':
             article = save_report_to_knowledge(user, 'weekly', title, markdown)
             return redirect('knowledge:article_detail', slug=article.slug)
-
         return render(request, 'core/weekly_report.html', {
-            'report_type': 'weekly',
-            'title': title,
-            'markdown': markdown,
-            'data': data,
-            'week_start': week_start,
-            'week_end': week_end,
+            'report_type': 'weekly', 'title': title, 'markdown': markdown,
+            'data': data, 'week_start': week_start, 'week_end': week_end,
         })
 
     if existing:
         return redirect('knowledge:article_detail', slug=existing.slug)
 
-    # GET 且无报告：显示预览
-    markdown, data = generate_report(user, 'weekly', week_start, week_end)
-    title = f'周报 · {today.year}年第{week_start.isocalendar()[1]}周 ({week_start.strftime("%m.%d")}-{week_end.strftime("%m.%d")})'
-
     return render(request, 'core/weekly_report.html', {
-        'report_type': 'weekly',
-        'title': title,
-        'markdown': markdown,
-        'data': data,
-        'week_start': week_start,
-        'week_end': week_end,
+        'report_type': 'weekly', 'title': title, 'markdown': markdown,
+        'data': data, 'week_start': week_start, 'week_end': week_end,
     })
 
 
@@ -193,45 +189,23 @@ def monthly_report(request):
     today = timezone.localdate()
     month_start = today.replace(day=1)
     month_end = today
-
-    existing = Article.objects.filter(
-        user=user,
-        tags__name='report-monthly',
-        created_at__gte=timezone.make_aware(
-            timezone.datetime.combine(month_start, timezone.datetime.min.time())
-        ),
-    ).first()
+    existing, title, markdown, data = _report_context(user, 'monthly', month_start, month_end)
 
     if request.method == 'POST' or (not existing and request.GET.get('generate')):
-        markdown, data = generate_report(user, 'monthly', month_start, month_end)
-        title = f'月报 · {today.year}年{today.month}月'
-
         if request.method == 'POST':
             article = save_report_to_knowledge(user, 'monthly', title, markdown)
             return redirect('knowledge:article_detail', slug=article.slug)
-
         return render(request, 'core/weekly_report.html', {
-            'report_type': 'monthly',
-            'title': title,
-            'markdown': markdown,
-            'data': data,
-            'month_start': month_start,
-            'month_end': month_end,
+            'report_type': 'monthly', 'title': title, 'markdown': markdown,
+            'data': data, 'month_start': month_start, 'month_end': month_end,
         })
 
     if existing:
         return redirect('knowledge:article_detail', slug=existing.slug)
 
-    markdown, data = generate_report(user, 'monthly', month_start, month_end)
-    title = f'月报 · {today.year}年{today.month}月'
-
     return render(request, 'core/weekly_report.html', {
-        'report_type': 'monthly',
-        'title': title,
-        'markdown': markdown,
-        'data': data,
-        'month_start': month_start,
-        'month_end': month_end,
+        'report_type': 'monthly', 'title': title, 'markdown': markdown,
+        'data': data, 'month_start': month_start, 'month_end': month_end,
     })
 
 

@@ -19,7 +19,6 @@ from .quick_input_views import (  # noqa: F401
     _ai_parse,
     _week_anchor_text,
     activity_quick_create,
-    ocr_receipt_view,
     parse_quick_input_view,
 )
 from .list_views import activity_list, activity_pin_toggle  # noqa: F401
@@ -51,7 +50,7 @@ from .calendar_views import (  # noqa: F401
     calendar_feed_settings,
     move_date_view,
 )
-from .daily_views import daily_view, next_actions, refresh_suggestion, today_home  # noqa: F401
+from .daily_views import daily_view, next_actions, today_home  # noqa: F401
 from .archive_views import archive_list, archive_activity, unarchive_activity  # noqa: F401
 from .template_views import (  # noqa: F401
     template_list,
@@ -64,7 +63,7 @@ __all__ = [
     'attach_costs',
     '_ai_parse', '_week_anchor_text', '_parse_date_input', '_split_name_input',
     '_subactivity_timeline',
-    'parse_quick_input_view', 'activity_quick_create', 'ocr_receipt_view', 'activity_list',
+    'parse_quick_input_view', 'activity_quick_create', 'activity_list',
     'activity_detail', 'activity_set_status', 'add_subactivity',
     'activity_quick_sub',
     'subactivity_manual_create', 'attachment_upload', 'attachment_delete',
@@ -72,7 +71,7 @@ __all__ = [
     'expense_create', 'expense_edit', 'expense_delete',
     'expense_report', 'expense_chart_data', 'expense_heatmap_data',
     'activity_calendar', 'calendar_data', 'calendar_feed', 'calendar_feed_settings',
-    'daily_view', 'today_home', 'next_actions', 'refresh_suggestion',
+    'daily_view', 'today_home', 'next_actions',
     'archive_list', 'archive_activity', 'unarchive_activity',
     'template_list', 'template_create', 'template_use',
 ]

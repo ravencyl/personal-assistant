@@ -238,32 +238,9 @@ def daily_view(request):
     return redirect('home')
 
 
-@login_required
-def refresh_suggestion(request):
-    """手动刷新今日 AI 建议：重新调用 AI 生成并缓存，返回 JSON"""
-    if request.method != 'POST':
-        return JsonResponse({'error': 'method not allowed'}, status=405)
 
-    from ..models import DailySuggestion
-    from ..management.commands.generate_daily_suggestion import _generate_suggestion_for_user
-
-    today = timezone.localdate()
-    try:
-        suggestion, is_ai = _generate_suggestion_for_user(request.user, today)
-        DailySuggestion.objects.update_or_create(
-            user=request.user, date=today,
-            defaults={'suggestion': suggestion, 'is_ai': is_ai},
-        )
-        return JsonResponse({
-            'suggestion': suggestion,
-            'is_ai': is_ai,
-        })
-    except Exception as exc:
-        logger.warning('手动刷新建议失败: %s', exc)
-        return JsonResponse({'error': '刷新失败，请稍后重试'}, status=500)
-
-
-def _greeting(hour):
+def _daily_greeting(hour):
+    """Daily 页问候语（阈值与文案独立于 _common._greeting，保留原行为）"""
     if hour < 5:
         return '夜深了'
     if hour < 11:
@@ -324,7 +301,7 @@ def today_home(request):
     hour = now.hour
     return render(request, 'activities/today.html', {
         'today_display': f'{today.month} 月 {today.day} 日 · {WEEKDAY_LABELS[today.weekday()]}',
-        'greeting': _greeting(hour),
+        'greeting': _daily_greeting(hour),
         'username': user.username,
         'ai_suggestion': data['ai_suggestion'],
         'ai_suggestion_is_ai': data['ai_suggestion_is_ai'],

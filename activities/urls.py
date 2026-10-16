@@ -1,18 +1,14 @@
 from django.urls import path
-from . import views, export_views
+from . import views
 
 app_name = 'activities'
 
 urlpatterns = [
     path('', views.activity_list, name='activity_list'),
-    path('export/csv/', export_views.export_csv, name='export_csv'),
-    path('export/json/', export_views.export_json, name='export_json'),
     # /daily/ 简报页已下线（2026-09-19）：路由保留重定向回首页，name 不变让旧 url 标签不破
     path('daily/', views.daily_view, name='daily'),
-    path('daily/refresh-suggestion/', views.refresh_suggestion, name='refresh_suggestion'),
     path('new/', views.activity_create, name='activity_create'),
     path('parse-quick-input/', views.parse_quick_input_view, name='parse_quick_input'),
-    path('ocr-receipt/', views.ocr_receipt_view, name='ocr_receipt'),
     path('quick-create/', views.activity_quick_create, name='activity_quick_create'),
     path('<int:activity_id>/', views.activity_detail, name='activity_detail'),
     path('<int:activity_id>/status/', views.activity_set_status, name='activity_set_status'),
@@ -37,7 +33,6 @@ urlpatterns = [
     path('attachments/upload/<int:activity_id>/', views.attachment_upload, name='attachment_upload'),
     path('attachments/<int:attachment_id>/delete/', views.attachment_delete, name='attachment_delete'),
     path('next-actions/', views.next_actions, name='next_actions'),
-    path('archive/', views.archive_list, name='archive_list'),
     path('archive/', views.archive_list, name='archive_list'),
     path('<int:activity_id>/archive/', views.archive_activity, name='archive_activity'),
     path('<int:activity_id>/unarchive/', views.unarchive_activity, name='unarchive_activity'),

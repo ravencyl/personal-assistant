@@ -65,7 +65,6 @@ class Memory(models.Model):
     status = models.CharField(
         '状态', max_length=12, choices=STATUS_CHOICES, default='active',
     )
-    valid_from = models.DateField('生效起点', null=True, blank=True)
     invalid_at = models.DateField('失效时间', null=True, blank=True)
     superseded_by = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.SET_NULL,

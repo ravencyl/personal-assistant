@@ -18,13 +18,8 @@
     window.PaChatTurn，defer 会让页面静默失效（IIFE 里 !window.PaChatTurn return）。
     {% endcomment %}
     <script defer src="{% staticv 'js/htmx.min.js' %}"></script>
-    <script defer src="{% staticv 'js/offline-queue.js' %}"></script>
-    {# 全局命令面板（Cmd+K）：defer 加载，DOM 解析后可用 #}
-    <script defer src="{% staticv 'js/command-palette.js' %}"></script>
     {# 搜索历史 & 自动补全：localStorage 存最近 20 条搜索词 #}
     <script defer src="{% staticv 'js/search-history.js' %}"></script>
-    {# 键盘导航：j/k 选择、Enter 打开、Esc 返回、g+h/a/k/n/c 快速跳转 #}
-    <script defer src="{% staticv 'js/keyboard-nav.js' %}"></script>
     {# 用户时区自动检测（Intl API 检测 + session 存储，导航栏显示缩写） #}
     <script defer src="{% staticv 'js/timezone.js' %}"></script>
     {# 聊天异步收发流（分栏页与详情页共用一份）；同步加载，见上方例外说明 #}

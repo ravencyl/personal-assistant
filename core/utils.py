@@ -199,17 +199,3 @@ def set_user_timezone(request, tz_name):
         return True
     return False
 
-
-def get_timezone_offset(tz_name):
-    """返回时区相对于 UTC 的偏移量（小时），用于前端显示"""
-    try:
-        from zoneinfo import ZoneInfo
-        from datetime import datetime
-        tz = ZoneInfo(tz_name)
-        now = datetime.now(tz)
-        offset = now.utcoffset()
-        if offset is None:
-            return 0
-        return offset.total_seconds() / 3600
-    except Exception:
-        return 0
