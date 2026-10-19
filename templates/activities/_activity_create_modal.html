@@ -43,8 +43,7 @@
         document.body.style.overflow = 'hidden';   // 弹窗滚动接管页面滚动
         // 分步向导：每次打开从第①步开始（上次走到一半关掉的进度不保留）
         if (window.PaActivityWizard) window.PaActivityWizard.showStep(1);
-        var first = document.getElementById('tag-input');
-        if (first && !overlay.classList.contains('hidden')) first.focus();
+        // 不自动 focus 任何输入框：移动端 focus 会弹键盘撑长页面，让用户手动点
     }
 
     function closeModal() {
