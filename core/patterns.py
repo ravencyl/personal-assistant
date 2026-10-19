@@ -12,7 +12,7 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+from core.utils import WEEKDAY_LABELS as WEEKDAY_NAMES
 
 
 def analyze_activity_patterns(user):

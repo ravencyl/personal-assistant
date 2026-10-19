@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
-from django.db.models import Count
+from django.db.models import Count, Sum
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST
 
 from core.tags import apply_tags, tag_names, tag_suggestions, used_tags
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
-from core.utils import get_visible, visible_qs, wants_json
+from core.utils import get_visible, wants_json
 
 from ..models import Activity, Participant, Attachment
 from ..services import (InputError, add_expense, change_activity_status,
@@ -32,7 +32,9 @@ def _subactivity_timeline(activity):
     倒序是用户要求（2026-09-22）：最近的排最上面。详情页首次渲染与内联手动
     创建端点的局部刷新共用。
     """
-    children = list(activity.children.prefetch_related('tags', 'participants').all())
+    children = list(activity.children.prefetch_related('tags', 'participants')
+                    .annotate(expenses_total=Sum('expenses__amount'))
+                    .all())
     # 倒序用负序号实现，仍与「无日期排最后」同一个稳定排序，不引入两次 sort
     children.sort(key=lambda c: ((c.start_date or c.end_date) is None,
                                  -(c.start_date or c.end_date or date.min).toordinal()))
@@ -40,8 +42,8 @@ def _subactivity_timeline(activity):
         d = child.start_date or child.end_date
         child.timeline_label = d.strftime('%m-%d') if d else '未设定'
         child.timeline_year = d.strftime('%Y') if d else ''
-        # 子活动的费用合计（自身 Expense + 后代 Expense，用于时间轴展示）
-        child.expenses_total = child.total_cost
+        # 子活动的费用合计：已由 annotate 批量算出，不再逐条调 total_cost 属性
+        child.expenses_total = child.expenses_total or 0
     return children
 
 

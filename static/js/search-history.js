@@ -79,15 +79,12 @@
     if (clearBtn) {
       clearBtn.addEventListener('click', function () {
         saveHistory([]);
-        // 恢复快捷操作
-        container.innerHTML = '<div class="space-y-1">' +
-          '<p class="text-xs text-[var(--text-muted)] px-1 mb-2">快捷操作</p>' +
-          '<a href="/activities/new/" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">' +
-          '<span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">+</span>' +
-          '<span class="text-sm text-[var(--text)]">新建活动</span></a>' +
-          '<a href="/notes/" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-zinc-50 transition-colors">' +
-          '<span class="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-sm">📝</span>' +
-          '<span class="text-sm text-[var(--text)]">新建笔记</span></a></div>';
+        // 恢复快捷操作：从模板初始状态克隆（唯一口径，避免 JS 字符串与模板漂移）
+        var initial = document.querySelector('#search-results > .space-y-1');
+        if (initial) {
+          container.innerHTML = '';
+          container.appendChild(initial.cloneNode(true));
+        }
       });
     }
   }

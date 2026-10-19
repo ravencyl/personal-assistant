@@ -184,10 +184,11 @@
         }).catch(function () { /* 静默失败 */ });
     }
 
-    // 绑定点击事件
+    // 绑定点击事件（加 guard 防止 htmx:afterSwap 重复绑定）
     function bindToggle() {
         var el = document.getElementById('tz-indicator');
-        if (el) {
+        if (el && !el.dataset.bound) {
+            el.dataset.bound = '1';
             el.addEventListener('click', function (e) {
                 e.stopPropagation();
                 toggleDropdown();
@@ -211,12 +212,4 @@
     }
     // HTMX 替换后重新绑定
     document.addEventListener('htmx:afterSwap', bindToggle);
-
-    // 暴露给全局
-    window.paTimezone = {
-        detect: detectTimezone,
-        abbrev: tzAbbrev,
-        update: updateIndicator,
-        toggle: toggleDropdown
-    };
 })();

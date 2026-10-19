@@ -1,5 +1,4 @@
 """活动列表页（树形 + 筛选 + 排序 + 分页 + 置顶）"""
-import json
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -12,7 +11,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
-from core.utils import get_visible, visible_qs, week_monday, WEEKDAY_LABELS
+from core.utils import get_visible, visible_qs, week_monday, WEEKDAY_LABELS, greeting
 
 from ..forms import ActivityForm
 from ..models import Activity, Participant
@@ -20,26 +19,12 @@ from ..services import start_due_activities
 from ._common import _user_tag_names
 from ..utils import (filter_activities, get_filter_params, exclude_daily_bucket,
                      expense_totals_map)
-from ._common import _greeting
 
 # 活动列表每页顶级活动数（子活动跟随父活动，不计入）
 ACTIVITY_LIST_PAGE_SIZE = 20
 
 
-def _page_window(current, total, span=2):
-    """页码收敛窗口：当前页 ±span + 首末页；页数少时全部展示，断口以 None 占位（渲染省略号）"""
-    if total <= span * 2 + 3:
-        return list(range(1, total + 1))
-    left = max(2, current - span)
-    right = min(total - 1, current + span)
-    items = [1]
-    if left > 2:
-        items.append(None)
-    items.extend(range(left, right + 1))
-    if right < total - 1:
-        items.append(None)
-    items.append(total)
-    return items
+from core.utils import page_window
 
 
 @login_required
@@ -232,7 +217,7 @@ def activity_list(request):
     page_params.pop('page', None)
     page_base_qs = page_params.urlencode()
 
-    page_numbers = _page_window(page_num, paginator.num_pages)
+    page_numbers = page_window(page_num, paginator.num_pages)
 
     # 快捷日期片高亮判断（今天/本周为新增片，7d/30d 沿用原有口径）
     today = timezone.localdate()
@@ -331,7 +316,7 @@ def activity_list(request):
         })
 
     # 首页问候头部：时段问候 + 日期星期 + 今日摘要
-    greeting = _greeting()
+    greeting_text = greeting()
     weekdays = WEEKDAY_LABELS
     today_display = f'{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
     ongoing_count = sum(1 for a in all_activities if a.status == 'in_progress')
@@ -353,7 +338,7 @@ def activity_list(request):
         'form': ActivityForm(user=request.user),
         'all_participants': list(visible_qs(Participant, request.user).values_list('name', flat=True)),
         'all_tags': _user_tag_names(request.user),
-        'greeting': greeting,
+        'greeting': greeting_text,
         'today_display': today_display,
         'ongoing_count': ongoing_count,
         'today_count': today_count,

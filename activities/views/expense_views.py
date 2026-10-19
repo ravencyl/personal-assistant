@@ -55,7 +55,6 @@ def expense_create(request, activity_id):
 
 
 @login_required
-@login_required
 @require_POST
 def expense_edit(request, expense_id):
     """编辑费用条目"""

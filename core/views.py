@@ -10,7 +10,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 
 from chat.models import Conversation
 from activities.models import Activity, Expense
-from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS, get_user_timezone, set_user_timezone, VALID_TIMEZONES
+from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS, get_user_timezone, set_user_timezone, VALID_TIMEZONES, greeting
 from core.search import global_search
 from core.report_generator import generate_report, save_report_to_knowledge
 from knowledge.models import Article
@@ -73,17 +73,7 @@ def dashboard(request):
     )
 
     # ── 问候 ──
-    hour = timezone.localtime().hour
-    if hour < 6:
-        greeting = '夜深了，早点休息'
-    elif hour < 12:
-        greeting = '早上好'
-    elif hour < 14:
-        greeting = '中午好'
-    elif hour < 18:
-        greeting = '下午好'
-    else:
-        greeting = '晚上好'
+    greeting_text = greeting()
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
 
     stats = {
@@ -108,7 +98,7 @@ def dashboard(request):
         'week_has_expense': week_has_expense,
         'week_chart_summary': week_chart_summary,
         'today': today,
-        'greeting': greeting,
+        'greeting': greeting_text,
         'today_display': today_display,
     })
 

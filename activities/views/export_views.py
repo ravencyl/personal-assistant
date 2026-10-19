@@ -34,7 +34,8 @@ def _fmt(v):
 def activity_csv_rows(qs):
     """活动清单行拼装：CSV 下载视图与 admin 导出 action 共用同一份口径"""
     for a in qs:
-        total = a.expenses.aggregate(t=Sum('amount'))['t']
+        # 用 prefetch 好的 expenses 算合计，不再逐条 aggregate（N+1 → 0）
+        total = sum(e.amount for e in a.expenses.all())
         yield [
             a.name,
             a.get_status_display(),

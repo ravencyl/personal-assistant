@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.db import models
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 
 def q_or(fields, term):
@@ -117,6 +118,25 @@ WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '�
 WEEKDAY_SHORT = [w[1:] for w in WEEKDAY_LABELS]
 
 
+def page_window(current, total, span=2):
+    """页码收敛窗口：当前页 ±span + 首末页；页数少时全部展示，断口以 None 占位（渲染省略号）
+
+    唯一实现，活动列表与记忆列表共用。
+    """
+    if total <= span * 2 + 3:
+        return list(range(1, total + 1))
+    left = max(2, current - span)
+    right = min(total - 1, current + span)
+    items = [1]
+    if left > 2:
+        items.append(None)
+    items.extend(range(left, right + 1))
+    if right < total - 1:
+        items.append(None)
+    items.append(total)
+    return items
+
+
 def daily_totals(rows, start_day, length=7, date_field='paid_at', value_field='amount'):
     """把带日期的记录行按天累加成固定长度序列（无记录的日期补 0）
 
@@ -198,4 +218,21 @@ def set_user_timezone(request, tz_name):
         request.session[_SESSION_TZ_KEY] = tz_name
         return True
     return False
+
+
+def greeting():
+    """按时段问候语（dashboard / 活动列表共用同一口径）
+
+    Daily 页使用独立的 _daily_greeting（阈值与文案不同），不走此函数。
+    """
+    hour = timezone.localtime().hour
+    if hour < 6:
+        return '夜深了，早点休息'
+    if hour < 12:
+        return '早上好'
+    if hour < 14:
+        return '中午好'
+    if hour < 18:
+        return '下午好'
+    return '晚上好'
 

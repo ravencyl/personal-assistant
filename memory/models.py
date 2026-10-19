@@ -1,6 +1,9 @@
 from django.db import models
 from django.conf import settings
 
+# Memory.content 字段上限——所有截断处统一引用，不要散落 500 魔法数字
+MEMORY_CONTENT_MAX_LENGTH = 500
+
 
 class Memory(models.Model):
     """AI 长期记忆——跨对话持久化的用户信息
@@ -40,7 +43,7 @@ class Memory(models.Model):
         on_delete=models.CASCADE,
         related_name='memories',
     )
-    content = models.CharField('记忆内容', max_length=500)
+    content = models.CharField('记忆内容', max_length=MEMORY_CONTENT_MAX_LENGTH)
     # 索引行一句话（≤150 字）：常驻注入的是索引不是正文，超预算时的裁剪单位
     hook = models.CharField('一句话索引', max_length=150, blank=True, default='')
     type = models.CharField(
@@ -98,6 +101,8 @@ class Memory(models.Model):
         indexes = [
             models.Index(fields=['user', '-importance']),
             models.Index(fields=['user', 'category']),
+            models.Index(fields=['user', 'status', 'consolidated'],
+                         name='mem_user_st_consolidated'),
         ]
 
     def __str__(self):

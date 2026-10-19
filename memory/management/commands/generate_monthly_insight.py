@@ -54,7 +54,7 @@ def _fallback_insight(stats):
 
 def generate_monthly_insight(user, month_start, month_end, ym):
     """为单个用户生成上月洞察记忆。返回 'saved' / 'skip:<原因>'"""
-    from memory.models import Memory
+    from memory.models import Memory, MEMORY_CONTENT_MAX_LENGTH
     from memory.services import _is_similar_content
 
     prefix = _month_prefix(ym)
@@ -82,7 +82,7 @@ def generate_monthly_insight(user, month_start, month_end, ym):
     if not text:
         text = _fallback_insight(stats)
 
-    content = f'{prefix} {" ".join(text.split())}'[:500]
+    content = f'{prefix} {" ".join(text.split())}'[:MEMORY_CONTENT_MAX_LENGTH]
     if _is_similar_content(user, content):
         return 'skip:similar'
 

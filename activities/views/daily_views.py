@@ -6,7 +6,6 @@ import logging
 from django.contrib.auth.decorators import login_required
 from django.db import models
 from django.db.models import Count, Q, Sum
-from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 

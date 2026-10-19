@@ -114,6 +114,10 @@ class Conversation(models.Model):
         ordering = ['-updated_at']
         verbose_name = '对话'
         verbose_name_plural = '对话'
+        indexes = [
+            models.Index(fields=['user', 'status', '-updated_at'],
+                         name='conv_user_status_updated'),
+        ]
 
     def __str__(self):
         return self.title or f'对话 {self.session_id[:12]}...'

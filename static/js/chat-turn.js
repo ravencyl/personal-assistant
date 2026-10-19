@@ -31,6 +31,14 @@
 
     var ACTIVE_STATES = ['queued', 'awaiting', 'finalizing'];
 
+    // 从后台切回前台：后台期间只走了低频轮询，立刻补一拍把进度追回来。
+    // 挂在 IIFE 顶层只注册一次（不随 PaChatTurn 实例累积）
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && window._paActiveChatTurn && window._paActiveChatTurn.wakeOnVisible) {
+            window._paActiveChatTurn.wakeOnVisible();
+        }
+    });
+
     // 写剪贴板：站点是 HTTPS（本地是 localhost），navigator.clipboard 通常可用；
     // 但 http 访问局域网 IP 时它是 undefined，所以必须留 execCommand 降级，
     // 不能失败就默默什么都不发（用户按了复制就是期待剪贴板里有东西）
@@ -315,13 +323,15 @@
             schedule(500);
         }
 
-        // 从后台切回前台：后台期间只走了低频轮询，立刻补一拍把进度追回来
-        document.addEventListener('visibilitychange', function () {
-            if (running && !document.hidden && !ticking) {
+        // 注册为当前活跃实例，供 IIFE 顶层的 visibilitychange 处理器调用
+        // （旧实现在此处 addEventListener，每次 new PaChatTurn 都累积一个监听器）
+        inst.wakeOnVisible = function () {
+            if (running && !ticking) {
                 if (timer) { clearTimeout(timer); timer = null; }
                 tick();
             }
-        });
+        };
+        window._paActiveChatTurn = inst;
 
         function clearDraft(content) {
             // 只在输入框仍是刚发出去那段话时清空：用户等回复期间又改了内容就不能覆盖

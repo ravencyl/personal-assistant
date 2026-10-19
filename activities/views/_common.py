@@ -1,6 +1,5 @@
 """视图层共享的小工具（跨拆分模块使用）"""
 from django.db.models import Count
-from django.utils import timezone
 
 from core.tags import tag_suggestions
 
@@ -18,20 +17,6 @@ def _participant_skip_text(skipped):
     if not skipped:
         return ''
     return f"参与者「{'、'.join(skipped)}」不存在，未添加"
-
-
-def _greeting():
-    """按时段问候语（活动列表与 Daily 共用同一份口径）"""
-    hour = timezone.localtime().hour
-    if hour < 6:
-        return '夜深了，早点休息'
-    if hour < 12:
-        return '早上好'
-    if hour < 14:
-        return '中午好'
-    if hour < 18:
-        return '下午好'
-    return '晚上好'
 
 
 def attach_costs(activities):

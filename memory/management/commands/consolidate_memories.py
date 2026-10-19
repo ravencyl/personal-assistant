@@ -12,7 +12,7 @@ import logging
 from django.core.management.base import BaseCommand
 from django.db.models import Count
 
-from memory.models import Memory
+from memory.models import Memory, MEMORY_CONTENT_MAX_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class Command(BaseCommand):
             # 创建聚合记忆（type=semantic 画像；hook 取首行供索引注入）
             profile = Memory.objects.create(
                 user_id=user_id,
-                content=summary[:500],
+                content=summary[:MEMORY_CONTENT_MAX_LENGTH],
                 hook=summary.strip().split('\n')[0][:150],
                 type='semantic',
                 category=category,

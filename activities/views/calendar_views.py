@@ -264,11 +264,8 @@ def move_date_view(request, pk):
     activity.save(update_fields=['start_date', 'end_date'])
 
     # 记录操作日志
-    try:
-        from activities.views._common import log_activity
-        log_activity(request.user, activity, 'move_date',
-                     f'日期从 {old_date} 改为 {new_date}')
-    except Exception:
-        pass
+    from activities.utils import log_activity
+    log_activity(request.user, activity, 'move_date',
+                 f'日期从 {old_date} 改为 {new_date}')
 
     return JsonResponse({'ok': True, 'old_date': str(old_date), 'new_date': str(new_date)})

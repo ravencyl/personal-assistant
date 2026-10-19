@@ -13,8 +13,8 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_POST
 
-from core.utils import visible_qs, get_visible
-from .models import Memory, MemoryAudit
+from core.utils import visible_qs, get_visible, page_window
+from .models import Memory, MemoryAudit, MEMORY_CONTENT_MAX_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -59,26 +59,6 @@ def _filter_qs(query, category, page=None):
     return urlencode(parts)
 
 
-def _page_window(current, total, span=2):
-    """页码收敛窗口：当前页 ±span + 首末页；页数少时全部展示，断口以 None 占位（渲染省略号）
-
-    与 activities/views/list_views.py::_page_window 同口径；跨 app import 私有函数
-    违反包入口约定，这里保留一份本地实现。
-    """
-    if total <= span * 2 + 3:
-        return list(range(1, total + 1))
-    left = max(2, current - span)
-    right = min(total - 1, current + span)
-    items = [1]
-    if left > 2:
-        items.append(None)
-    items.extend(range(left, right + 1))
-    if right < total - 1:
-        items.append(None)
-    items.append(total)
-    return items
-
-
 def _memory_list_context(request):
     """_memory_items.html 片段的统一口径（整页首屏 include 也走这里）。
 
@@ -104,7 +84,7 @@ def _memory_list_context(request):
     return {
         'memories': page_obj.object_list,
         'page_obj': page_obj,
-        'page_numbers': _page_window(page_obj.number, paginator.num_pages),
+        'page_numbers': page_window(page_obj.number, paginator.num_pages),
         'page_base_qs': _filter_qs(query, category),
         # 编辑触发 URL 携带当前筛选与页码，取消/保存才能回到进入编辑前的状态
         'edit_params_qs': _filter_qs(query, category, page_obj.number),
@@ -173,13 +153,14 @@ def memory_edit(request, memory_id):
         importance = request.POST.get('importance', 5)
 
         if content:
-            memory.content = content[:500]
+            memory.content = content[:MEMORY_CONTENT_MAX_LENGTH]
         if category in dict(Memory.CATEGORY_CHOICES):
             memory.category = category
         try:
             memory.importance = max(1, min(10, int(importance)))
         except (TypeError, ValueError):
-            pass
+            from django.contrib import messages
+            messages.warning(request, '重要度必须是 1-10 的整数，已保持原值')
         memory.save()
 
         if request.htmx:

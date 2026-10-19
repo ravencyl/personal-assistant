@@ -3,7 +3,6 @@ import logging
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
 from core.utils import visible_qs
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 @login_required
 def template_list(request):
     """列出用户的活动模板（JSON 端点，供创建页下拉使用）"""
-    templates = ActivityTemplate.objects.filter(user=request.user)
+    templates = visible_qs(ActivityTemplate, request.user)
     return JsonResponse({
         'templates': [
             {
@@ -89,7 +88,7 @@ def template_use(request, template_id):
     """从模板创建活动（JSON 端点）"""
     import json
     try:
-        template = ActivityTemplate.objects.get(pk=template_id, user=request.user)
+        template = visible_qs(ActivityTemplate, request.user).get(pk=template_id)
     except ActivityTemplate.DoesNotExist:
         return JsonResponse({'error': '模板不存在'}, status=404)
 

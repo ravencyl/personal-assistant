@@ -2,9 +2,9 @@
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.utils import timezone
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render
 
-from core.utils import visible_qs
+from core.utils import get_visible, visible_qs
 from ..models import Activity
 from ..utils import log_activity
 
@@ -27,7 +27,7 @@ def archive_activity(request, activity_id):
     if request.method != 'POST':
         return JsonResponse({'error': '仅支持 POST'}, status=405)
 
-    activity = get_object_or_404(Activity, id=activity_id, user=request.user)
+    activity = get_visible(Activity, request.user, id=activity_id)
     if activity.archived_at:
         return JsonResponse({'ok': False, 'error': '该活动已归档'})
 
@@ -44,10 +44,7 @@ def unarchive_activity(request, activity_id):
     if request.method != 'POST':
         return JsonResponse({'error': '仅支持 POST'}, status=405)
 
-    activity = get_object_or_404(
-        Activity.objects.filter(archived_at__isnull=False),
-        id=activity_id, user=request.user
-    )
+    activity = get_visible(Activity, request.user, id=activity_id)
 
     activity.archived_at = None
     activity.save(update_fields=['archived_at'])

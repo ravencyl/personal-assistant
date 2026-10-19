@@ -61,7 +61,6 @@
        白底对比度 6.4:1 达 AA */
     --accent-text: #3451d6;
     --accent-light: #eef0fe;    /* 极浅 accent 底：hover/选中染色 */
-    --accent-soft: #eef0fe;     /* 选中态/强调底色专用 */
     --bg: #f4f4f2;              /* 微暖灰画布（Bento 定稿色） */
     --bg-card: #ffffff;
     --text: #1c1c1e;
@@ -73,7 +72,6 @@
     --border-strong: rgba(0, 0, 0, 0.12);
 
     /* 阴影令牌：分层 + 微色彩倾向（蓝调混入外层阴影，增加精致感） */
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(70, 99, 238, 0.04);
     --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(70, 99, 238, 0.07);
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(70, 99, 238, 0.10);
@@ -86,7 +84,6 @@
        控件档 12→16 为 2026-10-16 用户拍板的整站圆角升级）：
        R-card 页面一级卡 / R-surface 卡内二级面·弹窗·气泡 / R-ctl 按钮·输入框·select / R-pill 徽章·chip */
     --radius-card: 1.75rem;     /* 28px，.app-card/.panel/今日页 tile */
-    --radius-surface: 1.25rem;  /* 20px */
     --radius-ctl: 16px;
 }
 
@@ -264,7 +261,7 @@ textarea {
 }
 
 /* 卡片：白底浮在淡灰画布上——大圆角 + 内发光 + 分层阴影 + hover 上浮（精致细腻风） */
-.app-card, .card {
+.app-card {
     background: var(--bg-card);
     border: 1px solid rgba(70, 99, 238, 0.08);
     border-radius: var(--radius-card);
@@ -808,10 +805,6 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
    光靠 .md-body 的 overflow-wrap 拦不住，不断开就会把 .md-table-wrap 撑宽到滑不到底 */
 .md-break { word-break: break-all; }
 
-/* 裸链专用（渲染器给自动链接挂的类）：表头单元格里有 white-space:nowrap，
-   光靠 .md-body 的 overflow-wrap 拦不住，不断开就会把 .md-table-wrap 撑宽到滑不到底 */
-
-
 /* ===== 聊天常驻快捷指令 ===== */
 .chat-chip {
     display: inline-flex;
@@ -1195,13 +1188,7 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
     cursor: grabbing;
 }
 
-/* 键盘导航焦点环 */
-.kb-focus {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 0.75rem;
-    transition: outline-color 150ms ease;
-}
+/* 键盘导航焦点环 — 已迁移到 :focus-visible 原生方案，保留注释备查 */
 
 /* ============================================================
    今日页 Bento 网格（2026-10-16，视觉迁移自 ui_demos/demo3 定稿）

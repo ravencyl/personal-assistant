@@ -626,7 +626,7 @@ def summarize_conversation_for_memory(conversation):
     - 本会话已经产出过记忆：协议里 AI 一直在主动记，别再重复一层
     返回新建的 Memory 或 None；失败仅告警（容错铁律）。
     """
-    from .models import Memory
+    from .models import Memory, MEMORY_CONTENT_MAX_LENGTH
 
     try:
         questions = list(conversation.messages.filter(role='user').order_by('created_at')
@@ -652,7 +652,7 @@ def summarize_conversation_for_memory(conversation):
             parts.append(f'结论：{answer}')
         if not parts:
             return None          # 只剩一个光标题的记忆没有信息量，不如不写
-        content = (f'对话「{title}」' + '；'.join(parts))[:500]
+        content = (f'对话「{title}」' + '；'.join(parts))[:MEMORY_CONTENT_MAX_LENGTH]
 
         # 门控统一出口：规则路径确定性高（confidence 0.8 → active），
         # 但 denylist / 敏感闸门照常生效（对话内容也可能带凭证）

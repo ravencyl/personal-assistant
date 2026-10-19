@@ -43,7 +43,7 @@ INSTALLED_APPS = [
 
     # Third-party
     'django_htmx',
-    'taggit',
+    'taggit',  # kept for migration history compatibility (data migrated to core.Tag)
 
     # Project apps
     'core',

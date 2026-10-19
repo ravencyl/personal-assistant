@@ -19,7 +19,7 @@ ARTICLE_LIST_PAGE_SIZE = 30
 @login_required
 def article_list(request):
     """文章列表，支持标签筛选、关键词搜索与分页"""
-    articles = visible_qs(Article, request.user)
+    articles = visible_qs(Article, request.user).prefetch_related('tags')
     
     # 标签筛选（自建 core.Tag 无 slug，直接用标签名匹配）
     tag_slug = request.GET.get('tag')
