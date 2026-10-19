@@ -185,32 +185,44 @@
     }
 
     function fillTimePreset(preset) {
-        var startInput = document.getElementById('id_start_time');
-        var endInput = document.getElementById('id_end_time');
-        if (!startInput) return;
-
-        var times = {
-            morning: '09:00',
-            afternoon: '14:00',
-            evening: '19:00',
-        };
-
         if (preset === 'custom') {
             // 展开自定义时间面板
             var customPanel = document.getElementById('custom-time-panel');
             if (customPanel) customPanel.classList.remove('hidden');
+            // 显示提示
+            var hint = document.querySelector('[data-time-hint]');
+            if (hint) hint.classList.remove('hidden');
             return;
         }
 
-        // 填充开始时间
-        startInput.value = times[preset] || '';
-        startInput.dispatchEvent(new Event('input', { bubbles: true }));
+        // HourMinuteSelect 是 MultiWidget：id_start_time_0=时(00-23), id_start_time_1=分(00/15/30/45)
+        var times = {
+            morning:   ['09', '00'],
+            afternoon: ['14', '00'],
+            evening:   ['19', '00'],
+        };
+        var t = times[preset];
+        if (!t) return;
+
+        var hSelect = document.getElementById('id_start_time_0');
+        var mSelect = document.getElementById('id_start_time_1');
+        if (hSelect) {
+            hSelect.value = t[0];
+            hSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (mSelect) {
+            mSelect.value = t[1];
+            mSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
 
         // 隐藏自定义面板（如果开着）
         var customPanel = document.getElementById('custom-time-panel');
         if (customPanel && !customPanel.classList.contains('hidden')) {
             customPanel.classList.add('hidden');
         }
+        // 显示提示
+        var hint = document.querySelector('[data-time-hint]');
+        if (hint) hint.classList.remove('hidden');
     }
 
     // ── 步骤① 标签墙：已有标签平铺成可点 chips，与 chips 输入框（#tag-box）双向同步 ──
