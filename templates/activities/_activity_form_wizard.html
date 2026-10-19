@@ -64,60 +64,102 @@
         </div>
     </div>
 
-    {# ── 步骤③ 时间与状态 ── 全部可选/有默认值，纯确认步；具体时间沿用「开关展开」口径， #}
-    {# 日期-时间配对（开始日期-开始时间一列）与编辑页 _activity_form_fields.html 同构 #}
+    {# ── 步骤③ 时间与状态 ── 拆成三个子步骤：日期 → 时段 → 状态，逐步细化 #}
     <div data-step="3" data-title="时间与状态" class="hidden">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-                <label for="id_start_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
-                {{ form.start_date }}
-                {% if form.start_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
-                <div data-time-slot class="hidden mt-3">
+        {# 子步骤指示器（3 个小圆点，显示当前在选日期/时段/状态） #}
+        <div class="flex items-center gap-2 mb-4" data-time-substep-indicator>
+            <button type="button" data-time-substep="1" class="w-8 h-8 rounded-full bg-[var(--accent)] text-[var(--bg)] text-xs font-medium flex items-center justify-center">1</button>
+            <span class="text-xs text-[var(--text-muted)]">选日期</span>
+            <span class="flex-1 h-px bg-[var(--border)] mx-2"></span>
+            <button type="button" data-time-substep="2" class="w-8 h-8 rounded-full border border-[var(--border-strong)] text-[var(--text-muted)] text-xs font-medium flex items-center justify-center disabled:opacity-50" disabled>2</button>
+            <span class="text-xs text-[var(--text-muted)]">选时段</span>
+            <span class="flex-1 h-px bg-[var(--border)] mx-2"></span>
+            <button type="button" data-time-substep="3" class="w-8 h-8 rounded-full border border-[var(--border-strong)] text-[var(--text-muted)] text-xs font-medium flex items-center justify-center disabled:opacity-50" disabled>3</button>
+            <span class="text-xs text-[var(--text-muted)]">确认状态</span>
+        </div>
+
+        {# 子步 3.1：选日期（直接显示日期选择器，默认今天） #}
+        <div data-time-substep-panel="1">
+            <p class="text-sm text-[var(--text-secondary)] mb-2">活动日期？</p>
+            <div class="space-y-3">
+                <div>
+                    <label for="id_start_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始日期</label>
+                    {{ form.start_date }}
+                    {% if form.start_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_date.errors.0 }}</p>{% endif %}
+                </div>
+                <div id="end-date-row" class="hidden">
+                    <label for="id_end_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
+                    {{ form.end_date }}
+                    {% if form.end_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
+                </div>
+                <button type="button" id="toggle-end-date" class="text-xs text-[var(--accent)] hover:underline">+ 添加结束日期（跨天活动）</button>
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button type="button" data-time-next="1" class="rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--bg)] hover:opacity-90 transition-colors tap-target">下一步：选时段</button>
+            </div>
+        </div>
+
+        {# 子步 3.2：选时段 #}
+        <div data-time-substep-panel="2" class="hidden">
+            <p class="text-sm text-[var(--text-secondary)] mb-2">具体时间段？</p>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                <button type="button" data-time-preset="morning"
+                        class="h-10 rounded-xl border border-[var(--border-strong)] text-sm font-medium text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors tap-target">
+                    上午<br><span class="text-xs text-[var(--text-muted)]">9:00</span>
+                </button>
+                <button type="button" data-time-preset="afternoon"
+                        class="h-10 rounded-xl border border-[var(--border-strong)] text-sm font-medium text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors tap-target">
+                    下午<br><span class="text-xs text-[var(--text-muted)]">14:00</span>
+                </button>
+                <button type="button" data-time-preset="evening"
+                        class="h-10 rounded-xl border border-[var(--border-strong)] text-sm font-medium text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors tap-target">
+                    晚上<br><span class="text-xs text-[var(--text-muted)]">19:00</span>
+                </button>
+                <button type="button" data-time-preset="custom"
+                        class="h-10 rounded-xl border border-[var(--border-strong)] text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent-light)] transition-colors tap-target">
+                    具体时间
+                </button>
+            </div>
+            <div id="custom-time-panel" class="hidden space-y-3 p-4 rounded-2xl bg-[var(--bg)] border border-[var(--border-strong)]">
+                <div>
                     <label for="id_start_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">开始时间</label>
                     {{ form.start_time }}
                     {% if form.start_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.start_time.errors.0 }}</p>{% endif %}
                 </div>
-            </div>
-            <div>
-                <label for="id_end_date" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束日期</label>
-                {{ form.end_date }}
-                {% if form.end_date.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_date.errors.0 }}</p>{% endif %}
-                <div data-time-slot class="hidden mt-3">
+                <div id="end-time-row" class="hidden">
                     <label for="id_end_time" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">结束时间</label>
                     {{ form.end_time }}
                     {% if form.end_time.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.end_time.errors.0 }}</p>{% endif %}
                 </div>
+                <button type="button" id="toggle-end-time" class="text-xs text-[var(--accent)] hover:underline">+ 添加结束时间</button>
+            </div>
+            <p data-time-hint class="hidden mt-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
+            <div class="mt-6 flex justify-between">
+                <button type="button" data-time-back="2" class="rounded-full bg-[var(--accent-light)] px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors tap-target">返回选日期</button>
+                {# 不显示"下一步"按钮，由向导主导航控制 #}
             </div>
         </div>
 
-        {# 具体时间（可选）：开关展开日期列内的 data-time-slot（activity-form.js initWidgets） #}
-        <div class="mt-4">
-            <button type="button" id="time-toggle"
-                    class="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-[var(--border-strong)] text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent-light)] transition-colors tap-target">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <span id="time-toggle-label">添加具体时间（可选）</span>
-            </button>
-            <p data-time-hint class="hidden mt-2 text-xs text-[var(--text-muted)]">填写后导出到 Apple 日历为定点事件，会在准确时刻提醒；不填则保持全天事件</p>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-            <div>
+        {# 子步 3.3：确认状态 #}
+        <div data-time-substep-panel="3" class="hidden">
+            <p class="text-sm text-[var(--text-secondary)] mb-2">当前状态？</p>
+            <div class="mb-4">
                 <label for="id_status" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">状态</label>
                 {{ form.status }}
             </div>
             {% if form.parsed_cost %}
-            <div>
+            <div class="mb-4">
                 <label for="id_parsed_cost" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">{{ form.parsed_cost.label }}</label>
                 {{ form.parsed_cost }}
                 <p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.parsed_cost.help_text }}</p>
                 {% if form.parsed_cost.errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.parsed_cost.errors.0 }}</p>{% endif %}
             </div>
             {% endif %}
+            <div class="mt-6 flex justify-start">
+                <button type="button" data-time-back="3" class="rounded-full bg-[var(--accent-light)] px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:opacity-90 transition-colors tap-target">返回选时段</button>
+            </div>
         </div>
     </div>
-
     {# ── 步骤④ 参与者 ── 可整步跳过 #}
     <div data-step="4" data-title="参与者" class="hidden">
         <label for="participant-input" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">参与人员 <span class="text-xs font-normal text-[var(--text-muted)]">（可跳过）</span></label>

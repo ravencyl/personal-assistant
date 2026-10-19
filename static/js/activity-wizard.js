@@ -102,6 +102,117 @@
         });
     }
 
+    // ── 步骤③ 时间选择三步子流程：日期 → 时段 → 状态 ──
+    var timeSubStep = 1;
+    function initTimeSubSteps() {
+        var indicator = document.querySelector('[data-time-substep-indicator]');
+        if (!indicator) return;
+
+        // 初始化：显示子步 1，隐藏其他
+        showTimeSubStep(1);
+
+        // 绑定「下一步」按钮
+        $all('[data-time-next]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var current = Number(btn.dataset.timeNext);
+                if (current < 3) showTimeSubStep(current + 1);
+            });
+        });
+
+        // 绑定「上一步」按钮
+        $all('[data-time-back]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var current = Number(btn.dataset.timeBack);
+                if (current > 1) showTimeSubStep(current - 1);
+            });
+        });
+
+        // 跨天活动开关
+        var toggleEndDate = document.getElementById('toggle-end-date');
+        var endDateRow = document.getElementById('end-date-row');
+        if (toggleEndDate && endDateRow) {
+            toggleEndDate.addEventListener('click', function () {
+                var isHidden = endDateRow.classList.contains('hidden');
+                endDateRow.classList.toggle('hidden');
+                toggleEndDate.textContent = isHidden ? '− 去掉结束日期' : '+ 添加结束日期（跨天活动）';
+            });
+        }
+
+        // 时段预设 chips
+        $all('[data-time-preset]').forEach(function (chip) {
+            chip.addEventListener('click', function () {
+                var preset = chip.dataset.timePreset;
+                fillTimePreset(preset);
+                // 高亮选中
+                $all('[data-time-preset]').forEach(function (c) {
+                    c.classList.remove('bg-[var(--accent)]', 'text-[var(--bg)]', 'border-transparent');
+                    c.classList.add('border-[var(--border-strong)]', 'text-[var(--text-secondary)]');
+                });
+                chip.classList.remove('border-[var(--border-strong)]', 'text-[var(--text-secondary)]');
+                chip.classList.add('bg-[var(--accent)]', 'text-[var(--bg)]', 'border-transparent');
+            });
+        });
+
+        // 结束时间开关
+        var toggleEndTime = document.getElementById('toggle-end-time');
+        var endTimeRow = document.getElementById('end-time-row');
+        if (toggleEndTime && endTimeRow) {
+            toggleEndTime.addEventListener('click', function () {
+                var isHidden = endTimeRow.classList.contains('hidden');
+                endTimeRow.classList.toggle('hidden');
+                toggleEndTime.textContent = isHidden ? '− 去掉结束时间' : '+ 添加结束时间';
+            });
+        }
+    }
+
+    function showTimeSubStep(n) {
+        timeSubStep = n;
+        // 更新指示器
+        $all('[data-time-substep]').forEach(function (dot) {
+            var step = Number(dot.dataset.timeSubstep);
+            var isActive = step === n;
+            var isDone = step < n;
+            dot.className = 'w-8 h-8 rounded-full text-xs font-medium flex items-center justify-center ' +
+                (isActive ? 'bg-[var(--accent)] text-[var(--bg)]' :
+                 isDone ? 'bg-[var(--accent-light)] text-[var(--accent)] border border-transparent' :
+                 'border border-[var(--border-strong)] text-[var(--text-muted)]');
+            dot.disabled = !isDone && !isActive;
+        });
+        // 显示对应面板
+        $all('[data-time-substep-panel]').forEach(function (panel) {
+            panel.classList.toggle('hidden', Number(panel.dataset.timeSubstepPanel) !== n);
+        });
+    }
+
+    function fillTimePreset(preset) {
+        var startInput = document.getElementById('id_start_time');
+        var endInput = document.getElementById('id_end_time');
+        if (!startInput) return;
+
+        var times = {
+            morning: '09:00',
+            afternoon: '14:00',
+            evening: '19:00',
+        };
+
+        if (preset === 'custom') {
+            // 展开自定义时间面板
+            var customPanel = document.getElementById('custom-time-panel');
+            if (customPanel) customPanel.classList.remove('hidden');
+            return;
+        }
+
+        // 填充开始时间
+        startInput.value = times[preset] || '';
+        startInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // 隐藏自定义面板（如果开着）
+        var customPanel = document.getElementById('custom-time-panel');
+        if (customPanel && !customPanel.classList.contains('hidden')) {
+            customPanel.classList.add('hidden');
+        }
+    }
+
     // ── 步骤① 标签墙：已有标签平铺成可点 chips，与 chips 输入框（#tag-box）双向同步 ──
     function renderTagWall() {
         var wall = document.getElementById('tag-wall');
@@ -144,6 +255,84 @@
         }
     }
 
+    // ── 步骤③ 快捷时间选择：今天/明天/本周末一键填入，自定义日期展开完整面板 ──
+    function initQuickTimeChips() {
+        var customToggle = document.getElementById('custom-date-toggle');
+        var customPanel = document.getElementById('custom-date-panel');
+        if (!customToggle || !customPanel) return;
+
+        // 点「自定义日期」展开/收起完整面板
+        customToggle.addEventListener('click', function () {
+            var isOpen = !customPanel.classList.contains('hidden');
+            customPanel.classList.toggle('hidden');
+            customToggle.classList.toggle('bg-[var(--accent-light)]', !isOpen);
+            customToggle.classList.toggle('text-[var(--accent)]', !isOpen);
+        });
+
+        // 快捷 chips：今天/明天/本周末
+        $all('[data-time-chip]').forEach(function (chip) {
+            chip.addEventListener('click', function () {
+                var preset = chip.dataset.timeChip;
+                fillDatePreset(preset);
+                // 视觉反馈：高亮选中的 chip
+                $all('[data-time-chip]').forEach(function (c) {
+                    c.classList.remove('bg-[var(--accent)]', 'text-[var(--bg)]', 'border-transparent');
+                    c.classList.add('border-[var(--border-strong)]', 'text-[var(--text-secondary)]');
+                });
+                chip.classList.remove('border-[var(--border-strong)]', 'text-[var(--text-secondary)]');
+                chip.classList.add('bg-[var(--accent)]', 'text-[var(--bg)]', 'border-transparent');
+            });
+        });
+    }
+
+    function fillDatePreset(preset) {
+        var today = new Date();
+        var startInput = document.getElementById('id_start_date');
+        var endInput = document.getElementById('id_end_date');
+        if (!startInput || !endInput) return;
+
+        var formatDate = function (d) {
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            return y + '-' + m + '-' + day;
+        };
+
+        var start = new Date(today);
+        var end = new Date(today);
+
+        if (preset === 'today') {
+            // 今天 → 开始=结束=今天
+        } else if (preset === 'tomorrow') {
+            start.setDate(start.getDate() + 1);
+            end.setDate(end.getDate() + 1);
+        } else if (preset === 'this-weekend') {
+            // 本周末：周六和周日
+            var dayOfWeek = today.getDay(); // 0=周日, 6=周六
+            var daysToSaturday = 6 - dayOfWeek;
+            if (daysToSaturday < 0) daysToSaturday += 7; // 如果今天是周日，推到下周六
+            start.setDate(start.getDate() + daysToSaturday);
+            end.setDate(start.getDate() + 1); // 周日
+        }
+
+        startInput.value = formatDate(start);
+        endInput.value = formatDate(end);
+
+        // 触发 input 事件以更新联动逻辑（如日历预览等）
+        startInput.dispatchEvent(new Event('input', { bubbles: true }));
+        endInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // 如果自定义面板是关着的，打开它让用户看到填好的值
+        var customPanel = document.getElementById('custom-date-panel');
+        if (customPanel && customPanel.classList.contains('hidden')) {
+            customPanel.classList.remove('hidden');
+            var customToggle = document.getElementById('custom-date-toggle');
+            if (customToggle) {
+                customToggle.classList.add('bg-[var(--accent-light)]', 'text-[var(--accent)]');
+            }
+        }
+    }
+
     // ── Enter 前进：只挂 form 元素；chips 输入/textarea/select/终步不走这里 ──
     function initEnterAdvance(form) {
         if (form.dataset.wizardEnterBound) return;
@@ -183,6 +372,7 @@
         if (form) initEnterAdvance(form);
         initLayerPanels();
         initTagWall();
+        initTimeSubSteps();  // 初始化时间选择三步子流程
         // 摘掉模板里的初始 .hidden（no-JS 兜底态）：此后显隐全由 showStep 的内联 display 接管，
         //留着类会在 style.display='' 时把按钮闷死（.hidden 与 .tap-target 的 display 之争见 showStep）
         [backBtn, nextBtn, submitBtn].forEach(function (b) { if (b) b.classList.remove('hidden'); });
