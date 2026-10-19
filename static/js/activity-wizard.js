@@ -163,6 +163,12 @@
                 toggleEndTime.textContent = isHidden ? '− 去掉结束时间' : '+ 添加结束时间';
             });
         }
+
+        // 自定义面板里手动改开始时间 → 结束时间自动 +1h
+        var startH = document.getElementById('id_start_time_0');
+        var startM = document.getElementById('id_start_time_1');
+        if (startH) startH.addEventListener('change', syncEndTimeFromStart);
+        if (startM) startM.addEventListener('change', syncEndTimeFromStart);
     }
 
     function showTimeSubStep(n) {
@@ -182,6 +188,32 @@
         $all('[data-time-substep-panel]').forEach(function (panel) {
             panel.classList.toggle('hidden', Number(panel.dataset.timeSubstepPanel) !== n);
         });
+    }
+
+    // 开始时间变更后，自动把结束时间设为开始 + 1 小时
+    function syncEndTimeFromStart() {
+        var hEl = document.getElementById('id_start_time_0');
+        var mEl = document.getElementById('id_start_time_1');
+        if (!hEl || !mEl) return;
+        var h = parseInt(hEl.value, 10);
+        var m = parseInt(mEl.value, 10);
+        if (isNaN(h) && isNaN(m)) return;   // 两个都是空/未选就不动
+        var endH = (h + 1) % 24;
+        var endHStr = String(endH).padStart(2, '0');
+        var mStr = String(isNaN(m) ? 0 : m).padStart(2, '0');
+
+        var ehEl = document.getElementById('id_end_time_0');
+        var emEl = document.getElementById('id_end_time_1');
+        if (ehEl) { ehEl.value = endHStr; ehEl.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (emEl) { emEl.value = mStr; emEl.dispatchEvent(new Event('change', { bubbles: true })); }
+
+        // 自动展开结束时间行（用户选了开始时间就意味着需要结束时间）
+        var endTimeRow = document.getElementById('end-time-row');
+        if (endTimeRow && endTimeRow.classList.contains('hidden')) {
+            endTimeRow.classList.remove('hidden');
+            var toggle = document.getElementById('toggle-end-time');
+            if (toggle) toggle.textContent = '− 去掉结束时间';
+        }
     }
 
     function fillTimePreset(preset) {
@@ -214,6 +246,9 @@
             mSelect.value = t[1];
             mSelect.dispatchEvent(new Event('change', { bubbles: true }));
         }
+
+        // 结束时间 = 开始 + 1 小时
+        syncEndTimeFromStart();
 
         // 隐藏自定义面板（如果开着）
         var customPanel = document.getElementById('custom-time-panel');
