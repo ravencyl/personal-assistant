@@ -3,6 +3,8 @@
 {% block title %}{{ conversation.title }} · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
+{# Aurora 深色主题壳（custom.css 末尾 .aurora 段），与分栏页/问AI抽屉同一份令牌覆盖 #}
+<div class="aurora aurora--page">
 <div class="flex justify-between items-center mb-4">
     <div>
         <a href="{% url 'chat:conversation_list_with_active' conversation.id %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回对话列表</a>
@@ -129,5 +131,6 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 
 <!-- 底部预留空间：滚动到底时最后一条消息不被底部输入区盖住（快记 FAB 已在本页隐藏，不再参与避让） -->
 <div class="h-20" aria-hidden="true"></div>
+</div><!-- /.aurora--page -->
 
 {% endblock %}

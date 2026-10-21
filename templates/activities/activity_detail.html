@@ -697,7 +697,7 @@ function appendExpenseTag(name) {
 {# 点击抽屉外的区域关闭（用户口中的「弹窗回到活动页」）：backdrop 在抽屉之下、详情页之上，#}
 {# Django 模板注释不支持跨行，本段每行单独一对 #}
 <div id="ask-drawer-backdrop" class="ask-drawer-backdrop fixed inset-0 z-40 bg-black/25" aria-hidden="true"></div>
-<div id="ask-drawer" class="ask-drawer fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[var(--bg-card)]"
+<div id="ask-drawer" class="ask-drawer aurora fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[var(--bg-card)]"
      role="dialog" aria-modal="true" aria-label="问 AI 对话" aria-hidden="true">
     <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <span id="ask-drawer-title" class="font-medium text-sm text-[var(--text)] truncate min-w-0">问 AI</span>

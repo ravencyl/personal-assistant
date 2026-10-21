@@ -7,6 +7,8 @@
 {% block main_class %}mx-auto max-w-[1700px] px-2 sm:px-4 lg:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-28 sm:py-4 md:pb-4{% endblock %}
 
 {% block content %}
+{# Aurora 深色主题壳（custom.css 末尾 .aurora 段）：包在外层而非挂 #chat-layout 的 class —— class="chat-layout" 被测试逐字断言 #}
+<div class="aurora aurora--shell">
 {# 分栏布局容器：桌面端左右两栏同屏；移动端靠 data-view 在列表/聊天视图间切换 #}
 <div id="chat-layout" class="chat-layout"
      data-active-id="{{ active_conversation.id|default:'' }}">
@@ -216,6 +218,7 @@
     </form>
 </section>
 </div><!-- /chat-layout -->
+</div><!-- /.aurora--shell -->
 
 <script>
 // ====== 分栏布局控制器 ======

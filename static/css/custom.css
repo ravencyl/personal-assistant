@@ -1290,3 +1290,141 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
        color-mix 在 iOS 16.2 以下整条静默失效（项目禁令） */
 }
 .act-badge--plain { color: var(--text-secondary); background: var(--bg); }
+
+/* ============================================================
+   Aurora Glass —— AI 对话深色主题（2026-10-21，chat_ui_demos/demo1 用户定稿）
+   ============================================================
+   作用域 = .aurora 类，挂在三处聊天挂载点的壳上：
+     ① 分栏页 conversation_list.html：#chat-layout 外层 wrapper（不动
+        #chat-layout 本身的 class —— `class="chat-layout"` 被测试逐字断言）
+     ② 详情页 conversation_detail.html：content 整体 wrapper
+     ③ 问 AI 抽屉 activity_detail.html：#ask-drawer
+   实现原理：在作用域内覆盖全站灰阶/accent 令牌，模板里既有的
+   var(--text) / var(--bg-card) 等 Tailwind 任意值类随级联自动换肤，
+   模板结构因此零改动；渐变与玻璃质感只在这里追加，不污染全站浅色体系。
+
+   与全站口径的关系：
+   - 灰阶仍然只有令牌一份（此处是令牌的深色取值，不是绕开令牌）
+   - 状态语义色 / 标签色不覆盖，深浅底上都可读（徽章本来就是浅底深字）
+   - ⚠️ --bg 在此作用域内是半透明白（叠加在深色画布上），不是全站那颗
+     实心浅灰：发送按钮 text-[var(--bg)] 的颜色由下方渐变按钮规则显式
+     改成 #fff，任何新按钮若用 text-[var(--bg)] 都必须同样处理
+   - 动画遵守 prefers-reduced-motion；移动端不播漂移（大面积合成层动画耗电） */
+
+.aurora {
+    --bg: rgba(255, 255, 255, 0.045);
+    --bg-card: rgba(255, 255, 255, 0.055);
+    --text: #eef0ff;
+    --text-secondary: rgba(238, 240, 255, 0.68);
+    --text-muted: rgba(238, 240, 255, 0.45);
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.20);
+    --accent: #8f74ff;
+    --accent-hover: #a48fff;
+    --accent-text: #b3a1ff;
+    --accent-light: rgba(124, 92, 255, 0.16);
+    --aurora-grad: linear-gradient(120deg, #7c5cff, #38e1ff 55%, #ff5ca8);
+
+    position: relative;
+    isolation: isolate;      /* ::before 的 z-index 不与页外元素互相干扰 */
+    overflow: hidden;
+    border-radius: var(--radius-card);
+    background: #0b0d1a;
+    color: var(--text);
+}
+
+/* 极光光斑层：三个柔边径向渐变。不用 filter:blur —— 大面积 blur 的合成开销
+   在移动端明显，径向渐变本身就是软边。inset 负值 + 容器 overflow:hidden
+   让光斑漂出边缘再被裁掉，漂移动画才有余量。 */
+.aurora::before {
+    content: '';
+    position: absolute;
+    inset: -12%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(46% 38% at 16% 6%, rgba(91, 61, 245, 0.42), transparent 70%),
+        radial-gradient(40% 34% at 90% 28%, rgba(10, 165, 201, 0.30), transparent 70%),
+        radial-gradient(32% 28% at 50% 100%, rgba(214, 51, 138, 0.26), transparent 72%),
+        #0b0d1a;
+}
+
+/* 内容层整体抬到光斑之上（直接子元素一层就够，内部各自的 z 值照常工作） */
+.aurora > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* 漂移：桌面端且未要求减弱动效才播（transform 合成层动画，不触发重排） */
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+    .aurora::before {
+        animation: aurora-drift 22s ease-in-out infinite alternate;
+    }
+}
+
+@keyframes aurora-drift {
+    from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+    to   { transform: translate3d(1.5%, 1.5%, 0) scale(1.07); }
+}
+
+/* 详情页 wrapper：壳的内边距（模板原来贴着 main 边缘排） */
+.aurora--page { padding: 0.875rem; }
+
+/* 问 AI 抽屉：深色玻璃面板压在浅色详情页上，左侧圆角收口 */
+.ask-drawer.aurora { border-radius: 1.5rem 0 0 1.5rem; }
+
+/* ---- Aurora 组件皮肤（仅追加质感，不改布局与交互） ---- */
+
+/* 侧栏与聊天主区的横条：淡白玻璃分层，替代浅色站里的白卡层次 */
+.aurora .chat-sidebar { background: rgba(255, 255, 255, 0.035); }
+.aurora .chat-main > .flex-none { background: rgba(255, 255, 255, 0.035); }
+
+/* 品牌渐变贯穿：所有实心 accent 元素（发送/新建/确认按钮、确认卡顶条）
+   自动套三色渐变；按钮文字从 text-[var(--bg)] 显式改成白（见块首警告） */
+.aurora .bg-\[var\(--accent\)\] {
+    background-image: var(--aurora-grad);
+}
+.aurora button.bg-\[var\(--accent\)\],
+.aurora a.bg-\[var\(--accent\)\] {
+    color: #ffffff;
+}
+
+/* 用户气泡 = 渐变实底；气泡内令牌整体换成白字系（var 级联给头部/meta），
+   不必逐个覆盖模板里的 text-[var(--text-secondary)] */
+.aurora .chat-message.user .chat-bubble {
+    background-image: var(--aurora-grad);
+    border-color: transparent;
+    box-shadow: 0 10px 30px -8px rgba(124, 92, 255, 0.45);
+    --text: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.80);
+    --text-muted: rgba(255, 255, 255, 0.65);
+}
+
+/* AI 气泡：玻璃面板（底色来自令牌 bg-card 的半透明白，这里只补圆角造型与模糊） */
+.aurora .chat-message.assistant .chat-bubble {
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+}
+
+/* 桌面端气泡造型：demo 同款「一角收小」的不对称圆角；移动端竖条造型不动 */
+@media (min-width: 768px) {
+    .aurora .chat-bubble { border-radius: 1.25rem; }
+    .aurora .chat-message.assistant .chat-bubble { border-top-left-radius: 0.375rem; }
+    .aurora .chat-message.user .chat-bubble { border-bottom-right-radius: 0.375rem; }
+}
+
+/* 深底上的删除红提亮一档（red-600/700 是浅底对比度标的，深底偏暗） */
+.aurora .text-red-600 { color: #ff8098; }
+.aurora .text-red-700 { color: #ff9dac; }
+
+/* 聚焦环与输入框聚焦描边：紫罗兰口径（覆盖全站亮蓝 rgba(70,99,238,*)） */
+.aurora input:focus, .aurora textarea:focus, .aurora select:focus {
+    box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.22);
+}
+.aurora input:focus-visible, .aurora textarea:focus-visible, .aurora select:focus-visible {
+    outline-color: rgba(143, 116, 255, 0.55);
+}
+
+/* 深底滚动条 */
+.aurora ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); }
+.aurora ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
