@@ -1005,6 +1005,31 @@ class ActivityCreateWizardTest(TestCase):
         # 弹窗口径：不出现父活动选项（hide_parent）
         self.assertNotIn('name="hierarchy" value="parent"', html)
 
+    def test_invalid_submit_surfaces_non_field_error(self):
+        """422 换体必须带得出错的标记与文案（2026-10-21 线上循环实锤）
+
+        跨字段校验（结束日期<开始日期）走 non-field 通道；partial 若不渲染它的
+        js-form-error 段落，换体后向导找不到落点、用户零提示地重走五步再被拒。
+        """
+        resp = self.client.post(reverse('activities:activity_create'), {
+            'name': '日期倒挂',
+            'start_date': '2026-10-25',
+            'end_date': '2026-10-20',
+        }, HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 422)
+        html = resp.content.decode()
+        self.assertIn('js-form-error', html, '422 体里没有任何错误标记，向导无法落位')
+        self.assertIn('结束日期不能早于开始日期', html, 'non-field 错误文案未渲染，用户会零反馈循环')
+
+    def test_wizard_js_lands_on_buried_error(self):
+        """向导 JS 的错误落位必须处理子步与折叠容器（静态锁，剔注释后断言）"""
+        src = (Path(settings.BASE_DIR) / 'static' / 'js' / 'activity-wizard.js').read_text()
+        code = re.sub(r'/\*[\s\S]*?\*/|//[^\n]*', '', src)
+        self.assertIn("data-time-substep-panel", code,
+                      '错误落位未处理步③子步：错误在 3.2/3.3 时用户停在 3.1 看不见')
+        self.assertIn('#end-date-row', code,
+                      '错误落位未摊开收起的结束日期行：end_date 错误渲染在默认 hidden 的行里')
+
 
 @override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
 class AttachmentUploadTest(TestCase):

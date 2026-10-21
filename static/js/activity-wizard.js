@@ -456,8 +456,20 @@
             // 默认落位：有字段错误（js-form-error）→ 跳错误步；否则第①步
             var err = $('.js-form-error');
             var errStep = err && err.closest('[data-step]');
+            if (err && errStep) {
+                // 错误段落若藏在默认收起的容器里（结束日期行/自定义时间面板/结束时间行），
+                // 先摊开再落位——否则跳到了步③用户照样看不见（2026-10-21 线上 422 循环实锤）
+                var buried = err.closest('#end-date-row, #end-time-row, #custom-time-panel');
+                if (buried) buried.classList.remove('hidden');
+                // 步③的错误要落到对应子步（date/time/status 面板各有一个），停在 3.1 时
+                // 3.2 里的错误照样不可见
+                var sub = err.closest('[data-time-substep-panel]');
+                if (sub) timeSubStep = Number(sub.dataset.timeSubstepPanel);
+            }
             maxVisited = errStep ? Number(errStep.dataset.step) : 1;
             showStep(errStep ? Number(errStep.dataset.step) : 1);
+            // 把错误段落滚到弹窗可视区中央，保证第一眼就能看到
+            if (err && err.scrollIntoView) err.scrollIntoView({ block: 'center' });
         }
         return api;
     }

@@ -95,6 +95,9 @@
                 // reinit 会自动跳到含 js-form-error 的那一步
                 PaActivityForm.initWidgets();
                 if (window.PaActivityWizard) window.PaActivityWizard.reinit();
+                // 提示条兜底：把第一条错误文案亮出来，就算 inline 段落还在折叠面板深处也不会零反馈
+                var firstErr = bodyEl.querySelector('.js-form-error');
+                if (firstErr) showError(firstErr.textContent.trim());
                 var scroller = overlay.querySelector('.overflow-y-auto');
                 if (scroller) scroller.scrollTop = 0;
             } else {

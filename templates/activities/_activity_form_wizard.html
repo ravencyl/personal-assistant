@@ -80,6 +80,9 @@
 
         {# 子步 3.1：选日期（直接显示日期选择器，默认今天） #}
         <div data-time-substep-panel="1">
+            {# 跨字段校验（结束日期<开始日期）走 non-field 通道：不渲染这段，422 换体后向导 #}
+            {# 找不到 js-form-error 会落回第①步且零提示，用户重走五步再被拒（2026-10-21 线上循环实锤） #}
+            {% if form.non_field_errors %}<p class="js-form-error mt-1 text-xs text-[var(--text)] font-semibold">错误：{{ form.non_field_errors.0 }}</p>{% endif %}
             <p class="text-sm text-[var(--text-secondary)] mb-2">活动日期？</p>
             <div class="space-y-3">
                 <div>
