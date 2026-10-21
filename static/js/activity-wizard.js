@@ -56,6 +56,11 @@
         if (scroller) scroller.scrollTop = 0;
         else root.scrollIntoView({ behavior: 'smooth', block: 'start' });
         hideStepError();
+        // 进入步骤③时同步子步骤面板与主导航按钮显隐（子步骤有自己的指示器，
+        // 主"下一步"在非末子步时隐藏，由子步骤面板内的按钮接管前进）
+        if (n === 3 && typeof showTimeSubStepEx === 'function') showTimeSubStepEx(timeSubStep);
+        // 离开步骤③向前导航（回到步①/②）时重置子步骤，下次进入从 3.1 开始
+        if (n < 3) timeSubStep = 1;
     }
 
     function hideStepError() {
@@ -79,6 +84,11 @@
 
     function next() {
         if (!validateStep(current)) return;
+        // 步骤③有 3 个子步骤（日期→时段→状态），未到末子步时主"下一步"改走子步骤前进
+        if (current === 3 && timeSubStep < 3) {
+            showTimeSubStepEx(timeSubStep + 1);
+            return;
+        }
         if (current < steps.length) showStep(current + 1);
     }
     function back() {
@@ -109,13 +119,13 @@
         if (!indicator) return;
 
         // 初始化：显示子步 1，隐藏其他
-        showTimeSubStep(1);
+        showTimeSubStepEx(1);
 
         // 绑定「下一步」按钮
         $all('[data-time-next]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var current = Number(btn.dataset.timeNext);
-                if (current < 3) showTimeSubStep(current + 1);
+                if (current < 3) showTimeSubStepEx(current + 1);
             });
         });
 
@@ -123,7 +133,7 @@
         $all('[data-time-back]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var current = Number(btn.dataset.timeBack);
-                if (current > 1) showTimeSubStep(current - 1);
+                if (current > 1) showTimeSubStepEx(current - 1);
             });
         });
 
@@ -171,7 +181,7 @@
         if (startM) startM.addEventListener('change', syncEndTimeFromStart);
     }
 
-    function showTimeSubStep(n) {
+    function showTimeSubStepEx(n) {
         timeSubStep = n;
         // 更新指示器
         $all('[data-time-substep]').forEach(function (dot) {
@@ -188,6 +198,9 @@
         $all('[data-time-substep-panel]').forEach(function (panel) {
             panel.classList.toggle('hidden', Number(panel.dataset.timeSubstepPanel) !== n);
         });
+        // 主"下一步"按钮：子步 3.1 时隐藏（面板自带"下一步：选时段"按钮，避免两个前进按钮混淆），
+        // 子步 3.2/3.3 时显示（3.2 面板无前进按钮，靠主导航走到 3.3；3.3 靠主导航走到步④）
+        if (nextBtn) nextBtn.style.display = n >= 2 ? '' : 'none';
     }
 
     // 开始时间变更后，自动把结束时间设为开始 + 1 小时
