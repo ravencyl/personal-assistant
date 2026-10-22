@@ -323,16 +323,6 @@
             schedule(500);
         }
 
-        // 注册为当前活跃实例，供 IIFE 顶层的 visibilitychange 处理器调用
-        // （旧实现在此处 addEventListener，每次 new PaChatTurn 都累积一个监听器）
-        inst.wakeOnVisible = function () {
-            if (running && !ticking) {
-                if (timer) { clearTimeout(timer); timer = null; }
-                tick();
-            }
-        };
-        window._paActiveChatTurn = inst;
-
         function clearDraft(content) {
             // 只在输入框仍是刚发出去那段话时清空：用户等回复期间又改了内容就不能覆盖
             if (input && input.value.trim() === content) {
@@ -478,8 +468,20 @@
             setBusy(false);
         }
 
-        return { send: send, stop: stop, resume: resume, halt: halt,
-                 isBusy: function () { return running; } };
+        var inst = { send: send, stop: stop, resume: resume, halt: halt,
+                     isBusy: function () { return running; } };
+        // 注册为当前活跃实例，供 IIFE 顶层的 visibilitychange 处理器调用
+        // （旧实现在此处 addEventListener，每次 new PaChatTurn 都累积一个监听器）
+        // inst 必须在这里才声明——曾在工厂体中段引用未声明的 inst，构造即抛
+        // ReferenceError，工厂后半程的绑定与 return 全部跳过，聊天整体失灵
+        inst.wakeOnVisible = function () {
+            if (running && !ticking) {
+                if (timer) { clearTimeout(timer); timer = null; }
+                tick();
+            }
+        };
+        window._paActiveChatTurn = inst;
+        return inst;
     };
 
 
