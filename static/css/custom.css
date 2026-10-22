@@ -1428,3 +1428,40 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
 /* 深底滚动条 */
 .aurora ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); }
 .aurora ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* ---- 沉浸式（demo1 是整页深色，不是浅页上嵌一块深卡——2026-10-22 用户反馈
+   「套用错了」后补）：聊天两页 body 挂 chat-aurora，令牌在 body 级翻转，
+   页头导航/底部 Tab/页面背景随既有 var(--*) 类一并进深色。
+   ⚠️ 两处「反色胶囊」要跟着修：nav-link-active 与底栏激活 Tab 都是
+   bg=var(--text) + color:#fff，--text 翻成浅色后白字不可见，改深底字。 */
+body.chat-aurora {
+    background: #0b0d1a;
+    --bg: rgba(255, 255, 255, 0.045);
+    --bg-card: rgba(255, 255, 255, 0.055);
+    --text: #eef0ff;
+    --text-secondary: rgba(238, 240, 255, 0.68);
+    --text-muted: rgba(238, 240, 255, 0.45);
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.20);
+    --accent: #8f74ff;
+    --accent-hover: #a48fff;
+    --accent-text: #b3a1ff;
+    --accent-light: rgba(124, 92, 255, 0.16);
+}
+
+/* 页面级 aurora 壳铺满：不再是圆角浮卡 */
+body.chat-aurora .aurora--shell,
+body.chat-aurora .aurora--page { border-radius: 0; }
+
+/* 顶栏激活页签（桌面端）：浅底胶囊上改深字 */
+body.chat-aurora .nav-link-active { color: #0b0d1a; }
+
+/* 移动端底部 Tab 栏：深色玻璃（浅色毛玻璃压深底会发灰发脏） */
+body.chat-aurora .glass-tab-bar {
+    background: rgba(22, 24, 40, 0.55);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: 0 -1px 16px rgba(0, 0, 0, 0.40), 0 6px 24px rgba(0, 0, 0, 0.35),
+                inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+/* 底栏激活 Tab：同 nav-link-active 的反色修正 */
+body.chat-aurora .glass-tab-bar .bg-\[var\(--text\)\] { color: #0b0d1a; }

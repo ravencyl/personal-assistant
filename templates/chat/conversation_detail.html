@@ -2,6 +2,10 @@
 
 {% block title %}{{ conversation.title }} · {{ SITE_NAME }}{% endblock %}
 
+{# Aurora 沉浸式：body 挂 chat-aurora 后整页（页头/底栏/背景）随令牌进深色（demo1 定稿） #}
+{% block body_class %}chat-aurora{% endblock %}
+{% block meta_theme %}<meta name="theme-color" content="#0b0d1a">{% endblock %}
+
 {% block content %}
 {# Aurora 深色主题壳（custom.css 末尾 .aurora 段），与分栏页/问AI抽屉同一份令牌覆盖 #}
 <div class="aurora aurora--page">

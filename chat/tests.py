@@ -3527,6 +3527,7 @@ class ChatWideLayoutTest(SimpleTestCase):
         base = Path(__file__).resolve().parent.parent
         cls.base_html = (base / 'templates' / 'base.html').read_text(encoding='utf-8')
         cls.list_html = (base / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
+        cls.detail_html = (base / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
         cls.css = (base / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
 
     def test_main_class_hook_exists(self):
@@ -3539,6 +3540,19 @@ class ChatWideLayoutTest(SimpleTestCase):
         self.assertIn('id="sidebar-toggle"', self.list_html)
         self.assertIn("localStorage.getItem('pa-chat-sidebar')", self.list_html)
         self.assertIn('.chat-layout.sidebar-collapsed .chat-sidebar', self.css)
+
+    def test_chat_pages_go_immersive_dark(self):
+        """Aurora 沉浸式：body 挂 chat-aurora 后整页进深色（demo1 定稿）。
+
+        2026-10-22 用户反馈「套用错了」：第一版只把 .aurora 糊在内容壳上，
+        页头/底栏/页面背景仍是浅色，视觉上不是 demo1 的整页沉浸。锁三点：
+        两个聊天页都挂 body class、body 级令牌翻转、两处反色胶囊修正在场。"""
+        self.assertIn('{% block body_class %}', self.base_html)
+        self.assertIn('chat-aurora', self.list_html)
+        self.assertIn('chat-aurora', self.detail_html)
+        self.assertIn('body.chat-aurora {', self.css)
+        self.assertIn('body.chat-aurora .glass-tab-bar', self.css)
+        self.assertIn('body.chat-aurora .nav-link-active', self.css)
 
 
 class FollowUpCollapseTest(SimpleTestCase):

@@ -4,7 +4,11 @@
 {% block title %}AI 对话 · {{ SITE_NAME }}{% endblock %}
 
 {# 对话是默认界面，把屏幕还给消息流：加宽容器、压小留白（base.html main 的 main_class 钩子） #}
-{% block main_class %}mx-auto max-w-[1700px] px-2 sm:px-4 lg:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-28 sm:py-4 md:pb-4{% endblock %}
+{% block main_class %}mx-auto max-w-[1700px] px-0 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-28 sm:py-4 md:pb-4{% endblock %}
+
+{# Aurora 沉浸式：body 挂 chat-aurora 后整页（页头/底栏/背景）随令牌进深色（demo1 定稿） #}
+{% block body_class %}chat-aurora{% endblock %}
+{% block meta_theme %}<meta name="theme-color" content="#0b0d1a">{% endblock %}
 
 {% block content %}
 {# Aurora 深色主题壳（custom.css 末尾 .aurora 段）：包在外层而非挂 #chat-layout 的 class —— class="chat-layout" 被测试逐字断言 #}

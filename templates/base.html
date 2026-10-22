@@ -64,13 +64,14 @@
     <link rel="icon" type="image/png" sizes="48x48" href="{% static 'icons/favicon-48.png' %}">
     {# iOS 加到主屏只认这个文件名，且必须方角铺满（系统会再罩一层 mask） #}
     <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
-    <meta name="theme-color" content="#f4f4f2">
+    {# theme-color 可被页面覆写（聊天页 Aurora 深色用 #0b0d1a，PWA 状态栏同色） #}
+    {% block meta_theme %}<meta name="theme-color" content="#f4f4f2">{% endblock %}
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="{{ SITE_NAME }}">
     {% block extra_head %}{% endblock %}
 </head>
-<body class="h-full antialiased">
+<body class="h-full antialiased {% block body_class %}{% endblock %}">
     <!-- 离线状态提示条 -->
     <div id="offline-banner" class="hidden fixed top-0 left-0 right-0 z-50 bg-amber-500 text-white text-center text-xs py-1 px-4">
         当前处于离线模式，部分功能不可用
