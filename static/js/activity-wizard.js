@@ -148,6 +148,21 @@
             });
         }
 
+        // 开始日期变更 → 结束日期早于它时自动拉平为开始日期。
+        // 结束日期行默认隐藏，但隐藏行里的 initial「今天」会随表单提交——
+        // 开始日期选到未来时不同步，提交必撞「结束日期不能早于开始日期」422。
+        var startDateInput = document.getElementById('id_start_date');
+        var endDateInput = document.getElementById('id_end_date');
+        if (startDateInput && endDateInput) {
+            startDateInput.addEventListener('change', function () {
+                var start = startDateInput.value;
+                if (!start) return;
+                if (!endDateInput.value || endDateInput.value < start) {
+                    endDateInput.value = start;
+                }
+            });
+        }
+
         // 时段预设 chips
         $all('[data-time-preset]').forEach(function (chip) {
             chip.addEventListener('click', function () {

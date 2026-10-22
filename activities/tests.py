@@ -1030,6 +1030,33 @@ class ActivityCreateWizardTest(TestCase):
         self.assertIn('#end-date-row', code,
                       '错误落位未摊开收起的结束日期行：end_date 错误渲染在默认 hidden 的行里')
 
+    def test_wizard_js_syncs_end_date_from_start(self):
+        """开始日期晚于结束日期时 JS 自动拉平结束日期（静态锁，剔注释后断言）
+
+        结束日期行默认隐藏，但隐藏行里的 initial「今天」会随表单提交——
+        开始日期选到未来时若不同步，提交必撞 non-field 422（结束日期不能早于开始日期）。
+        """
+        src = (Path(settings.BASE_DIR) / 'static' / 'js' / 'activity-wizard.js').read_text()
+        code = re.sub(r'/\*[\s\S]*?\*/|//[^\n]*', '', src)
+        self.assertIn("getElementById('id_start_date')", code, '向导 JS 未绑定开始日期输入')
+        self.assertIn("getElementById('id_end_date')", code, '向导 JS 未引用结束日期输入')
+        self.assertIn('endDateInput.value < start', code,
+                      '缺少「结束日期早于开始日期才同步」的比较，会覆盖用户已选的跨天结束日期')
+
+    def test_create_form_defaults_both_dates_to_today(self):
+        """新建时开始/结束日期都预填今天（结束行虽默认隐藏，值也要在）"""
+        today = timezone.localdate().isoformat()
+        for url_name in ('activities:activity_create',):
+            resp = self.client.get(reverse(url_name))
+            self.assertEqual(resp.status_code, 200)
+            html = resp.content.decode()
+            for field_id in ('id_start_date', 'id_end_date'):
+                m = re.search(r'<input[^>]*id="%s"[^>]*>' % field_id, html)
+                self.assertIsNotNone(m, f'{url_name} 页面未渲染 {field_id}')
+                v = re.search(r'value="([^"]*)"', m.group(0))
+                self.assertIsNotNone(v, f'{field_id} 渲染了但没有 value（默认今天丢失）')
+                self.assertEqual(v.group(1), today, f'{field_id} 默认值不是今天')
+
 
 @override_settings(MEDIA_ROOT=os.path.join(tempfile.gettempdir(), 'pa-test-media'))
 class AttachmentUploadTest(TestCase):
