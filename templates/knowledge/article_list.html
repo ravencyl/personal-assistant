@@ -32,7 +32,7 @@
         <input type="hidden" name="tag" value="{{ current_tag.name }}">
         {% endif %}
         <input type="search" name="q" value="{{ query }}" placeholder="搜索文章..."
-               class="tap-target flex-1 min-w-0 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+               class="tap-target tf-underline flex-1 min-w-0 bg-transparent text-[var(--text)] px-0 py-2 text-sm focus:outline-none">
     </form>
 
     <!-- 标签筛选栏 -->
@@ -40,12 +40,12 @@
     {% if all_tags %}
     <div class="flex flex-nowrap overflow-x-auto pb-1 -mx-1 px-1 gap-2 md:flex-wrap" id="article-tag-filter">
         <a href="{% url 'knowledge:article_list' %}{% if query %}?q={{ query|urlencode }}{% endif %}"
-           class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full border transition-colors {% if not current_tag %}bg-[var(--accent)] text-white border-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--text)]{% endif %}">
+           class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-colors {% if not current_tag %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:text-[var(--text)]{% endif %}">
             全部
         </a>
         {% for tag in all_tags %}
         <a href="?tag={{ tag.name|urlencode }}{% if query %}&q={{ query|urlencode }}{% endif %}"
-           class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full border transition-colors {% if current_tag.slug == tag.slug %}bg-[var(--accent)] text-white border-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--text)]{% endif %}">
+           class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-colors {% if current_tag.slug == tag.slug %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:text-[var(--text)]{% endif %}">
             {{ tag.name }}
         </a>
         {% endfor %}
@@ -98,15 +98,15 @@
         <div class="flex flex-wrap items-center justify-center gap-1.5">
             {% if page_obj.has_previous %}
             <a href="?{% if current_tag %}tag={{ current_tag.name|urlencode }}&{% endif %}{% if query %}q={{ query|urlencode }}&{% endif %}page={{ page_obj.previous_page_number }}"
-               class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">上一页</a>
+               class="tap-target inline-flex items-center px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">上一页</a>
             {% else %}
-            <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">上一页</span>
+            <span class="inline-flex items-center px-3 py-2 text-sm text-[var(--text-muted)] opacity-40 select-none">上一页</span>
             {% endif %}
             {% if page_obj.has_next %}
             <a href="?{% if current_tag %}tag={{ current_tag.name|urlencode }}&{% endif %}{% if query %}q={{ query|urlencode }}&{% endif %}page={{ page_obj.next_page_number }}"
-               class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">下一页</a>
+               class="tap-target inline-flex items-center px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">下一页</a>
             {% else %}
-            <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">下一页</span>
+            <span class="inline-flex items-center px-3 py-2 text-sm text-[var(--text-muted)] opacity-40 select-none">下一页</span>
             {% endif %}
         </div>
         <p class="text-xs text-[var(--text-muted)]">第 {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} 页</p>

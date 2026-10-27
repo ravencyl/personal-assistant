@@ -24,7 +24,7 @@
       <label class="block text-xs text-[var(--text-muted)] mb-1.5">订阅链接（webcal，点按可直接唤起日历 App）</label>
       <div class="flex gap-2">
         <input type="text" readonly value="{{ webcal_url }}"
-               class="flex-1 min-w-0 border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-secondary)]"
+               class="tf-underline flex-1 min-w-0 bg-transparent px-0 py-2 text-xs text-[var(--text-secondary)]"
                onclick="this.select()">
         <button type="button" data-copy-feed="{{ webcal_url }}"
                 class="shrink-0 bg-[var(--accent)] text-white text-sm font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors">复制</button>
@@ -36,7 +36,7 @@
     <div>
       <label class="block text-xs text-[var(--text-muted)] mb-1.5">HTTPS 直链（部分场景需要）</label>
       <input type="text" readonly value="{{ feed_url }}"
-             class="w-full border border-[var(--border-strong)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-secondary)]"
+             class="tf-underline w-full bg-transparent px-0 py-2 text-xs text-[var(--text-secondary)]"
              onclick="this.select()">
     </div>
 
@@ -54,7 +54,7 @@
         <input type="hidden" name="action" value="regenerate">
         <button type="submit"
                 data-confirm="重新生成后，旧订阅链接立即失效，需要在日历 App 里重新订阅。确定吗？" data-confirm-tone="default" data-confirm-label="重新生成"
-                class="tap-target w-full md:w-auto border border-[var(--border-strong)] text-sm font-medium px-4 py-2 hover:bg-[var(--accent-light)] transition-colors">
+                class="tap-target w-full md:w-auto text-sm font-medium px-1 py-2 text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
           重新生成链接
         </button>
       </form>

@@ -17,10 +17,10 @@
                 AI 在对话中记住的关于你的信息。这些记忆会帮助 AI 更好地理解你。
             </p>
         </div>
-        <!-- 视图切换 Tab -->
-        <div class="flex items-center rounded-full border border-[var(--border-strong)] overflow-hidden text-sm">
-            <button type="button" data-view="list" aria-pressed="true" class="tap-target px-3 py-1 font-medium whitespace-nowrap transition-colors bg-[var(--accent)] text-white">列表</button>
-            <button type="button" data-view="map" aria-pressed="false" class="tap-target px-3 py-1 font-medium whitespace-nowrap transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
+        <!-- 视图切换 Tab（Typeframe：黑 pill = 激活，无外框容器） -->
+        <div class="flex items-center gap-1 text-sm">
+            <button type="button" data-view="list" aria-pressed="true" class="tap-target rounded-full px-3 py-1 font-medium whitespace-nowrap transition-colors bg-[var(--accent)] text-white">列表</button>
+            <button type="button" data-view="map" aria-pressed="false" class="tap-target rounded-full px-3 py-1 font-medium whitespace-nowrap transition-colors text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">记忆地图</button>
         </div>
     </div>
 </div>
@@ -45,7 +45,7 @@
                hx-target="#memory-list"
                hx-trigger="input changed delay:300ms, search"
                hx-include="#memory-category-filter"
-               class="flex-1 min-w-0 rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+               class="tf-underline tap-target flex-1 min-w-0 bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-0 py-2 text-sm focus:outline-none">
     </div>
 
     <!-- 类别筛选 Tab -->
@@ -74,7 +74,7 @@
     {# owner 导出权（ROA PRD §9.1）：全部记忆含取代链，Markdown 附件 #}
     <div class="pt-1">
         <a href="{% url 'memory:memory_export' %}"
-           class="tap-target inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">
+           class="tap-target inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] underline decoration-[var(--tf-fg5)] underline-offset-4 hover:text-[var(--text)] transition-colors">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
@@ -104,14 +104,12 @@
     <h2 class="text-sm font-semibold text-[var(--text)] mb-3">目标进度</h2>
     <div class="space-y-4">
         {% for goal in goals %}
-        <div class="app-card rounded-2xl p-4">
+        <div class="p-1">
             <div class="flex items-center justify-between mb-2">
                 <p class="text-sm font-medium text-[var(--text)] truncate flex-1">{{ goal.content }}</p>
-                <span class="text-xs font-bold text-[var(--accent)] ml-2">{{ goal.percent }}%</span>
+                <span class="text-xs font-bold text-[var(--text)] ml-2">{{ goal.percent }}%</span>
             </div>
-            <div class="h-2 rounded-full bg-[var(--border)] overflow-hidden">
-                <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {{ goal.percent }}%"></div>
-            </div>
+            <div class="tf-pbar"><div class="tf-pfill" style="width: {{ goal.percent }}%"></div></div>
             <p class="text-xs text-[var(--text-muted)] mt-1.5">{{ goal.done }}/{{ goal.total }} 个相关活动已完成</p>
         </div>
         {% endfor %}

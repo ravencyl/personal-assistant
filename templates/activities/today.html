@@ -4,133 +4,121 @@
 {% block title %}今日 · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-<!-- ── Bento 概览（视觉迁移自 ui_demos demo3，用户定稿 2026-10-16）──
-     网格声明全部在 custom.css 的 .bento 段（列宽只由 custom.css 决定，
-     模板内联列声明会被 DesktopLayoutCoverageTest 拦下）；本页刻意单列页
-     （Bento 自成分栏节奏） -->
-<section class="bento" aria-label="今日概览">
-    <!-- 问候 hero：渐变底 + 白字，全页唯一大面积色块 -->
-    <div class="tile tile--hero md:col-span-5 md:row-span-2">
-        <p class="text-xs font-semibold text-white/75 mb-1.5">{{ today_display }}</p>
-        <h1 class="text-2xl sm:text-3xl font-bold leading-snug tracking-tight">
-            {{ greeting }}，<br>{{ username }}
+{% comment %}
+Typeframe 今日页（2026-10-27 定稿，对标 typeframe mockup VIEW 1）：
+纯白画布 + 浅灰水印日期 + 排版分区（.tf-lb 小标签），无边框零卡片。
+本页刻意单列（Typeframe 画布自成分区节奏），section 标签文案被
+TodayHomeTest 锁定：「今天的时间线」→「按标签看」→「接下来」顺序不可乱。
+{% endcomment %}
+<section class="relative" aria-label="今日概览">
+    {# 浅灰水印大数字（Playfair，纯装饰；字号在 custom.css 的 .tf-watermark）#}
+    <div class="tf-watermark tf-watermark--page absolute right-0 top-0 select-none" aria-hidden="true">{{ today_day }}</div>
+
+    {# 问候：标题行「周一 / 10 月 27 日」 #}
+    <div class="relative z-10">
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
+            {{ weekday_label }} <span class="font-normal text-[var(--tf-fg4)]">/</span> {{ month_day }}
         </h1>
-        <p class="text-sm text-white/85 leading-relaxed mt-auto pt-4">
-            {% if ai_suggestion %}{{ ai_suggestion }}{% else %}
-            今天有 {{ ongoing_count }} 项进行中、{{ covered_count }} 项活动覆盖今天。
-            {% endif %}
+        <p class="mt-2 text-sm text-[var(--text-muted)] flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span>{{ greeting }}，{{ username }}</span>
+            <span class="text-[var(--tf-fg4)]" aria-hidden="true">·</span>
+            <span>{{ ongoing_count }} 项进行中</span>
+            <span class="text-[var(--tf-fg4)]" aria-hidden="true">·</span>
+            <span>{{ covered_count }} 项覆盖今天</span>
         </p>
     </div>
 
-    <!-- 本月支出：环形 = 本月时间进度，配日均让数字有参照 -->
-    <div class="tile md:col-span-4 md:row-span-2">
-        <p class="tile-k">本月支出</p>
-        <p class="tile-v">¥{{ month_expense|floatformat:0 }}</p>
-        <div class="flex items-center gap-4 mt-auto pt-3">
-            <svg viewBox="0 0 42 42" class="w-[74px] h-[74px] flex-none" role="img" aria-label="本月已过 {{ month_pct }}%">
-                <circle cx="21" cy="21" r="17" fill="none" stroke="var(--border)" stroke-width="5"/>
-                <circle cx="21" cy="21" r="17" fill="none" stroke="var(--accent)" stroke-width="5"
-                        pathLength="100" stroke-dasharray="{{ month_pct }} 100"
-                        stroke-dashoffset="25" stroke-linecap="round"/>
-                <text x="21" y="25" text-anchor="middle" font-size="10" font-weight="800" fill="var(--text)">{{ month_pct }}%</text>
-            </svg>
-            <div class="text-xs text-[var(--text-secondary)] leading-relaxed">
-                <p>今天 ¥{{ today_expense|floatformat:0 }} · 本周 ¥{{ week_expense|floatformat:0 }}</p>
-                <p class="mt-0.5">日均 ¥{{ daily_avg|floatformat:0 }}，按当前节奏走完 {{ month_pct }}% 的月份</p>
-            </div>
+    {# ── 正在处理：头条排版，无卡片 ── #}
+    <div class="relative z-10 mt-11">
+        <p class="tf-lb">正在处理</p>
+        {% if in_progress %}
+        <a href="{% url 'activities:activity_detail' in_progress.0.id %}"
+           class="block text-xl sm:text-2xl font-bold leading-relaxed tracking-tight hover:opacity-65 transition-opacity">
+            {{ in_progress.0.name }}
+        </a>
+        <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
+            共 {{ in_progress|length }} 项长期进行中
+            {% if in_progress|length > 1 %}，如 {{ in_progress.1.name }}{% endif %}
+        </p>
+        {% else %}
+        <p class="text-sm text-[var(--text-muted)]">没有长期进行中的活动</p>
+        {% endif %}
+        {% if overdue %}
+        <p class="mt-4 text-sm text-[var(--text-secondary)]">
+            <span class="tf-num text-lg font-medium align-middle">{{ overdue|length }}</span> 项过期待处理 ——
+            <a href="{% url 'activities:activity_list' %}" class="underline underline-offset-4 decoration-[var(--tf-fg4)] hover:decoration-[var(--text)]">{{ overdue.0.name }}{% if overdue|length > 1 %} 等 {{ overdue|length }} 项{% endif %} →</a>
+        </p>
+        {% endif %}
+    </div>
+
+    {# ── 今天的时间线：一行一事项，时间用 Playfair ── #}
+    <div class="relative z-10 mt-11">
+        <p class="tf-lb">今天的时间线</p>
+        {% for a in timeline %}
+        <a href="{% url 'activities:activity_detail' a.id %}"
+           class="group flex items-baseline gap-3 sm:gap-4 py-2.5 hover:opacity-70 transition-opacity">
+            <span class="w-12 flex-none text-sm text-[var(--tf-fg4)] tabular-nums">{{ a.time_label }}</span>
+            <span class="flex-1 min-w-0 text-sm font-semibold text-[var(--text)] truncate">{{ a.name }}</span>
+            {% if a.tile_tag %}<span class="hidden md:inline text-xs text-[var(--text-muted)] flex-none">{{ a.tile_tag }}</span>{% endif %}
+            <span class="flex-none text-xs text-[var(--text-muted)]">{{ a.get_status_display }}</span>
+            <span class="w-1.5 h-1.5 rounded-full flex-none self-center status-bg--{{ a.status }}"
+                  aria-hidden="true" title="{{ a.get_status_display }}"></span>
+        </a>
+        {% empty %}
+        <p class="py-4 text-sm text-[var(--text-muted)]">今天没有安排，享受空白</p>
+        {% endfor %}
+    </div>
+
+    {# ── 本月花费：pull-quote 大数字（¥ 独立 sans span，Playfair 缺 ¥ 字形）── #}
+    <div class="relative z-10 mt-11">
+        <p class="tf-lb">本月支出</p>
+        <p class="tf-num text-4xl sm:text-5xl font-medium tracking-tight">
+            <span class="tf-cur">¥</span>{{ month_expense|floatformat:0 }}
+        </p>
+        <p class="mt-2.5 text-xs text-[var(--text-muted)]">
+            今天 ¥{{ today_expense|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>本周 ¥{{ week_expense|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>日均 ¥{{ daily_avg|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>月份已过 {{ month_pct }}%
+        </p>
+        <div class="tf-pbar mt-4 max-w-sm" role="img" aria-label="本月时间进度 {{ month_pct }}%">
+            <div class="tf-pfill" style="width: {{ month_pct }}%;"></div>
         </div>
     </div>
 
-    <!-- 长期进行中：只显一个名字（用户 2026-10-16 确认），名字下方留足行高——
-         桌面行高已改 minmax(5.5rem, auto) 随内容生长，字形不再被瓦片底边垂直裁半；
-         整卡可点进列表的进行中筛选，与「过期待处理」瓦片同构 -->
-    <a href="{% url 'activities:activity_list' %}?status=in_progress" class="tile block md:col-span-3">
-        <span class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold"
-              style="background: var(--accent-light); color: var(--accent-text);">
-            <i class="w-1.5 h-1.5 rounded-full" style="background: var(--accent);"></i>进行中
-        </span>
-        <div class="mt-auto pt-2 text-sm font-semibold leading-relaxed text-[var(--text-secondary)] truncate">
-            {% if in_progress %}{{ in_progress.0.name }}{% if in_progress|length > 1 %} 等 {{ in_progress|length }} 项{% endif %}{% else %}
-            <span class="text-[var(--text-muted)] font-normal">没有长期进行中的活动</span>
-            {% endif %}
-        </div>
-    </a>
-
-    <!-- 过期待处理 -->
-    <a href="{% url 'activities:activity_list' %}" class="tile block md:col-span-3">
-        <p class="tile-k">过期待处理</p>
-        <p class="tile-v">{{ overdue|length }}<small class="text-sm font-semibold text-[var(--text-muted)] ml-1.5">项</small></p>
-        <div class="mt-auto pt-2 text-sm text-[var(--text-secondary)] leading-relaxed">
-            {% if overdue %}{{ overdue.0.name }}{% if overdue|length > 1 %} 等 {{ overdue|length }} 项已过期{% endif %}{% else %}全部按计划推进 ✓{% endif %}
-        </div>
-    </a>
-
-    <!-- 今日时间线 -->
-    <div class="tile md:col-span-6 md:row-span-3">
-        <p class="tile-k">今天的时间线</p>
-        <p class="tile-v text-2xl">{{ covered_count }} <small class="text-sm font-semibold text-[var(--text-muted)]">项覆盖今天</small></p>
-        <div class="mt-3">
-            {% for a in timeline %}
-            <a href="{% url 'activities:activity_detail' a.id %}"
-               class="flex items-center gap-3 py-2 border-b border-dashed border-[var(--border)] last:border-none group">
-                <span class="w-11 flex-none text-xs text-[var(--text-muted)] tabular-nums">{{ a.time_label }}</span>
-                <span class="flex-1 min-w-0 text-sm font-semibold text-[var(--text)] truncate group-hover:text-[var(--accent-text)]">{{ a.name }}</span>
-                {% if a.tile_tag %}<span class="hidden md:inline text-xs text-[var(--text-muted)] flex-none">{{ a.tile_tag }}</span>{% endif %}
-                <span class="w-1.5 self-stretch flex-none rounded-full status-bg--{{ a.status }}"
-                      aria-hidden="true" title="{{ a.get_status_display }}"></span>
-            </a>
-            {% empty %}
-            <p class="py-6 text-sm text-[var(--text-muted)]">今天没有安排，享受空白 ✨</p>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- 按标签看 -->
-    <div class="tile md:col-span-6 md:row-span-3">
-        <p class="tile-k">按标签看</p>
-        <div class="flex flex-wrap gap-2 mt-3">
+    {# ── 按标签看：纯文字标签行（彩点为数据语义色）── #}
+    <div class="relative z-10 mt-11">
+        <p class="tf-lb">按标签看</p>
+        <div class="flex flex-wrap gap-x-6 gap-y-2.5">
             {% for tag in tag_rows %}
             <a href="{% url 'activities:activity_list' %}?tag={{ tag.name|urlencode }}"
-               class="tag-chip inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-transform hover:scale-105"
+               class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors"
                style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }};">
-                <i class="tag-dot" aria-hidden="true"></i>{{ tag.name }} {{ tag.n }}
+                <i class="w-1.5 h-1.5 rounded-full flex-none" style="background: var(--tag-color);" aria-hidden="true"></i>{{ tag.name }}
+                <span class="tf-num text-base">{{ tag.n }}</span>
             </a>
             {% empty %}
-            <p class="text-sm text-[var(--text-muted)] py-2">还没有打标签的活动</p>
+            <p class="text-sm text-[var(--text-muted)]">还没有打标签的活动</p>
             {% endfor %}
         </div>
     </div>
 </section>
 
-<!-- 接下来：7 天内开始 -->
-<div class="flex items-center gap-3 mb-4">
-    <h2 class="text-sm font-semibold">接下来</h2>
-    <span class="text-sm font-semibold text-[var(--text-muted)]">7 天内开始</span>
-    <span class="flex-1"></span>
-    <a href="{% url 'activities:activity_list' %}" class="text-sm font-bold text-[var(--accent-text)] hover:underline">全部活动 →</a>
-</div>
-
-<section class="grid grid-cols-1 gap-4 md:grid-cols-2 mb-8" aria-label="即将开始的活动">
+{# ── 接下来：7 天内开始（衬线大标题 + 类型化行）── #}
+<section class="relative z-10 mt-11 mb-8" aria-label="即将开始的活动">
+    <div class="flex items-baseline gap-3">
+        <p class="tf-lb">接下来</p>
+        <span class="text-xs text-[var(--text-muted)]">7 天内开始</span>
+        <span class="flex-1"></span>
+        <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">全部活动 →</a>
+    </div>
     {% for a in upcoming %}
-    <a href="{% url 'activities:activity_detail' a.id %}" class="act-card" style="--c: {% if a.tile_color %}{{ a.tile_color }}{% else %}var(--status-{{ a.status }}){% endif %}">
-        <div class="flex items-center justify-between gap-2">
-            {% if a.tile_tag %}
-            <span class="act-badge">{{ a.tile_tag }}</span>
-            {% else %}
-            <span class="act-badge act-badge--plain">{{ a.get_status_display }}</span>
-            {% endif %}
-            <span class="text-xs font-semibold text-[var(--text-muted)] tabular-nums">{{ a.date_range }}</span>
-        </div>
-        <h3 class="text-base font-bold leading-snug mt-3">{{ a.name }}</h3>
-        <div class="mt-auto pt-3 flex items-baseline justify-between">
-            <span class="text-lg font-bold tabular-nums" style="color: var(--c);">
-                {% if a.total_cost %}¥{{ a.total_cost|floatformat:0 }}{% else %}¥0{% endif %}
-            </span>
-            <span class="text-xs font-bold text-[var(--text-muted)]">{{ a.get_status_display }} →</span>
-        </div>
+    <a href="{% url 'activities:activity_detail' a.id %}"
+       class="group flex items-baseline gap-3 sm:gap-4 py-3 hover:opacity-70 transition-opacity">
+        <span class="w-20 flex-none text-xs text-[var(--tf-fg4)] tabular-nums">{{ a.date_range }}</span>
+        <span class="flex-1 min-w-0 text-base font-semibold truncate">{{ a.name }}</span>
+        {% if a.tile_tag %}<span class="hidden md:inline text-xs text-[var(--text-muted)] flex-none">{{ a.tile_tag }}</span>{% endif %}
+        <span class="flex-none text-xs text-[var(--text-muted)]">{{ a.get_status_display }} →</span>
     </a>
     {% empty %}
-    <p class="text-sm text-[var(--text-muted)] col-span-full">未来 7 天没有新安排</p>
+    <p class="py-4 text-sm text-[var(--text-muted)]">未来 7 天没有新安排</p>
     {% endfor %}
 </section>
 {% endblock %}

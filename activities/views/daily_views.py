@@ -300,6 +300,10 @@ def today_home(request):
     hour = now.hour
     return render(request, 'activities/today.html', {
         'today_display': f'{today.month} 月 {today.day} 日 · {WEEKDAY_LABELS[today.weekday()]}',
+        # Typeframe 首页（2026-10-27）：问候行「周一 / 10 月 27 日」与浅灰水印大数字
+        'weekday_label': WEEKDAY_LABELS[today.weekday()],
+        'month_day': f'{today.month} 月 {today.day} 日',
+        'today_day': today.day,
         'greeting': _daily_greeting(hour),
         'username': user.username,
         'ai_suggestion': data['ai_suggestion'],

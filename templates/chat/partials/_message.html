@@ -8,28 +8,29 @@
 变量：msg（Message 实例）
 {% endcomment %}
 <div class="chat-message {% if msg.role == 'user' %}user{% elif msg.role == 'system' %}system{% else %}assistant{% endif %}" data-message-id="{{ msg.id }}">
-    {# chat-bubble 不是 Tailwind 类，是 custom.css 末尾移动端段（全宽 + 左侧角色竖条）的选择器钩子 #}
-    <div class="chat-bubble rounded-2xl p-3 md:p-4 group {% if msg.role == 'user' %}bg-[var(--accent-light)] border border-[var(--border)]{% elif msg.role == 'system' %}bg-[var(--bg)] border border-dashed border-[var(--border-strong)]{% else %}bg-[var(--bg-card)] border border-[var(--border-strong)]{% endif %}">
-        <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-medium text-[var(--text-secondary)]">{% if msg.role == 'user' %}你{% elif msg.role == 'system' %}系统{% else %}AI 助手{% endif %}</span>
+    {# chat-bubble 不是 Tailwind 类，是 custom.css 消息流段的选择器钩子；#}
+    {# Typeframe（mockup VIEW 3）：无气泡无底色无边框，发送者标签 + 正文分层 #}
+    <div class="chat-bubble group">
+        <div class="chat-meta flex items-center gap-2 mb-1.5">
+            <span class="chat-who">{% if msg.role == 'user' %}你{% elif msg.role == 'system' %}系统{% else %}AI 助手{% endif %}</span>
             {# 相对时间包进 <time>：datetime 给机器可读绝对时间，title 悬浮显示完整时间戳 #}
-            <time class="text-xs text-[var(--text-muted)]" datetime="{{ msg.created_at|date:'c' }}" title="{{ msg.created_at|date:'Y年n月j日 H:i' }}">{{ msg.created_at|timesince }}前</time>
+            <time class="text-[10px] text-[var(--tf-fg4)]" datetime="{{ msg.created_at|date:'c' }}" title="{{ msg.created_at|date:'Y年n月j日 H:i' }}">{{ msg.created_at|timesince }}前</time>
             {% if msg.role == 'assistant' %}
             {# 复制的是渲染后的可读文本（.md-body 的 innerText），不是 Markdown 源文 #}
             <button type="button" data-copy-msg
-                    class="tap-target hover-actions ml-auto text-xs px-2 py-1 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text)]">复制</button>
+                    class="tap-target hover-actions ml-auto text-xs px-1 text-[var(--text-muted)] hover:text-[var(--text)]">复制</button>
             {% endif %}
         </div>
         {% if msg.role == 'assistant' %}
         {# AI 回复走 Markdown 渲染；容器不能带 whitespace-pre-wrap，否则与渲染出的 #}
         {# <br>/块级元素叠加成双倍行距。用户消息保持字面纯文本（输入什么显示什么） #}
-        <div class="markdown-content md-body text-sm text-[var(--text)]">{{ msg.content|ai_markdown }}</div>
+        <div class="markdown-content md-body chat-txt">{{ msg.content|ai_markdown }}</div>
         {% elif msg.role == 'system' %}
         {# 系统消息的正文只是本地卡片的模块标题（落库时用 label 当 content），#}
         {# 加粗放大当区块标题看，不参与 Markdown（2026-10-08 用户要求显眼一点） #}
-        <div class="text-base font-semibold text-[var(--text)]">{{ msg.content }}</div>
+        <div class="text-sm font-semibold text-[var(--text)]">{{ msg.content }}</div>
         {% else %}
-        <div class="markdown-content text-sm text-[var(--text)] whitespace-pre-wrap">{{ msg.content }}</div>
+        <div class="markdown-content chat-txt text-[var(--text-secondary)] whitespace-pre-wrap">{{ msg.content }}</div>
         {% endif %}
         {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
         {# 可点追问与卡片不互斥（一条回复可以既有活动卡又有下一步），所以不进 _card.html 的分发 #}

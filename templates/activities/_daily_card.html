@@ -78,10 +78,10 @@
                     class="rounded-full bg-[var(--accent-hover)] text-white text-xs px-2.5 py-1 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
             {% else %}
             <button type="button" data-action="set-status" data-status-target="in_progress"
-                    class="rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs px-2.5 py-1 hover:bg-[var(--accent-light)] transition-colors">↺ 恢复进行中</button>
+                    class="text-[var(--text-secondary)] text-xs px-0.5 py-1 hover:text-[var(--text)] transition-colors">↺ 恢复进行中</button>
             {% endif %}
             <button type="button" data-action="toggle-expense"
-                    class="rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs px-2.5 py-1 hover:bg-[var(--accent-light)] transition-colors">+ 记一笔</button>
+                    class="text-[var(--text-secondary)] text-xs px-0.5 py-1 hover:text-[var(--text)] transition-colors">+ 记一笔</button>
         </div>
     </div>
 
@@ -92,17 +92,17 @@
                 class="tap-target inline-flex items-center justify-center rounded-full bg-[var(--accent-hover)] text-white text-xs font-medium px-3 hover:bg-[var(--accent-hover)] transition-colors">✓ 完成</button>
         {% else %}
         <button type="button" data-action="set-status" data-status-target="in_progress"
-                class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs font-medium px-3 transition-colors">↺ 恢复进行中</button>
+                class="tap-target inline-flex items-center justify-center text-[var(--text-secondary)] text-xs font-medium px-1 transition-colors hover:text-[var(--text)]">↺ 恢复进行中</button>
         {% endif %}
         <button type="button" data-action="toggle-expense"
-                class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] text-xs font-medium px-3 transition-colors">+ 记一笔</button>
+                class="tap-target inline-flex items-center justify-center text-[var(--text-secondary)] text-xs font-medium px-1 transition-colors hover:text-[var(--text)]">+ 记一笔</button>
     </div>
 
     <!-- 内联记费用表单 -->
     <form data-expense-form class="hidden mt-2.5 pt-2.5 border-t border-[var(--border)]">
         <div class="flex items-center gap-2">
             <input type="number" name="amount" step="0.01" min="0" placeholder="金额" required
-                   class="tap-target flex-none w-24 rounded-full border border-[var(--border-strong)] bg-transparent px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                   class="tap-target tf-underline flex-none w-24 bg-transparent px-0 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none">
             <input type="text" name="note" placeholder="备注（可选）" maxlength="255"
                    class="flex-1 min-w-0 rounded-full border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-strong)]">
             <button type="submit"

@@ -2,13 +2,8 @@
 
 {% block title %}{{ conversation.title }} · {{ SITE_NAME }}{% endblock %}
 
-{# Aurora 沉浸式：body 挂 chat-aurora 后整页（页头/底栏/背景）随令牌进深色（demo1 定稿） #}
-{% block body_class %}chat-aurora{% endblock %}
-{% block meta_theme %}<meta name="theme-color" content="#0b0d1a">{% endblock %}
-
 {% block content %}
-{# Aurora 深色主题壳（custom.css 末尾 .aurora 段），与分栏页/问AI抽屉同一份令牌覆盖 #}
-<div class="aurora aurora--page">
+{# Typeframe（2026-10-27）：聊天页回到全站白底黑字令牌，Aurora 深色壳已退役 #}
 <div class="flex justify-between items-center mb-4">
     <div>
         <a href="{% url 'chat:conversation_list_with_active' conversation.id %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回对话列表</a>
@@ -17,14 +12,14 @@
     <div class="flex items-center gap-3 text-sm flex-wrap">
         {# 快捷卡片入口（原独立按钮行已下线，2026-09-21）：委托在 chat-turn.js #}
         <button type="button" data-local-card="daily_brief"
-                class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">每日简报</button>
+                class="chat-chip tap-target text-xs">每日简报</button>
         <button type="button" data-local-card="today_brief"
-                class="tap-target inline-flex items-center rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]">工作台</button>
+                class="chat-chip tap-target text-xs">工作台</button>
         {# 改名：inline form，提交后回到本页；空串视为不改 #}
         <form method="post" action="{% url 'chat:conversation_rename' conversation.id %}" class="flex items-center gap-1">
             {% csrf_token %}
             <input type="text" name="title" value="{{ conversation.title }}" maxlength="255"
-                class="w-40 rounded-2xl border border-[var(--border-strong)] px-2 py-1 text-sm bg-[var(--bg-card)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none">
+                class="tf-underline w-40 py-1 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none">
             <button type="submit" class="text-[var(--text-secondary)] hover:text-[var(--text)]">改名</button>
         </form>
         <form method="post" action="{% url 'chat:archive_conversation' conversation.id %}">
@@ -68,16 +63,15 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
     {% csrf_token %}
     <div class="flex items-end gap-3">
         {% comment %}多行输入框：Enter 只换行、不提交（避开误发），只允许点「发送」按钮。
-           样式对齐全站输入框口径（同笔记页 composer）：rounded-2xl + 纯边框聚焦，
-           不用 ring、不用 bg-card；placeholder 必须单行——移动端 16px 规范字号下
-           长文案会折两行，而 iOS Safari 不把 placeholder 算进 scrollHeight，
-           paFitTextarea 会把第二行裁掉（2026-09-14 实测，曾用 min-height 保底，
-           后改单行文案根治，避免输入框比全站其它输入框高出一截）。{% endcomment %}
+           Typeframe：底部 1px 黑下划线（全设计唯一的线），placeholder 必须单行——
+           移动端 16px 规范字号下长文案会折两行，而 iOS Safari 不把 placeholder 算进
+           scrollHeight，paFitTextarea 会把第二行裁掉（2026-09-14 实测，曾用
+           min-height 保底，后改单行文案根治）。{% endcomment %}
         <textarea name="content" id="message-input" rows="1" data-auto-grow autofocus
             placeholder="输入消息…（Enter 换行）"
-            class="chat-input flex-1 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+            class="chat-input tf-underline flex-1 px-0 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none"></textarea>
         <button type="submit"
-            class="rounded-2xl bg-[var(--accent)] px-4 py-3 sm:px-6 text-sm font-medium text-[var(--bg)] hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2">
+            class="tap-target shrink-0 px-2 py-2.5 text-sm font-semibold tracking-widest text-[var(--text)] hover:opacity-60">
             发送
         </button>
     </div>
@@ -135,6 +129,5 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
 
 <!-- 底部预留空间：滚动到底时最后一条消息不被底部输入区盖住（快记 FAB 已在本页隐藏，不再参与避让） -->
 <div class="h-20" aria-hidden="true"></div>
-</div><!-- /.aurora--page -->
 
 {% endblock %}

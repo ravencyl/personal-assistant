@@ -3239,11 +3239,12 @@ class ListRowClutterRemovedTest(SimpleTestCase):
         self.assertIn('shrink-0 w-10 text-right', block)
 
     def test_desktop_cost_column_survives(self):
-        """桌面表格费用列是对齐的，不能跟着移动端一起删"""
+        """桌面表格费用列是对齐的，不能跟着移动端一起删
+        （Typeframe 起 ¥ 走 .tf-cur 跨字族小写符 span，与数字分离）"""
         from core.layout_asserts import code_only
         table = code_only(self._raw())
         table = table[table.index('id="activity-list"'):table.index('id="mobile-activity-list"')]
-        self.assertIn('¥{{ activity.show_cost', table)
+        self.assertIn('<span class="tf-cur">¥</span>{{ activity.show_cost', table)
         self.assertIn("sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}", table)
 
 

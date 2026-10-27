@@ -10,12 +10,12 @@ class ArticleForm(PlainTagFormMixin, forms.ModelForm):
         fields = ['title', 'content', 'tags']
         widgets = {
             'title': forms.TextInput(attrs={
-                'class': 'w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none',
+                'class': 'tf-underline w-full px-0 py-2.5 text-sm text-[var(--text)] focus:outline-none',
                 'placeholder': '文章标题',
             }),
             'content': forms.Textarea(attrs={
                 'rows': 16,
-                'class': 'w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg)] text-[var(--text)] px-4 py-3 text-sm font-mono focus:border-[var(--accent)] focus:outline-none',
+                'class': 'tf-underline w-full px-0 py-3 text-sm font-mono text-[var(--text)] focus:outline-none',
                 'placeholder': '用 Markdown 写下你的知识...',
             }),
         }

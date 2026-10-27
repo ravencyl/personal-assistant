@@ -2140,21 +2140,22 @@ class ConversationRenameDeleteTest(TestCase):
 
 
 class ChatMobileBubbleLayoutTest(SimpleTestCase):
-    """移动端消息流「全宽 + 左侧角色竖条」的 CSS 锁
+    """消息流布局的 CSS 锁（2026-10-27 Typeframe 改版：气泡 → 发送者标签 + 正文）
 
-    为什么必须专门锁：气泡的宽度上限与左右分离过去在 CSS 侧没有任何测试引用（只有一条
-    渲染断言锁住类名前缀），「上限漏进移动端」与「去掉了左右分离却忘了补角色编码」都只在
-    真实屏幕上看得出来 —— 而后者正是这次改动的目的本身。
+    为什么必须专门锁：消息流的宽度上限与左右分离在 CSS 侧没有渲染断言覆盖，
+    「上限漏进移动端」与「左右分离被删了却忘了角色还在靠它区分」都只在真实屏幕上
+    看得出来。改版后角色区分全靠 .chat-who 标签（用户=L4 灰、AI=L3 灰），
+    标签规则丢了 = 移动端回到无法区分谁在说话。
 
-    断言一律走 core.layout_asserts.css_rules（按选择器串匹配 + 回溯所在 @media），不用
-    css.index('.chat-message') 取首次出现、也不用 index('.chat-bubble') 的跨度切片：
+    断言一律走 core.layout_asserts.css_rules（按选择器串匹配 + 回溯所在 @media），
+    不用 css.index('.chat-message') 取首次出现、也不用 index('.chat-bubble') 的跨度切片：
     后者与既有注释撞词就会切出空串，变成一条恒真的假锁（本项目已踩过）。
     """
 
     DESKTOP = '(min-width: 768px)'
     MOBILE = '(max-width: 767px)'
-    # 气泡元素的 class 属性串（用 rounded-2xl p-3 md:p-4 这组工具类认出本体，2026-10-16 圆角升级前为 rounded-xl）
-    BUBBLE_CLASS = re.compile(r'class="([^"]*rounded-2xl p-3 md:p-4[^"]*)"')
+    # 消息钩子元素的 class 属性串（Typeframe 后气泡 chrome 全删，钩子就是裸 class="chat-bubble …"）
+    BUBBLE_CLASS = re.compile(r'class="([^"]*\bchat-bubble\b[^"]*)"')
 
     @classmethod
     def setUpClass(cls):
@@ -2169,85 +2170,75 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
     def _bodies(self, selector, media):
         return ' '.join(b['body'] for b in self._blocks(selector) if b['media'] == media)
 
-    def test_bubble_width_cap_only_exists_inside_the_desktop_breakpoint(self):
-        """气泡宽度上限只允许在 md+ 生效（移动端必须满宽）
+    def test_message_width_cap_only_exists_inside_the_desktop_breakpoint(self):
+        """消息宽度上限只允许在 md+ 生效（移动端必须满宽）
 
-        故意不限定「必须等于 80%」：改数值是调优，漏媒体查询才是这次要防的退化。
+        故意不限定「必须等于 36rem」：改数值是调优，漏媒体查询才是要防的退化。
         """
         capped = [b for b in self._blocks('.chat-message')
                   if re.search(r'max-width:\s*\d', b['body'])]
-        self.assertTrue(capped, '找不到 .chat-message 的宽度上限声明 —— 桌面端 80% 被删了？')
+        self.assertTrue(capped, '找不到 .chat-message 的宽度上限声明 —— 桌面端长行约束被删了？')
         for block in capped:
             self.assertEqual(block['media'], self.DESKTOP,
-                             '宽度上限漏出 md+，移动端又会变成窄气泡：%s' % block['selectors'])
+                             '宽度上限漏出 md+，移动端又会变成窄消息：%s' % block['selectors'])
 
-    def test_desktop_bubble_separation_declaration_survives(self):
-        """桌面端（md+）仍是 80% + 左右分离 —— 本次只改移动端，这条是零回归保证"""
-        bodies = self._bodies('.chat-message', self.DESKTOP)
-        self.assertIn('max-width: 80%', bodies)
-        self.assertIn('margin-left: auto', bodies)
-        self.assertIn('margin-right: auto', bodies)
+    def test_desktop_sender_separation_declaration_survives(self):
+        """桌面端（md+）仍是限宽 + 左右分离 —— 用户右对齐、AI 左对齐是改版核心构图"""
+        user = self._bodies('.chat-message.user', self.DESKTOP)
+        self.assertIn('margin-left: auto', user, '用户消息不再右对齐')
+        self.assertIn('text-align: right', user)
+        assistant = self._bodies('.chat-message.assistant', self.DESKTOP)
+        self.assertIn('margin-right: auto', assistant, 'AI 消息不再左对齐')
 
-    def test_mobile_gives_the_bubble_no_width_cap_or_side_alignment(self):
-        """移动端范围内不得有宽度上限或 margin-*-auto：全宽 + 左边缘对齐就是本次改造的目的
+    def test_mobile_gives_the_message_no_width_cap_or_side_alignment(self):
+        """移动端范围内不得有宽度上限或 margin-*-auto：全宽左对齐阅读
 
-        防的是「又把气泡夹住 / 推到右边」，不是禁止一切复位写法 —— 真要复位桌面声明时
+        防的是「又把消息夹住 / 推到右边」，不是禁止一切复位写法 —— 真要复位桌面声明时
         写的是 max-width: none / margin-left: 0，那些不匹配下面两条。
         """
         bodies = self._bodies('.chat-message', self.MOBILE)
         for pattern in (r'max-width:\s*\d', r'margin-(?:left|right):\s*auto'):
             hits = re.findall(pattern, bodies)
-            self.assertEqual(hits, [], '移动端出现气泡夹宽/右对齐声明：%s' % hits)
+            self.assertEqual(hits, [], '移动端出现消息夹宽/右对齐声明：%s' % hits)
 
-    def test_mobile_role_marker_exists_for_both_roles(self):
-        """去掉左右分离后，角色全靠左竖条 + 底色 + 文字编码 —— 少一个 role 就没法区分"""
-        mobile = [b for b in self._blocks('.chat-bubble') if b['media'] == self.MOBILE]
-        self.assertTrue(mobile, '移动端角色竖条整段没了，三个 role 都退回无法区分')
-        spines = {}
-        for role in ('user', 'assistant'):
-            blocks = [b for b in mobile if role in b['selectors']]
-            self.assertTrue(blocks, '移动端缺少 %s 的角色标识竖条' % role)
-            body = ' '.join(b['body'] for b in blocks)
-            self.assertIn('border-left', body, '%s 没有 border-left，移动端只剩底色差' % role)
-            spines[role] = body.split('border-left')[1].split(';')[0]
-        self.assertNotEqual(spines['user'], spines['assistant'],
-                            '两个 role 的竖条同色，色带区分不出谁说的')
+    def test_sender_label_rules_exist_with_distinct_greys(self):
+        """角色区分全靠 .chat-who 标签：基础规则给 AI（L3 灰），user 覆写 L4 灰
 
-    def test_mobile_overrides_beat_tailwind_specificity(self):
-        """覆盖气泡上工具类的规则必须 ≥ 两个类
-
-        Tailwind 是浏览器构建，它的 <style> 在运行时才 append 到 head 末尾（在本文件之后），
-        单类选择器靠源码顺序赢不了 p-3 / rounded-lg / border 这些工具类。
+        两档灰度不同是「谁在说话」的唯一编码 —— 同色等于回到无法区分。
         """
-        blocks = self._blocks('.chat-bubble')
-        self.assertTrue(blocks, '移动端覆盖段整块没了')
-        for block in blocks:
-            self.assertGreaterEqual(block['selectors'].count('.'), 2,
-                                    '单类覆盖会输给 Tailwind 注入顺序：%s' % block['selectors'])
+        base = self._bodies('.chat-who', '')
+        self.assertIn('letter-spacing', base, '.chat-who 基础规则没了，发送者标签退化成普通文字')
+        self.assertIn('text-transform: uppercase', base)
+        user = self._bodies('.chat-message.user .chat-who', '')
+        self.assertIn('var(--tf-fg4)', user, '用户标签没有覆写 L4 灰，与 AI 标签同色分不出谁在说话')
+
+    def test_body_typography_rules_exist(self):
+        """正文 14px / 1.8 行高（mockup .txt）与用户消息灰一档必须成对存在"""
+        body = self._bodies('.chat-message .chat-bubble .md-body', '') + \
+               ' ' + self._bodies('.chat-message .chat-bubble .chat-txt', '')
+        self.assertIn('line-height: 1.8', body, '正文行高规则被删，长回答会挤成一团')
+        user_body = self._bodies('.chat-message.user .chat-bubble', '')
+        self.assertIn('var(--text-secondary)', user_body, '用户正文不再灰一档（L2），与 AI 纯黑无层级')
 
     def test_bubble_shell_style_lives_in_two_templates_behind_one_hook(self):
-        """气泡本体样式只允许这两份抄本，且两份都挂了钩子类
+        """chat-bubble 钩子只允许这两份抄本，且两份都真的挂在元素 class 上
 
-        第三份抄本会静默拿不到移动端覆盖，症状只是「某类气泡在手机上还是窄的」，
+        第三份抄本会静默拿不到消息流样式，症状只是「某处消息字号/行高不对」，
         没人会想到是漏挂钩子。
         """
         from core.layout_asserts import code_only
         root = Path(__file__).resolve().parent.parent / 'templates'
-        copiers = sorted(str(p.relative_to(root)) for p in root.rglob('*.html')
-                         if 'rounded-2xl p-3 md:p-4' in code_only(p.read_text(encoding='utf-8')))
+        copiers = sorted(str(p.relative_to(root)) for p in root.rglob('*.html'
+                         ) if 'chat-bubble' in code_only(p.read_text(encoding='utf-8')))
         self.assertEqual(copiers, ['chat/partials/_message.html',
                                    'chat/partials/turn_error.html'],
-                         '气泡本体样式被抄了第三份：移动端的覆盖会漏掉新处')
+                         'chat-bubble 钩子出现在第三处：消息流样式会漏掉新处')
         for rel in copiers:
             src = code_only((root / rel).read_text(encoding='utf-8'))
-            # 只看气泡元素自己的 class 属性：整份文件里提到 chat-bubble 的不算 ——
-            # 那句「为什么加这个类」的注释就会把锁糊过去（变异反证实测抓到）
+            # 只看元素自己的 class 属性：整份文件里提到 chat-bubble 的不算 ——
+            # 注释里提这个词会把锁糊过去（变异反证实测抓到）
             attrs = self.BUBBLE_CLASS.findall(src)
-            self.assertTrue(attrs, '%s 里找不到气泡的 class 属性，这条锁就是空的' % rel)
-            for attr in attrs:
-                self.assertIn('chat-bubble', attr.split(),
-                              '%s 的气泡没挂钩子类，移动端覆盖命不中它' % rel)
-
+            self.assertTrue(attrs, '%s 里找不到挂 chat-bubble 的 class 属性，这条锁就是空的' % rel)
 
 class ChatBubbleDomContractTest(TestCase):
     """chat-turn.js 的三处 DOM 锚点必须仍是「祖先包住后代」的形状
@@ -3541,18 +3532,25 @@ class ChatWideLayoutTest(SimpleTestCase):
         self.assertIn("localStorage.getItem('pa-chat-sidebar')", self.list_html)
         self.assertIn('.chat-layout.sidebar-collapsed .chat-sidebar', self.css)
 
-    def test_chat_pages_go_immersive_dark(self):
-        """Aurora 沉浸式：body 挂 chat-aurora 后整页进深色（demo1 定稿）。
+    def test_chat_pages_retired_aurora_for_typeframe(self):
+        """Aurora 沉浸式深色主题已随 Typeframe 全站改版退役（2026-10-27）。
 
-        2026-10-22 用户反馈「套用错了」：第一版只把 .aurora 糊在内容壳上，
-        页头/底栏/页面背景仍是浅色，视觉上不是 demo1 的整页沉浸。锁三点：
-        两个聊天页都挂 body class、body 级令牌翻转、两处反色胶囊修正在场。"""
-        self.assertIn('{% block body_class %}', self.base_html)
-        self.assertIn('chat-aurora', self.list_html)
-        self.assertIn('chat-aurora', self.detail_html)
-        self.assertIn('body.chat-aurora {', self.css)
-        self.assertIn('body.chat-aurora .glass-tab-bar', self.css)
-        self.assertIn('body.chat-aurora .nav-link-active', self.css)
+        历史背景：2026-10-21 上线 demo1 深色沉浸式（body.chat-aurora + .aurora 壳），
+        2026-10-27 用户定稿 typeframe mockup（纯白黑字，VIEW 3 = 发送者标签 + 正文），
+        聊天页回到全站同一套白底令牌。锁「不留残骸」：壳类、body class、
+        meta theme-color 深色值、CSS 里的令牌翻转都不允许再回来 —— 半套 aurora
+        挂在白站上会出现浅色导航 + 深色令牌的混搭（就是 2026-10-22 修过的「套用错了」）。"""
+        self.assertIn('{% block body_class %}', self.base_html,
+                      'base.html 的 body_class 钩子是通用能力，保留；聊天页只是不再使用它')
+        for html, name in ((self.list_html, 'conversation_list'), (self.detail_html, 'conversation_detail')):
+            self.assertNotIn('chat-aurora', html, f'{name} 还挂着 Aurora body class')
+            self.assertNotIn('aurora', html, f'{name} 还有 aurora 壳类残留')
+            self.assertNotIn('#0b0d1a', html, f'{name} 的深色 theme-color 还在')
+        self.assertNotIn('body.chat-aurora', self.css, 'CSS 里 Aurora 令牌翻转还在')
+        self.assertNotIn('.aurora', self.css, 'CSS 里 Aurora 组件皮肤还在')
+        # Typeframe 对话流的最低接线：输入框走全站唯一的下划线口径
+        self.assertIn('tf-underline', self.list_html)
+        self.assertIn('tf-underline', self.detail_html)
 
 
 class FollowUpCollapseTest(SimpleTestCase):

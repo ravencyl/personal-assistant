@@ -6,8 +6,8 @@
 {% if children %}
 <!-- 时间轴展示：按可用日期从早到晚，无日期排最后 -->
 <div class="relative mt-1">
-    <!-- 时间轴竖线 -->
-    <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-[var(--border-strong)]"></div>
+    <!-- 时间轴竖线（Typeframe：灰色细线） -->
+    <div class="absolute left-[3.5px] top-2 bottom-2 w-px bg-[var(--tf-fg5)]"></div>
     <ol>
         {% for child in children %}
         <li class="relative pl-6 {% if not forloop.last %}pb-5{% endif %}">
@@ -24,9 +24,10 @@
                         <a href="{% url 'activities:activity_edit' child.id %}" class="text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</a>
                     </div>
                     {% if child.tags.all %}
-                    <div class="mt-1 flex flex-wrap gap-1">
+                    <div class="mt-1 flex flex-wrap gap-1.5">
                         {% for tag in child.tags.all %}
-                        <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
+                              {% if tag.color %}style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }}"{% endif %}>{% if tag.color %}<span class="tag-dot" aria-hidden="true"></span>{% endif %}# {{ tag.name }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}

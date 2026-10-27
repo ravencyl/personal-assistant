@@ -101,7 +101,7 @@
                 data.tags.forEach(function(tag) {
                     var chip = document.createElement('button');
                     chip.type = 'button';
-                    chip.className = 'tag-chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:border-[var(--accent)] transition-colors';
+                    chip.className = 'tag-chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-[var(--accent-light)] text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors';
                     chip.setAttribute('data-tag', tag);
                     var plus = document.createElement('span');
                     plus.textContent = '+';

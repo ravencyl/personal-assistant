@@ -12,7 +12,7 @@ class NoteForm(PlainTagFormMixin, forms.ModelForm):
             'content': forms.Textarea(attrs={
                 'rows': 4,
                 'placeholder': '记点什么...',
-                'class': 'w-full rounded-xl border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-3.5 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none',
+                'class': 'tf-underline w-full px-0 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none',
             }),
         }
 

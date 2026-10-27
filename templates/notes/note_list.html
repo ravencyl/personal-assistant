@@ -25,7 +25,7 @@
             <div class="flex items-end gap-2">
                 <textarea name="content" rows="2" id="noteContentInput" aria-label="备忘内容"
                           placeholder="记点什么..."
-                          class="flex-1 border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-3.5 py-2.5 text-sm focus:border-[var(--accent)] focus:outline-none resize-none"></textarea>
+                          class="tf-underline flex-1 bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-0 py-2.5 text-sm focus:outline-none resize-none"></textarea>
                 <!-- 语音速记按钮：不支持 Web Speech API 时由脚本保持 hidden -->
                 <button type="button" id="voiceBtn" hidden
                         class="tap-target shrink-0 inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors"
@@ -41,7 +41,7 @@
             <p id="voiceError" class="hidden text-xs text-[var(--text-muted)]"></p>
             <div class="flex items-center justify-between gap-3">
                 <input type="text" name="tags" placeholder="标签（可选，逗号分隔）" aria-label="标签（可选，逗号分隔）"
-                       class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target tf-underline flex-1 bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-0 py-2 text-sm focus:outline-none">
                 <button type="submit" class="tap-target rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-5 py-2 text-sm font-medium transition-colors">
                     保存
                 </button>
@@ -83,7 +83,7 @@
         <input type="hidden" name="tag" value="{{ tag_filter }}">
         {% endif %}
         <input type="text" name="q" value="{{ q }}" placeholder="搜索备忘..." aria-label="搜索备忘"
-               class="tap-target flex-1 rounded-full border border-[var(--border-strong)] bg-[var(--bg-card)] text-[var(--text)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+               class="tap-target tf-underline flex-1 bg-transparent text-[var(--text)] px-0 py-2 text-sm focus:outline-none">
         {% if q %}
         <a href="{% url 'notes:note_list' %}{% if tag_filter %}?tag={{ tag_filter|urlencode }}{% endif %}"
            class="tap-target rounded-full px-3 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]">清除</a>
@@ -97,7 +97,7 @@
 
     <!-- 编辑模式（内联编辑） -->
     {% if edit_note %}
-    <div class="app-card p-3 sm:p-4 border-2 border-[var(--accent)]">
+    <div class="app-card p-3 sm:p-4">
         <form method="post" action="{% url 'notes:note_edit' edit_note.id %}" class="space-y-4">
             {% csrf_token %}
             <div>
@@ -108,7 +108,7 @@
                 <div class="flex-1">
                     <label class="block text-xs text-[var(--text-muted)] mb-1"> 标签（逗号分隔）</label>
                     <input type="text" name="tags" value="{{ edit_note.tags|join:', ' }}" aria-label="编辑标签（逗号分隔）"
-                           class="tap-target w-full rounded-full border border-[var(--border-strong)] bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-4 py-2 text-sm focus:border-[var(--accent)] focus:outline-none">
+                           class="tap-target tf-underline w-full bg-transparent text-[var(--text)] placeholder:text-[var(--text-muted)] px-0 py-2 text-sm focus:outline-none">
                 </div>
                 <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" name="pinned" {% if edit_note.pinned %}checked{% endif %}
@@ -217,15 +217,15 @@
         <div class="flex flex-wrap items-center justify-center gap-1.5">
             {% if page_obj.has_previous %}
             <a href="?{% if tag_filter %}tag={{ tag_filter|urlencode }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}page={{ page_obj.previous_page_number }}"
-               class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">上一页</a>
+               class="tap-target inline-flex items-center px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">上一页</a>
             {% else %}
-            <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">上一页</span>
+            <span class="inline-flex items-center px-3 py-2 text-sm text-[var(--text-muted)] opacity-40 select-none">上一页</span>
             {% endif %}
             {% if page_obj.has_next %}
             <a href="?{% if tag_filter %}tag={{ tag_filter|urlencode }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}page={{ page_obj.next_page_number }}"
-               class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">下一页</a>
+               class="tap-target inline-flex items-center px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">下一页</a>
             {% else %}
-            <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">下一页</span>
+            <span class="inline-flex items-center px-3 py-2 text-sm text-[var(--text-muted)] opacity-40 select-none">下一页</span>
             {% endif %}
         </div>
         <p class="text-xs text-[var(--text-muted)]">第 {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} 页</p>

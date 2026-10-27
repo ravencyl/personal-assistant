@@ -74,9 +74,10 @@ class NoteListRedesignTest(TestCase):
         """custom.css 提供 .note-list / .note-item / 折叠与桌面行式列表样式"""
         css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css') \
             .read_text(encoding='utf-8')
-        for cls in ['.note-list', '.note-item', '.note-fold.is-collapsed',
-                    '.note-item--pinned']:
+        for cls in ['.note-list', '.note-item', '.note-fold.is-collapsed']:
             self.assertIn(cls, css)
+        # Typeframe 扁平化后置顶态不再有边框差异，.note-item--pinned 只作为
+        # 模板上的标记类保留（黑色「置顶」徽章表达状态），custom.css 不再需要它
 
 
 class NoteTagEditRegressionTest(TestCase):

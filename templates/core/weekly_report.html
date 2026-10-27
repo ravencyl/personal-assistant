@@ -78,11 +78,11 @@
             {% csrf_token %}
             <input type="hidden" name="content" value="{{ markdown }}">
             <input type="hidden" name="title" value="{{ title }}">
-            <button type="submit" class="w-full px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">
+            <button type="submit" class="w-full px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors text-left">
                 推送到对话
             </button>
         </form>
-        <a href="{% url 'dashboard' %}" class="block w-full text-center px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text-muted)] hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'dashboard' %}" class="block w-full text-center px-1 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
             返回仪表盘
         </a>
         </div>

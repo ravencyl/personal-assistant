@@ -7,7 +7,7 @@ from .models import Activity
 from .services import record_parsed_cost
 from .utils import resolve_participants
 
-INPUT_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none'
+INPUT_CLS = 'tf-underline w-full px-0 py-2.5 text-sm text-[var(--text)] focus:outline-none'
 
 # 具体时间拆成 小时 + 分钟 两个下拉（分钟 15 分钟一格）：单下拉 96 格太长不好选
 HOUR_CHOICES = [('', '—')] + [('%02d' % h, '%02d' % h) for h in range(24)]

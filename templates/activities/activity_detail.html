@@ -28,7 +28,7 @@
                         <div class="ml-auto flex items-center gap-1.5 shrink-0">
                             {# Pin 开关只在详情页（2026-10-08 用户要求列表不展示 pin）；#}
                             {# pin-toggle.js 点击后整页刷新，初始态随 activity.pinned 渲染 #}
-                            <button type="button" class="pin-toggle tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors {% if activity.pinned %}border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent)]{% else %}border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]{% endif %}"
+                            <button type="button" class="pin-toggle tap-target inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors {% if activity.pinned %}bg-[var(--accent)] text-[var(--bg)]{% else %}text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)]{% endif %}"
                                     data-activity-id="{{ activity.id }}"
                                     title="{% if activity.pinned %}取消置顶{% else %}置顶（固定在列表上方区域，无视筛选）{% endif %}" aria-label="置顶">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -38,18 +38,18 @@
                             <!-- 问 AI：JS 可用时开详情页内嵌抽屉（活动专属会话，自动钉选）；
                                  无 JS / 抽屉失败时整页深链到聊天页预填提问（?ask= + ?pin= 由 chat 页处理，只填不发） -->
                             <a href="{{ chat_ask_url }}" id="ask-ai-btn" title="问 AI" aria-label="问 AI"
-                               class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--accent)] transition-colors">
+                               class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                             </a>
                             <a href="{% url 'activities:activity_edit' activity.id %}" title="编辑" aria-label="编辑"
-                               class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
+                               class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/></svg>
                             </a>
                             <form method="post" action="{% url 'activities:activity_delete' activity.id %}"
                                   data-confirm="确定删除此活动？子活动的父活动将被清空。" data-confirm-tone="danger" data-confirm-label="确认删除">
                                 {% csrf_token %}
                                 <button type="submit" title="删除" aria-label="删除"
-                                    class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full border border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors">
+                                    class="tap-target inline-flex items-center justify-center w-9 h-9 rounded-full text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
                                 </button>
                             </form>
@@ -65,7 +65,8 @@
                     {% if activity.tags.all %}
                     <div class="mt-2 flex flex-wrap gap-1.5">
                         {% for tag in activity.tags.all %}
-                        <span class="inline-flex items-center rounded-full bg-[var(--accent-light)] border border-[var(--border-strong)] px-2.5 py-0.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
+                              {% if tag.color %}style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }}"{% endif %}>{% if tag.color %}<span class="tag-dot" aria-hidden="true"></span>{% endif %}# {{ tag.name }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -73,9 +74,9 @@
             </div>
 
             <!-- 快捷状态按钮：icon-only（2026-10-11 用户要求，文字在移动端太占地方）；
-                 状态名走 title + aria-label，当前态靠 accent 实心底识别 -->
-            <div class="mt-6 pt-4 border-t border-[var(--border)]">
-                <p class="text-xs text-[var(--text-muted)] mb-2">快捷修改状态</p>
+                 状态名走 title + aria-label，当前态靠 accent 实心底识别（Typeframe：无分割线，区块靠留白） -->
+            <div class="mt-6 pt-4">
+                <p class="tf-lb mb-2">快捷修改状态</p>
                 <div class="flex flex-wrap gap-2">
                     {% for value, label in status_choices %}
                     <form method="post" action="{% url 'activities:activity_set_status' activity.id %}">
@@ -106,29 +107,29 @@
         </div>
     </div>
 
-    <!-- 统计卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
-        <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-[var(--text-secondary)]">累计费用</p>
-            <p class="mt-0.5 text-base font-bold text-[var(--text)]">&#165;{{ activity.total_cost|floatformat:"-2" }}</p>
+    <!-- 统计（Typeframe：无卡面，tf-lb 小标签 + Playfair 大数字，横排四组靠留白分隔） -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-5 py-2">
+        <div>
+            <p class="tf-lb">累计费用</p>
+            <p class="mt-1 text-2xl font-bold text-[var(--text)] tabular-nums"><span class="tf-cur">¥</span><span class="tf-num">{{ activity.total_cost|floatformat:0 }}</span></p>
         </div>
-        <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-[var(--text-secondary)]">费用条目</p>
-            <p class="mt-0.5 text-base font-bold text-[var(--text)]">{{ expenses|length }} <span class="text-xs font-normal text-[var(--text-muted)]">笔</span></p>
+        <div>
+            <p class="tf-lb">费用条目</p>
+            <p class="mt-1 text-2xl font-bold text-[var(--text)] tabular-nums"><span class="tf-num">{{ expenses|length }}</span> <span class="text-sm font-normal text-[var(--text-muted)]">笔</span></p>
         </div>
-        <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-[var(--text-secondary)]">活动安排</p>
-            <p class="mt-0.5 text-base font-bold text-[var(--text)]"><span id="subtask-stat">{{ children|length }}</span> <span class="text-xs font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
+        <div>
+            <p class="tf-lb">活动安排</p>
+            <p class="mt-1 text-2xl font-bold text-[var(--text)] tabular-nums"><span id="subtask-stat" class="tf-num">{{ children|length }}</span> <span class="text-sm font-normal text-[var(--text-muted)]">个{% if children|length %} · 已完成 {{ subtask_done_count }}{% endif %}</span></p>
             {% if children|length %}
-            {# 完成度进度条：仅看个数读不出推到哪了；新建活动安排后靠刷新页面跟上（JS 只更新计数） #}
-            <div class="mt-2 h-1 bg-[var(--accent-light)] rounded-full overflow-hidden" title="活动安排完成度 {{ subtask_done_count }}/{{ children|length }}">
-                <div class="h-full rounded-full bg-[var(--accent)] transition-all" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
+            {# 完成度进度条（Typeframe 细黑条）：新建活动安排后靠刷新页面跟上（JS 只更新计数） #}
+            <div class="tf-pbar mt-2" title="活动安排完成度 {{ subtask_done_count }}/{{ children|length }}">
+                <div class="tf-pfill" style="width: {% widthratio subtask_done_count children|length 100 %}%"></div>
             </div>
             {% endif %}
         </div>
-        <div class="app-card p-3 sm:p-4">
-            <p class="text-xs text-[var(--text-secondary)]">参与者</p>
-            <p class="mt-0.5 text-base font-bold text-[var(--text)]">{{ participants|length }} <span class="text-xs font-normal text-[var(--text-muted)]">人</span></p>
+        <div>
+            <p class="tf-lb">参与者</p>
+            <p class="mt-1 text-2xl font-bold text-[var(--text)] tabular-nums"><span class="tf-num">{{ participants|length }}</span> <span class="text-sm font-normal text-[var(--text-muted)]">人</span></p>
         </div>
     </div>
 
@@ -157,14 +158,15 @@
             <span>费用明细（{{ expenses|length }}）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         {% if expenses %}
-        <div class="space-y-2">
+        <div>
             {% for e in expenses %}
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-1 sm:gap-2 rounded-2xl bg-[var(--accent-light)] px-3 py-2" id="expense-{{ e.id }}">
+            {# Typeframe：费用行走虚线分隔（无底色卡），金额黑体数字 #}
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-1 sm:gap-2 border-b border-dotted border-[var(--border-strong)] py-2" id="expense-{{ e.id }}">
                 <div class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span class="text-sm font-medium text-[var(--text)]">&#165;{{ e.amount|floatformat:"-2" }}</span>
+                    <span class="text-sm font-semibold text-[var(--text)] tabular-nums"><span class="tf-cur font-normal text-[var(--text-muted)]">&#165;</span>{{ e.amount|floatformat:"-2" }}</span>
                     {% if e.paid_at %}<span class="text-xs text-[var(--text-muted)]">{{ e.paid_at }}</span>{% endif %}
                     {% if e.note %}<span class="text-xs text-[var(--text-secondary)] truncate">{{ e.note }}</span>{% endif %}
-                    {% for t in e.tags_list %}<span class="inline-flex items-center rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-muted)]">#{{ t }}</span>{% endfor %}
+                    {% for t in e.tags_list %}<span class="text-xs text-[var(--text-muted)]">#{{ t }}</span>{% endfor %}
                 </div>
                 <div class="shrink-0 flex items-center gap-3 self-end md:self-auto">
                     <button type="button" onclick="editExpense({{ e.id }}, {{ e.amount }}, '{{ e.paid_at|date:"Y-m-d"|default:"" }}', '{{ e.note|escapejs }}', '{{ e.tags_str|escapejs }}')" class="row-action text-xs text-[var(--text-muted)] hover:text-[var(--text)]">编辑</button>
@@ -187,7 +189,7 @@
             <span class="text-xs text-[var(--text-muted)] mr-1">常用：</span>
             {% for t in expense_tag_chips %}
             <button type="button" onclick="appendExpenseTag('{{ t|escapejs }}')"
-                    class="tap-target shrink-0 whitespace-nowrap inline-flex items-center rounded-full bg-[var(--bg-card)] border border-transparent px-3 text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] transition-colors">#{{ t }}</button>
+                    class="tap-target shrink-0 whitespace-nowrap inline-flex items-center px-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">#{{ t }}</button>
             {% endfor %}
         </div>
         {% endif %}
@@ -198,29 +200,29 @@
             <!-- 移动端：每行一个字段（全宽）；桌面端（sm+）：金额+日期同行，备注/标签同行 -->
             <div class="md:w-28 md:shrink-0">
                 <input type="number" name="amount" step="0.01" min="0" required placeholder="金额" aria-label="金额"
-                       class="tap-target w-full rounded-2xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full tf-underline py-2 text-base">
             </div>
             <!-- 日期：移动端全宽独占一行，桌面端固定宽度 -->
             <div class="md:w-40 md:shrink-0">
                 <input type="date" name="paid_at" value="{{ today_date }}" aria-label="消费日期"
-                       class="tap-target w-full rounded-2xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full tf-underline py-2 text-base">
             </div>
             <!-- 备注：移动端全宽独占一行，桌面端自适应剩余宽度 -->
             <div class="col-span-2 flex-1 md:min-w-[10rem]">
                 <input type="text" name="note" maxlength="255" placeholder="备注" aria-label="备注"
-                       class="tap-target w-full rounded-2xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full tf-underline py-2 text-base">
             </div>
             <!-- 费用标签（scope=expense，与活动标签隔离；逗号分隔，datalist 提供建议） -->
             <div class="md:w-44 md:shrink-0">
                 <input type="text" name="tags" maxlength="200" placeholder="标签（逗号分隔）" aria-label="费用标签" list="expense-tag-options"
-                       class="tap-target w-full rounded-2xl border border-[var(--border-strong)] px-3 py-2 text-base focus:border-[var(--accent)] focus:outline-none">
+                       class="tap-target w-full tf-underline py-2 text-base">
                 <datalist id="expense-tag-options">
                     {% for t in expense_tag_suggestions %}<option value="{{ t }}"></option>{% endfor %}
                 </datalist>
             </div>
             <div class="col-span-2 flex gap-2">
                 <button type="submit" class="tap-target flex-1 md:flex-none rounded-full bg-[var(--accent)] px-5 py-2 text-sm font-medium text-[var(--bg)] hover:opacity-90" id="expense-submit-btn">添加</button>
-                <button type="button" onclick="cancelEdit()" class="hidden tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)]" id="expense-cancel-btn">取消</button>
+                <button type="button" onclick="cancelEdit()" class="hidden tap-target px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)]" id="expense-cancel-btn">取消</button>
             </div>
         </form>
     </details>
@@ -236,14 +238,14 @@
                 <input type="text" id="sub-quick-input" maxlength="500" aria-label="快速记一笔活动安排"
                        placeholder="快速记一笔活动安排，如：下周三去杭州团建 #团建 @小王"
                        autocomplete="off"
-                       class="flex-1 rounded-full border border-[var(--border-strong)] px-4 py-2 text-base focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] transition-colors bg-[var(--bg-card)] text-[var(--text)]">
+                       class="flex-1 tf-underline py-2 text-base text-[var(--text)] transition-colors">
                 <button type="button" id="sub-quick-parse-btn"
                         class="btn-accent tap-target shrink-0 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
                     解析
                 </button>
             </div>
             <p id="sub-quick-error" class="hidden mt-2 text-sm text-[var(--text)] font-semibold"></p>
-            <div id="sub-quick-preview" class="hidden mt-3 rounded-2xl bg-[var(--accent-light)] p-4">
+            <div id="sub-quick-preview" class="hidden mt-3 py-3 border-t border-dotted border-[var(--border-strong)]">
                 <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]"></div>
                 <div class="flex flex-wrap items-center gap-2 mt-3">
                     <button type="button" id="sub-quick-confirm-btn"
@@ -256,32 +258,32 @@
         <!-- 手动创建活动安排：内联展开/收起，与上方「一句话创建」AI 入口并存 -->
         <div class="mb-4">
             <button type="button" id="sub-manual-toggle"
-                    class="tap-target inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--border-strong)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">
+                    class="tap-target inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
                 <span id="sub-manual-toggle-icon">+</span> 手动添加活动安排
             </button>
             <p id="sub-manual-ok" class="hidden mt-2 text-xs text-[var(--text-secondary)]"></p>
             <!-- novalidate：关掉浏览器原生必填气泡，改由下方行内错误提示接管（required 仅作为语义标记） -->
-            <form id="sub-manual-form" class="hidden mt-3 pt-3 border-t border-[var(--border)]" novalidate>
+            <form id="sub-manual-form" class="hidden mt-3 pt-3" novalidate>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-3">
                     <div class="md:col-span-2">
                         <label for="sub-manual-name" class="block text-xs text-[var(--text-muted)] mb-1">名称 <span class="text-[var(--text-secondary)]">*</span></label>
                         <input type="text" id="sub-manual-name" name="name" maxlength="255" required placeholder="活动安排名称" autocomplete="off" aria-label="活动安排名称"
-                               class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-start" class="block text-xs text-[var(--text-muted)] mb-1">开始日期</label>
                         <input type="date" id="sub-manual-start" name="start_date" aria-label="活动安排开始日期"
-                               class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-end" class="block text-xs text-[var(--text-muted)] mb-1">结束日期</label>
                         <input type="date" id="sub-manual-end" name="end_date" aria-label="活动安排结束日期"
-                               class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-status" class="block text-xs text-[var(--text-muted)] mb-1">状态</label>
                         <select id="sub-manual-status" name="status" aria-label="活动安排状态"
-                                class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+                                class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
                             {% for value, label in status_choices %}
                             <option value="{{ value }}" {% if value == 'planned' %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
@@ -290,12 +292,12 @@
                     <div>
                         <label for="sub-manual-amount" class="block text-xs text-[var(--text-muted)] mb-1">费用金额</label>
                         <input type="number" id="sub-manual-amount" name="amount" step="0.01" min="0" placeholder="可选" aria-label="活动安排金额（可选）"
-                               class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                     </div>
                     <div>
                         <label for="sub-manual-tags" class="block text-xs text-[var(--text-muted)] mb-1">标签</label>
                         <input type="text" id="sub-manual-tags" name="tags" maxlength="255" list="sub-manual-tag-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排标签"
-                               class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                         <datalist id="sub-manual-tag-options">
                             {% for tag_name in tag_suggestions %}<option value="{{ tag_name }}"></option>{% endfor %}
                         </datalist>
@@ -303,7 +305,7 @@
                     <div>
                         <label for="sub-manual-participants" class="block text-xs text-[var(--text-muted)] mb-1">参与者</label>
                         <input type="text" id="sub-manual-participants" name="participants" maxlength="255" list="sub-manual-participant-options" placeholder="逗号分隔，可多个" autocomplete="off" aria-label="活动安排参与者"
-                               class="tap-target w-full rounded-2xl border border-[var(--border-strong)] bg-transparent px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
+                               class="tap-target w-full bg-transparent tf-underline px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]">
                         <datalist id="sub-manual-participant-options">
                             {% for p_name in participant_suggestions %}<option value="{{ p_name }}"></option>{% endfor %}
                         </datalist>
@@ -312,7 +314,7 @@
                         <button type="submit" id="sub-manual-submit"
                                 class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 py-2 hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">创建活动安排</button>
                         <button type="button" id="sub-manual-cancel"
-                                class="tap-target rounded-full border border-[var(--border-strong)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">取消</button>
+                                class="tap-target px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">取消</button>
                     </div>
                 </div>
                 <p id="sub-manual-error" class="hidden mt-2 text-xs font-semibold text-[var(--text)]"></p>
@@ -328,18 +330,19 @@
 
     <!-- 右列：附件 · 参与者 · 关联（桌面端 320px 栏且整列常驻，移动端顺排在主内容流之后） -->
     <div class="page-rail space-y-4 sm:space-y-6">
-        <!-- 桌面端快捷操作卡（右列顶部，随整列常驻）：移动端隐藏，四个入口本身就在单列流里，重复出现反而占高 -->
-        <section class="hidden md:block panel p-4">
-            <p class="text-xs text-[var(--text-muted)] mb-2">快捷操作</p>
-            <div class="grid grid-cols-2 gap-2">
+        <!-- 桌面端快捷操作（右列顶部，随整列常驻）：移动端隐藏，四个入口本身就在单列流里，重复出现反而占高。
+             Typeframe：非浮层不用 panel 卡壳，纯文字链接列表 -->
+        <section class="hidden md:block">
+            <p class="tf-lb mb-2">快捷操作</p>
+            <div class="grid grid-cols-2 gap-x-3 gap-y-1">
                 <a href="{% url 'activities:activity_edit' activity.id %}"
-                   class="inline-flex items-center justify-center rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">编辑活动</a>
+                   class="tap-target py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">编辑活动</a>
                 <button type="button" data-jump="expense"
-                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">记一笔费用</button>
+                        class="tap-target py-1.5 text-left text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">记一笔费用</button>
                 <button type="button" data-jump="subtask"
-                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">添加活动安排</button>
+                        class="tap-target py-1.5 text-left text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">添加活动安排</button>
                 <button type="button" data-jump="attachment"
-                        class="rounded-full border border-[var(--border-strong)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors">上传附件</button>
+                        class="tap-target py-1.5 text-left text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">上传附件</button>
             </div>
         </section>
 
@@ -353,7 +356,7 @@
         <!-- 图片附件网格 -->
         {% for att in attachments %}
             {% if att.is_image %}
-            <div class="relative group rounded-2xl overflow-hidden border border-[var(--border)] inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(50%-0.25rem)] mb-3 align-top">
+            <div class="relative group rounded-2xl overflow-hidden inline-block w-[calc(50%-0.375rem)] sm:w-[calc(33.333%-0.5rem)] md:w-[calc(50%-0.25rem)] mb-3 align-top">
                 <img src="{{ att.file.url }}" alt="{{ att.filename }}" class="w-full h-32 object-cover">
                 <div class="absolute inset-0 bg-black/40 hover-actions flex items-center justify-center gap-2">
                     <a href="{{ att.file.url }}" target="_blank" class="row-action text-white text-xs hover:underline">查看原图</a>
@@ -374,7 +377,7 @@
         <!-- 非图片文件列表 -->
         {% for att in attachments %}
         {% if not att.is_image %}
-        <div class="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
+        <div class="flex items-center justify-between py-2 border-b border-dotted border-[var(--border-strong)] last:border-0">
             <div class="flex items-center gap-2 min-w-0">
                 <svg class="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -414,13 +417,11 @@
         <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             参与者（{{ participants|length }}）<span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
-        <div class="flex flex-wrap gap-2">
+        {# Typeframe：参与者不做胶囊，名字直接排开、斜杠分隔 #}
+        <div class="flex flex-wrap items-center gap-x-1 gap-y-1">
             {% for p in participants %}
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-light)] px-3 py-1 text-sm text-[var(--text-secondary)]"
-                  {% if p.note %}title="{{ p.note }}"{% endif %}>
-                <span class="w-5 h-5 rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] text-xs flex items-center justify-center font-medium">{{ p.name|truncatechars:2|slice:":1" }}</span>
-                {{ p.name }}
-            </span>
+            <span class="text-sm text-[var(--text)]"{% if p.note %} title="{{ p.note }}"{% endif %}>{{ p.name }}</span>
+            {% if not forloop.last %}<span class="text-sm text-[var(--tf-fg4)]">/</span>{% endif %}
             {% endfor %}
         </div>
     </details>
@@ -697,9 +698,9 @@ function appendExpenseTag(name) {
 {# 点击抽屉外的区域关闭（用户口中的「弹窗回到活动页」）：backdrop 在抽屉之下、详情页之上，#}
 {# Django 模板注释不支持跨行，本段每行单独一对 #}
 <div id="ask-drawer-backdrop" class="ask-drawer-backdrop fixed inset-0 z-40 bg-black/25" aria-hidden="true"></div>
-<div id="ask-drawer" class="ask-drawer aurora fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[var(--bg-card)]"
+<div id="ask-drawer" class="ask-drawer fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[var(--bg-card)] border-l border-[var(--border)]"
      role="dialog" aria-modal="true" aria-label="问 AI 对话" aria-hidden="true">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+    <div class="flex items-center justify-between px-4 py-3">
         <span id="ask-drawer-title" class="font-medium text-sm text-[var(--text)] truncate min-w-0">问 AI</span>
         <button type="button" id="ask-drawer-close"
                 class="tap-target shrink-0 text-[var(--text-muted)] hover:text-[var(--text)] text-base leading-none px-2" aria-label="关闭">&times;</button>
@@ -708,13 +709,13 @@ function appendExpenseTag(name) {
         <p class="text-center text-sm text-[var(--text-muted)] py-6">正在打开对话…</p>
     </div>
     {% include "chat/partials/turn_status.html" %}
-    <form id="ask-drawer-form" class="p-3 border-t border-[var(--border)]">
+    <form id="ask-drawer-form" class="p-3">
         {% csrf_token %}
-        <div class="flex items-end gap-2">
+        <div class="flex items-end gap-3">
             <textarea id="ask-drawer-input" rows="1" data-auto-grow placeholder="问点什么…（Enter 换行）"
-                class="chat-input flex-1 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg)] px-4 py-3 text-base text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"></textarea>
+                class="chat-input tf-underline flex-1 px-0 py-2.5 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none"></textarea>
             <button type="submit"
-                class="tap-target rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-[var(--bg)] hover:opacity-90 transition-opacity">发送</button>
+                class="tap-target shrink-0 px-2 py-2.5 text-sm font-semibold tracking-widest text-[var(--text)] hover:opacity-60">发送</button>
         </div>
     </form>
 </div>

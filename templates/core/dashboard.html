@@ -124,10 +124,10 @@
 <div class="app-card p-4 md:hidden">
     <h2 class="text-sm font-semibold text-[var(--text)] mb-3">内容</h2>
     <div class="flex flex-wrap gap-2">
-        <a href="{% url 'notes:note_list' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'notes:note_list' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             备忘
         </a>
-        <a href="{% url 'knowledge:article_list' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'knowledge:article_list' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             知识库
         </a>
     </div>
@@ -139,16 +139,16 @@
 <div class="app-card p-4">
     <h2 class="text-sm font-semibold text-[var(--text)] mb-3">生成报告</h2>
     <div class="flex flex-wrap gap-2 md:flex-col">
-        <a href="{% url 'weekly_report' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'weekly_report' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             生成周报
         </a>
-        <a href="{% url 'monthly_report' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'monthly_report' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             生成月报
         </a>
-        <a href="{% url 'yearly_report' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'yearly_report' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             生成年报
         </a>
-        <a href="{% url 'weekly_review' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors">
+        <a href="{% url 'weekly_review' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             每周回顾
         </a>
     </div>
@@ -158,7 +158,7 @@
 <div class="app-card p-4">
     <h2 class="text-sm font-semibold text-[var(--text)] mb-3">日历同步</h2>
     <p class="text-xs text-[var(--text-secondary)] mb-3 leading-relaxed">把进行中与计划中的活动同步到 iPhone / Mac 自带日历，到期前收系统提醒。</p>
-    <a href="{% url 'activities:calendar_feed_settings' %}" class="px-4 py-2 rounded-full border border-[var(--border-strong)] text-sm text-[var(--text)] text-center hover:bg-[var(--accent-light)] transition-colors inline-block">
+    <a href="{% url 'activities:calendar_feed_settings' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors inline-block">
         管理订阅
     </a>
 </div>

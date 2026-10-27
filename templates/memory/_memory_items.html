@@ -29,7 +29,7 @@
                 <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">情景</span>
                 {% endif %}
                 {% if memory.status != 'active' %}
-                <span class="rounded-full border border-[var(--border-strong)] px-2 py-0.5">
+                <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5">
                     {{ memory.get_status_display }}</span>
                 {% endif %}
                 <span>{{ memory.created_at|date:"Y-m-d" }}</span>
@@ -108,24 +108,24 @@
     <div class="flex flex-wrap items-center justify-center gap-1.5">
         {% if page_obj.has_previous %}
         <a href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.previous_page_number }}"
-           class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">上一页</a>
+           class="tap-target inline-flex items-center px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">上一页</a>
         {% else %}
-        <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">上一页</span>
+        <span class="inline-flex items-center px-3 py-2 text-sm text-[var(--text-muted)] opacity-40 select-none">上一页</span>
         {% endif %}
         {% for p in page_numbers %}
             {% if p %}
             <a href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ p }}"
                aria-current="{% if p == page_obj.number %}page{% else %}false{% endif %}"
-               class="tap-target inline-flex items-center justify-center min-w-[2.5rem] h-10 rounded-full text-sm transition-colors {% if p == page_obj.number %}bg-[var(--accent)] text-[var(--bg)] font-semibold shadow-sm{% else %}border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ p }}</a>
+               class="tap-target inline-flex items-center justify-center min-w-[2.5rem] h-10 rounded-full text-sm transition-colors {% if p == page_obj.number %}bg-[var(--accent)] text-[var(--bg)] font-semibold{% else %}text-[var(--text-secondary)] hover:bg-[var(--accent-light)]{% endif %}">{{ p }}</a>
             {% else %}
             <span class="px-1 text-[var(--text-muted)] select-none">…</span>
             {% endif %}
         {% endfor %}
         {% if page_obj.has_next %}
         <a href="?{% if page_base_qs %}{{ page_base_qs }}&{% endif %}page={{ page_obj.next_page_number }}"
-           class="tap-target inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">下一页</a>
+           class="tap-target inline-flex items-center px-3 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">下一页</a>
         {% else %}
-        <span class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm text-[var(--text-muted)] opacity-50 select-none">下一页</span>
+        <span class="inline-flex items-center px-3 py-2 text-sm text-[var(--text-muted)] opacity-40 select-none">下一页</span>
         {% endif %}
     </div>
     <p class="text-xs text-[var(--text-muted)]">共 {{ page_obj.paginator.count }} 条 · 第 {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} 页</p>
