@@ -108,6 +108,9 @@ def query_activities(user, params):
 |------|--------|------|
 | `$LAST_REPLY` | AI 上一条真正给用户看的回复正文 | `chat/views.py::_referenceable_reply`（最近 10 条 assistant 里第一条「是正文」的） |
 | `$LAST_USER` | 用户本轮发出的消息原文 | `conversation.turn_message` |
+| `$RECENT_CONTEXT` | 最近几轮对话的关键词摘要（2026-10-28，供检索类工具的 keyword 用） | `chat/views.py::_recent_context_keywords`（最近 3 条用户消息 → tokenize 提炼，短词优先） |
+
+`$RECENT_CONTEXT` 配协议规则 13（检索 keyword 要从对话提炼、不照抄原话）：**规则同时进首帧协议与每轮补发通道**（`PROTOCOL_SEARCH_REMINDER`，恒定注入），存量会话靠补发看到。
 
 引用池在 `chat/views.py::_finalize_turn` 构造，作为 `orchestrator.process(..., refs=refs)` 传入，由 `core.agent_registry.resolve_params_refs` 在派发前展开：**只整字段精确匹配标记**（不做子串替换），取不到内容时报错而不是把标记交给工具；工具侧还要留一道 `_UNRESOLVED_REF` 守卫拦住没递引用池的旁路调用。
 
@@ -115,7 +118,9 @@ def query_activities(user, params):
 
 理由：让模型把几千字正文重抄进 `params.content` 必然撞上平台长度上限，整条指令被截断后静默失败（线上真实故障：对话 15 / 消息 64，回复停在 4075 字符）。走引用后协议 JSON 恒定短小，与长度上限无关。**新增这类工具时描述里必须写明可以用标记**（描述会注入协议 prompt，模型只看得到那里）。
 
-**改协议规则前先记住：首帧只对新建的对话生效**。`build_protocol_prompt()` 只在 `create_conversation` 里下发一次，**存量 session 永远看不到后来新增的规则**（二次故障实锤：规则 10 上线后，用户在 09-06 建的对话 15 里重试，残骸依旧，断点仍是 `params.content` 的 4031 字符）。所以关键规则不能只写首帧：要同时进 `_build_ai_content` 的「每轮补发」通道（`PROTOCOL_REF_REMINDER`，拼在发给平台的正文前、不写回消息历史）。补发要走这条通道而不是「再发一帧」：会话正忙时连发会撞 409。
+**改协议规则前先记住：首帧只对新建的对话生效**。`build_protocol_prompt()` **跟随第一轮用户消息合并投递**（2026-10-28 起：不再建对话时单发——单发必与用户第一问撞 409 忙等，是「新对话第一条消息特别慢」的真因；`Conversation.protocol_sent` 标记是否已投递，迁移对存量会话回填 True 不补发），**存量 session 永远看不到后来新增的规则**（二次故障实锤：规则 10 上线后，用户在 09-06 建的对话 15 里重试，残骸依旧，断点仍是 `params.content` 的 4031 字符）。所以关键规则不能只写首帧：要同时进 `_build_ai_content` 的「每轮补发」通道（`PROTOCOL_REF_REMINDER`，拼在发给平台的正文前、不写回消息历史）。补发要走这条通道而不是「再发一帧」：会话正忙时连发会撞 409。协议标记 `protocol_sent` 在 turn_prompt 组装时就置 True（409 重试/失败重发用的都是同一份 turn_prompt，协议不会掉；只有整轮被放弃的极端情况会丢协议——模型退化为自然语言直答，逃生舱兜得住）。
+
+**每轮注入预算（2026-10-28 瘦身）**：`_build_ai_content` 里的检索型注入有硬预算——知识注入 `_build_knowledge_context` 最多 **2 篇 × 500 字**；RAG 段落注入 `build_rag_context(..., top_k=2)` 且**按来源文章标题与知识注入去重**（全文检索与段落检索常命中同一篇，两段都注入是双倍 token 换一份内容）。记忆注入（`build_memory_index_context` 的 3000 字符预算）不动——那是 T1-T6 评测的口径，动它必须先跑 `run_eval` 前后对比。回归锁：`chat/tests.py::ProtocolRideAlongTest`（首问合并投递 / 二轮不重发 / 存量不补发 / 409 重试协议不掉 / 建对话对平台零消息）、`knowledge/tests.py::RagContextDedupTest`（整篇剔除 / top2 上限）。
 
 ## 对话能力的两类分流（改首帧协议前必读）
 
@@ -150,6 +155,18 @@ def query_activities(user, params):
 - AI 回复正文走 `{{ msg.content|ai_markdown }}`（见下节「AI 回复是服务端 Markdown」），但**链接的可读性仍要靠服务端拼好**：给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），否则中文 slug 在气泡里是一串 `%E7%BE%8E...`，排不排版都一样难看
 - 正文类入参（`content`）要有下限校验（太短直接 `ToolError` 让模型补），否则存进去一堆“详见上文”的碎片，后续也查不出来
 - **“汇总”不等于“重抄”**：正文是本轮已出现过的长内容时，`content` 写 `$LAST_REPLY`（见上节协议规则 10），不得让模型重贴全文 —— 它一重抄就必然撞上单条回复长度上限，整条指令被截断后既不会落库也不会报错
+
+### 创建活动跨轮持久草稿（2026-10-28）
+
+用户一句话只给活动名时，旧口径直接出只带「名称」字段的确认卡，点确认就落一条没日期没费用的空活动。新口径（用户要求：信息缺失时多轮对话引导补充）：
+
+- **判定与落点在工具内**（`activities/agent_tools.py::tool_create`）：`_create_plan` 算出的 data **没有 start_date 也没有 end_date** 且未传 `force` 时，走草稿分支——落 `ActivityDraft`（activities/models.py，与 Conversation **OneToOne**，TTL 3 天过期）并返回纯文字草稿回复（复述已记下的字段 + 说明还缺日期 + 给「不用日期直接建」的 force 出口），**不出确认卡**——确认卡是「即将执行」的承诺，带着明显缺口让它确认等于邀请用户点一个会后悔的按钮
+- **合并语义**：下一轮工具再次被调时读草稿合并（新字段覆盖旧值）；**模型带了一个新 name 就是换活动**，旧草稿整份作废（字段不串台）。信息齐了先删草稿再出确认卡，且确认卡的 `action.params` 带的是**合并后的干净参数**——确认重放不依赖草稿表，确定性重放语义与两步流一致
+- **conversation_id 的链路**：编排器 `process/_dispatch` 新增 `conversation_id=None` 形参并注入 `params['_conversation_id']`（下划线前缀 = 非模型协议字段，`_clean_draft_params` 会剥掉）；调用点只有 `chat/views.py::_finalize_turn` 一处。**没有 conversation_id 的旁路调用保持旧的确认卡行为，绝不落一条永远捡不回来的孤儿草稿**（`_save_draft` 无 conversation_id 直接不落）
+- **草稿提醒必须走每轮补发通道**（协议规则 14 与规则 10/12 同款存量陷阱）：首帧协议只在新建对话下发一次，存量会话永远看不到——`activities/agent_tools.py::draft_reminder(conversation)` 在有活跃草稿时返回一行提醒（模型每轮都必须知道「草稿在、缺日期」，多轮补参才接得上），`_build_ai_content` 注入，异常吞掉只 warning（容错铁律）
+- 草稿只在「无日期」这一个维度上守门（成本最低、也是唯一容易整条漏掉的字段）；费用/参与者等缺失靠模型自然追问，不逐字段设卡
+
+回归锁：`activities/tests.py::ActivityCreateDraftFlowTest`（9 条：草稿落库与引导文案、跨轮合并出确认卡且草稿即删、apply 确定性重放、新名替换防串台、force 跳过、过期草稿清空重记、无 conversation_id 不落孤儿、编排器注入 `_conversation_id`、draft_reminder 有/无草稿两态）。
 
 回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，9 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`PartialProtocolSalvageTest`（`params` 完整但 `reply` 坏掉的半条指令必须照样执行，14 条 + 10 项变异反证，含「未闭合绝不救」与「没工具又没文字就降级」两条安全边界）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`、`activities/tests.py::ActivityCreateConfirmFlowTest` + `ExpenseConfirmFlowTest`（创建/记费用预览不落库、apply 确定性重放、salvage 不绕确认）、`activities/tests.py::AddExpenseAutoTargetTest`（预览 → apply 两步）+ `ToolTargetNumericIdTest`（ID 直达同样走两步）。
 

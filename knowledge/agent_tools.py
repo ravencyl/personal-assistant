@@ -8,6 +8,7 @@ activities.create 口径一致；目标不唯一的修改才需要预览卡（Ca
 import re
 from urllib.parse import unquote
 
+from django.db import models
 from django.urls import reverse
 
 from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
@@ -18,7 +19,7 @@ from chat.models import Message
 from memory.models import Memory
 
 from .models import Document
-from .utils import search_articles
+from .utils import search_articles, tokenize
 
 # 未展开的协议引用标记（$LAST_REPLY / $LAST_USER），定义见 core.agent_registry
 _UNRESOLVED_REF = re.compile(r'^\$LAST_(REPLY|USER)$')
@@ -37,13 +38,16 @@ def _article_url(article):
 @agent_tool('knowledge.search', '在用户自己的记忆与文章里检索（语义检索，能命中近义表达；'
                         '覆盖文章和 AI 记住的事实/偏好/目标，用户问“我还记不记得/之前存过什么”时用它；'
                         '只能查本地存量内容，通用知识/时效/攻略类问题不要用它，应直接联网回答或走 ask）',
-            'keyword（搜索关键词或自然语言问题，必填）+ tag（标签，可选，只作用于文章）')
+            'keyword（搜索关键词或自然语言问题，必填；从对话内容提炼关键词，'
+            '不要照抄用户整句原话；话题跨多轮时可直接写 "$RECENT_CONTEXT"，'
+            '系统会展开成最近对话的关键词摘要）'
+            '+ tag（标签，可选，只作用于文章）')
 def tool_knowledge_search(user, params):
     """统一检索：文章分区（原知识库）+ 记忆事实条一起查，分区呈现
 
     2026-10-28 两库数据层合并后，「记忆里有没有…」和「知识库里有没有…」
     对用户是同一个问题，分两个工具问两遍只会得到半个答案。文章走语义检索
-    （QMind 优先 + 关键词兜底），事实条走 icontains（量小，够用）。
+    （QMind 优先 + 关键词兜底），事实条走分词多词 OR（量小，够用）。
     """
     keyword = str(params.get('keyword') or '').strip()
     if not keyword:
@@ -60,13 +64,22 @@ def tool_knowledge_search(user, params):
 
         hits = search_knowledge(user, keyword, limit=5)
 
-    # 记忆事实条（active/candidate；文档分区已在上面查过）
-    fact_hits = list(
-        Memory.objects.filter(user=user,
-                              status__in=['active', 'candidate'],
-                              content__icontains=keyword)
-        .exclude(type='document')
-        .order_by('-importance', '-updated_at')[:3])
+    # 记忆事实条（active/candidate；文档分区已在上面查过）。
+    # 模型的 keyword 可能是整句自然语言，单串 icontains 必然落空——
+    # 分词后任一词命中即入选，与 retrieve_memories 同口径
+    fact_qs = (Memory.objects.filter(user=user,
+                                     status__in=['active', 'candidate'])
+               .exclude(type='document'))
+    tokens = tokenize(keyword)
+    if tokens:
+        q = models.Q()
+        for token in tokens:
+            q |= models.Q(content__icontains=token)
+        fact_qs = fact_qs.filter(q)
+    else:
+        fact_qs = fact_qs.filter(content__icontains=keyword)
+
+    fact_hits = list(fact_qs.order_by('-importance', '-updated_at')[:3])
 
     if not hits and not fact_hits:
         # 工具返回的 reply 会直接展示给用户（不会再送回模型），所以只写给用户看的口语，

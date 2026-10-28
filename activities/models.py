@@ -331,5 +331,46 @@ class DailySuggestion(models.Model):
         verbose_name = '每日建议'
         verbose_name_plural = '每日建议'
 
+
+class ActivityDraft(models.Model):
+    """AI 建活动的跨轮草稿（2026-10-28）：信息不全时先落草稿引导补充，填齐才出确认卡
+
+    一个对话最多一份活跃草稿（conversation 唯一约束）；草稿只存 normalize_input
+    认识的业务字段（name/dates/times/cost/status/tags/participants/parent/description），
+    不存协议内部字段。过期（DRAFT_TTL_DAYS）的草稿视为不存在并在下次触达时清除。
+    """
+    DRAFT_TTL_DAYS = 3
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='activity_drafts',
+    )
+    conversation = models.OneToOneField(
+        'chat.Conversation',
+        on_delete=models.CASCADE,
+        related_name='activity_draft',
+        null=True, blank=True,
+        help_text='所属对话；同一对话只保留最新草稿',
+    )
+    name = models.CharField('活动名称', max_length=255, blank=True)
+    params = models.JSONField('已收集字段', default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        verbose_name = '活动草稿'
+        verbose_name_plural = '活动草稿'
+
+    def __str__(self):
+        return f'{self.name or "(未命名)"}（草稿）'
+
+    @property
+    def is_expired(self):
+        from django.utils import timezone as tz
+        age = tz.now() - self.updated_at
+        return age.total_seconds() > self.DRAFT_TTL_DAYS * 86400
+
     def __str__(self):
         return f'{self.user.username} {self.date}'

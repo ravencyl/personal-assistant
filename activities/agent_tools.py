@@ -272,6 +272,11 @@ def _create_plan(user, params):
     if not data.get('name'):
         raise ToolError('未能识别出活动名称，请写得更具体些')
 
+    # 描述不走 normalize_input（长文本会被它直接丢弃），create 与 update 同口径单独取
+    desc = str(params.get('description') or '').strip()
+    if desc:
+        data['description'] = desc
+
     parent = None
     parent_name = str(params.get('parent') or '').strip()
     if parent_name:
@@ -329,6 +334,8 @@ def _create_fields(user, plan):
     if when:
         fields.append({'label': '日期', 'value': when})
     fields.append({'label': '状态', 'value': STATUS_LABELS.get(data.get('status', 'planned'))})
+    if data.get('description'):
+        fields.append({'label': '描述', 'value': _abbrev(data['description'])})
     if data.get('cost') is not None:
         # 去尾零：3000.0 → 3000，120.50 → 120.5（与活动卡费用展示同风格）
         cost_label = ('%.2f' % data['cost']).rstrip('0').rstrip('.')
@@ -342,21 +349,142 @@ def _create_fields(user, plan):
     return fields
 
 
-@agent_tool('activities.create', '创建一个新活动（先出预览确认卡，用户点确认后才会真正创建；不要连发多条）',
-            'name（必填）、start_date/end_date（YYYY-MM-DD）、cost（数字，元，将创建为费用条目）、'
+# ==================== 创建草稿（跨轮补参）====================
+# 用户口述建活动经常一句话说不全（「帮我建个团建」——哪天？）。旧版直接出
+# 无日期的确认卡，用户顺手一点就落库一个空壳活动。草稿机制：信息不全时先
+# 记下已知字段引导补充，填齐才进两步确认流。
+
+
+def _clean_draft_params(params):
+    """草稿/action 只存业务字段：下划线内部字段（_user_text/_conversation_id）
+    与 force 不入库，空值不覆盖草稿里的旧值"""
+    return {k: v for k, v in (params or {}).items()
+            if not str(k).startswith('_') and k != 'force' and v not in (None, '', [])}
+
+
+def _load_draft(user, conversation_id):
+    """取当前对话的活跃草稿；过期（DRAFT_TTL_DAYS）视为不存在并顺手清除"""
+    from .models import ActivityDraft
+    if not conversation_id:
+        return None
+    draft = ActivityDraft.objects.filter(user=user, conversation_id=conversation_id).first()
+    if draft and draft.is_expired:
+        draft.delete()
+        return None
+    return draft
+
+
+def _save_draft(user, conversation_id, merged_params):
+    """落/更新草稿：一个对话一份（update_or_create），新字段覆盖旧值。
+    草稿按对话归位，没有 conversation_id 时直接不落（无归位点的草稿捡不回来）"""
+    from .models import ActivityDraft
+    if not conversation_id:
+        return
+    clean = _clean_draft_params(merged_params)
+    ActivityDraft.objects.update_or_create(
+        user=user, conversation_id=conversation_id,
+        defaults={'name': str(clean.get('name') or '')[:255], 'params': clean})
+
+
+def _draft_field_lines(plan):
+    """草稿回复里「已记下」的字段串（与确认卡 _create_fields 同数据源、不同排版）"""
+    data = plan['data']
+    lines = []
+    if data.get('name'):
+        lines.append(f'名称「{data["name"]}」')
+    when = ' ~ '.join(x for x in (data.get('start_date'), data.get('end_date')) if x)
+    if data.get('start_time'):
+        when = f'{when} {data["start_time"]}' if when else data['start_time']
+    if when:
+        lines.append(f'时间 {when}')
+    if data.get('cost') is not None:
+        cost_label = ('%.2f' % data['cost']).rstrip('0').rstrip('.')
+        lines.append(f'费用 ¥{cost_label}')
+    if data.get('participants'):
+        lines.append('参与者 ' + '、'.join(data['participants']))
+    if data.get('tags'):
+        lines.append('标签 ' + '、'.join(data['tags']))
+    if plan.get('parent'):
+        lines.append(f'归属「{plan["parent"].name}」')
+    if data.get('description'):
+        lines.append(f'描述「{_abbrev(data["description"])}」')
+    return lines
+
+
+def _draft_reply(plan):
+    notes = []
+    if plan['participant_skipped']:
+        notes.append(_participant_skip_note(plan['participant_skipped']))
+    if plan['tag_skipped']:
+        notes.append(_tag_skip_note(plan['tag_skipped']))
+    lines = _draft_field_lines(plan)
+    collected = ('（' + '；'.join(lines) + '）') if lines else ''
+    return {
+        'reply': f'先记下这个活动的草稿{collected}。\n'
+                 '还缺日期——告诉我哪天开始（例如「11月5日下午2点」），'
+                 '我就给你出确认卡；确实不需要日期的话，说「不用日期直接建」。'
+                 + ''.join(notes),
+        'changed': False,
+    }
+
+
+def draft_reminder(conversation):
+    """创建草稿的每轮补发提醒（协议规则 14 的存量通道，与规则 10/12 同款陷阱：
+    首帧协议只在新建对话下发一次，存量会话永远看不到后来新增的规则——多轮补参
+    全靠模型每一轮都知道「草稿在、缺什么」）。无草稿返回空串，异常吞掉（容错铁律）"""
+    from .models import ActivityDraft
+    try:
+        draft = ActivityDraft.objects.filter(conversation=conversation).first()
+    except Exception:
+        return ''
+    if not draft or draft.is_expired:
+        return ''
+    return (f'[创建草稿进行中] 用户正在创建活动「{draft.name or "未命名"}」，还缺日期。'
+            '用户本轮补充的信息（时间/费用/参与者/标签等）请通过 activities.create 完整发出，'
+            '系统会自动与草稿合并；用户明确说不需要日期时传 "force": true。\n')
+
+
+@agent_tool('activities.create', '创建一个新活动（先出预览确认卡，用户点确认后才会真正创建；不要连发多条）。'
+                             '信息不全（比如还不知道日期）时系统会保存草稿并引导用户补充，不要编造默认值',
+            'name（必填）、start_date/end_date（YYYY-MM-DD）、start_time/end_time（HH:MM，可选）、'
+            'description（活动备注/结论等长文本，可选）、cost（数字，元，将创建为费用条目）、'
             'status、tags（字符串数组，可选；只写用户明确提到的标签，没有就整个省略，'
-            '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）',
+            '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）、'
+            'force（true：用户明确说不需要日期/直接建时，跳过草稿直接出确认卡）',
             apply_fn=apply_create)
 def tool_create(user, params):
-    plan = _create_plan(user, params)
+    conversation_id = params.get('_conversation_id')
+    force = bool(params.get('force'))
+    incoming = _clean_draft_params(params)
+
+    # 跨轮草稿：上一轮信息不全时存过草稿，本轮合并（新字段覆盖旧值）再判断是否齐了
+    draft = _load_draft(user, conversation_id)
+    if draft and incoming.get('name') and incoming['name'] != draft.name:
+        draft = None  # 用户换了一个新活动：旧草稿作废（save 时按对话覆盖）
+    source = dict(draft.params) if draft else {}
+    source.update(incoming)
+
+    plan = _create_plan(user, source)
     data = plan['data']
+
+    if not force and not data.get('start_date') and not data.get('end_date'):
+        # 信息不全：落草稿 + 引导补充。不出确认卡——确认卡是「即将执行」的承诺，
+        # 带着明显缺口让它确认等于邀请用户点一个会后悔的按钮。
+        # 草稿按对话归位，没有 conversation_id（旁路调用/旧测试路径）没有归位点，
+        # 保持旧的确认卡行为，绝不落一条永远捡不回来的孤儿草稿
+        if conversation_id:
+            _save_draft(user, conversation_id, source)
+            return _draft_reply(plan)
+
+    if draft:
+        draft.delete()  # 信息已齐，草稿完成使命（确认卡自带 merged 参数，重放自洽）
 
     notes = []
     if plan['participant_skipped']:
         notes.append(_participant_skip_note(plan['participant_skipped']))
     if plan['tag_skipped']:
         notes.append(_tag_skip_note(plan['tag_skipped']))
-    parent_name = str(params.get('parent') or '').strip()
+    parent_name = str(source.get('parent') or '').strip()
     if parent_name and not plan['parent']:
         notes.append(f'\n\n⚠️ 没找到叫「{parent_name}」的活动，将创建为独立活动。')
 
@@ -365,7 +493,8 @@ def tool_create(user, params):
         'card': 'confirm',
         'card_data': {'kind': 'create', 'name': data['name'],
                       'fields': _create_fields(user, plan)},
-        'action': {'tool': 'activities.create', 'params': params},
+        # action 带合并后的干净参数：确认重放不依赖草稿表（草稿可能已删）
+        'action': {'tool': 'activities.create', 'params': source},
     }
 
 
@@ -374,6 +503,7 @@ def tool_create(user, params):
 _UPDATE_FIELD_LABELS = [
     ('name', '名称'), ('description', '描述'),
     ('start_date', '开始日期'), ('end_date', '结束日期'),
+    ('start_time', '开始时间'), ('end_time', '结束时间'),
     ('status', '状态'), ('parent', '父活动'),
 ]
 
@@ -482,6 +612,9 @@ def _update_preview(user, params):
         if field in ('start_date', 'end_date'):
             if (old_v.isoformat() if old_v else None) == data[field]:
                 continue
+        elif field in ('start_time', 'end_time'):
+            if (old_v.strftime('%H:%M') if old_v else None) == data[field]:
+                continue
         elif str(old_v or '') == str(data[field]):
             continue
         if field == 'description':
@@ -536,7 +669,8 @@ def apply_update(user, params):
     data, _desc_mode = _update_data(user, activity, params)
 
     old = snapshot_activity(activity)
-    for field in ('name', 'description', 'start_date', 'end_date', 'status', 'parent'):
+    for field in ('name', 'description', 'start_date', 'end_date',
+                  'start_time', 'end_time', 'status', 'parent'):
         if field in data:
             setattr(activity, field, data[field])
     activity.save()

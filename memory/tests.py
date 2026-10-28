@@ -64,6 +64,26 @@ class RetrieveMemoriesTest(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].content, '喜欢喝咖啡')
 
+    def test_multi_token_query_hits_either_word(self):
+        """分词多词 OR：带空格/分隔的自然语言问句任一词命中即入选
+
+        旧版把整串 '咖啡 马拉松' 拿去 icontains，一条都匹配不上；
+        现在分词后 OR——这正是 memory_search 工具接自然语言 keyword 的前提。
+        """
+        results = retrieve_memories(self.user, query='咖啡 马拉松')
+        contents = {r.content for r in results}
+        self.assertIn('喜欢喝咖啡', contents)
+        self.assertIn('目标是跑马拉松', contents)
+        self.assertNotIn('在杭州工作', contents)
+
+    def test_category_filter(self):
+        """category 只在 retrieve_memories 入参层生效（memory_search 工具用）"""
+        results = retrieve_memories(self.user, category='fact')
+        self.assertEqual([r.content for r in results], ['在杭州工作'])
+
+        results = retrieve_memories(self.user, query='咖啡', category='fact')
+        self.assertEqual(results, [], '类别与关键词同时生效，交集为空就是空')
+
     def test_retrieve_updates_access_count(self):
         retrieve_memories(self.user, limit=10)
         m = Memory.objects.get(user=self.user, content='喜欢喝咖啡')

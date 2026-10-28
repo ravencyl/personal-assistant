@@ -126,6 +126,8 @@ def snapshot_activity(activity):
         'description': activity.description,
         'start_date': activity.start_date,
         'end_date': activity.end_date,
+        'start_time': activity.start_time,
+        'end_time': activity.end_time,
         'status': activity.status,
         'parent': activity.parent,
         'tags': set(tag_names(activity)),
@@ -136,6 +138,7 @@ def snapshot_activity(activity):
 _EDIT_FIELDS = [
     ('name', '名称'), ('description', '描述'),
     ('start_date', '开始日期'), ('end_date', '结束日期'),
+    ('start_time', '开始时间'), ('end_time', '结束时间'),
     ('status', '状态'),
 ]
 
@@ -146,6 +149,8 @@ def fmt_field(field, value):
         return '空'
     if field == 'status':
         return dict(Activity.STATUS_CHOICES).get(value, str(value))
+    if field in ('start_time', 'end_time') and hasattr(value, 'strftime'):
+        return value.strftime('%H:%M')
     text = str(value)
     if field == 'description':
         # 描述可能很长：变更摘要/活动日志里只留头一段（折行压成空格），

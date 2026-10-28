@@ -65,6 +65,13 @@ class Conversation(models.Model):
     )
     session_id = models.CharField(max_length=64, unique=True, help_text='Qoder sess_xxx ID')
     agent_id = models.CharField(max_length=64, help_text='Qoder agent_xxx ID')
+    protocol_sent = models.BooleanField(
+        default=False,
+        help_text='协议首帧是否已投递（2026-10-28 起跟随第一轮用户消息合并投递，'
+                  '不再建对话时单发——单发必与用户第一问撞 409 忙等）。'
+                  '迁移对存量会话回填 True（它们建库时都单发过），'
+                  '新建对话默认 False，第一轮 turn_prompt 会携带协议',
+    )
     title = models.CharField(max_length=255, blank=True)
     status = models.CharField(
         max_length=20,

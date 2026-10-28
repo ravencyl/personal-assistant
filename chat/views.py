@@ -20,6 +20,7 @@ from .models import (Conversation, Message, TURN_TTL_SECONDS,
 from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (MEMORY_META_REMINDER, PROTOCOL_REF_REMINDER,
+                                 PROTOCOL_SEARCH_REMINDER,
                                  PROTOCOL_TRUNCATED_NOTE,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
                                  CandidateToolError, ToolError,
@@ -208,11 +209,8 @@ def _create_weekly_review_conversation(user):
             }},
         )
 
-        # 发送首帧协议指令
-        try:
-            service.send_message(session_data['id'], build_protocol_prompt())
-        except Exception as e:
-            logger.warning(f'周回顾首帧协议指令发送失败（对话 {conversation.id}）: {e}')
+        # 首帧协议已改为跟随第一轮用户消息合并投递（2026-10-28）：建对话时单发
+        # 必与用户紧接着的第一问撞 409（「第一条消息特别慢」的真因），这里不再发
 
         return conversation
 
@@ -256,15 +254,12 @@ def _create_conversation_for_user(user, title='新对话', agent_id=None):
         status='idle',
     )
 
-    # 首帧下发意图协议指令（失败不阻断，降级为普通对话）
-    try:
-        service.send_message(session_data['id'], build_protocol_prompt())
-    except Exception as e:
-        logger.warning(f'首帧协议指令发送失败（对话 {conversation.id}）: {e}')
+    # 首帧协议已改为跟随第一轮用户消息合并投递（2026-10-28）：建对话时单发
+    # 必与用户紧接着的第一问撞 409（「第一条消息特别慢」的真因），这里不再发。
+    # 协议内容在 _build_ai_content 里按 conversation.protocol_sent 决定是否携带
 
     # 记忆注入已迁移到每轮通道（_build_ai_content → build_memory_index_context）：
-    # 首帧一次性注入与首帧协议是同一个坑——存量会话永远看不到后来新增的记忆，
-    # 且这里的 send_message 还会与协议首帧撞 409。
+    # 首帧一次性注入与首帧协议是同一个坑——存量会话永远看不到后来新增的记忆。
 
     return conversation
 
@@ -583,9 +578,15 @@ def send_message(request, conversation_id):
     conversation.turn_message = user_msg
     conversation.turn_prompt = ai_content
     conversation.status = 'processing'
-    conversation.save(update_fields=['turn_state', 'turn_started_at', 'turn_idle_at',
-                                     'turn_retries', 'turn_message', 'turn_prompt',
-                                     'status', 'updated_at'])
+    update_fields = ['turn_state', 'turn_started_at', 'turn_idle_at',
+                     'turn_retries', 'turn_message', 'turn_prompt',
+                     'status', 'updated_at']
+    if not conversation.protocol_sent:
+        # 协议搭这一轮的 turn_prompt 走（409 重试/失败重发用的都是同一份
+        # turn_prompt，协议不会掉）：标记在投递前，只要这一轮最终送达就带上了
+        conversation.protocol_sent = True
+        update_fields.append('protocol_sent')
+    conversation.save(update_fields=update_fields)
 
     # 先在本请求里试发一次（一次 HTTP 往返，通常百多毫秒）：
     #   sent → awaiting；busy（首帧协议还在跑）→ 保持 queued，由轮询重试发送
@@ -643,6 +644,28 @@ def _referenceable_reply(conversation):
     return None
 
 
+# $RECENT_CONTEXT 引用池的取样窗口：最近几条用户消息（含本轮）。检索的关键词
+# 就藏在这些消息里，assistant 回复是转述不加分，混进来反而稀释 token 质量。
+RECENT_CONTEXT_USER_MSGS = 3
+RECENT_CONTEXT_MAX_TOKENS = 6
+
+
+def _recent_context_keywords(conversation):
+    """最近几轮对话的关键词摘要（$RECENT_CONTEXT 引用池的唯一实现）
+
+    模型面对「之前聊到的那个…」这类跨轮指代写不出具体 keyword，但最近几轮
+    用户消息里的实词就是主题。这里替它提炼：取最近 3 条用户消息（含本轮
+    turn_message），过 tokenize（停用词过滤 + 去重）拼成空格分隔的关键词串。
+    取不出来（首条消息且无历史）返回空串——resolve_params_refs 对空引用会
+    报错而不是把标记交给工具，模型会退回自己写 keyword。
+    """
+    qs = conversation.messages.filter(role='user').order_by('-created_at', '-id')
+    texts = [(msg.content or '').strip() for msg in qs[:RECENT_CONTEXT_USER_MSGS]]
+    joined = ' '.join(t for t in texts if t)
+    from knowledge.utils import tokenize
+    return ' '.join(tokenize(joined, max_tokens=RECENT_CONTEXT_MAX_TOKENS))
+
+
 def _build_ai_content(request, conversation, content):
     """组装真正发给 Qoder 的文本：页面上下文 + 知识库注入 + 用户原文
 
@@ -651,19 +674,40 @@ def _build_ai_content(request, conversation, content):
     失败一律降级（铁律：任何环节失败都不得阻断对话）。
     """
     ai_content = content
+    # 首帧协议合并投递（2026-10-28）：旧实现建对话时立刻单发协议首帧，用户紧接着
+    # 的第一问必撞 409 忙等（「第一条消息特别慢」的真因——平台要先把协议跑完）。
+    # 现在协议跟随第一轮用户消息合并进 turn_prompt 一次投递：存量会话建库时都已
+    # 收过首帧（迁移默认 protocol_sent=True），只有新对话的第一轮携带协议
+    if not conversation.protocol_sent:
+        ai_content = build_protocol_prompt() + '\n\n' + ai_content
     page_context = request.POST.get('page_context', '').strip()
     if page_context and page_context != 'home' and page_context != 'chat':
         ai_content = f'[页面提示: {page_context}]\n\n{content}'
+    # 检索关键词规则的每轮补发（协议规则 13）：与规则 10/12 同款存量陷阱，
+    # 首帧只对新建对话生效。恒定一行，不值得为省噪声做条件判据
+    ai_content = PROTOCOL_SEARCH_REMINDER + ai_content
+    # 知识注入的检索 query 做上下文扩展：用户问「之前那个怎么办来着」时，
+    # 单看本轮一个词都不够——把最近几条用户消息并进检索文本，QMind 语义检索
+    # 吃自然语言没问题，本地兜底有自己的分词
     try:
-        knowledge_context = _build_knowledge_context(conversation.user, content)
+        recent_user = ' '.join(
+            (m.content or '').strip()
+            for m in conversation.messages.filter(role='user')
+            .order_by('-created_at', '-id')[:RECENT_CONTEXT_USER_MSGS]
+            if (m.content or '').strip())
+        knowledge_context, knowledge_titles = _build_knowledge_context(
+            conversation.user, f'{content}\n{recent_user}' if recent_user else content)
         if knowledge_context:
             ai_content = knowledge_context + ai_content
     except Exception as exc:
         logger.warning("knowledge injection failed: %s", exc)
-    # RAG 段落级检索增强（与知识库注入互补：一个走全文检索，一个走段落相似度）
+        knowledge_titles = []
+    # RAG 段落级检索增强（与知识库注入互补：一个走全文检索，一个走段落相似度）。
+    # 知识注入已带出的文章不再重复注入（2026-10-28 注入瘦身）
     try:
         from knowledge.rag import build_rag_context
-        rag_context = build_rag_context(content, conversation.user)
+        rag_context = build_rag_context(content, conversation.user,
+                                        exclude_titles=set(knowledge_titles))
         if rag_context:
             ai_content = rag_context + ai_content
     except Exception as exc:
@@ -677,6 +721,15 @@ def _build_ai_content(request, conversation, content):
             ai_content = PROTOCOL_REF_REMINDER + ai_content
     except Exception as exc:
         logger.warning('reference reminder injection failed: %s', exc)
+    try:
+        # 创建草稿的每轮补发（协议规则 14）：同款存量陷阱——首帧只在新建对话下发。
+        # 有进行中的草稿时模型必须知道「草稿在、缺日期」，多轮补参才接得上
+        from activities.agent_tools import draft_reminder
+        draft_hint = draft_reminder(conversation)
+        if draft_hint:
+            ai_content = draft_hint + ai_content
+    except Exception as exc:
+        logger.warning('draft reminder injection failed: %s', exc)
     try:
         # 记忆每轮注入（ROA 改进 Phase A）：元规则先于记忆内容（防记忆条目把
         # 指令提升为最高优先级），确定性输出（turn_prompt 落库重试重发）
@@ -703,9 +756,9 @@ def _build_ai_content(request, conversation, content):
 def _deliver(service, conversation):
     """把本轮文本发到 Qoder。返回 'sent' | 'busy'（session 还在跑上一轮）| 'failed'
 
-    409 不是错误：新建对话时会连发首帧协议指令 + 记忆注入两条且不等待，用户
-    紧接着打字就必撞 409（旧实现因此在请求里同步等完首帧，这是「第一条消息特别慢」
-    的真因）。现在保持 queued 交给轮询重试，发送请求本身立即返回。
+    409 不是错误：对话正忙（上一轮没跑完）时保持 queued 交给轮询重试，发送请求
+    本身立即返回。首帧协议 2026-10-28 起跟随第一轮用户消息合并投递（见
+    _build_ai_content），建对话时不再单发，新对话首问不再必撞 409。
     """
     try:
         service.send_message(conversation.session_id, conversation.turn_prompt)
@@ -726,25 +779,29 @@ def _deliver(service, conversation):
 
 
 def _build_knowledge_context(user, text):
-    """按用户消息检索相关知识库内容，构造注入上下文；无命中返回空串
+    """按用户消息检索相关知识库内容，构造注入上下文；无命中返回 ('', [])
 
     走 knowledge.retrieval 统一检索层（QMind 语义优先，失败自动降级本地
-    关键词），本函数不感知后端差异。
+    关键词），本函数不感知后端差异。返回 (注入文本, 命中文章标题列表)——
+    标题给 RAG 段落检索做去重（同一篇不注入两遍）。预算口径（2026-10-28
+    注入瘦身）：最多 2 篇 × 500 字；记忆注入另算，别在这挤占它的预算。
     """
     from knowledge.retrieval import search_knowledge
 
     try:
-        results = search_knowledge(user, text, limit=3)
+        results = search_knowledge(user, text, limit=2)
     except Exception as e:
         # 检索层内部已降级，这里是双保险：注入失败绝不能阻断对话
         logger.warning(f'知识注入失败（降级为无注入）: {e}')
-        return ''
+        return '', []
     if not results:
-        return ''
+        return '', []
     context = '\n\n[相关知识库内容]\n'
+    titles = []
     for r in results:
-        context += f"--- {r['title']} ---\n{r['content'][:800]}\n\n"
-    return context
+        context += f"--- {r['title']} ---\n{r['content'][:500]}\n\n"
+        titles.append(r['title'])
+    return context, titles
 
 
 def _build_pinned_knowledge_context(conversation):
@@ -1176,6 +1233,7 @@ def _finalize_turn(conversation, assistant_text, note=None):
     refs = {
         'LAST_REPLY': prev_assistant.content if prev_assistant else '',
         'LAST_USER': conversation.turn_message.content if conversation.turn_message else '',
+        'RECENT_CONTEXT': _recent_context_keywords(conversation),
     }
     try:
         # user_text/pick_context：候选澄清的「回复第 N 个」服务端直达兜底所需，
@@ -1184,7 +1242,7 @@ def _finalize_turn(conversation, assistant_text, note=None):
         content, payload, changed = orchestrator.process(
             conversation.user, text, refs=refs,
             user_text=conversation.turn_message.content if conversation.turn_message else None,
-            pick_context=pick_context)
+            pick_context=pick_context, conversation_id=conversation.id)
     except Exception as e:
         logger.error(f'编排本轮回复失败（对话 {conversation.id}），降级为纯文本: {e}')
         content, payload, changed = text, None, False

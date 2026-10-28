@@ -13,30 +13,25 @@ from .models import Memory
 logger = logging.getLogger(__name__)
 
 
-@agent_tool('memory.search', '搜索用户的长期记忆（用户之前告诉过你的信息）',
-            'query（搜索关键词，必填）+ category（可选，筛选类别：preference/fact/goal/relationship/habit/other）')
+@agent_tool('memory.search', '搜索用户的长期记忆（用户之前告诉过你的信息）。',
+            'keyword（搜索关键词或自然语言问题，必填；从对话内容提炼关键词，'
+            '不要照抄用户整句原话；话题跨多轮时可直接写 "$RECENT_CONTEXT"，'
+            '系统会展开成最近对话的关键词摘要）'
+            '+ category（可选，筛选类别：preference/fact/goal/relationship/habit/other）')
 def tool_memory_search(user, params):
-    """AI 主动搜索记忆，返回匹配结果"""
-    query = str(params.get('query') or '').strip()
+    """AI 主动搜索记忆，返回匹配结果
+
+    检索统一走 retrieve_memories（分词 + 多词 OR + 重要度×时效打分）：模型写的
+    keyword 经常是整句自然语言，旧版单串 icontains 几乎必然落空。
+    """
+    query = str(params.get('query') or params.get('keyword') or '').strip()
     if not query:
         raise ToolError('请告诉我搜索关键词')
 
+    from .services import retrieve_memories
+
     category = str(params.get('category') or '').strip()
-
-    # 文章（type='document'）归 knowledge.search 管，不混进记忆搜索结果
-    qs = (Memory.objects.filter(user=user, consolidated=False,
-                                status__in=['active', 'candidate'])
-          .exclude(type='document'))
-
-    # 关键词匹配
-    qs = qs.filter(content__icontains=query)
-
-    # 类别筛选
-    valid_categories = dict(Memory.CATEGORY_CHOICES).keys()
-    if category and category in valid_categories:
-        qs = qs.filter(category=category)
-
-    memories = list(qs.order_by('-importance', '-updated_at')[:5])
+    memories = retrieve_memories(user, query, limit=5, category=category)
 
     if not memories:
         return {'reply': f'没有找到与「{query}」相关的记忆'}

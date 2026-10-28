@@ -360,6 +360,42 @@ class KnowledgeRetrievalLayerTest(TestCase):
         self.assertEqual(hits[0]['content'], '带防滑溯溪鞋')
 
 
+class RagContextDedupTest(TestCase):
+    """RAG 段落注入的去重与预算（2026-10-28 注入瘦身）：
+
+    全文检索（知识注入）与段落检索（RAG）经常命中同一篇文章，两段都注入
+    等于双倍 token 换一份内容——知识注入已带出的文章按标题整篇剔除
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='rag', password='x')
+        Article.objects.create(
+            user=self.user, title='桐庐行程',
+            content='第一天是去桐庐的行程安排，上午出发中午到达，先去江边步行道走走。\n\n'
+                    '第二天继续在桐庐游玩然后返程，返程前会去镇上的市场买一些土特产。')
+        Article.objects.create(
+            user=self.user, title='莫干山民宿',
+            content='莫干山的民宿挑选要点是位置与卫生，最好选在山脚交通方便、评价里反复提到干净的地方。')
+
+    def test_exclude_titles_drops_whole_article(self):
+        from .rag import build_rag_context
+        # 查询用与段落字面重叠的自然句（trigram 相似度不吃关键词拆分）
+        ctx = build_rag_context('去桐庐的行程安排', self.user)
+        self.assertIn('桐庐行程', ctx)
+        deduped = build_rag_context('去桐庐的行程安排', self.user,
+                                    exclude_titles={'桐庐行程'})
+        self.assertNotIn('桐庐行程', deduped)
+
+    def test_top_k_defaults_to_two(self):
+        from .rag import build_rag_context
+        for i in range(4):
+            Article.objects.create(
+                user=self.user, title=f' filler{i} 体检{i}号点',
+                content=f'体检{i}号点的注意事项说明，包含足够长度的段落内容以通过过滤阈值要求。')
+        ctx = build_rag_context('体检 注意事项', self.user)
+        self.assertLessEqual(ctx.count('来源'), 2, '段落注入上限 top2')
+
+
 class ArticleQMindSyncSignalTest(TestCase):
     """信号同步：内容变化才同步、删除清理云端源（同步线程同步化执行以便断言）"""
 
@@ -459,6 +495,31 @@ class KnowledgeSearchAgentToolQMindTest(TestCase):
         self.assertIn('记忆：', out['reply'])
         self.assertIn('每周三晚上去健身房', out['reply'])
         self.assertNotIn('文章：', out['reply'])
+
+    def test_fact_hits_support_multi_token_keyword(self):
+        """事实条匹配走分词多词 OR：整句/多词 keyword 不再一无所获
+
+        旧版拿 '健身 计划' 整串 icontains，'每周三晚上去健身房' 永远匹配不上。
+        """
+        from memory.services import gate_and_write
+        gate_and_write(self.user, {'content': '每周三晚上去健身房'},
+                       user_text='记住我每周三晚上健身')
+        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
+             patch('knowledge.qmind.retrieve', return_value=[]):
+            out = get_tool('knowledge.search')['fn'](
+                self.user, {'keyword': '健身 安排'})
+        self.assertIn('每周三晚上去健身房', out['reply'])
+
+    def test_search_descriptions_advertise_recent_context_ref(self):
+        """协议行（描述+params 提示）里要写明 $RECENT_CONTEXT 可用
+
+        描述与 hint 会拼进协议 prompt 注给模型，那里没有的话模型不知道可以用。
+        """
+        for tool_name in ('knowledge.search', 'memory.search'):
+            tool = get_tool(tool_name)
+            prompt_line = tool['description'] + (tool['params_hint'] or '')
+            self.assertIn('$RECENT_CONTEXT', prompt_line,
+                          f'{tool_name} 协议行没写引用标记，模型不知道可以用')
 
 
 class ArticleTagEditRegressionTest(TestCase):

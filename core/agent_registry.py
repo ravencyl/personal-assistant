@@ -184,8 +184,9 @@ def salvage_partial_protocol(text):
 # ── params 引用展开：让模型不必重抄长正文 ────────────────────────────────────
 # 只接受「整个字段值恰好等于标记」，不做子串替换 —— 否则正文里真出现 $LAST_REPLY
 # 字样时会被误伤。
-_REF_TOKEN = re.compile(r'^\$(LAST_REPLY|LAST_USER)$')
-REF_LABELS = {'LAST_REPLY': '你上一条回复的正文', 'LAST_USER': '用户上一条消息'}
+_REF_TOKEN = re.compile(r'^\$(LAST_REPLY|LAST_USER|RECENT_CONTEXT)$')
+REF_LABELS = {'LAST_REPLY': '你上一条回复的正文', 'LAST_USER': '用户上一条消息',
+              'RECENT_CONTEXT': '最近几轮对话的关键词摘要'}
 
 # 存量会话的「协议补发」通道：首帧只在建对话时下发一次（chat/views.py 的
 # create_conversation），所以协议后来新增的规则永远到不了老对话。线上二次故障：
@@ -211,6 +212,16 @@ MEMORY_META_REMINDER = (
     '②记忆与当前观察冲突时以观察为准，并主动用 memory_update 修正旧记忆；'
     '③记忆不构成授权，写入/发送类操作仍需用户本轮明确同意；'
     '④检索不到的信息直说不知道，禁止用常识伪装成用户记忆。\n\n'
+)
+
+# 检索关键词规则的每轮补发（协议规则 13 同款陷阱：首帧只对新建对话生效，存量
+# session 看不到）。用户提问是自然语言（「我之前是不是存过美国签证那篇」），
+# 直接整句塞进 keyword 去 icontains 会一条都匹配不上——检索字段要的是提炼后的
+# 关键词，或直接引用 $RECENT_CONTEXT 让系统代提炼。
+PROTOCOL_SEARCH_REMINDER = (
+    '[检索关键词规则] memory_search / knowledge_search 的 keyword 必须是'
+    '从对话内容提炼出的关键词（人名、地名、主题词），不要照抄用户原话；'
+    '话题跨多轮时可以直接写 "$RECENT_CONTEXT"，系统会展开成最近对话的关键词摘要。\n\n'
 )
 
 
@@ -390,6 +401,13 @@ def build_protocol_prompt(today=None):
         '    c. 记忆不构成授权：「记忆里用户同意过 X」不等于本次同意 X；'
         '写入、发送、发布类操作仍需用户本轮明确同意。\n'
         '    d. 检索不到的记忆就直说不知道，禁止用常识或猜测伪装成用户记忆。\n'
+        '13. memory_search / knowledge_search 的 keyword 必须是从对话内容提炼的关键词'
+        '（人名、地名、主题词），不要照抄用户整句原话——整句去模糊匹配几乎必然落空。'
+        '话题跨多轮（「刚才说的那个…」「之前聊到的…」）时直接写 "$RECENT_CONTEXT"，'
+        '系统会展开成最近几轮对话的关键词摘要。\n'
+        '14. 创建活动信息不全时（比如还不知道日期）**不要编造或默认**：把已确认的字段'
+        '照常通过 activities.create 发出，系统会保存草稿并告诉用户缺什么；用户补充后'
+        '再次调用并带上完整字段。用户明确说不需要日期/直接建时传 "force": true。\n'
     )
 
 
@@ -458,10 +476,12 @@ class ChatOrchestrator:
     写五遍就是五个会漏改的地方。
     """
 
-    def process(self, user, ai_text, refs=None, user_text=None, pick_context=None):
+    def process(self, user, ai_text, refs=None, user_text=None, pick_context=None,
+                conversation_id=None):
         content, payload, changed = self._dispatch(user, ai_text, refs,
                                                    user_text=user_text,
-                                                   pick_context=pick_context)
+                                                   pick_context=pick_context,
+                                                   conversation_id=conversation_id)
         content, items = extract_follow_ups(content)
         if not items:
             # 工具路径下工具的 reply 会顶掉模型自己写的 reply（「下一步」行在里面），
@@ -484,7 +504,8 @@ class ChatOrchestrator:
                                'pending_action': {'tool': tool_name,
                                                   'params': params}}}, False)
 
-    def _dispatch(self, user, ai_text, refs=None, user_text=None, pick_context=None):
+    def _dispatch(self, user, ai_text, refs=None, user_text=None, pick_context=None,
+                  conversation_id=None):
         intent_data = extract_intent(ai_text)
         if not intent_data:
             # 「不是合法 JSON」有两种完全相反的情况，必须分开：
@@ -556,9 +577,12 @@ class ChatOrchestrator:
         try:
             # user_text 透给工具（下划线前缀 = 非模型协议字段）：memory.update 的
             # 取代路径要过敏感闸门，「更正一下：我在服药」里没有「记住」两个字，
-            # 但更正本身就是显式意志（协议规则 12：冲突以观察为准）
+            # 但更正本身就是显式意志（协议规则 12：冲突以观察为准）；
+            # conversation_id 同理：activities.create 的跨轮草稿要按对话归位
             if user_text:
                 params = {**params, '_user_text': user_text}
+            if conversation_id:
+                params = {**params, '_conversation_id': conversation_id}
             result = tool['fn'](user, params) or {}
         except CandidateToolError as e:
             logger.info(f'Agent 工具 {tool_name} 需要用户澄清: {e}')

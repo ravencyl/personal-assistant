@@ -23,7 +23,7 @@ from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import Activity, ActivityLog, Attachment, Expense, Participant, CalendarFeed
+from activities.models import Activity, ActivityDraft, ActivityLog, Attachment, Expense, Participant, CalendarFeed
 from activities.views.daily_views import daily_brief_payload, gather_daily
 from activities.parsing import parse_quick_input
 from core.agent_registry import CandidateToolError, ToolError
@@ -457,6 +457,130 @@ class ActivityCreateConfirmFlowTest(TestCase):
     def test_preview_without_name_raises_tool_error(self):
         with self.assertRaises(ToolError):
             self.tool['fn'](self.user, {'start_date': '2026-10-01'})
+
+
+class ActivityCreateDraftFlowTest(TestCase):
+    """activities.create 跨轮持久草稿（2026-10-28，用户要求：信息不全时多轮对话引导补充）
+
+    旧口径：name-only 一句话直接出确认卡，确认卡上只有一个「名称」字段——
+    点确认就落一条没日期没费用的空活动。新口径：没有日期时先落草稿（一个对话
+    一份），回复里说明已记下什么、还缺什么；用户补齐后才出确认卡。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        from chat.models import Conversation
+        self.tool = get_tool('activities.create')
+        self.user = User.objects.create_user('testuser', password='test')
+        self.conversation = Conversation.objects.create(
+            user=self.user, session_id='sess-draft-test')
+        self.cid = self.conversation.id
+
+    def _draft(self):
+        from activities.models import ActivityDraft
+        return ActivityDraft.objects.get(conversation_id=self.cid)
+
+    def test_missing_date_saves_draft_and_guides(self):
+        result = self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'cost': 3000, '_conversation_id': self.cid})
+        self.assertNotIn('card', result, '信息不全时不出确认卡')
+        self.assertIn('草稿', result['reply'])
+        self.assertIn('还缺日期', result['reply'])
+        self.assertIn('3000', result['reply'], '已确认的字段要复述给用户')
+        self.assertIn('不需要日期', result['reply'], '要给 force 出口')
+        draft = self._draft()
+        self.assertEqual(draft.name, '去杭州团建')
+        self.assertEqual(draft.params['cost'], 3000)
+        self.assertFalse(Activity.objects.exists(), '草稿不是活动')
+
+    def test_second_turn_merges_draft_and_emits_confirm_card(self):
+        self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'cost': 3000, '_conversation_id': self.cid})
+        result = self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'start_date': '2026-11-05',
+            'start_time': '14:00', '_conversation_id': self.cid})
+        self.assertEqual(result['card'], 'confirm')
+        fields = {f['label']: f['value'] for f in result['card_data']['fields']}
+        self.assertEqual(fields['日期'], '2026-11-05 14:00')
+        self.assertEqual(fields['费用'], '¥3000', '第一轮的费用要从草稿带回来')
+        # action 自带合并参数：确认重放不依赖草稿表（草稿此刻已删）
+        self.assertEqual(result['action']['params']['cost'], 3000)
+        self.assertEqual(result['action']['params']['start_date'], '2026-11-05')
+        self.assertFalse(
+            ActivityDraft.objects.filter(conversation_id=self.cid).exists(),
+            '信息已齐草稿即删')
+
+    def test_apply_after_confirm_replays_merged_params(self):
+        self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'cost': 3000, '_conversation_id': self.cid})
+        self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'start_date': '2026-11-05', '_conversation_id': self.cid})
+        result = self.tool['apply'](self.user, {
+            'name': '去杭州团建', 'cost': 3000, 'start_date': '2026-11-05'})
+        activity = Activity.objects.get(id=result['activity_ids'][0])
+        self.assertEqual(activity.start_date.isoformat(), '2026-11-05')
+        self.assertEqual(activity.expenses.count(), 1)
+
+    def test_new_name_replaces_draft(self):
+        """用户换了个新活动：旧草稿的字段（尤其费用）不能串到新草稿上"""
+        self.tool['fn'](self.user, {
+            'name': '活动甲', 'cost': 100, '_conversation_id': self.cid})
+        self.tool['fn'](self.user, {
+            'name': '活动乙', '_conversation_id': self.cid})
+        draft = self._draft()
+        self.assertEqual(draft.name, '活动乙')
+        self.assertNotIn('cost', draft.params, '旧活动的费用不得串台')
+        self.assertEqual(ActivityDraft.objects.filter(user=self.user).count(), 1,
+                         '一个对话一份')
+
+    def test_force_skips_draft_and_writes_no_draft(self):
+        result = self.tool['fn'](self.user, {
+            'name': '不确定日期的事', 'force': True, '_conversation_id': self.cid})
+        self.assertEqual(result['card'], 'confirm')
+        self.assertFalse(ActivityDraft.objects.exists())
+
+    def test_expired_draft_is_cleared_and_treated_as_absent(self):
+        self.tool['fn'](self.user, {
+            'name': '旧草稿', 'cost': 1, '_conversation_id': self.cid})
+        # updated_at 是 auto_now：时间回填必须走 queryset.update（T3 首跑教训）
+        ActivityDraft.objects.filter(conversation_id=self.cid).update(
+            updated_at=timezone.now() - timedelta(days=4))
+        result = self.tool['fn'](self.user, {
+            'name': '旧草稿', 'cost': 2, '_conversation_id': self.cid})
+        self.assertNotIn('card', result, '过期草稿不参与合并，仍按信息不全走草稿')
+        self.assertEqual(self._draft().params['cost'], 2, '过期草稿已清，不残留旧值')
+
+    def test_no_conversation_id_keeps_confirm_card(self):
+        """旁路调用（无对话归位点）保持旧确认卡行为，绝不落孤儿草稿"""
+        result = self.tool['fn'](self.user, {'name': '名字而已'})
+        self.assertEqual(result['card'], 'confirm')
+        self.assertFalse(ActivityDraft.objects.exists())
+
+    def test_orchestrator_injects_conversation_id_into_params(self):
+        """编排器把 conversation_id 透给工具（跨轮草稿的归位前提）——直接对
+        _dispatch 走一条完整协议 JSON，不依赖模型真发"""
+        from core.agent_registry import ChatOrchestrator
+        # intent 用短名（INTENT_TOOL_MAP 的键），与模型真实输出同形
+        protocol = json.dumps({
+            'intent': 'create',
+            'params': {'name': '编排器直达', 'cost': 50},
+            'reply': '我来帮你创建',
+        }, ensure_ascii=False)
+        content, payload, changed = ChatOrchestrator()._dispatch(
+            self.user, protocol, conversation_id=self.cid)
+        self.assertIn('草稿', content)
+        self.assertEqual(self._draft().params['cost'], 50)
+        self.assertFalse(changed)
+
+    def test_draft_reminder_for_active_draft_only(self):
+        from activities.agent_tools import draft_reminder
+        self.assertEqual(draft_reminder(self.conversation), '', '无草稿时是空串')
+        self.tool['fn'](self.user, {
+            'name': '去杭州团建', 'cost': 3000, '_conversation_id': self.cid})
+        hint = draft_reminder(self.conversation)
+        self.assertIn('去杭州团建', hint)
+        self.assertIn('还缺日期', hint)
+        self.assertIn('activities.create', hint)
 
 
 class ExpenseConfirmFlowTest(TestCase):

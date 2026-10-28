@@ -30,6 +30,7 @@ from core.layout_asserts import assert_desktop_two_columns, code_only
 from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
                          TURN_TTL_SECONDS)
 from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_REF_REMINDER,
+                                 PROTOCOL_SEARCH_REMINDER,
                                  PROTOCOL_TRUNCATED_NOTE, REF_REMINDER_MIN_CHARS,
                                  build_protocol_prompt, extract_intent,
                                  looks_like_protocol, orchestrator,
@@ -935,7 +936,8 @@ class AutoRetryTurnTest(TestCase):
         self.conv = Conversation.objects.create(
             user=self.user, session_id='sess_r', agent_id='ag_r', title='新对话',
             status='processing', turn_state=Conversation.TURN_AWAITING,
-            turn_started_at=timezone.now(), turn_retries=0)
+            turn_started_at=timezone.now(), turn_retries=0,
+            protocol_sent=True)  # 存量会话：首帧早已投过，本轮不该再带协议
         self.msg = Message.objects.create(conversation=self.conv, role='user', content='查一下活动')
         self.conv.turn_message = self.msg
         self.conv.turn_prompt = '完整组装文本'
@@ -1015,7 +1017,8 @@ class AutoRetryTurnTest(TestCase):
         self.assertEqual(service.sent, [], '失败的那次不会把指令送出去')
         _, data = self._poll(service)
         self.assertEqual(data['phase'], 'sent')
-        self.assertEqual(service.sent, ['新问题'], '重发的是同一份 turn_prompt，且只发一份')
+        self.assertEqual(service.sent, [PROTOCOL_SEARCH_REMINDER + '新问题'],
+                         '重发的是同一份 turn_prompt（含恒定检索补发基线），且只发一份')
 
     def test_delivery_failure_after_retries_exhausted_errors(self):
         """首发 + 自动重发都失败：中断气泡（不再无限重试）"""
@@ -1634,6 +1637,84 @@ class ActivityConversationEndpointTest(TestCase):
         data = self._get(service).json()
         self.assertNotEqual(data['conversation_id'], conv_id)
         self.assertTrue(data['created'])
+
+
+class ProtocolRideAlongTest(TestCase):
+    """首帧协议合并投递（2026-10-28）：协议跟随第一轮用户消息进 turn_prompt，
+    不再建对话时单发——单发必与用户第一问撞 409 忙等（「第一条消息特别慢」真因）
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('pr', password='p')
+        self.client.force_login(self.user)
+        from agents.models import AgentConfig, EnvironmentConfig
+        AgentConfig.objects.create(
+            agent_id='agent_chat', name='对话', purpose='knowledge', is_active=True)
+        EnvironmentConfig.objects.create(
+            env_id='env_default', name='默认', is_default=True)
+        self.conv = Conversation.objects.create(
+            user=self.user, session_id='sess_pr', agent_id='ag_pr', title='新对话')
+
+    def _send(self, service):
+        with patch('chat.views.get_service', return_value=service):
+            return self.client.post(
+                f'/chat/{self.conv.id}/send/', {'content': '你好'},
+                HTTP_ACCEPT='application/json')
+
+    def test_first_turn_carries_protocol_and_marks_sent(self):
+        service = FakeQoderService()
+        resp = self._send(service)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(service.sent), 1, '一次投递：协议+首问合并，不单发首帧')
+        prompt = service.sent[0]
+        self.assertIn(build_protocol_prompt(), prompt, '协议正文在 turn_prompt 里')
+        self.assertIn('你好', prompt)
+        self.assertLess(prompt.index(build_protocol_prompt()), prompt.index('你好'),
+                        '协议在前，用户问题在后')
+        conv = Conversation.objects.get(id=self.conv.id)
+        self.assertTrue(conv.protocol_sent)
+        self.assertIn('你好', conv.turn_prompt)
+
+    def test_second_turn_does_not_repeat_protocol(self):
+        service = FakeQoderService()
+        self._send(service)
+        # 第一轮停在 awaiting（测试里没人收尾），开下一轮前先落库结束态
+        Conversation.objects.filter(id=self.conv.id).update(
+            turn_state=Conversation.TURN_DONE)
+        service.sent.clear()
+        with patch('chat.views.get_service', return_value=service):
+            self.client.post(f'/chat/{self.conv.id}/send/', {'content': '第二条'},
+                             HTTP_ACCEPT='application/json')
+        self.assertTrue(service.sent)
+        self.assertNotIn(build_protocol_prompt(), service.sent[0])
+
+    def test_existing_conversation_never_gets_protocol_backfilled(self):
+        """存量会话（迁移回填 protocol_sent=True）建库时都单发过首帧，不再补发"""
+        Conversation.objects.filter(id=self.conv.id).update(protocol_sent=True)
+        service = FakeQoderService()
+        self._send(service)
+        self.assertTrue(service.sent)
+        self.assertNotIn(build_protocol_prompt(), service.sent[0])
+
+    def test_busy_retry_resends_same_prompt_with_protocol(self):
+        """首发撞 409 → 保持 queued → 轮询重发的还是同一份 turn_prompt（协议不掉）"""
+        service = FakeQoderService(send_raises=http_error(409))
+        self._send(service)
+        conv = Conversation.objects.get(id=self.conv.id)
+        self.assertTrue(conv.protocol_sent, '标记在投递前：turn_prompt 已携带协议')
+        self.assertIn(build_protocol_prompt(), conv.turn_prompt)
+
+    def test_create_conversation_sends_nothing_to_platform(self):
+        """建对话链路不再单发首帧（单发就是撞 409 的来源）"""
+        service = _CreateSessionFakeService()
+        activity = Activity.objects.create(user=self.user, name='协议合并')
+        with patch('chat.views.get_service', return_value=service):
+            self.client.get(f'/chat/for-activity/{activity.id}/',
+                            HTTP_ACCEPT='application/json')
+        self.assertEqual(service.sessions_created, 1)
+        self.assertEqual(service.sent, [], '建对话时对平台零消息')
+        new_conv = Conversation.objects.exclude(id=self.conv.id).get(user=self.user)
+        self.assertFalse(new_conv.protocol_sent)
 
 
 class ChatPinWiringTest(SimpleTestCase):
@@ -2403,6 +2484,66 @@ class ProtocolRefExpansionTest(SimpleTestCase):
         self.assertEqual(params['tags'], ['完整的文章正文', '常用'])
 
 
+class RecentContextRefTest(SimpleTestCase):
+    """$RECENT_CONTEXT 引用：跨轮检索的关键词摘要走同一条展开通道"""
+
+    REF = {'LAST_REPLY': '', 'LAST_USER': '', 'RECENT_CONTEXT': '出差 签证 预算'}
+
+    def test_marker_expands_to_recent_keywords(self):
+        params, error = resolve_params_refs({'keyword': '$RECENT_CONTEXT'}, self.REF)
+        self.assertIsNone(error)
+        self.assertEqual(params['keyword'], '出差 签证 预算')
+
+    def test_missing_recent_context_errors_instead_of_passing_token(self):
+        """首条消息没有历史可提炼时报错，绝不把标记原样交给工具当 keyword"""
+        params, error = resolve_params_refs({'keyword': '$RECENT_CONTEXT'}, {})
+        self.assertIsNotNone(error)
+        self.assertEqual(params['keyword'], '$RECENT_CONTEXT')
+
+    def test_protocol_prompt_advertises_the_marker(self):
+        prompt = build_protocol_prompt()
+        self.assertIn('$RECENT_CONTEXT', prompt)
+        self.assertIn('memory_search', prompt)
+
+    def test_per_turn_reminder_carries_the_rule(self):
+        """检索规则必须进每轮补发通道：首帧只对新建对话生效是踩过的坑"""
+        self.assertIn('$RECENT_CONTEXT', PROTOCOL_SEARCH_REMINDER)
+
+
+class RecentContextKeywordTest(TestCase):
+    """_recent_context_keywords：最近几条用户消息 → 提炼后的关键词串"""
+
+    def setUp(self):
+        self.user = User.objects.create_user('recent', password='x')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_recent')
+
+    def _user_msg(self, content):
+        return Message.objects.create(conversation=self.conv, role='user', content=content)
+
+    def test_extracts_keywords_from_recent_user_messages(self):
+        self._user_msg('我下周要去美国出差，帮我看看签证材料')
+        self._user_msg('顺便算一下这次出差的预算')
+        keywords = chat_views._recent_context_keywords(self.conv)
+        self.assertIn('签证', keywords)
+        self.assertIn('预算', keywords)
+        self.assertNotIn('帮我', keywords, '停用词不得混进关键词串')
+
+    def test_empty_conversation_returns_empty_string(self):
+        self.assertEqual(chat_views._recent_context_keywords(self.conv), '')
+
+    def test_window_is_limited_to_recent_messages(self):
+        """只取最近 3 条：三个月前聊的老话题不该稀释当前主题"""
+        old = self._user_msg('聊聊陶艺课的报名流程')
+        Message.objects.filter(id=old.id).update(
+            created_at=timezone.now() - timezone.timedelta(days=90))
+        self._user_msg('帮我订下周二的电影票')
+        self._user_msg('顺便看看天气')
+        self._user_msg('现在的主题是年度预算复盘')
+        keywords = chat_views._recent_context_keywords(self.conv)
+        self.assertIn('预算', keywords)
+        self.assertNotIn('陶艺', keywords)
+
+
 ARTICLE_BODY = '## 核心原理\n\n独处是**力量训练**，不是意志力考验。' * 12
 
 
@@ -2488,7 +2629,9 @@ class StaleSessionReferenceReminderTest(TestCase):
         from django.test.client import RequestFactory
         self.req = RequestFactory().post('/', {})
         self.user = User.objects.create_user('stale', password='x')
-        self.conv = Conversation.objects.create(user=self.user, session_id='sess_stale')
+        # 存量会话（本类锁的就是存量场景）：首帧早已投过，turn_prompt 不该再带协议
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_stale',
+                                                protocol_sent=True)
 
     def _reply(self, body):
         return Message.objects.create(conversation=self.conv, role='assistant',
@@ -2506,12 +2649,13 @@ class StaleSessionReferenceReminderTest(TestCase):
         self.assertTrue(sent.endswith('把这份方案存进知识库'), '用户原文必须还在最后')
 
     def test_short_previous_reply_gets_no_reminder(self):
-        """反向锁：没东西可抄时不递，否则每一轮都在往模型上下文里倒垃圾"""
+        """反向锁：没东西可抄时不递引用规则；恒定的检索关键词补发不受此判据管
+        （它没有条件，每轮都在——这里只锁「除基线外不多一行」）"""
         self._reply('好的，已记录。')
-        self.assertEqual(self._build(), '把这份方案存进知识库')
+        self.assertEqual(self._build(), PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
 
     def test_no_previous_reply_still_sends_nothing(self):
-        self.assertEqual(self._build(), '把这份方案存进知识库')
+        self.assertEqual(self._build(), PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
 
     def test_reminder_never_pollutes_the_stored_message(self):
         """提醒只能上线路，不能写回消息历史

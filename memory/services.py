@@ -9,8 +9,11 @@
 import logging
 import re
 
+from django.db import models
 from django.db.models import F
 from django.utils import timezone
+
+from knowledge.utils import tokenize
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +80,13 @@ def _memory_score(memory, now):
     return memory.importance * decay + access_bonus
 
 
-def retrieve_memories(user, query='', limit=10):
+def retrieve_memories(user, query='', limit=10, category=''):
     """检索用户记忆，按动态权重排序（importance × 时间衰减 + 访问加分）
 
-    - query 非空时：关键词 icontains 匹配 content，仍按动态权重排序
+    - query 非空时：先 tokenize 分词，任一词 icontains 命中即入选（多词 OR，
+      比「整句 icontains」召回高一个量级——用户提问是自然语言，整句模糊匹配
+      几乎必然落空）；分不出词元（全是停用词）时回退整句 icontains
+    - category 非空且合法时按类别过滤（memory_search 工具用，注入路径不传）
     - query 为空时：取候选集 Top 50 按 importance DESC，再 Python 排动态权重取 limit
     - 更新命中记忆的 access_count + last_accessed（批量，失败不阻断）
 
@@ -95,8 +101,18 @@ def retrieve_memories(user, query='', limit=10):
               .exclude(type='document'))  # 文章走 knowledge.search，不混进记忆检索
 
         if query and query.strip():
-            q = query.strip()
-            qs = qs.filter(content__icontains=q)
+            tokens = tokenize(query)
+            if tokens:
+                q = models.Q()
+                for token in tokens:
+                    q |= models.Q(content__icontains=token)
+                qs = qs.filter(q)
+            else:
+                qs = qs.filter(content__icontains=query.strip())
+
+        valid_categories = dict(Memory.CATEGORY_CHOICES).keys()
+        if category and category in valid_categories:
+            qs = qs.filter(category=category)
 
         # 取候选集：按原始 importance 取前 50 条，再 Python 排动态权重。
         # 50 是保守上界：当前用户记忆量级远低于此，未来若超了再调大或迁 DB 表达式。

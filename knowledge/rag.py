@@ -78,10 +78,17 @@ def retrieve_relevant_paragraphs(query, user, top_k=3):
     return candidates[:top_k]
 
 
-def build_rag_context(query, user):
-    """构建 RAG 上下文注入文本，无命中返回空串"""
+def build_rag_context(query, user, exclude_titles=None, top_k=2):
+    """构建 RAG 段落注入文本，无命中返回空串
+
+    exclude_titles：知识注入（全文检索）已带出的文章标题集合——同一段对话里，
+    全文检索与段落检索经常命中同一篇，两段都注入等于双倍 token 换一份内容。
+    top_k 默认 2（2026-10-28 注入瘦身：每轮注入预算有限，段落给最相关的即可）。
+    """
     try:
-        paragraphs = retrieve_relevant_paragraphs(query, user, top_k=3)
+        paragraphs = retrieve_relevant_paragraphs(query, user, top_k=top_k)
+        if exclude_titles:
+            paragraphs = [p for p in paragraphs if p['article_title'] not in exclude_titles]
         if not paragraphs:
             return ''
 
