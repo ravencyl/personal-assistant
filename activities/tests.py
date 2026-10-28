@@ -1543,13 +1543,14 @@ class StatusDisplaySingleSourceTest(TestCase):
                      if self.LEGACY_COLOR_BRANCH.search(t.read_text(encoding='utf-8'))]
         self.assertEqual(offenders, [])
 
-    def test_badge_and_bar_render_from_status_class(self):
+    def test_badge_renders_from_status_class(self):
+        """状态信息由徽章（图标+文字）承载；顶部色条已随 2026-10-27 整站去色删除"""
         activity = Activity.objects.create(user=self.user, name='桐庐周末游',
                                            status='in_progress')
         html = self.client.get(
             reverse('activities:activity_detail', args=[activity.id])).content.decode()
         self.assertIn('badge-status--in_progress', html)
-        self.assertIn('status-bg--in_progress', html)
+        self.assertNotIn('top_bar_color', html)
 
     def test_calendar_payload_carries_status_not_color(self):
         """颜色不在接口层下发，否则前端与后端各一份必然漂移"""
@@ -3075,10 +3076,10 @@ class ListCountColumnsRemovedTest(SimpleTestCase):
 
 
 class TagColorCardTest(TestCase):
-    """活动列表卡片按标签底色呈现（2026-10-13）：
-    桌面表格行 / 移动卡片 / 置顶卡挂首个标签的 --tag-color + tag-wash 浅底，
-    标签列 chip 用 tag-chip 着色并带 tag-dot 色点；无标签卡片保持素面。
-    """
+    """标签色已整体下线（2026-10-27 用户决定，Typeframe 单色化）：
+    活动列表（桌面行/移动卡/置顶卡/标签列 chip）不再携带 tag-wash、
+    --tag-color/--tag-rgb、tag-dot 等任何标签着色机械。Tag.color 字段
+    本身保留（admin 可改，避免破坏性迁移），只是不再用于渲染。"""
 
     @classmethod
     def setUpTestData(cls):
@@ -3101,46 +3102,18 @@ class TagColorCardTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         return resp.content.decode()
 
-    def test_tagged_row_and_card_carry_first_tag_color(self):
+    def test_no_tag_color_machinery_in_list_html(self):
         html = self._page()
-        # 桌面行 + 移动卡 + chip 共 3 处样式变量；wash 只在行/卡 2 处
-        self.assertEqual(html.count('tag-wash'), 2)
-        self.assertEqual(html.count('--tag-color: #34d399'), 3)
-        # rgba 浅底依赖 --tag-rgb 三通道值（color-mix 在旧 iOS 上整条失效）
-        self.assertEqual(html.count('--tag-rgb: 52, 211, 153'), 3)
+        for marker in ('tag-wash', 'tag-chip', 'tag-dot', '--tag-color', '--tag-rgb'):
+            self.assertNotIn(marker, html)
+        # 标签名本身仍要正常展示
+        self.assertIn('旅游', html)
 
-    def test_chip_colored_with_dot(self):
-        html = self._page()
-        self.assertIn('tag-chip', html)
-        self.assertIn('tag-dot', html)
-
-    def test_untagged_card_stays_plain(self):
-        """无标签活动的行/卡不挂 wash（按 data-id 定位各自行/卡的 class）"""
-        html = self._page()
-        plain_id = Activity.objects.get(user=self.user, name='无标签活动').id
-        row = re.search(r'<tr class="([^"]*)" data-id="%d"' % plain_id, html)
-        card = re.search(r'<div class="([^"]*tree-row app-card[^"]*)" data-id="%d"' % plain_id, html)
-        self.assertIsNotNone(row)
-        self.assertIsNotNone(card)
-        self.assertNotIn('tag-wash', row.group(1))
-        self.assertNotIn('tag-wash', card.group(1))
-
-    def test_wash_color_bar_pseudo_never_targets_table_rows(self):
-        """tag-wash 上不允许出现任何 ::before 色条。
-
-        2026-10-16 用户决定：卡片顶部颜色条整体删除，背景浅底即归属代言。
-        锁两层：① 裸 .tag-wash::before 禁止——桌面行也带 .tag-wash 类，tr 上
-        的 ::before 会被 Chrome 包成匿名单元格，整行 td 右移一列、行高 +5px
-        （线上实测错位）；② div 限定的版本也已随色条一起删除，防止它被
-        顺手加回来——行色条只走 td:first-child 内阴影。"""
+    def test_css_no_longer_defines_tag_wash(self):
         css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css').read_text(
             encoding='utf-8')
-        self.assertIsNone(
-            re.search(r'(?<!div)\.tag-wash::before', css),
-            '存在裸 .tag-wash::before——tr 命中后会生成匿名单元格导致整行错位')
-        self.assertIsNone(
-            re.search(r'div\.tag-wash::before', css),
-            'div.tag-wash::before 色条已按用户要求删除（2026-10-16），不要再加回来')
+        for marker in ('.tag-wash', '.tag-chip', '.tag-dot', '--tag-rgb'):
+            self.assertNotIn(marker, css)
 
 
 class MobileActivityCardDisplayTest(TestCase):
@@ -3294,7 +3267,8 @@ class TodayHomeTest(TestCase):
         act = self._activity('旅行计划')
         act.tags.add(tag)
         html = self.client.get('/').content.decode()
-        self.assertIn('--tag-color: #34d399', html)
+        # 标签色已下线（2026-10-27）：标签云只渲染名字与计数，不再带彩点/颜色变量
+        self.assertNotIn('--tag-color', html)
         self.assertIn('旅游', html)
 
     def test_login_required(self):

@@ -269,9 +269,7 @@ def today_home(request):
     timeline.sort(key=lambda a: (a.start_time or time(23, 59), a.start_date or today))
     for a in timeline:
         a.time_label = a.start_time.strftime('%H:%M') if a.start_time else '全天'
-        tags = list(a.tags.all())
-        a.tile_color = tags[0].color if tags and tags[0].color else ''
-        a.tile_tag = tags[0].name if tags else ''
+        a.tile_tag = list(a.tags.all())[0].name if a.tags.all() else ''
 
     # ── 本月支出（个人指标口径：只算本人费用，不走 visible_qs）──
     month_start = today.replace(day=1)
@@ -291,11 +289,9 @@ def today_home(request):
         .order_by('-n', 'sort', 'name')[:8]
     )
 
-    # ── 接下来：7 天内将开始的计划活动（卡片流，颜色取首个标签否则回退状态色）──
+    # ── 接下来：7 天内将开始的计划活动（卡片流）──
     for a in data['upcoming'][:6]:
-        tags = list(a.tags.all())
-        a.tile_color = tags[0].color if tags and tags[0].color else ''
-        a.tile_tag = tags[0].name if tags else ''
+        a.tile_tag = list(a.tags.all())[0].name if a.tags.all() else ''
 
     hour = now.hour
     return render(request, 'activities/today.html', {

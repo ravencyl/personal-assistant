@@ -83,15 +83,14 @@ TodayHomeTest 锁定：「今天的时间线」→「按标签看」→「接下
         </div>
     </div>
 
-    {# ── 按标签看：纯文字标签行（彩点为数据语义色）── #}
+    {# ── 按标签看：纯文字标签行 ── #}
     <div class="relative z-10 mt-11">
         <p class="tf-lb">按标签看</p>
         <div class="flex flex-wrap gap-x-6 gap-y-2.5">
             {% for tag in tag_rows %}
             <a href="{% url 'activities:activity_list' %}?tag={{ tag.name|urlencode }}"
-               class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors"
-               style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }};">
-                <i class="w-1.5 h-1.5 rounded-full flex-none" style="background: var(--tag-color);" aria-hidden="true"></i>{{ tag.name }}
+               class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
+                {{ tag.name }}
                 <span class="tf-num text-base">{{ tag.n }}</span>
             </a>
             {% empty %}

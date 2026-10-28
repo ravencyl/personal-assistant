@@ -26,8 +26,7 @@
                     {% if child.tags.all %}
                     <div class="mt-1 flex flex-wrap gap-1.5">
                         {% for tag in child.tags.all %}
-                        <span class="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
-                              {% if tag.color %}style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }}"{% endif %}>{% if tag.color %}<span class="tag-dot" aria-hidden="true"></span>{% endif %}# {{ tag.name }}</span>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}

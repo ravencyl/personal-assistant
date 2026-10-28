@@ -25,11 +25,11 @@ class Tag(models.Model):
 
     scope = models.CharField('用途', max_length=20, choices=SCOPE_CHOICES, db_index=True)
     name = models.CharField('标签名', max_length=50)
-    # 活动标签的展示底色（#RRGGBB）。创建时留空 → 随机生成一枚中饱和色，
-    # 页面用 color-mix 派生浅底/描边（见 custom.css 的 .tag-wash/.tag-chip）；
-    # 仅 activity scope 使用，其余 scope 留空。
+    # 标签底色（#RRGGBB）。创建时留空 → 随机生成一枚中饱和色，仅 activity scope。
+    # 2026-10-27 整站去色后 UI 不再渲染标签色（tag-wash/tag-chip/tag-dot 已从
+    # custom.css 与模板删除），字段与 admin 取色器保留是为了避免破坏性迁移。
     color = models.CharField('底色', max_length=7, blank=True, default='',
-                             help_text='活动标签的展示底色，留空保存时自动随机生成')
+                             help_text='历史字段：UI 已不渲染，仅 admin 可改')
     sort = models.PositiveIntegerField('排序', default=100)
     is_active = models.BooleanField('启用', default=True)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
@@ -48,11 +48,8 @@ class Tag(models.Model):
 
     @property
     def rgb_triplet(self):
-        """'#34d399' → '52, 211, 153'（模板 rgba(var(--tag-rgb), α) 用）。
-
-        不走 color-mix 派生浅底：iOS 16.2 以下不认 color-mix，整条声明
-        会被静默丢弃（手机端卡片不显色的根因之一）；rgba + 三通道变量
-        全平台通用。兜底灰只在 color 字段异常（非 6 位 hex）时出现。
+        """'#34d399' → '52, 211, 153'。UI 着色已下线（2026-10-27），仅为
+        兼容历史模板/测试保留；异常值（非 6 位 hex）回退中性灰。
         """
         c = self.color.lstrip('#')
         if len(c) != 6:

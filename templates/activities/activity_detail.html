@@ -14,10 +14,8 @@
         <a href="{% url 'activities:activity_list' %}" class="tap-target -my-2 inline-flex items-center text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回列表</a>
     </div>
 
-    <!-- 头部卡片：标题 + 进度条 + 快捷状态 -->
+    <!-- 头部卡片：标题 + 快捷状态 -->
     <div class="app-card overflow-hidden">
-        {# 顶部色条跟随活动标签色（视图注入 top_bar_color），无标签回退状态色 #}
-        <div class="h-1.5 {% if not activity.top_bar_color %}status-bg--{{ activity.status }}{% endif %}"{% if activity.top_bar_color %} style="background: {{ activity.top_bar_color }}"{% endif %}></div>
         <div class="p-4 sm:p-6">
             <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div class="min-w-0">
@@ -65,8 +63,7 @@
                     {% if activity.tags.all %}
                     <div class="mt-2 flex flex-wrap gap-1.5">
                         {% for tag in activity.tags.all %}
-                        <span class="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
-                              {% if tag.color %}style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }}"{% endif %}>{% if tag.color %}<span class="tag-dot" aria-hidden="true"></span>{% endif %}# {{ tag.name }}</span>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"># {{ tag.name }}</span>
                         {% endfor %}
                     </div>
                     {% endif %}

@@ -179,9 +179,7 @@
     {# Pin 的开关只在详情页（2026-10-08 用户要求列表不展示 pin），这里只展示置顶效果 #}
     <div class="space-y-2">
         {% for activity in pinned_activities %}
-        {# 卡片底色 = 首个标签（tag-wash：rgba 浅底即归属代言，色条已按用户要求删除，见 custom.css） #}
-        <div class="app-card px-4 py-3 flex items-center gap-2 flex-wrap{% if activity.tags.all %} tag-wash{% endif %}" data-id="{{ activity.id }}"
-             {% if activity.tags.all %}style="--tag-color: {{ activity.tags.all.0.color }}; --tag-rgb: {{ activity.tags.all.0.rgb_triplet }}"{% endif %}>
+        <div class="app-card px-4 py-3 flex items-center gap-2 flex-wrap" data-id="{{ activity.id }}">
             {% if activity.depth %}<span class="text-[var(--text-muted)] select-none" style="margin-left: {% widthratio activity.depth 1 1 %}em">&#9492;</span>{% endif %}
             <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-[var(--text)] hover:text-[var(--text-secondary)] break-words min-w-0">{{ activity.name }}</a>
             {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
@@ -225,9 +223,8 @@
         </thead>
         <tbody>
             {% for activity in activities %}
-            {# 行底色 = 首个标签（tr 用 background 铺浅底，见 custom.css tr.tag-wash） #}
-            <tr class="hover:bg-[var(--accent-light)] tree-row{% if activity.tags.all %} tag-wash{% endif %}" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
-                style="{% if activity.tags.all %}--tag-color: {{ activity.tags.all.0.color }}; --tag-rgb: {{ activity.tags.all.0.rgb_triplet }};{% endif %}{% if not expand_all and activity.depth %}display:none{% endif %}">
+            <tr class="hover:bg-[var(--accent-light)] tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+                style="{% if not expand_all and activity.depth %}display:none{% endif %}">
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
                         {# 名字行不放控件（树形钮已挪到行尾操作区）：所有名字同列左对齐；#}
@@ -248,8 +245,7 @@
                         {% for tag in activity.tags.all %}
                         <a href="?tag={{ tag.name|urlencode }}{% if tag_link_qs %}&{{ tag_link_qs }}{% endif %}"
                            title="筛选标签「{{ tag.name }}」"
-                           {% if tag.color %}style="--tag-color: {{ tag.color }}; --tag-rgb: {{ tag.rgb_triplet }}"{% endif %}
-                           class="inline-flex items-center{% if tag.color %} gap-1.5 tag-chip border rounded-full px-2 py-0.5{% endif %} text-xs text-[var(--text-secondary)] whitespace-nowrap hover:text-[var(--text)] transition-colors">{% if tag.color %}<span class="tag-dot" aria-hidden="true"></span>{% endif %}# {{ tag.name }}</a>
+                           class="inline-flex items-center text-xs text-[var(--text-secondary)] whitespace-nowrap hover:text-[var(--text)] transition-colors"># {{ tag.name }}</a>
                         {% endfor %}
                     </div>
                 </td>
@@ -285,9 +281,8 @@
      （编辑走详情页，ID 在详情页与对话卡片里仍可口述，费用看详情页）。整卡空白处仍是进详情的触区 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
-    {# 卡片底色 = 首个标签（tag-wash：rgba 浅底，无色条；移动端不展示 chip，颜色即标签的代言） #}
-    <div class="tree-row app-card flex items-center gap-1.5 px-4 py-3{% if activity.tags.all %} tag-wash{% endif %}" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
-         style="{% if activity.tags.all %}--tag-color: {{ activity.tags.all.0.color }}; --tag-rgb: {{ activity.tags.all.0.rgb_triplet }};{% endif %}{% if not expand_all and activity.depth %}display:none{% endif %}">
+    <div class="tree-row app-card flex items-center gap-1.5 px-4 py-3" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
+         style="{% if not expand_all and activity.depth %}display:none{% endif %}">
         <a href="{% url 'activities:activity_detail' activity.id %}"
            class="flex-1 min-w-0 break-words text-sm font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
            style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">{{ activity.name }}</a>

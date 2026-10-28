@@ -18,9 +18,10 @@
 
    【色彩规则】
    - 品牌强调色 = 黑色本身：主按钮黑底白字、链接纯黑、聚焦黑描边
-   - 状态语义色保留（--status-*，数据语义不属于「框线色彩」）：计划=天蓝 /
-     进行中=品牌蓝 / 完成=绿 / 取消=灰
-   - 标签色保留（tag-wash 浅底），同为数据语义
+   - 状态不再用色相（2026-10-27 用户决定整站去色）：--status-* 改为灰阶强度
+     （进行中=黑 > 计划=中灰 > 完成=浅灰 > 取消=最浅+删除线），见下方状态段
+   - 标签色已整体下线（tag-wash/tag-chip/tag-dot/--tag-color 全链删除），
+     Tag.color 字段保留但不再用于渲染
    - 仍然禁止：渐变、大面积色块、装饰性边框
 
    【字体层级】（2026-10-13 收敛为 7 档，同角色禁止多档并存）
@@ -201,14 +202,15 @@
 }
 
 /* 状态语义色：全站唯一定义处（值名 = Activity.STATUS_CHOICES 的 key，
-   日历与图表靠 `var(--status-<status>)` 引用，不再各存一份 hex）*/
+   日历与图表靠 `var(--status-<status>)` 引用，不再各存一份 hex）
+   2026-10-27 用户决定整站去色：状态不再用色相区分，改为「灰阶强度」——
+   进行中=纯黑（正在发生，最强）> 计划=中灰 > 完成=浅灰 > 取消=最浅+删除线；
+   徽章/表单 chip 另有图标与文字，信息不丢。 */
 :root {
-    /* 状态语义色（2026-09-11 用户解禁彩色）：计划=天蓝 / 进行中=品牌蓝 / 完成=绿 / 取消=灰
-       2026-10-16 进行中跟随 Bento 品牌色 #4663ee（旧 periwinkle #6478e8 退役）*/
-    --status-planned: #0284c7;      /* sky-600：白字对比 4.6:1 */
-    --status-in_progress: #4663ee;  /* 品牌蓝 = 进行中即「正在发生」，白字 4.86:1 */
-    --status-done: #16a34a;         /* green-600 */
-    --status-cancelled: #a1a1aa;    /* 退出语义不加色相，维持灰 */
+    --status-planned: #b5b5b5;      /* L4 中灰 */
+    --status-in_progress: #000000;  /* 纯黑 = 正在进行 */
+    --status-done: #d4d4d4;         /* 浅灰 */
+    --status-cancelled: #e5e5e5;    /* L5 最浅 */
 }
 
 /* 背景用状态色：小圆点、顶部色条、日历色块 */
@@ -217,47 +219,28 @@
 .status-bg--done { background: var(--status-done); }
 .status-bg--cancelled { background: var(--status-cancelled); }
 
-/* 线条色用状态色：Daily 卡左侧状态图标（svg 靠 currentColor）*/
-.status-fg--planned { color: var(--status-planned); }
+/* 线条色用状态色：Daily 卡左侧状态图标（svg 靠 currentColor）。
+   图标比色块更需要可见度，这里单独取比 bg 深一档的灰 */
+.status-fg--planned { color: var(--text-muted); }
 .status-fg--in_progress { color: var(--status-in_progress); }
-.status-fg--done { color: var(--status-done); }
-.status-fg--cancelled { color: var(--status-cancelled); }
+.status-fg--done { color: var(--tf-fg4); }
+.status-fg--cancelled { color: var(--tf-fg5); }
 
-/* 状态色块之上的文字色，与 .status-bg--* 成对使用（日历色块等）*/
-.status-fg-on--planned, .status-fg-on--in_progress, .status-fg-on--done { color: #ffffff; }
-.status-fg-on--cancelled { color: #71717a; }
+/* 状态色块之上的文字色，与 .status-bg--* 成对使用（日历色块等）：
+   浅灰底上用黑字，黑底上用白字 */
+.status-fg-on--planned, .status-fg-on--done { color: #000000; }
+.status-fg-on--in_progress { color: #ffffff; }
+.status-fg-on--cancelled { color: var(--text-muted); }
 
-/* 状态徽章（搭配 _status_badge.html 的通用形状类使用）*/
-.badge-status--planned { background: #e0f2fe; color: #0369a1; }
+/* 状态徽章（搭配 _status_badge.html 的通用形状类使用）：灰阶强度递减，
+   进行中黑底白字（黑胶囊 = 主态的既有惯用语），取消沿用删除线 */
+.badge-status--planned { background: var(--accent-light); color: var(--text); }
 .badge-status--in_progress { background: var(--status-in_progress); color: #ffffff; }
-.badge-status--done { background: #dcfce7; color: #15803d; }
+.badge-status--done { background: transparent; color: var(--text-muted); }
 .badge-status--cancelled { color: var(--text-muted); text-decoration: line-through; }
 
-/* 活动标签底色（core.Tag.color，仅 activity scope；2026-10-16 Bento 改版）
-   卡片/行挂 --tag-color（基色）+ --tag-rgb（三通道值）与 .tag-wash：
-   浅底用 rgba(var(--tag-rgb), α) 叠在卡片底上（不用 color-mix——iOS 16.2
-   以下不认，整条声明会被静默丢弃，手机端曾因此完全不显色；2026-10-16
-   顺势删除旧 color-mix 版重复块，本段是唯一实现）。
-   写成 div.tag-wash（特异性 0,1,1）而非 .tag-wash：必须盖过下方 .app-card
-   的白底 background（同特异性时后者胜，段位先后不可靠）。
-   卡片上的颜色条已按用户要求整体删除（2026-10-16）：背景浅底即归属代言。
-   ⚠️ 不要再往 .tag-wash 上挂 ::before 色条（无论裸写还是 div 限定）：桌面行
-   也带 .tag-wash 类，tr 上出现 ::before 会被 Chrome 包成匿名单元格，把整行
-   所有 td 顶后一列并抬高行高（线上实测错位）——行色条只走 td:first-child。 */
-div.tag-wash {
-    background: linear-gradient(rgba(var(--tag-rgb), 0.09), rgba(var(--tag-rgb), 0.09)), var(--bg-card);
-}
-/* 表格行不保证渲染 box-shadow/伪元素，行用 background 铺浅底；hover 加深一档
-   （tr.tag-wash:hover 特异性高于 Tailwind 的 hover:bg-*，行为确定） */
-tr.tag-wash {
-    background: linear-gradient(rgba(var(--tag-rgb), 0.07), rgba(var(--tag-rgb), 0.07)), var(--bg-card);
-}
-tr.tag-wash:hover {
-    background: linear-gradient(rgba(var(--tag-rgb), 0.12), rgba(var(--tag-rgb), 0.12)), var(--bg-card);
-}
 /* 桌面表格行 Typeframe 化（#activity-list 限定，2026-10-27）：去卡片化——
-   无边框、无圆角、无底色，行间靠行高呼吸；悬停整行浅灰提示可点；
-   打色行保留浅标签底作归属提示（数据语义色不属于「框线」范畴）。
+   无边框、无圆角、无底色，行间靠行高呼吸；悬停整行浅灰提示可点。
    背景/悬停底色必须落在单元格上而不是 tr（Chrome 不按 tr 裁切/渲染背景），
    tr:hover td 同域定义压过模板里 Tailwind 的 hover:bg-*。 */
 @media (min-width: 768px) {
@@ -272,26 +255,6 @@ tr.tag-wash:hover {
     #activity-list tbody tr:hover td {
         background: #f5f5f5;
     }
-    #activity-list tbody tr.tag-wash td {
-        background: rgba(var(--tag-rgb), 0.07);
-    }
-    #activity-list tbody tr.tag-wash:hover td {
-        background: rgba(var(--tag-rgb), 0.13);
-    }
-}
-.tag-chip {
-    background: rgba(var(--tag-rgb), 0.13);
-    border-color: rgba(var(--tag-rgb), 0.4);
-}
-.tag-chip:hover {
-    background: rgba(var(--tag-rgb), 0.24);
-}
-.tag-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    background: var(--tag-color);
-    flex: none;
 }
 
 /* 活动表单状态点选 chips（ChipRadioSelect）：radio 隐藏，label 即点选区，
@@ -318,14 +281,14 @@ tr.tag-wash:hover {
     pointer-events: none;
 }
 .status-chip:hover { border-color: var(--accent); color: var(--accent); }
+/* 选中态统一黑底白字（黑胶囊 = 主态惯用语）；四态靠 label 文字与图标区分，
+   状态色已按 2026-10-27 用户决定整体下线 */
 .status-chip:has(input:checked) {
     border-color: transparent;
+    background: var(--accent);
+    color: var(--bg);
     font-weight: 600;
 }
-.status-chip--planned:has(input:checked) { background: #e0f2fe; color: #0369a1; }
-.status-chip--in_progress:has(input:checked) { background: var(--status-in_progress); color: #ffffff; }
-.status-chip--done:has(input:checked) { background: #dcfce7; color: #15803d; }
-.status-chip--cancelled:has(input:checked) { background: var(--border); color: var(--text-muted); }
 /* 键盘可达：radio focus-visible 时给外层 label 描边（input 已隐藏，用 :has 找到）*/
 .status-chip:has(input:focus-visible) {
     outline: 2px solid var(--accent);
