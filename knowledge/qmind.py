@@ -1,8 +1,8 @@
 """QMind 云端知识库客户端
 
-方案 B 的接入层：Article 仍是本地唯一事实源，本模块只负责两件事——
+方案 B 的接入层：Document（memory.Memory 文章代理）仍是本地唯一事实源，本模块只负责两件事——
 ① 语义检索（retrieve）：站内关键词检索的升级，供对话注入与 knowledge.search 使用；
-② 源同步（sync/delete）：Article 保存/删除信号触发的异步镜像上传。
+② 源同步（sync/delete）：Document 保存/删除信号触发的异步镜像上传。
 
 API 契约（2026-09-08 用转发代理逐请求实测验证）：
 - POST /api/v1/jobToken/exchange   {"personal_token": "pt-..."} → {token(jt), expires_in(ms)}

@@ -13,7 +13,7 @@ from activities.models import Activity, Expense
 from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS, get_user_timezone, set_user_timezone, VALID_TIMEZONES, greeting
 from core.search import global_search
 from core.report_generator import generate_report, save_report_to_knowledge
-from knowledge.models import Article
+from knowledge.models import Document
 
 
 @login_required
@@ -129,7 +129,7 @@ def _report_context(user, report_type, period_start, period_end):
     """周报/月报共用上下文构造（参数化消除 weekly/monthly 复制粘贴）"""
     from datetime import datetime
     today = timezone.localdate()
-    existing = Article.objects.filter(
+    existing = Document.objects.filter(
         user=user,
         tags__name=f'report-{report_type}',
         created_at__gte=timezone.make_aware(
@@ -217,7 +217,7 @@ def yearly_report(request):
     title = f'年报 · {year}年'
 
     # 查重：同一年份的年报只保留一份（按标题匹配，兼容跨年生成往年报告）
-    existing = Article.objects.filter(
+    existing = Document.objects.filter(
         user=user,
         tags__name='report-yearly',
         title=title,
@@ -569,7 +569,7 @@ def gather_today(user):
     from datetime import timedelta
     from django.db.models import Q
     from notes.models import Note
-    from knowledge.models import Article as KnowledgeArticle
+    from knowledge.models import Document
     from memory.services import retrieve_memories
 
     today = timezone.localdate()
@@ -594,7 +594,7 @@ def gather_today(user):
     ).order_by('-updated_at')[:5])
 
     # ── 近期知识：最近 7 天更新的文章 ──
-    recent_articles = list(visible_qs(KnowledgeArticle, user).filter(
+    recent_articles = list(visible_qs(Document, user).filter(
         updated_at__date__gte=note_since
     ).order_by('-updated_at')[:3])
 

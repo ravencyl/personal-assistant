@@ -37,7 +37,7 @@
     <!-- 知识库 -->
     {% if results.articles %}
     <div>
-        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">知识库</p>
+        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">文章</p>
         {% for a in results.articles %}
         <a href="{% url 'knowledge:article_detail' a.slug %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
             <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📖</span>

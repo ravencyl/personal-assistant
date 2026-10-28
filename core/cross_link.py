@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # 避免同一份模型映射在本文件里被表达两遍。
 _TARGETS = {
     'activities': ('activities', 'Activity', ('name', 'description')),
-    'articles':   ('knowledge',  'Article', ('title', 'content')),
+    'articles':   ('knowledge',  'Document', ('title', 'content')),
     'notes':      ('notes',      'Note',    ('content',)),
 }
 
@@ -41,10 +41,10 @@ def get_related_content(user, source_model, source_instance, limit=5):
     }
     """
     source_key = source_model.__name__.lower()
-    # Activity → 'activities'; Article → 'articles'; Note → 'notes'
-    if source_key == 'activity':
+    # Activity → 'activities'; Document（Memory 文章代理）→ 'articles'; Note → 'notes'
+    if source_key in ('activity',):
         source_key = 'activities'
-    elif source_key == 'article':
+    elif source_key in ('article', 'document', 'memory'):
         source_key = 'articles'
     elif source_key == 'note':
         source_key = 'notes'
@@ -110,12 +110,12 @@ def _tag_intersection_scores(source_tags, target_model, target_qs, limit=5):
 def _get_text_for_fallback(instance):
     """获取用于分词兜底的文本"""
     from activities.models import Activity
-    from knowledge.models import Article
+    from knowledge.models import Document
     from notes.models import Note
 
     if isinstance(instance, Activity):
         return f'{instance.name} {instance.description}'
-    elif isinstance(instance, Article):
+    elif isinstance(instance, Document):
         return f'{instance.title} {instance.content[:200]}'
     elif isinstance(instance, Note):
         return instance.content[:200]
@@ -142,14 +142,22 @@ def _token_fallback(text, search_fields, target_qs, exclude_ids=None, limit=5):
 
 
 def invalidate_related_cache(sender, instance, **kwargs):
-    """信号处理器：清除关联推荐缓存"""
-    model_name = sender.__name__.lower()
-    if model_name == 'activity':
-        model_name = 'activities'
-    elif model_name == 'article':
+    """信号处理器：清除关联推荐缓存
+
+    Memory/Document 双 sender（proxy 分离）：只有 document（文章）参与
+    关联推荐，fact 条没有任何相关缓存要清，直接跳过。"""
+    if sender.__name__ == 'Memory':
+        if getattr(instance, 'type', '') != 'document':
+            return
         model_name = 'articles'
-    elif model_name == 'note':
-        model_name = 'notes'
+    else:
+        model_name = sender.__name__.lower()
+        if model_name == 'activity':
+            model_name = 'activities'
+        elif model_name in ('article', 'document'):
+            model_name = 'articles'
+        elif model_name == 'note':
+            model_name = 'notes'
 
     # 清除以该实例为源时的缓存
     cache_key = f'related_{model_name}_{instance.id}'

@@ -26,7 +26,7 @@ def _tags_str(obj):
 
 def sync_to_fts(sender, instance, **kwargs):
     """post_save 信号：同步一行到 FTS 表"""
-    module = _module_for_sender(sender)
+    module = _module_for_instance(sender, instance)
     if not module:
         return
     try:
@@ -52,7 +52,7 @@ def sync_to_fts(sender, instance, **kwargs):
 
 def remove_from_fts(sender, instance, **kwargs):
     """post_delete 信号：从 FTS 表删除一行"""
-    module = _module_for_sender(sender)
+    module = _module_for_instance(sender, instance)
     if not module:
         return
     try:
@@ -65,12 +65,19 @@ def remove_from_fts(sender, instance, **kwargs):
         logger.warning('FTS 删除失败 module=%s id=%s', module, instance.pk, exc_info=True)
 
 
-def _module_for_sender(sender):
-    """根据信号 sender 返回模块名"""
+def _module_for_instance(sender, instance):
+    """根据信号 sender（+实例类型）返回模块名；不属于任何索引模块返回 None。
+
+    Memory/Document 双 sender（proxy 分离）：Memory 存储两库合并后的统一表，
+    只有 type='document' 的行按 'article' 模块入 FTS，fact 条不入。
+    """
     name = f'{sender._meta.app_label}.{sender._meta.model_name}'
+    if name == 'knowledge.document':
+        return 'article'
+    if name == 'memory.memory':
+        return 'article' if getattr(instance, 'type', '') == 'document' else None
     return {
         'activities.activity': 'activity',
-        'knowledge.article': 'article',
         'notes.note': 'note',
     }.get(name)
 
@@ -80,21 +87,29 @@ def _module_for_sender(sender):
 def populate_fts():
     """全量重建 FTS 索引（迁移后调用一次）"""
     from activities.models import Activity
-    from knowledge.models import Article
+    from knowledge.models import Document
     from notes.models import Note
 
     count = 0
     with connection.cursor() as cursor:
         cursor.execute(f'DELETE FROM {FTS_TABLE}')
 
-    for Model, module in [(Activity, 'activity'), (Article, 'article'), (Note, 'note')]:
-        rows = []
-        for obj in Model.objects.all().iterator():
-            title = getattr(obj, 'title', '') or getattr(obj, 'name', '') or ''
-            content = getattr(obj, 'content', '') or getattr(obj, 'description', '') or ''
-            tags = _tags_str(obj)
-            rows.append((module, obj.pk, obj.user_id, title, content, tags))
-            count += 1
+    for Model, module in [(Activity, 'activity'), (Document, 'article'), (Note, 'note')]:
+        try:
+            rows = []
+            for obj in Model.objects.all().iterator():
+                title = getattr(obj, 'title', '') or getattr(obj, 'name', '') or ''
+                content = getattr(obj, 'content', '') or getattr(obj, 'description', '') or ''
+                tags = _tags_str(obj)
+                rows.append((module, obj.pk, obj.user_id, title, content, tags))
+                count += 1
+        except Exception:
+            # 目标表还不存在（知识库并入记忆后 Document 实体在 memory app，
+            # 全新库上 core.0012 可能先于 memory 建表执行）。空库本就无数据可填，
+            # 后续写入由 post_save 信号同步，跳过即可；真有数据缺失时手动跑一次
+            # populate_fts 即补齐
+            logger.warning('FTS 填充跳过 %s（表可能尚未建立）', module, exc_info=True)
+            continue
         if rows:
             with connection.cursor() as cursor:
                 cursor.executemany(

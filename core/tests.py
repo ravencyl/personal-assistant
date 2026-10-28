@@ -446,11 +446,11 @@ class AgentRegistryConsistencyTest(TestCase):
         self.assertEqual(sorted(set(_REGISTRY) - bound), [])
 
     def test_prompt_advertises_conversation_to_store_capabilities(self):
-        """对话结论落库的两个出口都要在协议里可见：存知识库、写活动描述"""
+        """对话结论落库的两个出口都要在协议里可见：存文章、写活动描述"""
         from core.agent_registry import build_protocol_prompt
         prompt = build_protocol_prompt()
         self.assertIn('knowledge_create', prompt)
-        self.assertIn('存成一篇知识库文章', prompt)
+        self.assertIn('存成一篇文章', prompt)
         self.assertIn('默认追加到原描述末尾', prompt)
 
 
@@ -592,9 +592,10 @@ class PrimaryNavTest(TestCase):
 
     TEMPLATES = Path(settings.BASE_DIR) / 'templates'
 
-    # 桌面顶栏：六个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
-    # 模板管理/循环活动收在活动记录页头部按钮组，不进导航）
-    DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '知识库', '记忆']
+    # 桌面顶栏：五个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
+    # 模板管理/循环活动收在活动记录页头部按钮组，不进导航。
+    # 「知识库」2026-10-28 数据层并入记忆，导航合并为一个「记忆」入口）
+    DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '记忆']
     # 移动底栏：「记忆」不占位（用户定的口径 —— 手机上不读记忆）；
     # 快记 dock（button，不算导航条目）仍在首位，「今日」随首页复活重新占一席。
     # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里。
@@ -652,12 +653,13 @@ class PrimaryNavTest(TestCase):
         """撤出底栏的模块入口必须仍可达（2026-10-16：备忘/知识库收进「我的」页）。
 
         防的是「从底栏删了条目、却忘了在 dashboard.html 补入口」——那两个模块
-        就从移动端彻底消失（全局搜索里还有入口，但那是兜底不是主路径）。"""
+        就从移动端彻底消失（全局搜索里还有入口，但那是兜底不是主路径）。
+        2026-10-28 知识库并入记忆后，文章入口由「记忆」一个口子承担。"""
         dash = (self.TEMPLATES / 'core' / 'dashboard.html').read_text(encoding='utf-8')
         self.assertIn("{% url 'notes:note_list' %}", dash,
                       'dashboard 缺备忘入口：移动端备忘将无处可去')
-        self.assertIn("{% url 'knowledge:article_list' %}", dash,
-                      'dashboard 缺知识库入口：移动端知识库将无处可去')
+        self.assertIn("{% url 'memory:memory_list' %}", dash,
+                      'dashboard 缺记忆入口：移动端记忆/文章将无处可去')
 
 
 class TodayPageRetiredTest(TestCase):
@@ -934,7 +936,7 @@ class WeeklyReportDesktopLayoutTest(TestCase):
             self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
             left=[('id="report-body"', '报告正文卡'),
                   ('prose prose-sm max-w-2xl', '正文限宽（可读行长不跟着列宽跑）')],
-            right=[('报告去向', '操作卡标题'), ('保存到知识库', '存知识库入口'),
+            right=[('报告去向', '操作卡标题'), ('保存到文章', '存文章入口'),
                    ('推送到对话', '推对话入口')],
             mobile_order=['活动总数', 'id="report-body"', '报告去向'])
 
@@ -944,7 +946,7 @@ class WeeklyReportDesktopLayoutTest(TestCase):
         只锁模板结构，不去发 POST：report_send_to_chat 要求已有一个 idle 会话，
         没会话时返 400，拿它做布局锁会变成在测无关的业务分支。"""
         src = self.TEMPLATE.read_text(encoding='utf-8')
-        self.assertIn('<form method="post">', src, '存知识库的 form 丢了 action 前的原写法')
+        self.assertIn('<form method="post">', src, '存文章的 form 丢了 action 前的原写法')
         self.assertIn("action=\"{% url 'report_send_to_chat' %}\"", src)
         self.assertEqual(src.count('name="content"'), 2, '两个表单的 content 隐藏字段缺一')
         self.assertEqual(src.count('{% csrf_token %}'), 2, '右列里的 csrf 丢了就只会被 403')

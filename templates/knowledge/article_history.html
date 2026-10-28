@@ -7,7 +7,7 @@
     <!-- 头部 -->
     <div class="mb-6">
         <div class="flex items-center gap-2 text-sm text-[var(--text-muted)] mb-2">
-            <a href="{% url 'knowledge:article_list' %}" class="hover:text-[var(--accent)]">知识库</a>
+            <a href="{% url 'knowledge:article_list' %}" class="hover:text-[var(--accent)]">文章</a>
             <span>/</span>
             <a href="{% url 'knowledge:article_detail' article.slug %}" class="hover:text-[var(--accent)] truncate">{{ article.title }}</a>
             <span>/</span>

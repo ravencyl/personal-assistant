@@ -39,19 +39,20 @@ def random_tag_color():
     r, g, b = colorsys.hls_to_rgb(h, l, s)
     return '#%02x%02x%02x' % (round(r * 255), round(g * 255), round(b * 255))
 
-# scope → 业务模型 app 路径；M2M 反向查询名（related query name）单独列出，
-# knowledge 的模型类是 Article，scope 名与反向名不同
+# scope → 业务模型 app 路径；M2M 反向查询名（related query name）单独列出。
+# knowledge 的宿主是 Document（memory.Memory 的代理，2026-10-28 合并），
+# 反向名是 Memory.tags M2M 的默认 'memory'，与 scope 名不同
 _SCOPE_MODEL_PATHS = {
     'activity': 'activities.models.Activity',
     'expense': 'activities.models.Expense',
     'note': 'notes.models.Note',
-    'knowledge': 'knowledge.models.Article',
+    'knowledge': 'knowledge.models.Document',
 }
 _SCOPE_QUERY_NAMES = {
     'activity': 'activity',
     'expense': 'expense',
     'note': 'note',
-    'knowledge': 'article',
+    'knowledge': 'memory',
 }
 
 

@@ -437,7 +437,7 @@
         <div class="space-y-4">
             {% if related_articles %}
             <div>
-                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">知识库文章</h3>
+                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">关联文章</h3>
                 <div class="space-y-2">
                     {% for item in related_articles %}
                     <a href="{% url 'knowledge:article_detail' item.object.slug %}"

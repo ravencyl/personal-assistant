@@ -116,7 +116,7 @@ class KnowledgeSearchFallbackTextTest(TestCase):
         with patch('knowledge.agent_tools.search_articles', return_value=[]):
             result = tool_knowledge_search(user, {'keyword': '美国出差准备'})
         reply = result['reply']
-        self.assertIn('知识库里没有', reply)
+        self.assertIn('记忆和文章里都没有', reply)
         self.assertIn('上网', reply)          # 告诉用户可以直接联网问
         self.assertNotIn('请改用', reply)      # 不能写成给模型看的指令
         self.assertNotIn('intent', reply)
@@ -2441,7 +2441,7 @@ class KnowledgeCreateFromReferenceTest(TestCase):
         article = created.order_by('-id').first()
         self.assertEqual(article.content, ARTICLE_BODY, '正文与引用的那条回复对不上')
         self.assertEqual(article.user, self.user, '文章没归属到当前用户')
-        self.assertIn('已存入知识库', msg.content)
+        self.assertIn('已存为文章', msg.content)
         self.assertTrue(changed)
         # 库里绝不能留下未展开的标记
         self.assertNotIn('$LAST_REPLY', article.content)
@@ -2596,7 +2596,7 @@ class RetryAfterFailureReferenceTest(TestCase):
         否则「把刚才那段话存一下」这类短目标会被静默写成一篇旧长文——存错内容
         比报错糟得多。宁可像旧行为那样失败，也不能偷换内容。
         """
-        confirm = '已存入知识库：《四周独处训练方案》'
+        confirm = '已存为文章：《四周独处训练方案》'
         Message.objects.create(conversation=self.conv, role='assistant', content=confirm)
         self.assertNotIn(PROTOCOL_REF_REMINDER, self._build())
         self._store('短')
@@ -2728,7 +2728,7 @@ class PartialProtocolSalvageTest(TestCase):
         for leaked in ('{"intent"', '"params"', '"reply"'):
             self.assertNotIn(leaked, content, f'协议原文泄到界面上：{leaked}')
         # knowledge.search 的固定口径 —— 出现它就证明工具真跑了
-        self.assertIn('知识库里没有与「岗位交接 SOP」相关的文章', content)
+        self.assertIn('记忆和文章里都没有与「岗位交接 SOP」相关的内容', content)
         self.assertFalse(changed)
 
     def test_salvage_executes_write_operations(self):

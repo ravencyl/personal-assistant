@@ -1,6 +1,6 @@
 """全局搜索引擎
 
-跨 Activity / Article / Note / Conversation / Message / Memory 六个模块的统一搜索。
+跨 Activity / 文章(Document) / Note / Conversation / Message / Memory 六个模块的统一搜索。
 FTS5 可用时优先走全文索引（BM25 排序），不可用时静默降级为 icontains。
 """
 import logging
@@ -32,7 +32,7 @@ def global_search(user, query, limit_per_module=5):
 
     返回格式: {
         'activities': [Activity, ...],
-        'articles': [Article, ...],
+        'articles': [Document, ...],
         'notes': [Note, ...],
         'conversations': [Conversation, ...],
         'messages': [(Message, Conversation), ...],
@@ -62,13 +62,13 @@ def global_search(user, query, limit_per_module=5):
     results['activities'] = list(activities)
 
     # 知识库：搜索标题、内容、标签
-    from knowledge.models import Article
+    from knowledge.models import Document
     if fts_used and fts_ids.get('article'):
-        articles = visible_qs(Article, user).filter(
+        articles = visible_qs(Document, user).filter(
             pk__in=fts_ids['article']
         )[:limit_per_module]
     else:
-        articles = visible_qs(Article, user).filter(
+        articles = visible_qs(Document, user).filter(
             q_or(('title', 'content', 'tags__name'), q)
         ).distinct()[:limit_per_module]
     results['articles'] = list(articles)

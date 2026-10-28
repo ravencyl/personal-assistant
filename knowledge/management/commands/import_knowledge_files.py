@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from knowledge.models import Article
+from knowledge.models import Document
 from django.contrib.auth import get_user_model
 
 
@@ -21,9 +21,9 @@ class Command(BaseCommand):
         
         for f in knowledge_dir.glob('*.md'):
             title = f.stem
-            if Article.objects.filter(title=title).exists():
+            if Document.objects.filter(title=title).exists():
                 self.stdout.write(f'跳过已存在的：{title}')
                 continue
             content = f.read_text(encoding='utf-8')
-            Article.objects.create(user=user, title=title, content=content)
+            Document.objects.create(user=user, title=title, content=content)
             self.stdout.write(f'已导入：{title}')

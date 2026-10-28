@@ -119,7 +119,8 @@ class Command(BaseCommand):
         # 只扫仍在「参与召回」的条目；candidate 等复验流程裁决，不归遗忘管
         candidates = (Memory.objects
                       .filter(status='active')
-                      .exclude(sensitivity='sensitive'))
+                      .exclude(sensitivity='sensitive')
+                      .exclude(type='document'))  # 文章不参与遗忘（去留只归 owner）
         for memory in candidates:
             age_days = (now - memory.updated_at).total_seconds() / 86400
             score = retention_score(memory, now)

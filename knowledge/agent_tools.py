@@ -15,8 +15,9 @@ from core.agent_registry import (CandidateToolError, ToolError, agent_tool,
 from core.tags import add_tags, apply_tags
 from core.utils import get_visible, visible_qs
 from chat.models import Message
+from memory.models import Memory
 
-from .models import Article
+from .models import Document
 from .utils import search_articles
 
 # 未展开的协议引用标记（$LAST_REPLY / $LAST_USER），定义见 core.agent_registry
@@ -33,10 +34,17 @@ def _article_url(article):
     return unquote(reverse('knowledge:article_detail', kwargs={'slug': article.slug}))
 
 
-@agent_tool('knowledge.search', '在用户自己保存的知识库文章里检索（语义检索，能命中近义表达；'
+@agent_tool('knowledge.search', '在用户自己的记忆与文章里检索（语义检索，能命中近义表达；'
+                        '覆盖文章和 AI 记住的事实/偏好/目标，用户问“我还记不记得/之前存过什么”时用它；'
                         '只能查本地存量内容，通用知识/时效/攻略类问题不要用它，应直接联网回答或走 ask）',
-            'keyword（搜索关键词或自然语言问题，必填）+ tag（标签，可选）')
+            'keyword（搜索关键词或自然语言问题，必填）+ tag（标签，可选，只作用于文章）')
 def tool_knowledge_search(user, params):
+    """统一检索：文章分区（原知识库）+ 记忆事实条一起查，分区呈现
+
+    2026-10-28 两库数据层合并后，「记忆里有没有…」和「知识库里有没有…」
+    对用户是同一个问题，分两个工具问两遍只会得到半个答案。文章走语义检索
+    （QMind 优先 + 关键词兜底），事实条走 icontains（量小，够用）。
+    """
     keyword = str(params.get('keyword') or '').strip()
     if not keyword:
         raise ToolError('请告诉我搜索关键词')
@@ -44,7 +52,7 @@ def tool_knowledge_search(user, params):
 
     if tag:
         # 带标签条件时走本地检索（QMind 不支持按站内标签过滤）
-        articles = search_articles(visible_qs(Article, user), keyword, tag=tag, limit=5)
+        articles = search_articles(visible_qs(Document, user), keyword, tag=tag, limit=5)
         hits = [{'title': a.title, 'content': a.content, 'score': None, 'article': a}
                 for a in articles]
     else:
@@ -52,22 +60,41 @@ def tool_knowledge_search(user, params):
 
         hits = search_knowledge(user, keyword, limit=5)
 
-    if not hits:
+    # 记忆事实条（active/candidate；文档分区已在上面查过）
+    fact_hits = list(
+        Memory.objects.filter(user=user,
+                              status__in=['active', 'candidate'],
+                              content__icontains=keyword)
+        .exclude(type='document')
+        .order_by('-importance', '-updated_at')[:3])
+
+    if not hits and not fact_hits:
         # 工具返回的 reply 会直接展示给用户（不会再送回模型），所以只写给用户看的口语，
-        # 不能写成对模型的指令；同时给出可操作的下一步（知识库存量以外的信息可以联网问）
+        # 不能写成对模型的指令；同时给出可操作的下一步（存量以外的信息可以联网问）
         hint = f'（标签：{tag}）' if tag else ''
-        return {'reply': f'知识库里没有与「{keyword}」相关的文章{hint}——这一类只能查你自己存进知识库的内容。'
+        return {'reply': f'记忆和文章里都没有与「{keyword}」相关的内容{hint}——'
+                         '这一类只能查你自己存进来的东西。'
                          '外部信息直接问我就行（例如“上网查一下美国出差要提前准备什么”）。'}
 
     items = []
-    for h in hits:
-        summary = h['content'][:200].replace('\n', ' ').strip()
-        ellipsis = '...' if len(h['content']) > 200 else ''
-        url = _article_url(h['article']) if h.get('article') else ''
-        suffix = f'（{url}）' if url else ''
-        items.append(f'• {h["title"]}：{summary}{ellipsis}{suffix}')
+    if hits:
+        items.append('文章：')
+        for h in hits:
+            summary = h['content'][:200].replace('\n', ' ').strip()
+            ellipsis = '...' if len(h['content']) > 200 else ''
+            url = _article_url(h['article']) if h.get('article') else ''
+            suffix = f'（{url}）' if url else ''
+            items.append(f'• {h["title"]}：{summary}{ellipsis}{suffix}')
+    if fact_hits:
+        if items:
+            items.append('')
+        items.append('记忆：')
+        for m in fact_hits:
+            cat_labels = dict(Memory.CATEGORY_CHOICES)
+            label = cat_labels.get(m.category, '其他')
+            items.append(f'• ({label}) {m.content}')
     return {
-        'reply': f'找到 {len(items)} 篇相关知识库文章：\n' + '\n'.join(items),
+        'reply': f'找到 {len(hits) + len(fact_hits)} 条相关内容：\n' + '\n'.join(items),
     }
 
 
@@ -88,7 +115,7 @@ def _parse_tags(raw):
     return out[:5]
 
 
-@agent_tool('knowledge.create', '把一段内容存成一篇知识库文章（用户说“存进知识库 / 记成文章 / '
+@agent_tool('knowledge.create', '把一段内容存成一篇文章（用户说“存成文章 / 记成文章 / '
                              '把刚才那段结论沉淀下来”时用）。'
                              '正文是本轮对话里已经出现过的长内容时，content 直接写引用标记 "$LAST_REPLY"，'
                              '不要重新抄写（重抄长文会被回复长度上限截断）；'
@@ -98,7 +125,7 @@ def tool_knowledge_create(user, params):
     title = str(params.get('title') or params.get('name') or '').strip()
     content = str(params.get('content') or '').strip()
     if not title:
-        raise ToolError('请给这篇知识库文章一个标题')
+        raise ToolError('请给这篇文章一个标题')
     if not content:
         raise ToolError('请告诉我要存进去的内容（可以直接说“把刚才那段结论整理成文章”）')
     if _UNRESOLVED_REF.match(content):
@@ -110,8 +137,8 @@ def tool_knowledge_create(user, params):
         # 太短不像一篇可复用的文章，多半是模型没把上下文展开成正文
         raise ToolError('内容太短，存进去以后也查不出什么；请补完整或说明要保存哪一段结论')
 
-    # slug 由 Article.save() 按标题自动生成并消重（中文 slug 走 allow_unicode），不手拼
-    article = Article.objects.create(user=user, title=title[:255], content=content)
+    # slug 由 Document.save() 按标题自动生成并消重（中文 slug 走 allow_unicode），不手拼
+    article = Document.objects.create(user=user, title=title[:255], content=content)
     tags = _parse_tags(params.get('tags'))
     if tags:
         apply_tags(article, tags)
@@ -119,12 +146,12 @@ def tool_knowledge_create(user, params):
     url = _article_url(article)
     tag_note = f'，标签：{"、".join(tags)}' if tags else ''
     return {
-        'reply': f'已存入知识库：《{article.title}》（{url}）{tag_note}',
+        'reply': f'已存为文章：《{article.title}》（{url}）{tag_note}',
         'changed': True,
     }
 
 
-@agent_tool('knowledge.update', '更新用户知识库里的已有文章（用户说“更新/修改/补充/完善《XX》那篇文章”时用）。'
+@agent_tool('knowledge.update', '更新用户已有的文章（用户说“更新/修改/补充/完善《XX》那篇文章”时用）。'
                              '只处理用户明确点名的修改，不要因为对话里出现新信息就自动改写文章；'
                              '正文是本轮对话里已经出现过的长内容时写引用标记 "$LAST_REPLY"，不要重新抄写',
             'target（目标文章标题关键词，必填）+ title（新标题，可选）+ '
@@ -152,7 +179,7 @@ def tool_knowledge_update(user, params):
         # 整段替换成一小句话多半是模型没把上下文展开，宁可拒绝
         raise ToolError('替换后的正文太短，请补完整内容；只是补充几句话请用追加模式')
 
-    qs = visible_qs(Article, user).filter(title__icontains=target).order_by('-updated_at')
+    qs = visible_qs(Document, user).filter(title__icontains=target).order_by('-updated_at')
     index = parse_pick_index(params.get('pick'))
     if index is not None:
         items = Message.latest_pick_items(user, tool_prefix='knowledge.')
@@ -161,13 +188,13 @@ def tool_knowledge_update(user, params):
                 raise ToolError(
                     f'上一轮候选只有 {len(items)} 篇，你要的「第 {index} 篇」对不上；'
                     '请在候选卡上点「选它」，或再说一次是哪一篇')
-            article = get_visible(Article, user, id=items[index - 1]['id'])
+            article = get_visible(Document, user, id=items[index - 1]['id'])
             return _apply_article_update(user, article, new_title, content, mode, tags)
         # 没有可用的候选上下文：忽略 pick 按标题继续，宁慢勿错
     count = qs.count()
     if count == 0:
-        raise ToolError(f'知识库里没有标题包含「{target}」的文章——'
-                        '如果是新内容，请说「存进知识库」新建一篇')
+        raise ToolError(f'没有标题包含「{target}」的文章——'
+                        '如果是新内容，请说「存成文章」新建一篇')
     if count > 1:
         candidates = [{
             'id': a.id,

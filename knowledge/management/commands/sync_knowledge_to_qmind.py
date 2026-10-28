@@ -10,7 +10,7 @@
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 
-from knowledge.models import Article
+from knowledge.models import Document
 from knowledge.qmind import configured
 from knowledge.qmind_sync import _sync_article
 
@@ -29,10 +29,10 @@ class Command(BaseCommand):
 
         force = options['force']
         # 系统级同步命令，不走 visible_qs（镜像不区分归属，超管口径之外的全部存量）
-        qs = Article.objects.all()
+        qs = Document.objects.all()
         if force:
-            Article.objects.update(qmind_sync_hash='', qmind_source_id='')
-            qs = Article.objects.all()
+            Document.objects.update(qmind_sync_hash='', qmind_source_id='')
+            qs = Document.objects.all()
         else:
             qs = qs.filter(Q(qmind_sync_hash='') | Q(qmind_source_id=''))
 

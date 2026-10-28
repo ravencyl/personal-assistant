@@ -9,7 +9,7 @@ personal_assistant/   根配置（settings、urls、wsgi）
 core/                 横切能力层：报告生成、全局搜索、跨模块关联
 activities/           业务 app：活动 CRUD、费用、预算、模板、循环活动、附件
 notes/                业务 app：快速备忘
-knowledge/            业务 app：Markdown 知识库文章 + AI 问答
+knowledge/            业务 app：文章（= memory.Memory 的 type='document' 分区，Document 代理）+ AI 问答
 chat/                 对话层：会话管理、消息收发、AI 卡片渲染
 agents/               代理层：Qoder Cloud Agent 配置同步、Environment 管理
 ```
@@ -270,6 +270,35 @@ none → queued → awaiting → finalizing → done
 
 回归锁：`memory/tests.py::MemoryTraceUiTest`（来源链接 / 取代指针与状态徽章 / 审计时间线 / 导出入口）、`RunEvalSmokeTest`（t6 套件冒烟 + 夹具格式机检）。
 
+## 知识库并入记忆（2026-10-28，数据层合并）
+
+Article/ArticleVersion 实体已并入 `memory.Memory`（type='document'）/ `memory.MemoryVersion`，
+knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy + DocumentManager
+强制 type='document' 过滤、create 默认补 type）。导航合并为一个「记忆」入口，记忆页与
+文章页头部互切分区。改这两个模块前必读：
+
+- **proxy 的 signal sender 与实体类不同**：post_save/post_delete 对 `Document` 和 `Memory`
+  是两个 sender，`knowledge/apps.py`（QMind 同步）与 `core/apps.py`（FTS/cross_link）对
+  **两个都要 connect**，handler 内用 `instance.type == 'document'` 分流。只连一个，另一半
+  写路径的同步就静默丢失
+- **文章对记忆治理链全程隐身**：`retrieve_memories` / `build_memory_index_context` /
+  `sweep_memories` / `consolidate_memories` / `_find_similar` / memory 列表·统计·目标进度
+  / memory.search 工具一律 `.exclude(type='document')`——文章是长文，混进注入会撑爆
+  3000 字符预算、混进取代链会被 500 字校验截断。新增记忆侧查询时默认带上这个排除
+- **memory.update 工具拒绝 document 目标**（`_apply` 入口 ToolError）：文章有自己的编辑
+  页 + 版本链（knowledge.update），走事实记忆的取代/删除会毁掉长文
+- **knowledge.search 是统一检索**：文章（语义检索层）+ 记忆事实条（icontains）分区呈现；
+  `memory.search` 只查事实条。工具描述与 reply 文案一律说「记忆/文章」，不再说「知识库」
+- **QMind 同步指纹是模块函数** `knowledge/qmind_sync.py::content_hash(instance)`（md5 of
+  `title\ncontent`），不在模型上——别在 Memory 上找 `sync_hash()` 方法，也没有
+- **老 URL 与 slug 全保留**：`/knowledge/<slug>/`、`knowledge:` 命名空间、文章 slug、标签
+  （scope=knowledge 的反向查询名是 `memory`）都没变，迁移 0007 幂等、可反向
+- 测试兼容别名 `knowledge.models.Article = Document`（存量测试与旧引用统一指代理类）
+
+回归锁：`memory/tests.py`（document 不进注入/检索/批扫）、`knowledge/tests.py`（Document
+代理 + 统一检索 + QMind 同步）、`core/tests.py::PrimaryNavTest`（顶栏五项）、
+`knowledge/tests.py::KnowledgeSearchAgentToolQMindTest`（事实条也进统一检索）。
+
 ## 快记面板口径（2026-09-21）
 
 - **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来
@@ -320,7 +349,7 @@ AI（对话 `activities.create` / `activities.update`、快速输入 AI 解析�
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
 - **模板结构**：`templates/` 下按 app 分目录（`templates/activities/`、`templates/chat/` 等），继承 `base.html`
-- **主导航只放一级模块，附属设施不进导航**：顶栏六项（今日、活动记录、AI 对话、备忘、知识库、记忆），移动底部 Tab 五项（不占「记忆」位）。活动模块的附属页面（日历、下一步行动）入口在 `activity_list.html` 头部按钮组，**不得往 `base.html` 导航里加路由**。判定新页面该不该上导航的依据：它是不是一个独立内容域。`app_name='activities'` 的页面靠导航里「活动记录」的 `app_name` 判定自动点亮，归属关系不会丢。删/加条目必须同步改底部栏的 `grid-cols-N`（`core/tests.py::PrimaryNavTest` 断言列数 == 条目数，不一致时移动端底栏会留空格或换行）
+- **主导航只放一级模块，附属设施不进导航**：顶栏五项（今日、活动记录、AI 对话、备忘、记忆；「知识库」2026-10-28 数据层并入记忆，文章=type='document' 的记忆条目，记忆页与文章页头部互切分区），移动底部 Tab 五项（不占「记忆」位）。活动模块的附属页面（日历、下一步行动）入口在 `activity_list.html` 头部按钮组，**不得往 `base.html` 导航里加路由**。判定新页面该不该上导航的依据：它是不是一个独立内容域。`app_name='activities'` 的页面靠导航里「活动记录」的 `app_name` 判定自动点亮，归属关系不会丢。删/加条目必须同步改底部栏的 `grid-cols-N`（`core/tests.py::PrimaryNavTest` 断言列数 == 条目数，不一致时移动端底栏会留空格或换行）
 - **上下文键不得占用框架保留名**：视图 context 里禁用 `messages`（`django.contrib.messages` 的 flash 变量，`base.html` 顶部提示条在读它）、`user`、`perms`、`request`。曾把 Message queryset 放进 `messages`，基模板就按 `Message.__str__`（「[role] 正文前 50 字」）把整段对话历史渲染到页面顶部，看着像调试信息泄漏，同时 flash 提示静默失效；现在用 `chat_messages`，`chat/tests.py::ConversationDetailContextTest` 会扫模板兼断言
 - **样式**：Tailwind CSS v4 + CSS 变量（`--text`、`--bg`、`--border` 等），响应式布局（移动端堆叠 + 桌面端横排）
 - **状态已整站去色（2026-10-27 用户决定）**：活动状态不再用色相，只用**灰阶强度**表达 —— `custom.css` 的 `--status-<status>` 变量改存灰阶（进行中=纯黑 > 计划=中灰 > 完成=浅灰 > 取消=最浅），类结构保留：`.status-bg--`（圆点/日历块）/ `.status-fg--`（图标）/ `.badge-status--`（徽章，取消态为删除线）+ `{{ activity.status }}`；状态选择 chips（`forms/status_option.html`）选中统一黑底反白，不再按状态分支配色。**禁止恢复按状态分支的 `bg-zinc-*` / `text-zinc-*`**，也禁止在视图/接口里下发 hex；`.status-fg-on--` 仅剩模板零星引用，新代码不用（`activities/tests.py::StatusDisplaySingleSourceTest` 守住）

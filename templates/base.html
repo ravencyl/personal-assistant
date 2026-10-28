@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
-    <meta name="description" content="{{ SITE_NAME }} · 活动与费用管理、AI 对话、知识库与每日简报">
+    <meta name="description" content="{{ SITE_NAME }} · 活动与费用管理、AI 对话、记忆与文章">
     <meta name="csrf-token" content="{{ csrf_token }}">
     {# Web Push VAPID 公钥：push.js 读取，未配置时 push_ready=False 不渲染铃铛入口 #}
     <meta name="vapid-key" content="{{ vapid_public_key }}">
@@ -106,7 +106,8 @@
                         </div>
                         {% if user.is_authenticated %}
                         {% comment %}
-                        主导航只放六个一级模块。模板管理与循环活动不在这里：
+                        主导航只放五个一级模块（「知识库」2026-10-28 并入「记忆」）。
+                        模板管理与循环活动不在这里：
                         它们是「活动记录」的附属设施（模板=活动骨架，循环=活动生成器），
                         入口在活动记录页头部的按钮组（模板/循环/日历/下一步行动/新建），
                         挪进导航只会让顶栏变臃肿，且这两个 app_name='activities'
@@ -130,12 +131,9 @@
                                class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'notes' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 备忘
                             </a>
-                            <a href="{% url 'knowledge:article_list' %}"
-                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'knowledge' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
-                                知识库
-                            </a>
+                            {# 「知识库」2026-10-28 数据层并入记忆，只留一个「记忆」入口（模板行注释不能跨行） #}
                             <a href="{% url 'memory:memory_list' %}"
-                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
+                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'knowledge' or request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 记忆
                             </a>
                         </div>
@@ -527,7 +525,7 @@
                     <svg class="w-5 h-5 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
-                    <input id="search-input" type="text" placeholder="搜索活动、知识库、备忘、对话..."
+                    <input id="search-input" type="text" placeholder="搜索活动、文章、备忘、对话..."
                            class="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
                            autocomplete="off"
                            hx-get="{% url 'global_search' %}"

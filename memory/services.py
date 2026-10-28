@@ -91,7 +91,8 @@ def retrieve_memories(user, query='', limit=10):
 
     try:
         qs = (Memory.objects.filter(user=user, consolidated=False,
-                                    status__in=['active', 'candidate']))
+                                    status__in=['active', 'candidate'])
+              .exclude(type='document'))  # 文章走 knowledge.search，不混进记忆检索
 
         if query and query.strip():
             q = query.strip()
@@ -228,7 +229,7 @@ def _find_similar(user, content, exclude_ids=None):
         return None
     qs = Memory.objects.filter(
         user=user, consolidated=False, status__in=['active', 'candidate'],
-    )
+    ).exclude(type='document')  # 文章不参与记忆查重/合并（长文会假阳性命中）
     if exclude_ids:
         qs = qs.exclude(id__in=exclude_ids)
     existing = qs.order_by('-importance', '-updated_at')[:100]
@@ -275,6 +276,10 @@ def gate_and_write(user, candidate, source_message=None, user_text='',
                 f'有一段内容涉及{label}，按隐私规则我不会把它存进记忆。')
 
     memory_type = str(candidate.get('type') or 'semantic').strip()
+    if memory_type == 'document':
+        # 文章不允许从记忆门控进：门控按 500 字短条口径处理，长文会被截成碎片。
+        # 文章只经 knowledge.create / 表单创建，这里强制回落语义条。
+        memory_type = 'semantic'
     if memory_type not in dict(Memory.TYPE_CHOICES):
         memory_type = 'semantic'
 
@@ -520,7 +525,8 @@ def build_memory_index_context(user, budget=INJECTION_CHAR_BUDGET):
     try:
         qs = (Memory.objects.filter(user=user, status='active',
                                     sensitivity='normal')
-              .exclude(type='episodic'))
+              .exclude(type='episodic')
+              .exclude(type='document'))  # 文章只走 RAG/统一搜索，绝不进常驻注入
         procedural = list(
             qs.filter(type='procedural')
             .order_by('-importance', '-updated_at')[:PROCEDURAL_FULL_MAX])

@@ -7,10 +7,16 @@ class KnowledgeConfig(AppConfig):
     verbose_name = '知识库'
 
     def ready(self):
-        # Article → QMind 异步镜像同步（knowledge/qmind_sync），失败只记日志
+        # Memory(document) → QMind 异步镜像同步（knowledge/qmind_sync），失败只记日志。
+        # proxy 的 sender 与实体类不同：保存走 Document、迁移/旁路可能走 Memory，
+        # 两个 sender 都要连，handler 内按 type 判断（fact 条直接跳过）。
         from django.db.models.signals import post_delete, post_save
 
-        from . import models, qmind_sync
+        from memory.models import Memory
 
-        post_save.connect(qmind_sync.article_saved, sender=models.Article)
-        post_delete.connect(qmind_sync.article_deleted, sender=models.Article)
+        from . import qmind_sync, models
+
+        post_save.connect(qmind_sync.article_saved, sender=models.Document)
+        post_save.connect(qmind_sync.article_saved, sender=Memory)
+        post_delete.connect(qmind_sync.article_deleted, sender=models.Document)
+        post_delete.connect(qmind_sync.article_deleted, sender=Memory)

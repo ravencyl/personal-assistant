@@ -1,12 +1,12 @@
 from django import forms
 
 from core.forms import PlainTagField, PlainTagFormMixin
-from .models import Article
+from .models import Document
 
 
 class ArticleForm(PlainTagFormMixin, forms.ModelForm):
     class Meta:
-        model = Article
+        model = Document
         fields = ['title', 'content', 'tags']
         widgets = {
             'title': forms.TextInput(attrs={

@@ -192,7 +192,7 @@ def build_report_push_payload(user, report_type):
     from activities.models import Activity, Expense
     from core.report_generator import generate_report, save_report_to_knowledge
     from core.utils import visible_qs, week_monday
-    from knowledge.models import Article
+    from knowledge.models import Document
 
     today = timezone.localdate()
     is_weekly = report_type == 'weekly'
@@ -209,7 +209,7 @@ def build_report_push_payload(user, report_type):
     period_start_aware = timezone.make_aware(
         dt.datetime.combine(period_start, dt.time.min))
 
-    article = Article.objects.filter(
+    article = Document.objects.filter(
         user=user, tags__name=tag, created_at__gte=period_start_aware,
     ).first()
     if article is None:

@@ -1,8 +1,8 @@
 from django.contrib import admin
-from .models import Article
+from .models import Document
 
 
-@admin.register(Article)
+@admin.register(Document)
 class ArticleAdmin(admin.ModelAdmin):
     list_display = ['title', 'user', 'updated_at']
     list_filter = ['updated_at']

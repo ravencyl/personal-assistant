@@ -6,7 +6,7 @@ from django.db import models
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
-from .models import Article, ArticleVersion
+from .models import Document, MemoryVersion
 from .forms import ArticleForm
 from core.models import Tag
 from core.tags import apply_tags, used_tags
@@ -19,7 +19,7 @@ ARTICLE_LIST_PAGE_SIZE = 30
 @login_required
 def article_list(request):
     """文章列表，支持标签筛选、关键词搜索与分页"""
-    articles = visible_qs(Article, request.user).prefetch_related('tags')
+    articles = visible_qs(Document, request.user).prefetch_related('tags')
     
     # 标签筛选（自建 core.Tag 无 slug，直接用标签名匹配）
     tag_slug = request.GET.get('tag')
@@ -52,11 +52,11 @@ def article_list(request):
 @login_required
 def article_detail(request, slug):
     """文章详情"""
-    article = get_visible(Article, request.user, slug=slug)
+    article = get_visible(Document, request.user, slug=slug)
 
     # 跨模块关联推荐
     from core.cross_link import get_related_content
-    related = get_related_content(request.user, Article, article, limit=5)
+    related = get_related_content(request.user, Document, article, limit=5)
 
     return render(request, 'knowledge/article_detail.html', {
         'article': article,
@@ -89,14 +89,14 @@ def article_create(request):
 @login_required
 def article_edit(request, pk):
     """编辑文章"""
-    article = get_visible(Article, request.user, pk=pk)
+    article = get_visible(Document, request.user, pk=pk)
     
     if request.method == 'POST':
         form = ArticleForm(request.POST, instance=article)
         if form.is_valid():
             # 保存前自动创建版本快照
-            ArticleVersion.objects.create(
-                article=article,
+            MemoryVersion.objects.create(
+                memory=article,
                 content=article.content,
                 title=article.title,
                 edit_note='保存前自动快照',
@@ -118,7 +118,7 @@ def article_edit(request, pk):
 @login_required
 def article_delete(request, pk):
     """删除文章"""
-    article = get_visible(Article, request.user, pk=pk)
+    article = get_visible(Document, request.user, pk=pk)
     
     if request.method == 'POST':
         title = article.title
@@ -176,7 +176,7 @@ def suggest_tags(request):
 @login_required
 def article_history(request, pk):
     """文章版本历史"""
-    article = get_visible(Article, request.user, pk=pk)
+    article = get_visible(Document, request.user, pk=pk)
     versions = article.versions.all()[:20]
 
     return render(request, 'knowledge/article_history.html', {

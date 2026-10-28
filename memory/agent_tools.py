@@ -23,8 +23,10 @@ def tool_memory_search(user, params):
 
     category = str(params.get('category') or '').strip()
 
+    # 文章（type='document'）归 knowledge.search 管，不混进记忆搜索结果
     qs = (Memory.objects.filter(user=user, consolidated=False,
-                                status__in=['active', 'candidate']))
+                                status__in=['active', 'candidate'])
+          .exclude(type='document'))
 
     # 关键词匹配
     qs = qs.filter(content__icontains=query)
@@ -84,6 +86,12 @@ def tool_memory_update(user, params):
         from .services import log_audit, supersede_memory
 
         user_text = str(params.get('_user_text') or '')
+
+        # 文章（type='document'）有自己的编辑与版本链（knowledge.update），
+        # 走事实记忆的取代/删除链会截断或毁掉长文，一律拒绝
+        if memory.type == 'document':
+            raise ToolError('这条是知识文章，不是记忆条目——'
+                            '请用「更新文章」的方式修改它')
 
         if void:
             name = memory.content
@@ -167,6 +175,7 @@ def tool_memory_update(user, params):
     qs = (Memory.objects.filter(user=user, consolidated=False,
                                 status__in=['active', 'candidate'],
                                 content__icontains=target)
+          .exclude(type='document')
           .order_by('-importance', '-updated_at'))
     count = qs.count()
     if count == 0:

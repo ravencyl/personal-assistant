@@ -120,6 +120,7 @@
 <div class="page-rail space-y-4 sm:space-y-6">
 
 <!-- 内容入口：备忘/知识库 2026-10-16 撤出移动底栏（用户要求），入口落在这里。
+     「知识库」2026-10-28 并入记忆后改叫「文章」（列表页标签为 文章/记忆 分区）。
      桌面顶栏仍有同功能入口，md:hidden 避免重复 -->
 <div class="app-card p-4 md:hidden">
     <h2 class="text-sm font-semibold text-[var(--text)] mb-3">内容</h2>
@@ -127,8 +128,8 @@
         <a href="{% url 'notes:note_list' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
             备忘
         </a>
-        <a href="{% url 'knowledge:article_list' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
-            知识库
+        <a href="{% url 'memory:memory_list' %}" class="px-1 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
+            记忆
         </a>
     </div>
 </div>

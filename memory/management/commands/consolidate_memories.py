@@ -74,6 +74,7 @@ class Command(BaseCommand):
         groups = (
             Memory.objects
             .filter(consolidated=False)
+            .exclude(type='document')  # 文章不参与聚合（它们本身就是聚合产物）
             .values('user_id', 'category')
             .annotate(cnt=Count('id'))
             .filter(cnt__gte=min_size)
@@ -95,7 +96,8 @@ class Command(BaseCommand):
             memories = list(
                 Memory.objects.filter(
                     user_id=user_id, category=category, consolidated=False,
-                ).order_by('-importance', '-updated_at')[:20]  # 上限 20 条防 prompt 过长
+                ).exclude(type='document')
+                .order_by('-importance', '-updated_at')[:20]  # 上限 20 条防 prompt 过长
             )
 
             if dry_run:

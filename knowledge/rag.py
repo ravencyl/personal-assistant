@@ -50,10 +50,10 @@ def retrieve_relevant_paragraphs(query, user, top_k=3):
 
     返回: [{'article_title': str, 'article_slug': str, 'paragraph': str, 'score': float}, ...]
     """
-    from knowledge.models import Article
+    from knowledge.models import Document
     from core.utils import visible_qs
 
-    articles = visible_qs(Article, user)
+    articles = visible_qs(Document, user)
     query_tokens = _tokenize(query)
 
     if not query_tokens:

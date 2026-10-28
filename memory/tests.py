@@ -33,7 +33,8 @@ class MemoryModelTest(TestCase):
 
     def test_create_memory(self):
         m = Memory.objects.create(user=self.user, content='喜欢喝咖啡', category='preference', importance=6)
-        self.assertEqual(str(m), '(偏好) 喜欢喝咖啡')
+        # __str__ 2026-10-28 起带类型标签（文章分区共享这张表，admin 里要能区分）
+        self.assertEqual(str(m), '喜欢喝咖啡（语义）')
         self.assertEqual(m.importance, 6)
         self.assertEqual(m.access_count, 0)
 

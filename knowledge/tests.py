@@ -20,7 +20,7 @@ from core.layout_asserts import assert_desktop_two_columns, code_only
 from core.agent_registry import ToolError, get_tool
 from core.utils import visible_qs
 
-from . import qmind
+from . import qmind, qmind_sync
 from .models import Article
 from .retrieval import search_knowledge
 
@@ -388,7 +388,7 @@ class ArticleQMindSyncSignalTest(TestCase):
         m_sync.assert_called_once()
         article.refresh_from_db()
         self.assertEqual(article.qmind_source_id, 'src-1')
-        self.assertEqual(article.qmind_sync_hash, article.sync_hash())
+        self.assertEqual(article.qmind_sync_hash, qmind_sync.content_hash(article))
 
     def test_unchanged_resave_skips_sync(self):
         with patch('knowledge.qmind_sync._enabled', return_value=True), \
@@ -449,7 +449,19 @@ class KnowledgeSearchAgentToolQMindTest(TestCase):
         with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
              patch('knowledge.qmind.retrieve', return_value=[]):
             out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '不存在的主题'})
-        self.assertIn('知识库里没有', out['reply'])
+        self.assertIn('记忆和文章里都没有', out['reply'])
+
+    def test_search_covers_memory_facts_too(self):
+        """合并后统一检索：事实条也要出现在 knowledge.search 结果里"""
+        from memory.services import gate_and_write
+        gate_and_write(self.user, {'content': '每周三晚上去健身房'},
+                       user_text='记住我每周三晚上健身')
+        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
+             patch('knowledge.qmind.retrieve', return_value=[]):
+            out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '健身'})
+        self.assertIn('记忆：', out['reply'])
+        self.assertIn('每周三晚上去健身房', out['reply'])
+        self.assertNotIn('文章：', out['reply'])
 
 
 class ArticleTagEditRegressionTest(TestCase):

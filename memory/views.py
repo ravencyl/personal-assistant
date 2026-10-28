@@ -66,7 +66,9 @@ def _memory_list_context(request):
     保证「筛选 / 保存 / 取消」三条 swap 路径渲染出的片段形状一致。
     """
     query, category, page = _list_params(request)
-    memories = visible_qs(Memory, request.user)
+    # 文章分区不进记忆卡片流（2026-10-28 两库合并）：文章列表在 /knowledge/，
+    # 记忆页只管 fact 条——编辑表单按 500 字短条口径截断，长文进来会被毁掉
+    memories = visible_qs(Memory, request.user).exclude(type='document')
     if category:
         memories = memories.filter(category=category)
     if query:
@@ -98,7 +100,7 @@ def _compute_goal_progress(user):
     from django.db.models import Q
     from activities.models import Activity
 
-    goals = visible_qs(Memory, user).filter(category='goal')
+    goals = visible_qs(Memory, user).filter(category='goal').exclude(type='document')
     result = []
     for goal in goals:
         keywords = goal.content.split()[:3]
@@ -145,6 +147,9 @@ def memory_list(request):
 def memory_edit(request, memory_id):
     """编辑记忆（HTMX 局部渲染）"""
     memory = get_visible(Memory, request.user, id=memory_id)
+    if memory.type == 'document':
+        # 文章有自己的编辑页（保留版本历史），不进 500 字短条表单
+        return redirect('knowledge:article_edit', pk=memory.id)
 
     if request.method == 'POST':
         # 提交编辑
@@ -212,7 +217,7 @@ def memory_stats_api(request):
     from django.db.models import Count
     from django.utils import timezone
 
-    all_memories = visible_qs(Memory, request.user)
+    all_memories = visible_qs(Memory, request.user).exclude(type='document')
 
     # 分类统计
     cat_stats = list(

@@ -63,8 +63,8 @@ def _search_local(user, query, limit):
 
 
 def _article_model():
-    from .models import Article
-    return Article
+    from .models import Document
+    return Document
 
 
 def _match_article(articles, title):

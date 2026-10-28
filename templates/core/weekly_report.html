@@ -45,7 +45,7 @@
 
 {% comment %}
 桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
-  左列 = 主内容流（报告正文）；右列 = 操作入口（存知识库 / 推对话 / 返回仪表盘）。
+  左列 = 主内容流（报告正文）；右列 = 操作入口（存文章 / 推对话 / 返回仪表盘）。
 正文不让它吃满 864px 左列：prose 限 max-w-2xl，与改造前的可读行长一致。
 右列整块排在左列之后，移动端顺序（标题→统计→正文→操作）逐块不变。
 {% endcomment %}
@@ -71,7 +71,7 @@
             {% csrf_token %}
             <input type="hidden" name="content" value="{{ markdown }}">
             <button type="submit" class="w-full px-4 py-2 rounded-full bg-[var(--accent)] text-white text-sm hover:bg-[var(--accent-hover)] transition-colors">
-                保存到知识库
+                保存到文章
             </button>
         </form>
         <form method="post" action="{% url 'report_send_to_chat' %}">

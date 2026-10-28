@@ -10,6 +10,11 @@
 {% block content %}
 <!-- 头部 -->
 <div class="mb-6">
+    {# 分区切换（2026-10-28 知识库并入记忆）：记忆页 = 记忆条目，文章页 = type='document' 的记忆 #}
+    <div class="flex items-center gap-1 text-sm mb-3">
+        <span aria-current="page" class="tap-target rounded-full px-3 py-1 font-medium bg-[var(--accent)] text-white">记忆</span>
+        <a href="{% url 'knowledge:article_list' %}" class="tap-target rounded-full px-3 py-1 font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">文章</a>
+    </div>
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-xl font-bold text-[var(--text)]">AI 记忆</h1>

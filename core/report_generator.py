@@ -342,12 +342,12 @@ def _fallback_yearly_report(data, period_start, period_end):
 
 
 def save_report_to_knowledge(user, report_type, title, content):
-    """将报告保存为知识库 Article + 标签"""
-    from knowledge.models import Article
+    """将报告保存为知识文章（Memory document 分区）+ 标签"""
+    from knowledge.models import Document
 
     from core.tags import add_tags
 
-    article = Article.objects.create(
+    article = Document.objects.create(
         user=user,
         title=title,
         content=content,
