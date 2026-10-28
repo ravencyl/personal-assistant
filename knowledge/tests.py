@@ -14,7 +14,6 @@ from django.core.cache import cache
 from django.test import TestCase, Client, override_settings
 
 from activities.models import Activity
-from notes.models import Note
 from core.layout_asserts import assert_desktop_two_columns, code_only
 
 from core.agent_registry import ToolError, get_tool
@@ -231,11 +230,9 @@ class ArticleDetailDesktopLayoutTest(TestCase):
         self.article = Article.objects.create(user=self.user, title='桐庐周末游',
                                               content='# 行程\n\n龙井峡漂流，记得带泳衣。')
         apply_tags(self.article, ['自驾'])
-        # 「相关活动与笔记」是条件块，没有共同标签就整块不渲染，顺序锁会空跑
+        # 「相关活动」是条件块，没有共同标签就整块不渲染，顺序锁会空跑
         trip = Activity.objects.create(user=self.user, name='新西兰之旅')
         apply_tags(trip, ['自驾'])
-        note = Note.objects.create(user=self.user, content='新西兰南岛自驾路线草稿')
-        apply_tags(note, ['自驾'])
         self.html = self.client.get(f'/knowledge/{self.article.slug}/').content.decode()
 
     def test_desktop_two_columns(self):

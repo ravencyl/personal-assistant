@@ -127,10 +127,6 @@
                                class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'chat' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 AI 对话
                             </a>
-                            <a href="{% url 'notes:note_list' %}"
-                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'notes' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
-                                备忘
-                            </a>
                             {# 「知识库」2026-10-28 数据层并入记忆，只留一个「记忆」入口（模板行注释不能跨行） #}
                             <a href="{% url 'memory:memory_list' %}"
                                class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'knowledge' or request.resolver_match.app_name == 'memory' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
@@ -188,26 +184,9 @@
                 <span class="text-sm font-semibold text-[var(--text)]">快记</span>
                 <button type="button" id="quick-close-btn" class="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] text-lg leading-none" title="关闭">&times;</button>
             </div>
-            <!-- Tab 切换（纯 JS）。费用 Tab 已删（2026-09-21，用户决定）：费用一定关联活动，
-                 不会有单独的费用，记费用统一走活动详情页的费用表单 -->
-            <div class="flex gap-2 px-4 pt-3">
-                <button type="button" data-quick-tab="note" class="tap-target rounded-full text-xs font-medium px-4 py-1.5 bg-[var(--accent)] text-white transition-colors">备忘</button>
-                <button type="button" data-quick-tab="activity" class="tap-target text-xs font-medium px-2 py-1.5 text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">活动</button>
-            </div>
-            <!-- 备忘 Tab -->
-            <form id="quick-note-form" data-quick-pane="note" class="p-4 space-y-2">
-                <textarea name="content" rows="4" placeholder="记点什么…"
-                          class="tf-underline w-full bg-transparent px-0 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none"></textarea>
-                <div class="flex justify-end">
-                    <button type="submit"
-                            class="tap-target rounded-full bg-[var(--accent)] text-white text-xs font-medium px-4 hover:bg-[var(--accent-hover)] transition-colors">保存</button>
-                </div>
-                <p data-quick-status class="hidden text-xs text-[var(--text-muted)]"></p>
-            </form>
+            <!-- Tab 切换已随备忘 Tab 下线（2026-10-28 备忘功能整体下线）：面板只剩「一句话创建活动」 -->
             <!-- 活动 Tab（一句话创建：parse-quick-input AI 优先 + 规则兜底） -->
-            <form id="quick-activity-form" data-quick-pane="activity" class="hidden p-4 space-y-2">
-                <!-- 与备忘 Tab 同式样（2026-10-16 用户要求两端输入框一致）：rows=4 + rounded-2xl，
-                     不再用胶囊单行 input；JS 仍读 [name="text"].value，textarea 直接兼容 -->
+            <form id="quick-activity-form" class="p-4 space-y-2">
                 <textarea name="text" rows="4" maxlength="500" placeholder="一句话创建活动，如：8月25到28日去上海出差 预算3000 #工作"
                           class="tf-underline w-full bg-transparent px-0 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none"></textarea>
                 <div class="flex justify-end">
@@ -241,7 +220,7 @@
     {% if user.is_authenticated %}
     <!-- 移动端底部导航（Typeframe 2026-10-27）：纯文字行——白底、无胶囊无玻璃，
          激活黑粗、未激活灰（mockup .mob-nav 同款）。条目清单仍由 PrimaryNavTest 锁定：
-         快记 dock + 今日/活动/对话/我的；备忘/知识库入口在「我的」(dashboard) 页。 -->
+         快记 dock + 今日/活动/对话/我的；「记忆」入口在桌面顶栏（2026-10-28 备忘已下线）。 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg)] pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
         <div class="mx-auto max-w-md flex items-center justify-around px-2">
             <button type="button" data-quick-toggle aria-label="快记" class="tap-target px-3 py-1 text-sm leading-none text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">＋</button>
@@ -286,13 +265,6 @@
 
         function openPanel() {
             panel.classList.remove('hidden');
-            // 记住上次用的 Tab（2026-10-13 建活动提速：默认停在备忘让建活动每次多切一下）
-            try {
-                var last = localStorage.getItem('pa_quick_tab');
-                if (last && tabBtns.some(function (b) { return b.getAttribute('data-quick-tab') === last; })) {
-                    switchTab(last);
-                }
-            } catch (e) { /* 隐私模式等 localStorage 不可用：保持默认 Tab */ }
         }
         function closePanel() { panel.classList.add('hidden'); }
 
@@ -303,37 +275,18 @@
         });
         document.getElementById('quick-close-btn').addEventListener('click', closePanel);
 
-        // ── Tab 切换（纯 JS） ──
-        var tabBtns = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-tab]'));
-        var panes = Array.prototype.slice.call(panel.querySelectorAll('[data-quick-pane]'));
-        function switchTab(name) {
-            try { localStorage.setItem('pa_quick_tab', name); } catch (e) { /* 同 openPanel */ }
-            tabBtns.forEach(function (b) {
-                var active = b.getAttribute('data-quick-tab') === name;
-                b.classList.toggle('bg-[var(--accent)]', active);
-                b.classList.toggle('text-white', active);
-                b.classList.toggle('border', !active);
-                b.classList.toggle('border-[var(--border-strong)]', !active);
-                b.classList.toggle('text-[var(--text-secondary)]', !active);
-                b.classList.toggle('hover:bg-[var(--accent-light)]', !active);
-            });
-            panes.forEach(function (p) {
-                p.classList.toggle('hidden', p.getAttribute('data-quick-pane') !== name);
-            });
+        // 暴露给对话卡片内的操作按钮（卡片操作行走 data-quick-open，委托在 chat-turn.js）：
+        // 面板只剩「活动」一个 Tab，任何名字都只开面板（历史卡片残留的 note/expense 同此）。
+        window.paQuickOpen = function (name) { openPanel(); };
+
+        // ── 弱网兜底：网络失败入离线队列（业务 400 仍即时提示不入队） ──
+        function netFail(err) { return (err instanceof TypeError) || navigator.onLine === false; }
+        function stashOffline(url, body, headers, follow) {
+            if (window.PaOutbox) window.PaOutbox.enqueue(url, body, headers, follow);
+            return '已暂存，联网后自动提交';
         }
-        tabBtns.forEach(function (b) {
-            b.addEventListener('click', function () { switchTab(b.getAttribute('data-quick-tab')); });
-        });
 
-        // 暴露给对话卡片内的操作按钮（daily 简报卡的「新建活动 / 新建备忘」走 data-quick-open，
-        // 委托在 chat-turn.js）：打开面板并切到指定 Tab，不跳页。
-        // 传了已删除的 Tab 名（如历史卡片残留的 expense）→ 回退到备忘，别把面板切成全隐藏
-        window.paQuickOpen = function (name) {
-            openPanel();
-            var exists = tabBtns.some(function (b) { return b.getAttribute('data-quick-tab') === name; });
-            switchTab(exists ? name : 'note');
-        };
-
+        // ── 活动 Tab：一句话 → 解析（AI 优先，可能耗时）→ 确认创建（消费方式照抄 activity_list.html） ──
         function setStatus(el, msg) { el.textContent = msg; el.classList.remove('hidden'); }
         function setBtnLoading(btn, loading, text) {
             if (loading) {
@@ -345,41 +298,6 @@
                 if (btn.dataset.idleText) btn.textContent = btn.dataset.idleText;
             }
         }
-
-        // ── 弱网兜底：网络失败入离线队列（业务 400 仍即时提示不入队） ──
-        function netFail(err) { return (err instanceof TypeError) || navigator.onLine === false; }
-        function stashOffline(url, body, headers, follow) {
-            if (window.PaOutbox) window.PaOutbox.enqueue(url, body, headers, follow);
-            return '已暂存，联网后自动提交';
-        }
-
-        // ── 备忘 Tab ──
-        var noteForm = document.getElementById('quick-note-form');
-        var noteBtn = noteForm.querySelector('button[type="submit"]');
-        var noteStatus = noteForm.querySelector('[data-quick-status]');
-        var noteUrl = '{% url "notes:note_create" %}';
-        noteForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-            if (noteBtn.disabled) return;
-            setBtnLoading(noteBtn, true, '保存中…');
-            var noteBody = new URLSearchParams(new FormData(noteForm)).toString();
-            var noteHeaders = { 'X-CSRFToken': csrf, 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' };
-            fetch(noteUrl, {
-                method: 'POST',
-                body: noteBody,
-                headers: noteHeaders
-            }).then(function (r) {
-                return r.json().then(function (d) { return { ok: r.ok, data: d }; });
-            }).then(function (res) {
-                if (!res.ok) { setStatus(noteStatus, res.data.error || '保存失败，请重试'); return; }
-                setStatus(noteStatus, '备忘已保存');
-                noteForm.querySelector('[name="content"]').value = '';
-            }).catch(function (err) {
-                setStatus(noteStatus, netFail(err) ? stashOffline(noteUrl, noteBody, noteHeaders) : '网络异常，请重试');
-            }).finally(function () { setBtnLoading(noteBtn, false); });
-        });
-
-        // ── 活动 Tab：一句话 → 解析（AI 优先，可能耗时）→ 确认创建（消费方式照抄 activity_list.html） ──
         var actForm = document.getElementById('quick-activity-form');
         var actBtn = actForm.querySelector('button[type="submit"]');
         var actStatus = actForm.querySelector('[data-quick-status]');
@@ -525,7 +443,7 @@
                     <svg class="w-5 h-5 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
-                    <input id="search-input" type="text" placeholder="搜索活动、文章、备忘、对话..."
+                    <input id="search-input" type="text" placeholder="搜索活动、文章、对话..."
                            class="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
                            autocomplete="off"
                            hx-get="{% url 'global_search' %}"
@@ -543,10 +461,6 @@
                         <a href="{% url 'activities:activity_create' %}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
                             <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
                             <span class="text-sm text-[var(--text)]">新建活动</span>
-                        </a>
-                        <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
-                            <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
-                            <span class="text-sm text-[var(--text)]">写备忘</span>
                         </a>
                     </div>
                 </div>

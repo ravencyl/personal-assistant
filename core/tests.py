@@ -16,7 +16,6 @@ from core.tags import (add_tags, apply_tags, active_tag_names, split_tag_names,
 from core.models import Tag
 from activities.models import Activity, Expense
 from knowledge.models import Article
-from notes.models import Note
 from chat.models import Conversation, Message
 from django.http import Http404
 from core.utils import (visible_child_qs, get_visible_child, q_or,
@@ -45,10 +44,6 @@ class CrossLinkTest(TestCase):
         self.article2 = Article.objects.create(user=self.user, title='杭州周边游', content='推荐...')
         apply_tags(self.article2, ['旅行'])
 
-        # 创建带共同标签的笔记
-        self.note1 = Note.objects.create(user=self.user, content='周末去桐庐玩，记得带泳衣')
-        apply_tags(self.note1, ['旅行', '周末'])
-
     def test_tag_intersection_basic(self):
         """标签交集计算正确"""
         results = _tag_intersection_scores(
@@ -56,7 +51,6 @@ class CrossLinkTest(TestCase):
             Article.objects.filter(user=self.user), limit=5
         )
         self.assertTrue(len(results) >= 1)
-        # article1 有 1 个共同标签（旅行），note1 有 2 个（旅行+周末）
         # article1 和 article2 都只有 1 个共同标签（旅行）
         self.assertEqual(results[0]['score'], 1)
 
@@ -69,31 +63,22 @@ class CrossLinkTest(TestCase):
         self.assertEqual(results, [])
 
     def test_get_related_content_from_activity(self):
-        """从 Activity 调用，返回 articles 和 notes（不含 activities）"""
+        """从 Activity 调用，返回 articles（不含 activities）"""
         related = get_related_content(self.user, Activity, self.activity, limit=5)
         self.assertIn('articles', related)
-        self.assertIn('notes', related)
         self.assertNotIn('activities', related)
         # article1 应该被推荐（共同标签：旅行）
         article_ids = [r['object'].id for r in related['articles']]
         self.assertIn(self.article1.id, article_ids)
 
     def test_get_related_content_from_article(self):
-        """从 Article 调用，返回 activities 和 notes（不含 articles）"""
+        """从 Article 调用，返回 activities（不含 articles）"""
         related = get_related_content(self.user, Article, self.article1, limit=5)
         self.assertIn('activities', related)
-        self.assertIn('notes', related)
         self.assertNotIn('articles', related)
         # activity 应该被推荐（共同标签：旅行）
         activity_ids = [r['object'].id for r in related['activities']]
         self.assertIn(self.activity.id, activity_ids)
-
-    def test_get_related_content_from_note(self):
-        """从 Note 调用，返回 activities 和 articles（不含 notes）"""
-        related = get_related_content(self.user, Note, self.note1, limit=5)
-        self.assertIn('activities', related)
-        self.assertIn('articles', related)
-        self.assertNotIn('notes', related)
 
     def test_token_fallback(self):
         """标签不足时分词兜底"""
@@ -121,17 +106,18 @@ class CrossLinkTest(TestCase):
         activity2 = Activity.objects.create(user=self.user, name='杭州周末游')
         apply_tags(activity2, ['旅行', '周末'])
         related = get_related_content(self.user, Activity, activity2, limit=5)
-        # 结果中不应包含 activity2 自身（Activity 结果在 'articles'/'notes' 里，不含 'activities'）
+        # 结果中不应包含 activity2 自身（Activity 结果在 'articles' 里，不含 'activities'）
         self.assertNotIn('activities', related)
 
     def test_score_reflects_shared_tags(self):
         """分数反映共同标签数量"""
-        # note1 有 '旅行'+'周末' 两个标签与 activity 相同
+        # article2 只与 activity 共享 '旅行'；article4 再多共享一个 '周末'
+        article4 = Article.objects.create(user=self.user, title='周末行前清单', content='...')
+        apply_tags(article4, ['旅行', '周末'])
         related = get_related_content(self.user, Activity, self.activity, limit=5)
-        note_results = related.get('notes', [])
-        note1_result = next((r for r in note_results if r['object'].id == self.note1.id), None)
-        self.assertIsNotNone(note1_result)
-        self.assertEqual(note1_result['score'], 2)  # 旅行 + 周末
+        scores = {r['object'].id: r['score'] for r in related['articles']}
+        self.assertEqual(scores[self.article2.id], 1)  # 旅行
+        self.assertEqual(scores[article4.id], 2)  # 旅行 + 周末
 
 
 class GlobalSearchTest(TestCase):
@@ -144,7 +130,6 @@ class GlobalSearchTest(TestCase):
         apply_tags(self.activity, ['旅行'])
 
         self.article = Article.objects.create(user=self.user, title='桐庐攻略', content='详细攻略内容')
-        self.note = Note.objects.create(user=self.user, content='周末去桐庐玩')
 
     def test_global_search_activities(self):
         results = global_search(self.user, '桐庐')
@@ -153,10 +138,6 @@ class GlobalSearchTest(TestCase):
     def test_global_search_articles(self):
         results = global_search(self.user, '攻略')
         self.assertTrue(any(a.id == self.article.id for a in results['articles']))
-
-    def test_global_search_notes(self):
-        results = global_search(self.user, '周末')
-        self.assertTrue(any(n.id == self.note.id for n in results['notes']))
 
     def test_global_search_empty_query(self):
         results = global_search(self.user, '')
@@ -365,20 +346,18 @@ class VisibilityHelperTest(TestCase):
 
 
 class GlobalSearchVisibilityTest(TestCase):
-    """全局搜索各模块必须同一可见性口径（H4 的实证：笔记/消息曾落后于其他模块）"""
+    """全局搜索各模块必须同一可见性口径（H4 的实证：消息曾落后于其他模块）"""
 
     def setUp(self):
         self.owner = User.objects.create_user('owner', password='p')
-        self.note = Note.objects.create(user=self.owner, content='他人的笔记关键词')
         self.conv = Conversation.objects.create(
             user=self.owner, session_id='sess_other_note', agent_id='agent_1')
         Message.objects.create(conversation=self.conv, role='user',
                                content='他人的消息关键词')
 
-    def test_superuser_finds_other_users_notes_and_messages(self):
+    def test_superuser_finds_other_users_messages(self):
         admin = User.objects.create_superuser('root', password='p')
         results = global_search(admin, '关键词')
-        self.assertIn(self.note.id, [n.id for n in results['notes']])
         self.assertEqual(len(results['messages']), 1)
 
     def test_regular_user_still_isolated(self):
@@ -388,15 +367,14 @@ class GlobalSearchVisibilityTest(TestCase):
 
 
 class CrossAppVisibilityTest(TestCase):
-    """H4：笔记 / 文章页的可见性必须与活动模块同一口径（均经 core/utils）
+    """H4：文章页的可见性必须与活动模块同一口径（均经 core/utils）
 
-    以前这两个 app 是“仅本人可见”，活动是“超管全可见”，同一个超管在不同
+    以前文章页是“仅本人可见”，活动是“超管全可见”，同一个超管在不同
     页面上看到的数据范围不一致。
     """
 
     def setUp(self):
         self.owner = User.objects.create_user('owner', password='p')
-        self.note = Note.objects.create(user=self.owner, content='超管可见的笔记')
         self.article = Article.objects.create(
             user=self.owner, title='超管可见的文章', content='正文')
         self.client = Client()
@@ -405,13 +383,10 @@ class CrossAppVisibilityTest(TestCase):
 
     def test_superuser_lists_other_users_content(self):
         self.client.login(username='root', password='p')
-        self.assertContains(self.client.get(reverse('notes:note_list')), '超管可见的笔记')
         self.assertContains(self.client.get(reverse('knowledge:article_list')), '超管可见的文章')
 
     def test_stranger_cannot_reach_single_objects(self):
         self.client.login(username='stranger', password='p')
-        self.assertEqual(
-            self.client.get(reverse('notes:note_edit', args=[self.note.id])).status_code, 404)
         self.assertEqual(
             self.client.get(reverse('knowledge:article_edit', args=[self.article.pk])).status_code, 404)
         self.assertEqual(
@@ -419,8 +394,6 @@ class CrossAppVisibilityTest(TestCase):
 
     def test_superuser_can_open_other_users_objects(self):
         self.client.login(username='root', password='p')
-        self.assertEqual(
-            self.client.get(reverse('notes:note_edit', args=[self.note.id])).status_code, 200)
         self.assertEqual(
             self.client.get(reverse('knowledge:article_detail', args=[self.article.slug])).status_code, 200)
 
@@ -592,17 +565,18 @@ class PrimaryNavTest(TestCase):
 
     TEMPLATES = Path(settings.BASE_DIR) / 'templates'
 
-    # 桌面顶栏：五个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
+    # 桌面顶栏：四个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
     # 模板管理/循环活动收在活动记录页头部按钮组，不进导航。
-    # 「知识库」2026-10-28 数据层并入记忆，导航合并为一个「记忆」入口）
-    DESKTOP = ['今日', '活动记录', 'AI 对话', '备忘', '记忆']
+    # 「知识库」2026-10-28 数据层并入记忆，导航合并为一个「记忆」入口；
+    # 「备忘」2026-10-28 整体下线）
+    DESKTOP = ['今日', '活动记录', 'AI 对话', '记忆']
     # 移动底栏：「记忆」不占位（用户定的口径 —— 手机上不读记忆）；
     # 快记 dock（button，不算导航条目）仍在首位，「今日」随首页复活重新占一席。
     # 2026-10-08 用户要求胶囊栏不显示中文名，纯图标，名称只留在 aria-label 里。
-    # 2026-10-16 用户要求：备忘/知识库撤出底栏，入口收进「我的」(dashboard) 页
-    # （见 test_mobile_dropped_entries_live_in_dashboard 的防丢失锁）
+    # 「记忆」入口在 dashboard 内容卡（见 test_mobile_dropped_entries_live_in_dashboard）
     MOBILE = ['今日', '活动', '对话', '我的']
     # 已合并进「活动记录」的入口已随功能下线整体移除（2026-09 模板/循环功能删除）
+    # 「备忘」2026-10-28 整体下线，不再是「撤出底栏」而是无入口
 
     def _base(self):
         return (self.TEMPLATES / 'base.html').read_text(encoding='utf-8')
@@ -650,14 +624,13 @@ class PrimaryNavTest(TestCase):
                          '底栏 <a> 数与条目清单不一致：会有空位或孤立图标')
 
     def test_mobile_dropped_entries_live_in_dashboard(self):
-        """撤出底栏的模块入口必须仍可达（2026-10-16：备忘/知识库收进「我的」页）。
+        """撤出底栏的模块入口必须仍可达（2026-10-16：知识库收进「我的」页）。
 
-        防的是「从底栏删了条目、却忘了在 dashboard.html 补入口」——那两个模块
+        防的是「从底栏删了条目、却忘了在 dashboard.html 补入口」——那个模块
         就从移动端彻底消失（全局搜索里还有入口，但那是兜底不是主路径）。
-        2026-10-28 知识库并入记忆后，文章入口由「记忆」一个口子承担。"""
+        2026-10-28 知识库并入记忆后，文章入口由「记忆」一个口子承担。
+        「备忘」同日整体下线，不再是撤出底栏而是无入口。"""
         dash = (self.TEMPLATES / 'core' / 'dashboard.html').read_text(encoding='utf-8')
-        self.assertIn("{% url 'notes:note_list' %}", dash,
-                      'dashboard 缺备忘入口：移动端备忘将无处可去')
         self.assertIn("{% url 'memory:memory_list' %}", dash,
                       'dashboard 缺记忆入口：移动端记忆/文章将无处可去')
 
@@ -686,17 +659,13 @@ class TodayPageRetiredTest(TestCase):
     def test_gather_and_payload_still_work(self):
         """页面下线不等于数据层下线：工作台卡仍要靠 gather_today/today_brief_payload"""
         from activities.models import Activity as Act
-        from notes.models import Note as N
         today = timezone.localdate()
         Act.objects.create(user=self.user, name='今日待办', start_date=today, status='planned')
-        N.objects.create(user=self.user, content='今天要买年糕')
         from core.views import gather_today, today_brief_payload
         data = gather_today(self.user)
         self.assertEqual([a.name for a in data['today_activities']], ['今日待办'])
-        self.assertEqual(len(data['recent_notes']), 1)
         payload = today_brief_payload(self.user)
         self.assertEqual(payload['today_activities'][0]['name'], '今日待办')
-        self.assertTrue(payload['recent_notes'][0]['ago'].endswith('前'))
         self.assertEqual(payload['focus_items'][0]['name'], '今日待办')
 
 
@@ -969,7 +938,7 @@ class DesktopLayoutCoverageTest(TestCase):
         'core/dashboard.html', 'core/weekly_report.html',
         'activities/expense_report.html',
         'knowledge/article_list.html', 'knowledge/article_detail.html',
-        'notes/note_list.html', 'memory/memory_list.html',
+        'memory/memory_list.html',
     ]
     # 刻意保持单列：宽表/宽网格、单一任务页、等分双组页
     SINGLE_COLUMN = {
@@ -1437,7 +1406,7 @@ class TagColorTest(TestCase):
 
     def test_non_activity_scope_stays_blank(self):
         """非活动用途不赋色（底色只服务活动卡片）"""
-        for scope in ('expense', 'note', 'knowledge'):
+        for scope in ('expense', 'knowledge'):
             tag = ensure_tags(scope, ['通用'])[0]
             self.assertEqual(tag.color, '')
 
@@ -1471,7 +1440,7 @@ class TagColorTest(TestCase):
         model_admin = TagModelAdmin(Tag, dj_admin.site)
         colored = ensure_tags('activity', ['有色'])[0]
         self.assertIn(colored.color, model_admin.color_preview(colored))
-        plain = ensure_tags('note', ['无色'])[0]
+        plain = ensure_tags('knowledge', ['无色'])[0]
         self.assertEqual(model_admin.color_preview(plain), '—')
 
 
@@ -1488,11 +1457,11 @@ class TagConfigTest(TestCase):
         """同名标签跨 scope 是不同实体，互不干扰"""
         apply_tags(self.activity, ['旅行'])
         apply_tags(self.expense, ['旅行'])
-        apply_tags(Note.objects.create(user=self.user, content='x'), ['旅行'])
+        apply_tags(Article.objects.create(user=self.user, title='x', content='x'), ['旅行'])
         self.assertEqual(Tag.objects.filter(name='旅行').count(), 3)
         self.assertEqual(
             {t.scope for t in Tag.objects.filter(name='旅行')},
-            {'activity', 'expense', 'note'})
+            {'activity', 'expense', 'knowledge'})
 
     def test_used_tags_filters_by_scope_and_visibility(self):
         """used_tags 只返回该 scope 且该用户可见对象上的标签"""
@@ -1606,9 +1575,10 @@ class ConfirmCardGlobalTest(SimpleTestCase):
                     self.assertIn('data-confirm-tone="danger"', line)
                     self.assertIn('data-confirm-label="确认删除"', line)
                 total += 1
-        # 9 个模板内删除表单 + conversation_list.html JS 拼装删除表单
+        # 8 个模板内删除表单 + conversation_list.html JS 拼装删除表单
         # + 日历订阅设置页 2 个（重新生成/吊销，2026-09-11）
-        self.assertEqual(total, 12)
+        # （原 12 个：备忘列表删除表单随 notes app 下线一并移除，2026-10-28）
+        self.assertEqual(total, 11)
 
     def test_confirm_card_js_exists_and_wired(self):
         """全局组件文件存在（含表单拦截与 paConfirmCard API），且 base.html 已引入"""
@@ -1904,7 +1874,7 @@ class WebPushTest(TestCase):
         """VAPID 已配置 → 顶栏铃铛 + meta 公钥；未配置 → 入口完全不渲染"""
         from django.test import override_settings
         from django.urls import reverse
-        url = reverse('notes:note_list')
+        url = reverse('knowledge:article_list')
         with override_settings(**VAPID_DUMMY):
             html = self.client.get(url).content.decode()
         self.assertIn('push-toggle-btn', html)

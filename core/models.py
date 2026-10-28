@@ -19,7 +19,6 @@ class Tag(models.Model):
     SCOPE_CHOICES = [
         ('activity', '活动'),
         ('expense', '费用'),
-        ('note', '备忘'),
         ('knowledge', '知识库'),
     ]
 

@@ -30,12 +30,17 @@ def migrate_tags(apps, schema_editor):
     Tag = apps.get_model('core', 'Tag')
     ContentType = apps.get_model('contenttypes', 'ContentType')
     Activity = apps.get_model('activities', 'Activity')
-    Note = apps.get_model('notes', 'Note')
     Article = apps.get_model('knowledge', 'Article')
 
     ct_scope = {ct.id: _CT_SCOPE[ct.model] for ct in ContentType.objects.all()
                 if ct.model in _CT_SCOPE}
-    host_models = {'activity': Activity, 'note': Note, 'knowledge': Article}
+    host_models = {'activity': Activity, 'knowledge': Article}
+    # 2026-10-28 备忘功能整体下线（notes app 已删）：全新库上没有 notes.Note 可取，
+    # note scope 的历史行按孤儿处理直接跳过（不搬即可，后续 core.0017 会清掉残留 Tag）
+    try:
+        host_models['note'] = apps.get_model('notes', 'Note')
+    except LookupError:
+        pass
 
     # 读原始数据（此时尚未依赖 taggit app 在 INSTALLED_APPS 里）
     with schema_editor.connection.cursor() as cur:
@@ -46,7 +51,7 @@ def migrate_tags(apps, schema_editor):
 
     for ct_id, obj_id, name in rows:
         scope = ct_scope.get(ct_id)
-        if scope is None:
+        if scope is None or scope not in host_models:
             continue
         model = host_models[scope]
         try:
@@ -83,7 +88,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('activities', '0015_expense_tags_alter_activity_tags'),
-        ('notes', '0003_alter_note_tags'),
         ('knowledge', '0005_alter_article_tags'),
     ]
 

@@ -1121,65 +1121,6 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     }
 }
 
-/* ===== 备忘列表：移动块状卡片 / 桌面（md+）分隔线行式列表 ===== */
-.note-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.note-item {
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    padding: 0.875rem 1rem;
-}
-
-/* 置顶组：徽章已由模板承担（黑 pill），这里不再有边框差 */
-
-/* 长备忘折叠：JS 检测到内容超高才加 .is-collapsed（无 JS 时全文展示，渐进增强） */
-.note-fold.is-collapsed .note-fold-body {
-    max-height: 9rem;   /* 约 6 行正文 */
-    overflow: hidden;
-}
-
-@media (min-width: 768px) {
-    /* 桌面端去卡片化：上下分隔线的行式列表 + 行悬停高亮，信息密度高于卡片堆 */
-    .note-list {
-        gap: 0;
-    }
-
-    .note-item {
-        background: transparent;
-        border: 0;
-        border-radius: 0;
-        border-bottom: 1px solid var(--border);
-        padding: 1.25rem 0.5rem;
-        transition: background-color 0.15s ease;
-        position: relative;
-    }
-
-    /* 桌面端操作按钮浮到行右缘垂直居中（传统行式列表交互）；
-     移动端不定位，跟随底部时间行流式排列。背景垫底防压住正文文字。 */
-    .note-item .hover-actions {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--accent-light);
-        border-radius: 999px;
-        padding: 0.25rem;
-    }
-
-    .note-list > .note-item:first-child {
-        border-top: 1px solid var(--border);
-    }
-
-    .note-item:hover {
-        background: var(--accent-light);
-    }
-}
-
 /* ===== 移动端触控与可读性铁律（2026-09 390×844 走查后建立） =====
    走查实测：全站 <44px 可点元素约 146 处、按钮高度 7 档同屏、10px meta 文字成片。
    本块统一三件事，全部限定 ≤767px，桌面端零改动：

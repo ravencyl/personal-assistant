@@ -1,10 +1,10 @@
 """跨模块关联推荐引擎
 
-基于标签交集 + 分词兜底的双层策略，在 Activity / Article / Note 之间
+基于标签交集 + 分词兜底的双层策略，在 Activity / Article 之间
 建立关联推荐。
 
-get_related_content() 返回除源模型外的另外两个模块的推荐结果，
-键名统一为模型名小写复数形式（'activities' / 'articles' / 'notes'）。
+get_related_content() 返回除源模型外的另外模块的推荐结果，
+键名统一为模型名小写复数形式（'activities' / 'articles'）。
 """
 import logging
 from django.core.cache import cache
@@ -15,13 +15,12 @@ from core.utils import visible_qs
 
 logger = logging.getLogger(__name__)
 
-# 三个可互相推荐的模型标识 → (app_label, model_name, 分词兜底搜索字段)
+# 可互相推荐的模型标识 → (app_label, model_name, 分词兜底搜索字段)
 # 字段集合放在这里而不是在 _token_fallback 里按模型名分支判断，
 # 避免同一份模型映射在本文件里被表达两遍。
 _TARGETS = {
     'activities': ('activities', 'Activity', ('name', 'description')),
     'articles':   ('knowledge',  'Document', ('title', 'content')),
-    'notes':      ('notes',      'Note',    ('content',)),
 }
 
 
@@ -37,17 +36,14 @@ def get_related_content(user, source_model, source_instance, limit=5):
     {
         'activities': [{'object': Activity, 'score': int}, ...],  # 源非 Activity 时存在
         'articles':   [{'object': Article,  'score': int}, ...],  # 源非 Article 时存在
-        'notes':      [{'object': Note,     'score': int}, ...],  # 源非 Note 时存在
     }
     """
     source_key = source_model.__name__.lower()
-    # Activity → 'activities'; Document（Memory 文章代理）→ 'articles'; Note → 'notes'
+    # Activity → 'activities'; Document（Memory 文章代理）→ 'articles'
     if source_key in ('activity',):
         source_key = 'activities'
     elif source_key in ('article', 'document', 'memory'):
         source_key = 'articles'
-    elif source_key == 'note':
-        source_key = 'notes'
 
     cache_key = f'related_{source_key}_{source_instance.id}'
     cached = cache.get(cache_key)
@@ -111,14 +107,11 @@ def _get_text_for_fallback(instance):
     """获取用于分词兜底的文本"""
     from activities.models import Activity
     from knowledge.models import Document
-    from notes.models import Note
 
     if isinstance(instance, Activity):
         return f'{instance.name} {instance.description}'
     elif isinstance(instance, Document):
         return f'{instance.title} {instance.content[:200]}'
-    elif isinstance(instance, Note):
-        return instance.content[:200]
     return ''
 
 
@@ -156,8 +149,6 @@ def invalidate_related_cache(sender, instance, **kwargs):
             model_name = 'activities'
         elif model_name in ('article', 'document'):
             model_name = 'articles'
-        elif model_name == 'note':
-            model_name = 'notes'
 
     # 清除以该实例为源时的缓存
     cache_key = f'related_{model_name}_{instance.id}'

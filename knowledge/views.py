@@ -61,7 +61,6 @@ def article_detail(request, slug):
     return render(request, 'knowledge/article_detail.html', {
         'article': article,
         'related_activities': related.get('activities', []),
-        'related_notes': related.get('notes', []),
     })
 
 

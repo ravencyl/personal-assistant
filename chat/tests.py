@@ -132,7 +132,7 @@ class AiTimeoutChainTest(SimpleTestCase):
     """
 
     # 只扫可能在请求里被调用的 app 目录：直接 rglob 整个项目会把 venv（上万个文件）走一遍
-    APP_DIRS = ('activities', 'core', 'knowledge', 'notes', 'memory', 'agents', 'chat')
+    APP_DIRS = ('activities', 'core', 'knowledge', 'memory', 'agents', 'chat')
 
     def _gunicorn_timeout(self):
         deploy_md = (Path(__file__).resolve().parent.parent / 'DEPLOY.md').read_text(encoding='utf-8')
@@ -3444,21 +3444,18 @@ class WorkbenchCardTest(TestCase):
         self.assertIn('chat-message', data['html'])
 
     def test_card_renders_sections_and_action_row(self):
-        """渲染锁：焦点/活动/笔记区与卡内操作行（含备忘）都在同一份消息片段里"""
+        """渲染锁：焦点/活动区与卡内操作行都在同一份消息片段里"""
         from activities.models import Activity
-        from notes.models import Note
         Activity.objects.create(user=self.user, name='今日待办',
                                 start_date=timezone.localdate(), status='planned')
-        Note.objects.create(user=self.user, content='今天要买年糕')
         resp = self.client.post(self.url, {'card': 'today_brief'},
                                 HTTP_ACCEPT='application/json')
         html = resp.json()['html']
         self.assertIn('今日待办', html)
-        self.assertIn('今天要买年糕', html)
         self.assertIn('今日焦点', html)
-        for key in ('activity', 'note'):
-            self.assertIn(f'data-quick-open="{key}"', html)
+        self.assertIn('data-quick-open="activity"', html)
         self.assertNotIn('data-quick-open="expense"', html)
+        self.assertNotIn('data-quick-open="note"', html)
 
     def test_today_brief_does_not_touch_turn_or_qoder(self):
         service = FakeQoderService()
@@ -3500,10 +3497,10 @@ class WorkbenchCardWiringTest(SimpleTestCase):
         self.assertIn('today_brief_card.html', self.dispatch)
 
     def test_card_action_row_and_no_retired_link(self):
-        """卡内操作行走快记面板；「记一笔」已删（费用必关联活动）；下线页链接不得残留"""
+        """卡内操作行走快记面板；「记一笔」已删（费用必关联活动）、「新建备忘」随备忘下线删"""
         self.assertIn('data-quick-open="activity"', self.card)
-        self.assertIn('data-quick-open="note"', self.card)
         self.assertNotIn('data-quick-open="expense"', self.card)
+        self.assertNotIn('data-quick-open="note"', self.card)
         self.assertIn("url 'activities:activity_list'", self.card)
         self.assertNotIn("url 'today'", self.card)
         self.assertNotIn('core/today.html', self.card)

@@ -6,10 +6,6 @@
         <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm">+</span>
         <span class="text-sm text-[var(--text)]">新建活动</span>
     </a>
-    <a href="{% url 'notes:note_list' %}?new=1" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
-        <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm">📝</span>
-        <span class="text-sm text-[var(--text)]">写备忘</span>
-    </a>
 </div>
 {% elif results and total == 0 %}
 <div class="text-center py-8 text-[var(--text-muted)]">
@@ -44,21 +40,6 @@
             <div class="min-w-0 flex-1">
                 <p class="text-sm text-[var(--text)] truncate">{{ a.title }}</p>
                 <p class="text-xs text-[var(--text-muted)] truncate">{{ a.content|truncatechars:40 }}</p>
-            </div>
-        </a>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <!-- 备忘：深链带 ?q=，点进去就是同一检索词过滤后的列表（notes 列表视图支持 q） -->
-    {% if results.notes %}
-    <div>
-        <p class="text-xs font-medium text-[var(--text-muted)] px-1 mb-1.5">备忘</p>
-        {% for n in results.notes %}
-        <a href="{% url 'notes:note_list' %}?q={{ query|urlencode }}" class="search-result-item flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
-            <span class="w-8 h-8 rounded-2xl bg-[var(--accent-light)] flex items-center justify-center text-sm shrink-0">📝</span>
-            <div class="min-w-0 flex-1">
-                <p class="text-sm text-[var(--text)] truncate">{{ n.content|truncatechars:60 }}</p>
             </div>
         </a>
         {% endfor %}
@@ -123,7 +104,7 @@
     document.querySelectorAll('.search-result-item .text-sm, .search-result-item .text-xs').forEach(function(el){
         if (el.children.length) return;
         // 高亮必须走 DOM 构建：旧实现把 textContent 用 replace 拼成 HTML 串再塞回
-        // innerHTML —— 原文里含 < >（备忘/文章正文里很常见）时会被当作标签解析，
+        // innerHTML —— 原文里含 < >（文章正文里很常见）时会被当作标签解析，
         // 等于用户数据注入 HTML。这里按匹配位置切片，文本进 createTextNode，
         // 命中片段进 createElement('mark')，全程不产生可被解析的标记串。
         var text = el.textContent;

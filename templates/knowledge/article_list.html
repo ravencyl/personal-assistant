@@ -44,7 +44,7 @@
     </form>
 
     <!-- 标签筛选栏 -->
-    {# 标签筛选：移动端一行横滑（与备忘页一致），桌面换行；chips 32px 折衷触区 #}
+    {# 标签筛选：移动端一行横滑，桌面换行；chips 32px 折衷触区 #}
     {% if all_tags %}
     <div class="flex flex-nowrap overflow-x-auto pb-1 -mx-1 px-1 gap-2 md:flex-wrap" id="article-tag-filter">
         <a href="{% url 'knowledge:article_list' %}{% if query %}?q={{ query|urlencode }}{% endif %}"
@@ -98,7 +98,7 @@
     {% endif %}
 
     {% comment %}
-    分页：每页 30 条（口径同备忘列表）；翻页链接携带当前 q/tag 筛选，翻页不丢条件。
+    分页：每页 30 条；翻页链接携带当前 q/tag 筛选，翻页不丢条件。
     样式沿用活动列表的「上一页/下一页 + 页码计数」既有模式与 token 类。
     {% endcomment %}
     {% if page_obj.paginator.num_pages > 1 %}

@@ -515,15 +515,14 @@ def weekly_review_complete_view(request):
     return render(request, 'core/weekly_review_complete.html')
 
 
-def _compute_daily_focus(today_activities, recent_notes):
+def _compute_daily_focus(today_activities):
     """计算今日焦点 top 3：纯规则排序（AI 建议已由 DailySuggestion cron 预计算）。
 
     返回 [{'name': str, 'reason': str, 'url': str}, ...] 最多 3 项。
-    注意：不修改 recent_notes 列表（调用方还要传给模板）。
     """
     from django.urls import reverse
 
-    # 规则排序：进行中 > 今天开始的活动 > 备忘
+    # 规则排序：进行中 > 今天开始的活动（备忘已随功能下线退出焦点）
     focus = []
     sorted_acts = sorted(
         today_activities[:6],
@@ -534,16 +533,6 @@ def _compute_daily_focus(today_activities, recent_notes):
             'name': a.name,
             'reason': a.get_status_display(),
             'url': reverse('activities:activity_detail', args=[a.id]),
-        })
-    # 用索引遍历而非 pop，避免修改调用方的列表
-    i = 0
-    while len(focus) < 3 and i < len(recent_notes):
-        n = recent_notes[i]
-        i += 1
-        focus.append({
-            'name': n.content[:40],
-            'reason': '近期备忘',
-            'url': reverse('notes:note_edit', args=[n.id]),
         })
     return focus[:3]
 
@@ -563,12 +552,11 @@ def gather_today(user):
     """工作台数据采集层（原 today_view 抽出，与对话里的工作台卡共用，口径永不漂移）。
 
     只查数据不碰纯展示件；可见性口径照旧：各模块列表走 visible_qs。
-    返回 dict：today_activities / recent_notes / recent_articles / today_memories /
+    返回 dict：today_activities / recent_articles / today_memories /
     focus_items / today_display。
     """
     from datetime import timedelta
     from django.db.models import Q
-    from notes.models import Note
     from knowledge.models import Document
     from memory.services import retrieve_memories
 
@@ -587,15 +575,10 @@ def gather_today(user):
     ).exclude(status='done').exclude(id__in=ongoing_ids))
     today_activities = ongoing + starting_today
 
-    # ── 近期备忘：最近 7 天更新的 ──
-    note_since = today - timedelta(days=7)
-    recent_notes = list(visible_qs(Note, user).filter(
-        updated_at__date__gte=note_since
-    ).order_by('-updated_at')[:5])
-
     # ── 近期知识：最近 7 天更新的文章 ──
+    since = today - timedelta(days=7)
     recent_articles = list(visible_qs(Document, user).filter(
-        updated_at__date__gte=note_since
+        updated_at__date__gte=since
     ).order_by('-updated_at')[:3])
 
     # ── 相关记忆：按今天活动名称检索（个人上下文口径：只算本人） ──
@@ -603,7 +586,7 @@ def gather_today(user):
     today_memories = retrieve_memories(user, query=today_context, limit=5) if today_context else []
 
     # ── 今日焦点：规则排序 top 3（AI 建议由 DailySuggestion cron 预计算，不在这层调） ──
-    focus_items = _compute_daily_focus(today_activities, recent_notes)
+    focus_items = _compute_daily_focus(today_activities)
 
     weekdays = WEEKDAY_LABELS
     today_display = f'{today.year}年{today.month}月{today.day}日 · {weekdays[today.weekday()]}'
@@ -612,7 +595,6 @@ def gather_today(user):
         'today': today,
         'today_display': today_display,
         'today_activities': today_activities,
-        'recent_notes': recent_notes,
         'recent_articles': recent_articles,
         'today_memories': today_memories,
         'focus_items': focus_items,
@@ -639,12 +621,6 @@ def today_brief_payload(user):
              'status_display': a.get_status_display(), 'date_range': a.date_range,
              'tags': [t.name for t in a.tags.all()]}
             for a in data['today_activities'][:6]
-        ],
-        # 近期备忘（最多 5 条）
-        'recent_notes': [
-            {'id': n.id, 'excerpt': str(n.content)[:100],
-             'ago': f'{timesince(n.updated_at)}前'}
-            for n in data['recent_notes'][:5]
         ],
         # 近期知识（最多 3 条）
         'recent_articles': [

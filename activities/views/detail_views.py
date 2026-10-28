@@ -101,7 +101,6 @@ def activity_detail(request, activity_id):
         'attachments': attachments,
         'subtask_done_count': subtask_done_count,
         'related_articles': related.get('articles', []),
-        'related_notes': related.get('notes', []),
         # 手动内联创建活动安排表单的 autocomplete 建议（scope=activity）
         'tag_suggestions': _user_tag_names(request.user),
         # 费用表单的 autocomplete 建议（scope=expense，与活动标签隔离）

@@ -25,7 +25,6 @@ from django.db.models import Sum
 
 from activities.models import Activity, ActivityLog, Attachment, Expense, Participant, CalendarFeed
 from activities.views.daily_views import daily_brief_payload, gather_daily
-from notes.models import Note
 from activities.parsing import parse_quick_input
 from core.agent_registry import CandidateToolError, ToolError
 from core.layout_asserts import assert_desktop_two_columns
@@ -1730,8 +1729,6 @@ class ActivityDetailDesktopLayoutTest(TestCase):
         apply_tags(self.parent, ['自驾'])
         self.parent.participants.add(
             Participant.objects.create(user=self.user, name='小王'))
-        note = Note.objects.create(user=self.user, content='新西兰南岛自驾路线草稿')
-        apply_tags(note, ['自驾'])
         ActivityLog.objects.create(user=self.user, activity=self.parent,
                                    action='created', summary='手动创建')
         resp = self.client.get(f'/activities/{self.parent.id}/')
@@ -1763,13 +1760,13 @@ class ActivityDetailDesktopLayoutTest(TestCase):
             self.assertIn(anchor, left, f'{desc}应在左列主内容流')
             self.assertNotIn(anchor, right, f'{desc}不该出现在右列')
         for anchor, desc in [('id="attachment-form"', '附件'), ('参与者（', '参与者'),
-                             ('相关知识与笔记', '关联内容')]:
+                             ('相关知识', '关联内容')]:
             self.assertIn(anchor, right, f'{desc}应在右列辅助信息')
 
     def test_mobile_reading_order_matches_dom(self):
         """移动端列容器不带显隐类，视觉顺序 = DOM 顺序；这里锁住约定的顺序"""
         anchors = ['活动描述', 'id="expense-form"', 'id="subtask-list"',
-                   'id="attachment-form"', '参与者（', '相关知识与笔记', '操作历史（']
+                   'id="attachment-form"', '参与者（', '相关知识', '操作历史（']
         positions = [self.html.index(a) for a in anchors]
         self.assertEqual(positions, sorted(positions),
                          '移动端单列顺序变了（活动安排应紧跟费用明细，右列整体在其后）')

@@ -2,7 +2,7 @@
 
 注册到 core.agent_registry，由对话编排器按意图分发调用。
 约定：权限一律按 user 过滤；参数缺失时抛 ToolError 让用户澄清。
-写入（knowledge.create / knowledge.update）不做两步确认，与 notes.create /
+写入（knowledge.create / knowledge.update）不做两步确认，与
 activities.create 口径一致；目标不唯一的修改才需要预览卡（CandidateToolError）。
 """
 import re

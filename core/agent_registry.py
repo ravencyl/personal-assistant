@@ -46,8 +46,6 @@ INTENT_TOOL_MAP = {
     'unarchive': 'activities.unarchive',
     # 置顶：无视筛选条件固定在活动列表最前（与 @ 钉选是两回事，那是会话上下文）
     'pin': 'activities.pin',
-    'notes_create': 'notes.create',
-    'notes_search': 'notes.search',
     'knowledge_search': 'knowledge.search',
     # 把对话结论沉淀成文章（正文由模型自己根据当前会话整理，服务端只负责落库）
     'knowledge_create': 'knowledge.create',

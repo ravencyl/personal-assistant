@@ -17,7 +17,7 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
 {% comment %}
 桌面端（md+）左右两列走通用列容器 .page-cols（声明见 custom.css，全站唯一一份）：
   左列 = 主内容流（标题 · 标签与更新时间 · 正文）；
-  右列 = 辅助信息（相关活动与备忘 · 编辑/删除操作），整列随滚动常驻。
+  右列 = 辅助信息（相关活动 · 编辑/删除操作），整列随滚动常驻。
 阅读体宽度不让它跟着列宽跑：正文块限 max-w-2xl，否则 864px 下一行超 100 字。
 右列整块排在左列之后，移动端阅读顺序（返回→文章→相关→操作）与改造前逐块一致。
 {% endcomment %}
@@ -53,12 +53,11 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
     <!-- 右列：关联内容与操作（移动端顺排在正文之后） -->
     <div class="page-rail space-y-4 sm:space-y-6">
 
-    <!-- 相关活动与备忘 -->
-    {% if related_activities or related_notes %}
+    <!-- 相关活动 -->
+    {% if related_activities %}
     <div id="related-content" class="app-card p-4 sm:p-6">
-        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关活动与备忘</h2>
+        <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide mb-3">相关活动</h2>
         <div class="space-y-4">
-            {% if related_activities %}
             <div>
                 <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">活动</h3>
                 <div class="space-y-2">
@@ -74,22 +73,6 @@ data-page-context / data-knowledge-title 是「页面上下文感知」功能的
                     {% endfor %}
                 </div>
             </div>
-            {% endif %}
-            {% if related_notes %}
-            <div>
-                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">备忘</h3>
-                <div class="space-y-2">
-                    {% for item in related_notes %}
-                    {# 备忘没有独立详情页（编辑即列表内联），与活动条目同可达性：整卡可点 #}
-                    <a href="{% url 'notes:note_edit' item.object.id %}"
-                       class="block p-2 rounded-2xl hover:bg-[var(--accent-light)] transition-colors">
-                        <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
-                        <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
-                    </a>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
         </div>
     </div>
     {% endif %}

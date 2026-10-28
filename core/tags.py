@@ -45,13 +45,11 @@ def random_tag_color():
 _SCOPE_MODEL_PATHS = {
     'activity': 'activities.models.Activity',
     'expense': 'activities.models.Expense',
-    'note': 'notes.models.Note',
     'knowledge': 'knowledge.models.Document',
 }
 _SCOPE_QUERY_NAMES = {
     'activity': 'activity',
     'expense': 'expense',
-    'note': 'note',
     'knowledge': 'memory',
 }
 

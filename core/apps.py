@@ -20,15 +20,14 @@ class CoreConfig(AppConfig):
         from activities.models import Activity
         from knowledge.models import Document
         from memory.models import Memory
-        from notes.models import Note
         from core.cross_link import invalidate_related_cache
 
-        for model in [Activity, Note, Document, Memory]:
+        for model in [Activity, Document, Memory]:
             post_save.connect(invalidate_related_cache, sender=model)
             post_delete.connect(invalidate_related_cache, sender=model)
 
         # FTS5 全文索引同步（同上：Memory/Document 双 sender，handler 判 type）
         from core.fts import sync_to_fts, remove_from_fts
-        for model in [Activity, Note, Document, Memory]:
+        for model in [Activity, Document, Memory]:
             post_save.connect(sync_to_fts, sender=model)
             post_delete.connect(remove_from_fts, sender=model)

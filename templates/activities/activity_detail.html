@@ -427,15 +427,14 @@
     {# 置顶开关：列表页不再有 pin 钮，唯一入口在详情页标题行 #}
     <script src="{% staticv 'js/pin-toggle.js' %}" defer></script>
 
-    <!-- 相关知识与笔记 -->
-    {% if related_articles or related_notes %}
+    <!-- 相关知识 -->
+    {% if related_articles %}
     <details data-mobile-collapse open class="fold-card app-card px-4 py-2.5 sm:px-6">
         <summary class="text-sm font-semibold text-[var(--text)] uppercase tracking-wide flex items-center justify-between cursor-pointer select-none list-none">
-            相关知识与笔记<span class="text-xs normal-case tracking-normal text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
+            相关知识<span class="text-xs normal-case tracking-normal text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
         {# 本块只出现在桌面端 320px 右列（移动端整宽），所以内部不再分两栏 #}
         <div class="space-y-4">
-            {% if related_articles %}
             <div>
                 <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">关联文章</h3>
                 <div class="space-y-2">
@@ -448,20 +447,6 @@
                     {% endfor %}
                 </div>
             </div>
-            {% endif %}
-            {% if related_notes %}
-            <div>
-                <h3 class="text-xs font-medium text-[var(--text-muted)] mb-2">笔记</h3>
-                <div class="space-y-2">
-                    {% for item in related_notes %}
-                    <div class="p-2">
-                        <p class="text-sm text-[var(--text)] line-clamp-2">{{ item.object.content|truncatechars:60 }}</p>
-                        <p class="text-xs text-[var(--text-muted)] mt-0.5">{{ item.score }} 个共同标签</p>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
         </div>
     </details>
     {% endif %}

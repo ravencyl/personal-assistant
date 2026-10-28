@@ -1,6 +1,6 @@
 """全局搜索引擎
 
-跨 Activity / 文章(Document) / Note / Conversation / Message / Memory 六个模块的统一搜索。
+跨 Activity / 文章(Document) / Conversation / Message / Memory 五个模块的统一搜索。
 FTS5 可用时优先走全文索引（BM25 排序），不可用时静默降级为 icontains。
 """
 import logging
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def _try_fts(user, query, limit_per_module):
     """尝试 FTS5 搜索，返回 (fts_ids, used) 二元组。
 
-    fts_ids: {'activity': [id,...], 'article': [id,...], 'note': [id,...]} 或 None
+    fts_ids: {'activity': [id,...], 'article': [id,...]} 或 None
     used: 是否成功使用了 FTS（False 表示需降级）
     """
     from core.fts import fts_search
@@ -33,20 +33,19 @@ def global_search(user, query, limit_per_module=5):
     返回格式: {
         'activities': [Activity, ...],
         'articles': [Document, ...],
-        'notes': [Note, ...],
         'conversations': [Conversation, ...],
         'messages': [(Message, Conversation), ...],
         'memories': [Memory, ...],
     }
     """
     if not query or not query.strip():
-        return {'activities': [], 'articles': [], 'notes': [],
+        return {'activities': [], 'articles': [],
                 'conversations': [], 'messages': [], 'memories': []}
 
     q = query.strip()
     results = {}
 
-    # 尝试 FTS5 加速（仅覆盖 activity / article / note 三个模块）
+    # 尝试 FTS5 加速（仅覆盖 activity / article 两个模块）
     fts_ids, fts_used = _try_fts(user, q, limit_per_module)
 
     # 活动：搜索名称、描述、标签
@@ -72,18 +71,6 @@ def global_search(user, query, limit_per_module=5):
             q_or(('title', 'content', 'tags__name'), q)
         ).distinct()[:limit_per_module]
     results['articles'] = list(articles)
-
-    # 备忘：搜索内容、标签
-    from notes.models import Note
-    if fts_used and fts_ids.get('note'):
-        notes = visible_qs(Note, user).filter(
-            pk__in=fts_ids['note']
-        )[:limit_per_module]
-    else:
-        notes = visible_qs(Note, user).filter(
-            q_or(('content', 'tags__name'), q)
-        ).distinct()[:limit_per_module]
-    results['notes'] = list(notes)
 
     # 对话：搜索标题
     from chat.models import Conversation, Message

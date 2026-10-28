@@ -1,6 +1,6 @@
 # 个人助手 — Agent 指引
 
-Django 5.0+ 个人 Web 应用，集成活动管理、笔记、知识库、AI 对话与智能代理。
+Django 5.0+ 个人 Web 应用，集成活动管理、记忆（含文章）、AI 对话与智能代理。
 
 ## 模块边界
 
@@ -8,7 +8,7 @@ Django 5.0+ 个人 Web 应用，集成活动管理、笔记、知识库、AI 对
 personal_assistant/   根配置（settings、urls、wsgi）
 core/                 横切能力层：报告生成、全局搜索、跨模块关联
 activities/           业务 app：活动 CRUD、费用、预算、模板、循环活动、附件
-notes/                业务 app：快速备忘
+notes/                （2026-10-28 已删除：备忘功能整体下线，表已 DROP）
 knowledge/            业务 app：文章（= memory.Memory 的 type='document' 分区，Document 代理）+ AI 问答
 chat/                 对话层：会话管理、消息收发、AI 卡片渲染
 agents/               代理层：Qoder Cloud Agent 配置同步、Environment 管理
@@ -49,7 +49,7 @@ msg = get_visible_child(Message, request.user, 'conversation', id=message_id)
 |------|------|------|
 | 个人指标 | 花费合计、预算消耗等“我花了多少”的统计数字 | `filter(user=request.user)`（超管也不混他人数据） |
 | 个人上下文 | 记忆注入/AI 检索、每日摘要生成 | `filter(user=<当前用户>)`，`memory/services.py` 有说明 |
-| 可见范围 | 列表页、日历、Daily 的活动分区、全局搜索、模板、笔记/文章/记忆页面 | `visible_qs` / `get_visible` |
+| 可见范围 | 列表页、日历、Daily 的活动分区、全局搜索、模板、记忆/文章页面 | `visible_qs` / `get_visible` |
 
 新增检索入口必须复用 `core.utils.q_or(fields, term)`（一个词跨多列 OR）与 `knowledge.utils.tokenize`；相似度判定复用 `core.utils.char_overlap_ratio(a, b, mode=...)`（`symmetric` 双向相似、`contains` 单向覆盖，两者不等价，勿合并）。
 
@@ -296,13 +296,31 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 - 测试兼容别名 `knowledge.models.Article = Document`（存量测试与旧引用统一指代理类）
 
 回归锁：`memory/tests.py`（document 不进注入/检索/批扫）、`knowledge/tests.py`（Document
-代理 + 统一检索 + QMind 同步）、`core/tests.py::PrimaryNavTest`（顶栏五项）、
+代理 + 统一检索 + QMind 同步）、`core/tests.py::PrimaryNavTest`（顶栏四项）、
 `knowledge/tests.py::KnowledgeSearchAgentToolQMindTest`（事实条也进统一检索）。
+
+## 备忘功能整体下线（2026-10-28）
+
+「备忘」（notes app）已按用户决定整体删除，与活动模板/循环任务、活动评论同款下线模式：
+
+- **notes app（models/views/urls/tests）、templates/notes/、static 里的 note-list.* 全删**；
+  数据库 `notes_note` / `notes_note_tags` 两张表由 `core/migrations/0017_remove_notes_data`
+  DROP（带 sqlite_master 存在性守卫），core_fts 里 module='note' 的行与 scope='note' 的
+  Tag 一并清除。删表是破坏性变更，上线前必须先做 SQLite 快照
+- **历史迁移 0016_migrate_taggit_data 曾硬依赖 notes**：已去掉对 ('notes','0003') 的
+  dependency 并对 `apps.get_model('notes','Note')` 加 LookupError 守卫（全新库上没有
+  notes app，不守卫会炸迁移链）。改历史迁移前先想清楚全新库会不会走到
+- 牵连删除：全局搜索 notes 分区、cross_link 'notes' 目标、FTS 映射、`notes.create` /
+  `notes.search` 两个 AI 工具与 INTENT_TOOL_MAP 条目、Tag scope='note'、顶栏「备忘」
+  项（顶栏四项）、快记面板备忘 Tab、today_brief 卡的「近期笔记」区与「新建备忘」按钮、
+  详情页相关备忘/笔记块
+- **存量消息 payload 里可能残留 `data-quick-open="note"`**：`paQuickOpen(name)` 现在对
+  任何名字都只开面板（面板只剩「一句话创建活动」一个窗格），历史卡片点旧按钮不会报错
 
 ## 快记面板口径（2026-09-21）
 
 - **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来
-- 历史简报卡片（daily/today_brief）里的「记一笔」按钮已同步删除；`paQuickOpen(name)` 对**已删 Tab 名做回退到「备忘」**而不是把面板切成全隐藏——存量消息 payload 里可能还残留 `data-quick-open="expense"`，前端必须兜住
+- 历史简报卡片（daily/today_brief）里的「记一笔」按钮已同步删除；`paQuickOpen(name)` 对已删 Tab 名**只开面板不再切 Tab**（备忘 Tab 2026-10-28 随功能下线后，面板只剩活动一个窗格）——存量消息 payload 里可能还残留 `data-quick-open="expense"` / `"note"`，前端必须兜住
 - 浮层表面 `.quick-panel-surface`（淡 accent 顶部渐变 + accent 描边 + 高投影）比普通 panel 醒目一档：浮层要一眼读出「这是弹层」，淡白底点了像没点（用户反馈）。新增浮层容器时复用这个类，不要回退到普通 `.panel`
 
 ## 详情页「问 AI」抽屉（2026-09-21，PaChatTurn 第三个挂载点）
@@ -349,7 +367,7 @@ AI（对话 `activities.create` / `activities.update`、快速输入 AI 解析�
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
 - **模板结构**：`templates/` 下按 app 分目录（`templates/activities/`、`templates/chat/` 等），继承 `base.html`
-- **主导航只放一级模块，附属设施不进导航**：顶栏五项（今日、活动记录、AI 对话、备忘、记忆；「知识库」2026-10-28 数据层并入记忆，文章=type='document' 的记忆条目，记忆页与文章页头部互切分区），移动底部 Tab 五项（不占「记忆」位）。活动模块的附属页面（日历、下一步行动）入口在 `activity_list.html` 头部按钮组，**不得往 `base.html` 导航里加路由**。判定新页面该不该上导航的依据：它是不是一个独立内容域。`app_name='activities'` 的页面靠导航里「活动记录」的 `app_name` 判定自动点亮，归属关系不会丢。删/加条目必须同步改底部栏的 `grid-cols-N`（`core/tests.py::PrimaryNavTest` 断言列数 == 条目数，不一致时移动端底栏会留空格或换行）
+- **主导航只放一级模块，附属设施不进导航**：顶栏四项（今日、活动记录、AI 对话、记忆；「知识库」2026-10-28 数据层并入记忆，文章=type='document' 的记忆条目，记忆页与文章页头部互切分区；「备忘」同日整体下线），移动底部 Tab 四项（不占「记忆」位）。活动模块的附属页面（日历、下一步行动）入口在 `activity_list.html` 头部按钮组，**不得往 `base.html` 导航里加路由**。判定新页面该不该上导航的依据：它是不是一个独立内容域。`app_name='activities'` 的页面靠导航里「活动记录」的 `app_name` 判定自动点亮，归属关系不会丢。删/加条目必须同步改底部栏的 `grid-cols-N`（`core/tests.py::PrimaryNavTest` 断言列数 == 条目数，不一致时移动端底栏会留空格或换行）
 - **上下文键不得占用框架保留名**：视图 context 里禁用 `messages`（`django.contrib.messages` 的 flash 变量，`base.html` 顶部提示条在读它）、`user`、`perms`、`request`。曾把 Message queryset 放进 `messages`，基模板就按 `Message.__str__`（「[role] 正文前 50 字」）把整段对话历史渲染到页面顶部，看着像调试信息泄漏，同时 flash 提示静默失效；现在用 `chat_messages`，`chat/tests.py::ConversationDetailContextTest` 会扫模板兼断言
 - **样式**：Tailwind CSS v4 + CSS 变量（`--text`、`--bg`、`--border` 等），响应式布局（移动端堆叠 + 桌面端横排）
 - **状态已整站去色（2026-10-27 用户决定）**：活动状态不再用色相，只用**灰阶强度**表达 —— `custom.css` 的 `--status-<status>` 变量改存灰阶（进行中=纯黑 > 计划=中灰 > 完成=浅灰 > 取消=最浅），类结构保留：`.status-bg--`（圆点/日历块）/ `.status-fg--`（图标）/ `.badge-status--`（徽章，取消态为删除线）+ `{{ activity.status }}`；状态选择 chips（`forms/status_option.html`）选中统一黑底反白，不再按状态分支配色。**禁止恢复按状态分支的 `bg-zinc-*` / `text-zinc-*`**，也禁止在视图/接口里下发 hex；`.status-fg-on--` 仅剩模板零星引用，新代码不用（`activities/tests.py::StatusDisplaySingleSourceTest` 守住）

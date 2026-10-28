@@ -1,6 +1,6 @@
 """FTS5 全文搜索索引
 
-SQLite FTS5 虚拟表同步与搜索。对 Activity / Article / Note 三个模块做全文索引，
+SQLite FTS5 虚拟表同步与搜索。对 Activity / Article 两个模块做全文索引，
 搜索时优先走 FTS5（BM25 排序），不可用时静默降级为 icontains。
 
 信号同步：post_save / post_delete 自动更新 FTS 行。
@@ -78,7 +78,6 @@ def _module_for_instance(sender, instance):
         return 'article' if getattr(instance, 'type', '') == 'document' else None
     return {
         'activities.activity': 'activity',
-        'notes.note': 'note',
     }.get(name)
 
 
@@ -88,13 +87,12 @@ def populate_fts():
     """全量重建 FTS 索引（迁移后调用一次）"""
     from activities.models import Activity
     from knowledge.models import Document
-    from notes.models import Note
 
     count = 0
     with connection.cursor() as cursor:
         cursor.execute(f'DELETE FROM {FTS_TABLE}')
 
-    for Model, module in [(Activity, 'activity'), (Document, 'article'), (Note, 'note')]:
+    for Model, module in [(Activity, 'activity'), (Document, 'article')]:
         try:
             rows = []
             for obj in Model.objects.all().iterator():
@@ -125,7 +123,7 @@ def populate_fts():
 def fts_search(user, query, limit_per_module=5):
     """FTS5 全文搜索，返回按模块分组的 object_id 列表。
 
-    返回格式: {'activity': [id, ...], 'article': [id, ...], 'note': [id, ...]}
+    返回格式: {'activity': [id, ...], 'article': [id, ...]}
     FTS 不可用时返回 None（调用方降级为 icontains）。
     """
     if not query or not query.strip():
@@ -157,7 +155,7 @@ def fts_search(user, query, limit_per_module=5):
         logger.warning('FTS 搜索失败，降级为 icontains', exc_info=True)
         return None
 
-    results = {'activity': [], 'article': [], 'note': []}
+    results = {'activity': [], 'article': []}
     for module, obj_id, rank in rows:
         if module in results and len(results[module]) < limit_per_module:
             results[module].append(obj_id)

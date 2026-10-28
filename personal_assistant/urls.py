@@ -40,7 +40,6 @@ urlpatterns = [
     # App modules
     path('chat/', include('chat.urls')),
     path('activities/', include('activities.urls')),
-    path('notes/', include('notes.urls')),
     path('knowledge/', include('knowledge.urls')),
     path('memory/', include('memory.urls')),
 
