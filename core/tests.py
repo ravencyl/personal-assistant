@@ -640,7 +640,8 @@ class TodayPageRetiredTest(TestCase):
 
     2026-10-16「今日」以 Bento 视觉复活为首页，但落点是 activities.today_home
     （templates/activities/today.html）；core/today.html 保持不存在，
-    core.views.today_view 仍是纯重定向。渲染层复活不改变这条锁的口径。"""
+    core.views.today_view 仍是纯重定向。渲染层复活不改变这条锁的口径。
+    模板文件墓碑已收进 TombstoneRegistryTest.GONE_FILES。"""
 
     def setUp(self):
         self.user = User.objects.create_user('tb', password='p')
@@ -651,10 +652,6 @@ class TodayPageRetiredTest(TestCase):
         r = self.client.get(reverse('today'))
         self.assertEqual(r.status_code, 302)
         self.assertEqual(r['Location'], reverse('home'))
-
-    def test_template_file_is_gone(self):
-        self.assertFalse(
-            (Path(settings.BASE_DIR) / 'templates' / 'core' / 'today.html').exists())
 
     def test_gather_and_payload_still_work(self):
         """页面下线不等于数据层下线：工作台卡仍要靠 gather_today/today_brief_payload"""
@@ -667,6 +664,150 @@ class TodayPageRetiredTest(TestCase):
         payload = today_brief_payload(self.user)
         self.assertEqual(payload['today_activities'][0]['name'], '今日待办')
         self.assertEqual(payload['focus_items'][0]['name'], '今日待办')
+
+
+class TombstoneRegistryTest(SimpleTestCase):
+    """已下线功能的防复活墓碑 —— 数据驱动注册表，一处收口（2026-10-28 精简）。
+
+    为什么收口：每次功能下线都长出一个 XxxRemovedTest（read_text + assertNotIn
+    的同形样板），清点时已积累 6 个类 12 条。此后新下线一个功能 = 在下面
+    四张注册表里各加一行，不再新建 TestCase。
+
+    口径与被合并的原类一致：
+    - 文件扫描按扩展名剔注释（.py 走 python_code_only、.html 走 code_only、
+      其余原样）——「为什么改」注释里引用旧符号不算复活（同款教训踩过多次）；
+    - 路由 / 模块 / 模型位 / Agent 工具四张表是「结构不存在」级断言，比扫文件更硬。
+
+    各 app agents.md 里的「防复活锁」引用一律指向本类。
+    """
+
+    # ① 文件扫描：(下线说明, {相对路径: [禁止符号]})
+    FILE_BANNED = [
+        ('AI 自动加标签 2026-10-08 下线（suggest_tags 兑底推荐全链拆除）', {
+            'core/tags.py': ['suggest_tags'],
+            'activities/views/form_views.py': ['suggest_tags'],
+            'activities/agent_tools.py': ['suggest_tags'],
+        }),
+        ('活动列表多选批量操作 2026-09-23 下线', {
+            'templates/activities/activity_list.html': [
+                'batch-check', 'batch-bar', 'batch-select-all', 'batch-ops.js'],
+        }),
+        ('活动列表「笔数/子活动」列 2026-09-23 下线（费用格「含子活动」标注保留）', {
+            'templates/activities/activity_list.html': [
+                '笔数', '笔费用', 'expense_count', 'sort=sub_count',
+                '{{ activity.sub_count }}'],
+        }),
+        ('前置依赖+活动评论 2026-10-13 下线（模板层）', {
+            'templates/activities/activity_detail.html': [
+                'blocked_deps', 'dep-search', 'dep-count', 'dependency-graph',
+                '前置依赖', 'activities:activity_comment_add',
+                'data-fold-key="comment"'],
+            'templates/activities/_daily_card.html': ['is_blocked', '等待前置'],
+            'templates/chat/cards/daily_brief_card.html': ['item.blocked'],
+        }),
+        ('前置依赖+活动评论 2026-10-13 下线（源码层）', {
+            'activities/forms.py': ['blocked_by'],
+            'activities/agent_tools.py': [
+                'blocked_by', 'ActivityComment', '_comment_summary',
+                'comments_count', 'is_blocked', 'add_comment_url'],
+            'activities/views/detail_views.py': [
+                'ActivityComment', 'blocked_by', 'comments'],
+            'activities/views/daily_views.py': ['_annotate_blocked', 'is_blocked'],
+            'activities/views/form_views.py': ['save_blocked_by'],
+        }),
+        ('快记 2026-10-28 下线（SW 预缓存清单不得再引用已删脚本）', {
+            'static/sw.js': ['quick-parse.js'],
+        }),
+    ]
+
+    # ② 文件必须不存在
+    GONE_FILES = [
+        'templates/activities/daily.html',   # Daily 页 2026-09-19 下线（「今日」复活在 activities/today.html）
+        'templates/core/today.html',         # 旧工作台 2026-09-19 下线
+        'static/js/quick-parse.js',          # 快记 2026-10-28 下线
+        'activities/parsing.py',             # 快记规则解析器
+        'static/js/dependency-graph.js',     # 依赖关系图 2026-10-13 下线
+    ]
+
+    # ③ 路由必须不存在：(url name, args)
+    GONE_URLS = [
+        ('activities:batch_update', []),
+        ('activities:blocked_search', [1]),
+        ('activities:blocked_add', [1]),
+        ('activities:blocked_remove', [1, 2]),
+        ('activities:activity_comment_add', [1]),
+        ('activities:activity_comment_delete', [1]),
+        ('activities:dependency_data', []),
+    ]
+
+    # ④ Python 模块必须不存在
+    GONE_MODULES = ['activities.views.batch_views', 'activities.views.dependency_views']
+
+    # ⑤ Agent 工具与协议意图必须不存在
+    GONE_TOOLS = ['activities.comments', 'activities.add_comment', 'activities.check_blocked']
+    GONE_INTENTS = ['add_comment', 'list_comments', 'check_blocked']
+
+    @staticmethod
+    def _stripped(path):
+        src = path.read_text(encoding='utf-8')
+        if path.suffix == '.py':
+            return python_code_only(src)
+        if path.suffix == '.html':
+            return code_only(src)
+        return src
+
+    def test_banned_symbols_stay_out_of_files(self):
+        root = Path(settings.BASE_DIR)
+        for desc, targets in self.FILE_BANNED:
+            for rel, tokens in targets.items():
+                src = self._stripped(root / rel)
+                for token in tokens:
+                    with self.subTest(desc=desc, file=rel, token=token):
+                        self.assertNotIn(token, src, f'{desc}：{rel} 残留 {token}')
+
+    def test_tombstone_files_are_gone(self):
+        root = Path(settings.BASE_DIR)
+        for rel in self.GONE_FILES:
+            with self.subTest(file=rel):
+                self.assertFalse((root / rel).exists(), f'{rel} 已下线，不得复活')
+
+    def test_tombstone_urls_are_gone(self):
+        from django.urls import NoReverseMatch
+        for name, args in self.GONE_URLS:
+            with self.subTest(url=name):
+                with self.assertRaises(NoReverseMatch, msg=name):
+                    reverse(name, args=args)
+
+    def test_tombstone_modules_are_gone(self):
+        import importlib.util
+        for mod in self.GONE_MODULES:
+            with self.subTest(module=mod):
+                self.assertIsNone(importlib.util.find_spec(mod),
+                                  f'{mod} 已下线，不得复活')
+
+    def test_tombstone_model_bits_are_gone(self):
+        """前置依赖 + 活动评论的模型层墓碑（含 commented choice 防「兼容旧数据」复活）"""
+        from activities import models as act_models
+        from activities.models import ActivityLog
+        for attr in ('blocked_by', 'is_blocked', 'blocking_names', 'would_create_cycle'):
+            with self.subTest(attr=attr):
+                self.assertFalse(hasattr(act_models.Activity, attr),
+                                 f'{attr} 已删，不得复活')
+        with self.subTest(model='ActivityComment'):
+            self.assertFalse(hasattr(act_models, 'ActivityComment'),
+                             'ActivityComment 已删，不得复活')
+        with self.subTest(choice='commented'):
+            self.assertNotIn('commented', dict(ActivityLog.ACTION_CHOICES),
+                             'commented choice 不得以「兼容旧数据」为由回来')
+
+    def test_tombstone_agent_tools_are_gone(self):
+        from core.agent_registry import INTENT_TOOL_MAP, get_tool
+        for tool in self.GONE_TOOLS:
+            with self.subTest(tool=tool):
+                self.assertIsNone(get_tool(tool), f'{tool} 已下线，不得复活')
+        for intent in self.GONE_INTENTS:
+            with self.subTest(intent=intent):
+                self.assertNotIn(intent, INTENT_TOOL_MAP)
 
 
 class ServiceWorkerTest(TestCase):
@@ -2243,6 +2384,16 @@ class ImplicitGridTrackTest(SimpleTestCase):
         self.assertEqual(self._offenders('<div class="flex md:flex-col">'), [])
 
 
+def _all_template_files():
+    """模板全量清单（根 templates/ + 各 app templates/），供全站扫描类静态锁共用一份口径"""
+
+    base = Path(settings.BASE_DIR)
+    files = list((base / 'templates').rglob('*.html'))
+    for app_dir in sorted(base.glob('*/templates')):
+        files.extend(app_dir.rglob('*.html'))
+    return sorted(set(files))
+
+
 class VisualAlignmentTest(SimpleTestCase):
     """全站视觉对齐的唯一口径（2026-10-11 走查取证后定稿），逐条静态锁：
 
@@ -2252,8 +2403,8 @@ class VisualAlignmentTest(SimpleTestCase):
        判据同行必须有 text-white（白字底下才有深灰底可言）。
     ② 页面主标题 h1 一律 font-bold：曾同时存在 text-2xl font-semibold（仪表盘）
        与其余页的 font-bold，同级标题两种字重是「每个页各自长出来」的典型症状。
-    ③ 卡片标题 h2 不得用 font-medium：口径是 text-sm font-semibold（expense_report
-       等 9 处已如此），dashboard/activity_detail 的 font-medium 已收拢。
+    ③ h2 卡标题的档位与字重由 MobileUiRevampLockTest.test_h2_is_card_title_tier
+       收口（要求 text-sm + font-semibold，真包含「不得 font-medium」），这里不再重复扫。
     ④ 输入框聚焦态一律 focus:border-[var(--accent)]：曾并存 focus:border-zinc-900
        （详情页费用表单）、zinc-500（表单页/列表筛选）、border-[var(--text-secondary)]
        三种灰阶聚焦 —— 品牌色落点只在 focus 环与勾选框（custom.css），聚焦描边
@@ -2268,16 +2419,11 @@ class VisualAlignmentTest(SimpleTestCase):
     # 例外（唯一允许硬编码灰的地方）：深底反白 —— 同一 class 属性里有 text-white
     ON_DARK = re.compile(r'\btext-white\b')
     H1_TAG = re.compile(r'<h1\b[^>]*>')
-    H2_TAG = re.compile(r'<h2\b[^>]*>')
     # 禁止的聚焦描边（灰阶硬编码 + 旧令牌变体），只查 focus: 前缀的 border/ring
     BAD_FOCUS = re.compile(r'focus:(?:border|ring)-(?:\[var\(--text-secondary\)\]|zinc-\d+)')
 
     def _templates(self):
-        base = Path(settings.BASE_DIR)
-        files = list((base / 'templates').rglob('*.html'))
-        for app_dir in sorted(base.glob('*/templates')):
-            files.extend(app_dir.rglob('*.html'))
-        return sorted(set(files))
+        return _all_template_files()
 
     def _scan(self, src, pattern):
         """返回命中列表；深底反白元素（class 属性含 text-white）按白名单放行"""
@@ -2306,15 +2452,6 @@ class VisualAlignmentTest(SimpleTestCase):
                     offenders.append(f'{tpl.name}: {tag.group(0)[:80]}')
         self.assertEqual(offenders, [], f'h1 字重不是 font-bold（页面主标题唯一口径）：{offenders}')
 
-    def test_h2_never_font_medium(self):
-        offenders = []
-        for tpl in self._templates():
-            src = code_only(tpl.read_text(encoding='utf-8'))
-            for tag in self.H2_TAG.finditer(src):
-                if 'font-medium' in tag.group(0):
-                    offenders.append(f'{tpl.name}: {tag.group(0)[:80]}')
-        self.assertEqual(offenders, [], f'h2 卡标题还在用 font-medium（口径是 font-semibold）：{offenders}')
-
     def test_input_focus_uses_accent_only(self):
         offenders = []
         for tpl in self._templates():
@@ -2335,8 +2472,6 @@ class VisualAlignmentTest(SimpleTestCase):
         bad_h1 = [t for t in self.H1_TAG.finditer('<h1 class="text-2xl font-semibold">x</h1>')
                   if 'font-semibold' in t.group(0)]
         self.assertEqual(len(bad_h1), 1)
-        self.assertEqual(len([t for t in self.H2_TAG.finditer('<h2 class="text-sm font-medium">x</h2>')
-                              if 'font-medium' in t.group(0)]), 1)
         # 好形状不得误伤（防锁被下一波误报逼成摆设）
         self.assertEqual([t for t in self.H1_TAG.finditer('<h1 class="text-2xl font-bold">ok</h1>')
                           if 'font-semibold' in t.group(0)], [])
@@ -2364,11 +2499,7 @@ class MobileUiRevampLockTest(SimpleTestCase):
     BAD_RADIUS = re.compile(r'\brounded-md\b')
 
     def _templates(self):
-        base = Path(settings.BASE_DIR)
-        files = list((base / 'templates').rglob('*.html'))
-        for app_dir in sorted(base.glob('*/templates')):
-            files.extend(app_dir.rglob('*.html'))
-        return sorted(set(files))
+        return _all_template_files()
 
     def test_no_private_font_tiers(self):
         offenders = []

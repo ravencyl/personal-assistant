@@ -85,4 +85,4 @@ Daily 的 `_annotate_blocked` 与「等待前置」徽标、详情页评论卡�
 `ActivityLog.ACTION_CHOICES` 里的 `commented` choice 一并移除（同日用户决定），
 不要以「兼容旧数据」为由加回来。
 
-防复活锁：`activities/tests.py::DependencyAndCommentRemovedTest`（字段/路由/工具/模板/源码五组静态断言）。
+防复活锁：`core/tests.py::TombstoneRegistryTest`（数据驱动墓碑注册表：文件符号/删除文件/路由/模块/模型位/Agent 工具五张表，字段·路由·工具·模板·源码的断言都在其中；下线新功能 = 往注册表加行，不再新建 TestCase）。

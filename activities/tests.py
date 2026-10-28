@@ -1,4 +1,3 @@
-import importlib
 import json
 import os
 import re
@@ -18,7 +17,7 @@ from core.tags import apply_tags, tag_names
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.urls import NoReverseMatch, reverse
+from django.urls import reverse
 from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
@@ -862,7 +861,8 @@ class DailyGatherStatusTest(TestCase):
 
 class DailyPageRetiredTest(TestCase):
     """/daily/ 页面下线（2026-09-19）：路由保留但重定向回首页（= 对话列表），
-    旧书签 / 推送 / 模板 url 标签不破；渲染层已删除，任何残留在 template 里都会 TemplateDoesNotExist"""
+    旧书签 / 推送 / 模板 url 标签不破；渲染层已删除，任何残留在 template 里都会
+    TemplateDoesNotExist。模板文件墓碑收进 core/tests.py::TombstoneRegistryTest。"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -876,16 +876,13 @@ class DailyPageRetiredTest(TestCase):
                 self.assertEqual(r.status_code, 302)
                 self.assertEqual(r['Location'], reverse('home'))
 
-    def test_template_file_is_gone(self):
-        from django.conf import settings as dj_settings
-        self.assertFalse(
-            (dj_settings.BASE_DIR / 'templates' / 'activities' / 'daily.html').exists())
-
 
 class QuickParseRemovedTest(TestCase):
     """快记（一句话解析）前端通道 2026-10-28 整体下线：墓碑防复活。
     quick-parse.js、parsing.py、parse-quick-input / quick-create / quick-sub
-    三个端点已全链删除，任何页面都不得再加载/接线解析通道。"""
+    三个端点已全链删除，任何页面都不得再加载/接线解析通道。
+    （脚本/解析器/SW 清单的文件级墓碑收进 core/tests.py::TombstoneRegistryTest，
+    这里只锁「渲染出来的页面」——静态文件墓碑拦不住模板里新写的接线。）"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -918,13 +915,6 @@ class QuickParseRemovedTest(TestCase):
             self.client.post('/activities/parse-quick-input/',
                              data='text=x', content_type='application/x-www-form-urlencoded').status_code,
             404)
-
-    def test_assets_removed(self):
-        base = Path(__file__).resolve().parent.parent
-        self.assertFalse((base / 'static' / 'js' / 'quick-parse.js').exists())
-        self.assertFalse((base / 'activities' / 'parsing.py').exists())
-        sw = (base / 'static' / 'sw.js').read_text(encoding='utf-8')
-        self.assertNotIn('quick-parse.js', sw, 'SW 预缓存清单不得再含已删脚本')
 
 
 class FilterPanelUsabilityTest(TestCase):
@@ -2709,20 +2699,6 @@ class AiTagGuardTest(TestCase):
         self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
 
 
-class AiAutoTagRemovedTest(SimpleTestCase):
-    """「AI 自动加标签」已按用户要求整体下线（2026-10-08）：
-    suggest_tags 兑底推荐函数与调用入口（表单创建 / 对话创建）全部拆除。
-    （快速输入推断入口已随快记功能 2026-10-28 整体下线一并删除。）
-    防复活静态锁（不扫 knowledge，那里的建议按钮是用户主动点击）。"""
-
-    def test_no_auto_suggest_code_paths(self):
-        base = Path(__file__).resolve().parent.parent
-        for rel in ('core/tags.py',
-                    'activities/views/form_views.py',
-                    'activities/agent_tools.py'):
-            self.assertNotIn('suggest_tags', (base / rel).read_text(), rel)
-
-
 class ActivityPinTest(TestCase):
     """活动置顶（2026-09-23）：pinned 活动单独渲染在列表上方的「已置顶」区域，
     与主列表分开，无视筛选/分页。
@@ -2846,111 +2822,6 @@ class ActivityPinAgentToolTest(TestCase):
         from core.agent_registry import ToolError
         with self.assertRaises(ToolError):
             self.tool['fn'](self.user, {})
-
-
-class DependencyAndCommentRemovedTest(SimpleTestCase):
-    """前置依赖（blocked_by）+ 依赖关系图 + 活动评论整体下线（2026-10-13 用户要求，
-    含数据一并删除）。防复活静态锁：字段、路由、Agent 工具、详情页 UI、依赖图 JS
-    都不得回来。
-
-    历史 commented 日志已由 0028 数据迁移清空，`ACTION_CHOICES` 里的
-    `commented` 也一并删除——这条锁防的是 choice 以「兼容旧数据」为由回来。
-    """
-
-    ROOT = Path(settings.BASE_DIR)
-
-    def test_commented_choice_removed_from_activity_log(self):
-        from activities.models import ActivityLog
-        self.assertNotIn('commented', dict(ActivityLog.ACTION_CHOICES))
-
-    def test_model_has_no_dependency_field_or_comment_model(self):
-        from activities import models
-        self.assertFalse(hasattr(models.Activity, 'blocked_by'),
-                         'blocked_by 字段已删，不得复活')
-        self.assertFalse(hasattr(models, 'ActivityComment'),
-                         'ActivityComment 模型已删，不得复活')
-        for meth in ('is_blocked', 'blocking_names', 'would_create_cycle'):
-            self.assertFalse(hasattr(models.Activity, meth), f'{meth} 已删，不得复活')
-
-    def test_routes_modules_and_assets_removed(self):
-        for name, args in [('activities:blocked_search', [1]),
-                           ('activities:blocked_add', [1]),
-                           ('activities:blocked_remove', [1, 2]),
-                           ('activities:activity_comment_add', [1]),
-                           ('activities:activity_comment_delete', [1]),
-                           ('activities:dependency_data', [])]:
-            with self.assertRaises(NoReverseMatch, msg=name):
-                reverse(name, args=args)
-        self.assertIsNone(importlib.util.find_spec('activities.views.dependency_views'))
-        self.assertFalse((self.ROOT / 'static' / 'js' / 'dependency-graph.js').exists())
-
-    def test_agent_tools_and_intents_removed(self):
-        from core.agent_registry import INTENT_TOOL_MAP, get_tool
-        for tool in ('activities.comments', 'activities.add_comment',
-                     'activities.check_blocked'):
-            self.assertIsNone(get_tool(tool), f'{tool} 已下线，不得复活')
-        for intent in ('add_comment', 'list_comments', 'check_blocked'):
-            self.assertNotIn(intent, INTENT_TOOL_MAP)
-
-    def test_templates_have_no_dependency_or_comment_ui(self):
-        tpl = self.ROOT / 'templates'
-        detail = (tpl / 'activities' / 'activity_detail.html').read_text()
-        for token in ('blocked_deps', 'dep-search', 'dep-count', 'dependency-graph',
-                      '前置依赖', 'activities:activity_comment_add',
-                      'data-fold-key="comment"'):
-            self.assertNotIn(token, detail, f'详情页残留 {token}')
-        card = (tpl / 'activities' / '_daily_card.html').read_text()
-        self.assertNotIn('is_blocked', card)
-        self.assertNotIn('等待前置', card)
-        brief = (tpl / 'chat' / 'cards' / 'daily_brief_card.html').read_text()
-        self.assertNotIn('item.blocked', brief)
-
-    def test_python_sources_have_no_dependency_or_comment_plumbing(self):
-        for rel, tokens in [
-            ('activities/forms.py', ['blocked_by']),
-            ('activities/agent_tools.py', ['blocked_by', 'ActivityComment',
-                                          '_comment_summary', 'comments_count',
-                                          'is_blocked', 'add_comment_url']),
-            ('activities/views/detail_views.py', ['ActivityComment', 'blocked_by',
-                                                 'comments']),
-            ('activities/views/daily_views.py', ['_annotate_blocked', 'is_blocked']),
-            ('activities/views/form_views.py', ['save_blocked_by']),
-        ]:
-            src = (self.ROOT / rel).read_text()
-            for token in tokens:
-                self.assertNotIn(token, src, f'{rel} 残留 {token}')
-
-
-class BatchOpsRemovedTest(SimpleTestCase):
-    """活动列表多选 + 批量操作已整体下线（2026-09-23，用户要求：使用率低、
-    真实场景不这么用；对话里的 activities.batch_status 不受影响）。防复活静态锁。"""
-
-    def test_list_template_has_no_batch_ui(self):
-        src = (Path(__file__).resolve().parent.parent
-               / 'templates' / 'activities' / 'activity_list.html').read_text()
-        self.assertNotIn('batch-check', src)
-        self.assertNotIn('batch-bar', src)
-        self.assertNotIn('batch-select-all', src)
-        self.assertNotIn('batch-ops.js', src)
-
-    def test_batch_route_and_module_removed(self):
-        with self.assertRaises(NoReverseMatch):
-            reverse('activities:batch_update')
-        self.assertIsNone(importlib.util.find_spec('activities.views.batch_views'))
-
-
-class ListCountColumnsRemovedTest(SimpleTestCase):
-    """活动列表「笔数」「子活动」列已下线（2026-09-23，用户要求不展示）。
-    费用格的「含子活动」标注保留（说明累计口径）。防复活静态锁。"""
-
-    def test_template_has_no_count_columns(self):
-        src = (Path(__file__).resolve().parent.parent
-               / 'templates' / 'activities' / 'activity_list.html').read_text()
-        self.assertNotIn('笔数', src)
-        self.assertNotIn('笔费用', src)
-        self.assertNotIn('expense_count', src)
-        self.assertNotIn('sort=sub_count', src)
-        self.assertNotIn('{{ activity.sub_count }}', src)
 
 
 class TagColorCardTest(TestCase):

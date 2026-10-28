@@ -342,7 +342,7 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 - **保留的共享原语**（勿当死代码删）：`activities.utils.normalize_input`（agent_tools 与 subactivity_manual_create 在用）、`create_activity_from_parsed` / `record_parsed_cost`（services，agent_tools / add_subactivity / template_use 在用）、`extract_json_dict`（core/ai.py，agent_registry 在用）、`resolve_existing_tags` 显式 #词 语义仍由 agent 工具路径承担
 - 历史简报卡片（daily/today_brief）的「＋ 新建活动」从 `data-quick-open` 按钮改为直跳创建页链接；存量消息 payload 里残留的 `data-quick-open` 属性前端已无委托，点击是 no-op
 - 底部导航栏恢复四项纯链接（今日/活动/对话/我的），`PrimaryNavTest` 口径不变
-- 回归锁：`activities/tests.py::QuickParseRemovedTest`（页面无接线 + 端点 404 + 资产已删）、`ManualSubactivityParticipantTest.test_quick_endpoints_gone`、`chat/tests.py` 聊天页快记入口断言反转、`DailyCardActionRowTest`/`WorkbenchCardTest`/`WorkbenchCardWiringTest` 卡片链接口径
+- 回归锁：`activities/tests.py::QuickParseRemovedTest`（渲染页面无接线 + 端点 404）、`ManualSubactivityParticipantTest.test_quick_endpoints_gone`、脚本/解析器/SW 清单的文件级墓碑在 `core/tests.py::TombstoneRegistryTest`（数据驱动注册表，各功能下线的防复活锁统一收口于此）、`chat/tests.py` 聊天页快记入口断言反转、`DailyCardActionRowTest`/`WorkbenchCardTest`/`WorkbenchCardWiringTest` 卡片链接口径
 
 ## 详情页「问 AI」抽屉（2026-09-21，PaChatTurn 第三个挂载点）
 
