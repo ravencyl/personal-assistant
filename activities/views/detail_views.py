@@ -22,8 +22,8 @@ from ..models import Activity, Participant, Attachment
 from ..services import (InputError, add_expense, change_activity_status,
                         clean_amount, create_activity_from_parsed,
                         start_due_activities)
-from ..utils import log_activity, normalize_input, resolve_participants
-from ._common import _participant_skip_text, _user_tag_names, attach_costs
+from ..utils import log_activity, resolve_participants
+from ._common import _user_tag_names, attach_costs
 
 
 def _subactivity_timeline(activity):
@@ -163,33 +163,6 @@ def add_subactivity(request, activity_id):
     return redirect('activities:activity_detail', activity.id)
 
 
-@login_required
-@require_POST
-def activity_quick_sub(request, activity_id):
-    """详情页快速创建活动安排（解析后预览确认；归属当前活动）"""
-    activity = get_visible(Activity, request.user, id=activity_id)
-    try:
-        data = json.loads(request.body or '{}')
-    except ValueError:
-        return JsonResponse({'error': '请求数据格式错误'}, status=400)
-    data = normalize_input(data, timezone.localdate())
-    if not data.get('name'):
-        return JsonResponse({'error': '活动安排名称不能为空'}, status=400)
-
-    # 与手动内联表单同口径：花费记在活动安排自己名下（时间轴按活动安排展示费用），
-    # 而不是记到父活动上；一句创建属自动识别，不新建参与者。
-    result = create_activity_from_parsed(request.user, data, parent=activity,
-                                        source='一句话创建')
-    child = result['activity']
-
-    return JsonResponse({
-        'id': child.id,
-        'name': child.name,
-        'url': reverse('activities:activity_detail', args=[child.id]),
-        'note': _participant_skip_text(result['skipped']),
-    })
-
-
 def _split_name_input(value):
     """内联表单的标签/参与者输入 → 去重列表（兼容逗号/顿号分隔与 # @ 前缀）"""
     if isinstance(value, str):
@@ -220,7 +193,7 @@ def _parse_date_input(value):
 def subactivity_manual_create(request, activity_id):
     """详情页内联手动表单创建活动安排（JSON，支持日期/状态/费用/标签/参与者）
 
-    与 AI 快速入口 activity_quick_sub 的区别：字段由用户显式填写，校验失败返回
+    与 AI 工具路径（activities.create）的区别：字段由用户显式填写，校验失败返回
     400 + 友好文案（不静默丢弃），费用记在活动安排自己名下便于时间轴直接展示。
     """
     activity = get_visible(Activity, request.user, id=activity_id)

@@ -638,12 +638,10 @@
         return { paint: paint, close: close };
     };
 
-    /* 非 AI 快捷卡片与卡片内操作的统一委托（分栏页 / 详情页共用这一份，document 级）。
+    /* 非 AI 快捷卡片的统一委托（分栏页 / 详情页共用这一份，document 级）。
        [data-local-card] → POST /chat/<id>/local-card/ 直出卡片（零 token、不碰 turn 锁），
          chatId 从 location.pathname 解析：分栏页切对话会 replaceState 成 /chat/<id>/，
-         详情页是 /chat/<id>/detail/，两个形态都被同一条正则覆盖。
-       [data-quick-open] → 调 base.html 暴露的 paQuickOpen(tab) 打开快记面板
-         （daily 卡片内的「新建活动 / 记一笔」走这条，对话式创建不跳页）。 */
+         详情页是 /chat/<id>/detail/，两个形态都被同一条正则覆盖。 */
     function currentChatId() {
         var m = /\/chat\/(\d+)/.exec(location.pathname);
         return m ? m[1] : null;
@@ -668,11 +666,6 @@
     }
 
     document.addEventListener('click', function (e) {
-        var quick = e.target.closest && e.target.closest('[data-quick-open]');
-        if (quick) {
-            if (typeof window.paQuickOpen === 'function') window.paQuickOpen(quick.getAttribute('data-quick-open'));
-            return;
-        }
         var btn = e.target.closest && e.target.closest('[data-local-card]');
         if (!btn) return;
         var chatId = currentChatId();

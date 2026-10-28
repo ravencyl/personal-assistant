@@ -343,59 +343,21 @@ class ConversationListDesktopLayoutTest(TestCase):
         self.assertIn('AI 服务未配置', self.src)
 
     def test_mobile_composer_not_covered(self):
-        """聊天页输入框不被 Tab 栏 / 悬浮按钮遮挡（线上实测回归锁）
+        """聊天页输入框不被 Tab 栏遮挡（线上实测回归锁）
 
-        两层防线，缺一不可：
-        ① .chat-layout 移动端高度必须扣除 顶栏+main 顶距(68px)、Tab 栏实高+空隙(72px)
-          与 iOS 安全区 —— 改小会让发送框被 Tab 栏压住；
-        ② 移动端进入聊天视图时快记入口隐藏（面板宿主 + data-quick-toggle 按钮），
-          返回列表时恢复 —— quick-fab-root wrapper id 与 [data-quick-toggle]
-          都不能丢。
-          （聊天浮窗 FAB 与配套的 page-chat 隐藏链路已随浮窗整体下线）
+        .chat-layout 移动端高度必须扣除 顶栏+main 顶距(68px)、Tab 栏实高+空隙(72px)
+        与 iOS 安全区 —— 改小会让发送框被 Tab 栏压住。
+        （快记 FAB 及其隐藏链路已于 2026-10-28 随快记功能整体下线删除）
         """
         base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
         css = (Path(__file__).resolve().parent.parent / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
         self.assertIn(
             'calc(100dvh - 8.75rem - env(safe-area-inset-bottom, 0px))', css,
             '移动端 .chat-layout 高度算术被改，发送框会被底部 Tab 栏遮住')
-        self.assertIn('id="quick-fab-root"', base)
-        self.assertIn('data-quick-toggle', base,
-                      '快记入口（移动 Tab 栏快记 dock + 桌面 FAB）共用标记不能丢')
-        self.assertIn("document.getElementById('quick-fab-root')", self.src)
-        self.assertIn("view === 'chat' ? 'none' : ''", self.src,
-                      '返回列表视图时必须恢复快记 FAB 显隐')
+        self.assertNotIn('quick-fab-root', base,
+                         '快记 FAB 已整体下线，base.html 不应再有残留引用')
         self.assertNotIn('chat-fab-root', base,
                          '聊天浮窗 FAB 已下线，base.html 不应再有残留引用')
-
-    def test_detail_page_hides_quick_fab(self):
-        """聊天详情页必须隐藏快记 FAB（线上实测回归锁，2026-09-14）
-
-        快记 FAB 固定在右下角，移动端详情页正好压在「发送」按钮上。
-        分栏页在聊天视图已有隐藏逻辑（setView 里 view === 'chat' ? 'none' : ''），
-        但详情页是独立模板、无 setView，必须在自身内联脚本里隐藏，
-        否则直接 URL 进入 /chat/<id>/detail/ 时 FAB 漏隐藏。
-        """
-        src = (Path(__file__).resolve().parent.parent / 'templates' / 'chat'
-               / 'conversation_detail.html').read_text(encoding='utf-8')
-        self.assertIn("document.getElementById('quick-fab-root')", src)
-        self.assertIn("quickFab.style.display = 'none'", src)
-        self.assertIn("querySelectorAll('[data-quick-toggle]')", src,
-                      '详情页还必须隐藏各快记入口按钮')
-
-    def test_quick_fab_dom_precedes_content_block(self):
-        """quick-fab-root 必须在 base.html 的 content block 之前（线上实测回归锁）
-
-        分栏页（conversation_list.html）的内联脚本随 content block 同步执行，
-        初始化时直接 getElementById('quick-fab-root') 来隐藏移动端 FAB。
-        若 FAB DOM 被移到 content block 之后，脚本执行时它还没进 DOM，
-        「if (quickFab)」静默跳过——直接 URL 进入 /chat/<id>/ 时 FAB 漏隐藏、
-        叠在输入框上沿（实测踩过：2026-09 浮窗下线收尾阶段）。
-        """
-        base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
-        self.assertLess(base.index('id="quick-fab-root"'),
-                        base.index('{% block content %}'),
-                        'quick-fab-root 被移到了 content block 之后，'
-                        '分栏页内联脚本执行时拿不到它，移动端 FAB 会漏隐藏')
 
 
 # ==================== 异步 turn 收发（Phase A）====================
@@ -3377,15 +3339,13 @@ class ChatHomeTest(TestCase):
         self.assertNotIn('id="local-cards"', detail)
 
     def test_nav_daily_page_retired(self):
-        """/daily/ 页下线：导航不再有「今日」入口（移动 Tab 换快记 dock），
+        """/daily/ 页下线：导航不再有「今日」入口，
         /daily/ 路由保留但重定向回首页（= 对话列表）"""
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_d', agent_id='ag_d',
             title='普通对话')
         html = self.client.get(f'/chat/{conv.id}/').content.decode()
         self.assertNotIn('href="/daily/"', html)
-        # 移动 Tab 栏的快记 dock 替代了原「今日」Tab（Daily 页顶栏入口随之消失）
-        self.assertIn('data-quick-toggle', html)
         resp = self.client.get('/daily/')
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp['Location'], reverse('home'))
@@ -3515,25 +3475,22 @@ class LocalCardTest(TestCase):
 
 
 class DailyCardActionRowTest(SimpleTestCase):
-    """daily 卡片内操作行与前端委托接线锁（/daily/ 页下线后卡内就是唯一出口）
+    """daily 卡片内操作行（/daily/ 页下线后卡内就是唯一出口）
 
-    为什么静态锁：操作行靠 data-quick-open → chat-turn.js 委托 → base.html 的
-    paQuickOpen 三段接力，任何一环断了都是「点了没反应」且无报错。
-    """
+    快记面板 2026-10-28 整体下线：「新建活动」改为直跳创建页链接。"""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         base = Path(__file__).resolve().parent.parent
         cls.card = (base / 'templates' / 'chat' / 'cards' / 'daily_brief_card.html').read_text(encoding='utf-8')
-        cls.base_html = (base / 'templates' / 'base.html').read_text(encoding='utf-8')
         cls.js = (base / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
 
     def test_card_action_row_tabs(self):
-        """新建活动走快记面板（不跳页）；日历 / 费用报告保留页面链接；
+        """「＋ 新建活动」直跳创建页；日历 / 费用报告保留页面链接；
         「记一笔」已删（2026-09-21，费用必关联活动，统一走详情页费用表单）"""
-        self.assertIn('data-quick-open="activity"', self.card)
-        self.assertNotIn('data-quick-open="expense"', self.card)
+        self.assertIn("url 'activities:activity_create'", self.card)
+        self.assertNotIn('data-quick-open', self.card)
         self.assertIn("url 'activities:activity_calendar'", self.card)
         self.assertIn("url 'activities:expense_report'", self.card)
 
@@ -3542,10 +3499,8 @@ class DailyCardActionRowTest(SimpleTestCase):
         self.assertNotIn("url 'activities:daily'", self.card)
         self.assertNotIn("url 'daily'", self.card)
 
-    def test_quick_open_chain_wired(self):
-        """三段接力：卡片 data-quick-open → JS 委托调 paQuickOpen → base.html 暴露该函数"""
-        self.assertIn('window.paQuickOpen', self.base_html)
-        self.assertIn("'[data-quick-open]'", self.js)
+    def test_local_card_chain_wired(self):
+        """local-card 委托链还在：chat-turn.js 委托调 /chat/<id>/local-card/"""
         self.assertIn("'[data-local-card]'", self.js)
         # 端点读 request.POST：委托必须发表单体而不是 JSON（发 JSON 会静默拿不到 card）
         self.assertIn('application/x-www-form-urlencoded', self.js)
@@ -3597,9 +3552,10 @@ class WorkbenchCardTest(TestCase):
         html = resp.json()['html']
         self.assertIn('今日待办', html)
         self.assertIn('今日焦点', html)
-        self.assertIn('data-quick-open="activity"', html)
-        self.assertNotIn('data-quick-open="expense"', html)
-        self.assertNotIn('data-quick-open="note"', html)
+        # 快记面板 2026-10-28 下线：「＋ 新建活动」直跳创建页（渲染后是真实 href）
+        self.assertIn('href="/activities/new/"', html)
+        self.assertIn('＋ 新建活动', html)
+        self.assertNotIn('data-quick-open', html)
 
     def test_today_brief_does_not_touch_turn_or_qoder(self):
         service = FakeQoderService()
@@ -3641,10 +3597,10 @@ class WorkbenchCardWiringTest(SimpleTestCase):
         self.assertIn('today_brief_card.html', self.dispatch)
 
     def test_card_action_row_and_no_retired_link(self):
-        """卡内操作行走快记面板；「记一笔」已删（费用必关联活动）、「新建备忘」随备忘下线删"""
-        self.assertIn('data-quick-open="activity"', self.card)
-        self.assertNotIn('data-quick-open="expense"', self.card)
-        self.assertNotIn('data-quick-open="note"', self.card)
+        """卡内「＋ 新建活动」直跳创建页（快记面板 2026-10-28 下线）；
+        「记一笔」已删（费用必关联活动）、「新建备忘」随备忘下线删"""
+        self.assertIn("url 'activities:activity_create'", self.card)
+        self.assertNotIn('data-quick-open', self.card)
         self.assertIn("url 'activities:activity_list'", self.card)
         self.assertNotIn("url 'today'", self.card)
         self.assertNotIn('core/today.html', self.card)

@@ -1,12 +1,11 @@
-/* 活动表单组件：标签/参与者 chips 输入（拼音联想）+ AI 一句话解析结果回填。
+/* 活动表单组件：标签/参与者 chips 输入（拼音联想）+ 具体时间开合。
  *
  * 消费方：
- * - templates/activities/activity_form.html   独立创建/编辑页（DOM 就绪后自动初始化，含快速填表区）
+ * - templates/activities/activity_form.html   独立创建/编辑页（DOM 就绪后自动初始化）
  * - templates/activities/_activity_create_modal.html 「新建活动」弹窗（列表页与 Daily 页共用；校验失败换入错误片段后手动调 initWidgets 重挂）
  *
- * 约定：initWidgets() 幂等，可在表单字段 DOM 被整体替换后重复调用；
- * FORM_DEFAULTS 只在首次调用时快照（弹窗内表单以初始空白为基准）。
- * 解析通道走 PaQuickParse.parse（原生 fetch + JSON，禁挂 hx-*，CSRF 读 meta 标签）。
+ * 约定：initWidgets() 幂等，可在表单字段 DOM 被整体替换后重复调用。
+ * （一句话快速填表区已于 2026-10-28 随快记功能整体下线删除。）
  */
 (function () {
     'use strict';
@@ -179,172 +178,22 @@
                 slots[0].classList.contains('hidden') ? show() : hide();
             });
         }
-        // 编辑已有时间的活动 / 解析出时间后自动展开（openTimeFields 供 fillForm 调用）
-        initTimeToggle.openTimeFields = show;
         // 时间字段拆成 小时/分钟 两个 select（id_*_0 / id_*_1）
         if (readTime('id_start_time') || readTime('id_end_time')) show();
     }
 
-    // ==================== 解析结果回填（弹窗「填入下方表单」与独立页快速填表共用） ====================
-    var PARSE_FIELDS = {
-        name: 'id_name', start_date: 'id_start_date', end_date: 'id_end_date',
-        cost: 'id_parsed_cost'
-    };
-    // 时间字段是 小时/分钟 两个下拉（HourMinuteSelect），状态是点选 chips（radio 组）
-    var TIME_PREFIX = { start_time: 'id_start_time', end_time: 'id_end_time' };
-    var RADIO_FIELDS = { status: 'id_status' };
-    var FORM_DEFAULTS = null, lastFilled = [];
-
     function timeEl(prefix, part) {
         return document.getElementById(prefix + '_' + part);
-    }
-    // 非整格分钟（如 14:07 的 '07'）不在 4 格选项里，直接赋值会静默失败，先注入临时项
-    function ensureOption(sel, v) {
-        if (v && !Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) {
-            sel.add(new Option(v, v));
-        }
     }
     function readTime(prefix) {
         var h = timeEl(prefix, '0'), m = timeEl(prefix, '1');
         if (!h) return null;   // 页面无时间字段
         return (h.value && m.value) ? h.value + ':' + m.value : '';
     }
-    function writeTime(prefix, v) {
-        var h = timeEl(prefix, '0'), m = timeEl(prefix, '1');
-        if (!h || !m) return;
-        if (!v) { h.value = ''; m.value = ''; return; }
-        var p = String(v).split(':');
-        ensureOption(h, p[0]);
-        ensureOption(m, p[1]);
-        h.value = p[0];
-        m.value = p[1];
-    }
-    function readRadio(name) {
-        var el = document.querySelector('input[name="' + name + '"]:checked');
-        return el ? el.value : '';
-    }
-    function writeRadio(name, v) {
-        if (!v) return;
-        var el = document.querySelector('input[name="' + name + '"][value="' + v + '"]');
-        if (el) el.checked = true;
-    }
 
-    function captureDefaults() {
-        if (FORM_DEFAULTS) return;
-        FORM_DEFAULTS = {};
-        Object.keys(PARSE_FIELDS).forEach(function (k) {
-            var el = document.getElementById(PARSE_FIELDS[k]);
-            if (el) FORM_DEFAULTS[k] = el.value;
-        });
-        Object.keys(TIME_PREFIX).forEach(function (k) {
-            FORM_DEFAULTS[k] = readTime(TIME_PREFIX[k]);
-        });
-        Object.keys(RADIO_FIELDS).forEach(function (k) {
-            FORM_DEFAULTS[k] = readRadio(RADIO_FIELDS[k]);
-        });
-    }
-
-    function fillForm(d) {
-        captureDefaults();
-        var chips = window.__chipsInputs || initWidgets();
-        Object.keys(PARSE_FIELDS).forEach(function (k) {
-            var el = document.getElementById(PARSE_FIELDS[k]);
-            if (!el) return;   // 编辑页无 id_parsed_cost
-            var v = d[k];
-            if (v !== undefined && v !== null && v !== '') {
-                el.value = v;
-                if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
-            } else if (lastFilled.indexOf(k) !== -1) {
-                // 只回滚解析填过的值，用户手输的不动
-                el.value = FORM_DEFAULTS[k];
-                lastFilled = lastFilled.filter(function (x) { return x !== k; });
-            }
-        });
-        Object.keys(RADIO_FIELDS).forEach(function (k) {
-            if (!document.querySelector('input[name="' + RADIO_FIELDS[k] + '"]')) return;
-            var v = d[k];
-            if (v) {
-                writeRadio(RADIO_FIELDS[k], v);
-                if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
-            } else if (lastFilled.indexOf(k) !== -1) {
-                // 只回滚解析填过的值，用户手选的不动
-                writeRadio(RADIO_FIELDS[k], FORM_DEFAULTS[k]);
-                lastFilled = lastFilled.filter(function (x) { return x !== k; });
-            }
-        });
-        Object.keys(TIME_PREFIX).forEach(function (k) {
-            if (!timeEl(TIME_PREFIX[k], '0')) return;
-            var v = d[k];
-            if (v) {
-                writeTime(TIME_PREFIX[k], v);
-                if (lastFilled.indexOf(k) === -1) lastFilled.push(k);
-            } else if (lastFilled.indexOf(k) !== -1) {
-                // 只回滚解析填过的值，用户手输的不动
-                writeTime(TIME_PREFIX[k], FORM_DEFAULTS[k]);
-                lastFilled = lastFilled.filter(function (x) { return x !== k; });
-            }
-        });
-        if (d.tags && chips.tags) chips.tags.setNames(d.tags);
-        if (d.participants && chips.participants) chips.participants.setNames(d.participants);
-        // 解析出时间 → 自动展开时间区（收起状态看不到回填值，等于没填）
-        if ((d.start_time || d.end_time) && initTimeToggle.openTimeFields) {
-            initTimeToggle.openTimeFields();
-        }
-    }
-
-    // ==================== 独立页自动初始化（chips + 快速填表 + 草稿） ====================
+    // ==================== 独立页自动初始化（chips + 时间开关） ====================
     function autoInit() {
-        initWidgets();   // 含时间开关初始化（幂等）
-
-        var qInput = document.getElementById('form-quick-input');
-        if (!qInput) return;
-        var qBtn = document.getElementById('form-quick-btn');
-        var qMsg = document.getElementById('form-quick-msg');
-
-        function showMsg(text, isError) {
-            qMsg.textContent = text;
-            qMsg.className = 'mt-2 text-sm ' + (isError ? 'text-zinc-800 font-semibold' : 'text-zinc-900');
-        }
-
-        function doParse() {
-            var text = qInput.value.trim();
-            if (!text || qBtn.disabled) return;
-            qMsg.classList.add('hidden');
-            qBtn.disabled = true;
-            qBtn.textContent = '解析中…';
-            function done() {
-                qBtn.disabled = false;
-                qBtn.textContent = '解析';
-            }
-            PaQuickParse.parse(text, {
-                parseUrl: qInput.dataset.parseUrl,
-                onOk: function (d) {
-                    done();
-                    fillForm(d);
-                    // 分步向导（仅创建页渲染）：字段都填好了，直接落到第⑤步确认
-                    if (window.PaActivityWizard) window.PaActivityWizard.goToLast();
-                    showMsg('已填入表单，请确认后保存' + (d.source === 'ai' ? '（AI 识别）' : '（规则识别）'), false);
-                },
-                onErr: function (m) { done(); showMsg(m, true); },
-                onNetErr: function () { done(); showMsg('网络异常，请重试', true); },
-            });
-        }
-
-        qBtn.addEventListener('click', doParse);
-        qInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') doParse(); });
-
-        // 列表页「编辑详情」跳转过来：读取草稿直接填充
-        var draft = sessionStorage.getItem('quickInputDraft');
-        if (draft) {
-            sessionStorage.removeItem('quickInputDraft');
-            try {
-                var d = JSON.parse(draft);
-                fillForm(d);
-                if (window.PaActivityWizard) window.PaActivityWizard.goToLast();   // 分步向导：落到第⑤步确认
-                showMsg('已从快速输入填入，请确认后保存', false);
-                qInput.value = d.name || '';
-            } catch (e) { /* 草稿损坏时忽略 */ }
-        }
+        initWidgets();
     }
 
     if (document.readyState === 'loading') {
@@ -353,5 +202,5 @@
         autoInit();
     }
 
-    window.PaActivityForm = { initWidgets: initWidgets, fillForm: fillForm };
+    window.PaActivityForm = { initWidgets: initWidgets };
 })();

@@ -67,12 +67,12 @@
     </div>
     {% endif %}
 {% comment %}后续操作行：工作台页已下线，建/问的能力直接挂在卡片上。
-   新建活动走快记面板（data-quick-open，chat-turn.js 委托调 paQuickOpen）；
+   「＋新建活动」直跳创建页（快记面板 2026-10-28 整体下线）；
    「记一笔」已删（2026-09-21）：费用一定关联活动，统一走活动详情页的费用表单；
    「新建备忘」已删（2026-10-28 备忘功能整体下线）。{% endcomment %}
     <div class="mt-2 pt-2 border-t border-[var(--border)] flex flex-wrap items-center gap-1.5">
-        <button type="button" data-quick-open="activity"
-                class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] hover:opacity-90">＋ 新建活动</button>
+        <a href="{% url 'activities:activity_create' %}"
+           class="tap-target inline-flex items-center rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] hover:opacity-90">＋ 新建活动</a>
         <a href="{% url 'activities:activity_list' %}"
            class="tap-target inline-flex items-center rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--accent-light)]">全部活动</a>
     </div>

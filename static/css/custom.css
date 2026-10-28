@@ -350,14 +350,6 @@ textarea {
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
 }
 
-/* 快记浮层表面：Typeframe（2026-10-27）——浮层仍要一眼读出「这是弹层」，
-   但表达手段换成白底 + 1px 黑描边 + 中性大投影，不再用 accent 渐变 */
-.quick-panel-surface {
-    background: var(--bg-card);
-    border: 1px solid var(--text);
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.14);
-}
-
 /* 问 AI 抽屉：活动详情页内嵌对话（2026-09-21）。
    开关不依赖 Tailwind 的 hidden：display 只在这里定义一处，
    .ask-drawer-open 加上才显示，避免 hidden 与 flex 同层冲突（turn_status 同款教训）。 */

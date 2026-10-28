@@ -3,11 +3,6 @@
 
 {% block title %}{{ activity.name }} · {{ SITE_NAME }}{% endblock %}
 
-{% block extra_head %}
-<!-- 快速记活动安排共用实现（原生 fetch + JSON，禁挂 hx-*） -->
-<script src="{% staticv 'js/quick-parse.js' %}"></script>
-{% endblock %}
-
 {% block content %}
 <div class="max-w-4xl md:max-w-6xl mx-auto space-y-4 sm:space-y-6" data-page-activity="{{ activity.name }}">
     <div>
@@ -229,30 +224,7 @@
         <summary class="text-sm font-medium text-[var(--text)] flex items-center justify-between cursor-pointer select-none list-none">
             <span>活动安排（<span id="subtask-count">{{ children|length }}</span>）</span><span class="text-xs text-[var(--text-muted)]" aria-hidden="true">&#9654;</span>
         </summary>
-        <!-- 快速记一笔：一句话解析后预览确认创建活动安排 -->
-        <div class="mb-4">
-            <div class="flex gap-2">
-                <input type="text" id="sub-quick-input" maxlength="500" aria-label="快速记一笔活动安排"
-                       placeholder="快速记一笔活动安排，如：下周三去杭州团建 #团建 @小王"
-                       autocomplete="off"
-                       class="flex-1 tf-underline py-2 text-base text-[var(--text)] transition-colors">
-                <button type="button" id="sub-quick-parse-btn"
-                        class="btn-accent tap-target shrink-0 rounded-full px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">
-                    解析
-                </button>
-            </div>
-            <p id="sub-quick-error" class="hidden mt-2 text-sm text-[var(--text)] font-semibold"></p>
-            <div id="sub-quick-preview" class="hidden mt-3 py-3 border-t border-dotted border-[var(--border-strong)]">
-                <div id="sub-quick-preview-body" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]"></div>
-                <div class="flex flex-wrap items-center gap-2 mt-3">
-                    <button type="button" id="sub-quick-confirm-btn"
-                            class="btn-accent tap-target rounded-full px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity">确认创建活动安排</button>
-                    <button type="button" id="sub-quick-close-btn" class="tap-target text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-1" title="收起">&#10005;</button>
-                    <span id="sub-quick-source" class="ml-auto text-xs text-[var(--text-muted)]"></span>
-                </div>
-            </div>
-        </div>
-        <!-- 手动创建活动安排：内联展开/收起，与上方「一句话创建」AI 入口并存 -->
+        <!-- 手动创建活动安排：内联展开/收起 -->
         <div class="mb-4">
             <button type="button" id="sub-manual-toggle"
                     class="tap-target inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
@@ -564,24 +536,6 @@ function appendExpenseTag(name) {
             // 等平滑滚动落定再聚焦，否则 focus 会把滚动拽到元素顶部、与预期位置不一致
             if (el) setTimeout(function () { el.focus({ preventScroll: true }); }, 300);
         });
-    });
-})();
-
-// 单独 IIFE：共用脚本没加载成功时也不影响下方内联表单逻辑
-(function () {
-    PaQuickParse.init({
-        input: 'sub-quick-input',
-        parseBtn: 'sub-quick-parse-btn',
-        confirmBtn: 'sub-quick-confirm-btn',
-        closeBtn: 'sub-quick-close-btn',
-        preview: 'sub-quick-preview',
-        previewBody: 'sub-quick-preview-body',
-        errEl: 'sub-quick-error',
-        sourceEl: 'sub-quick-source',
-        parseUrl: '{% url "activities:parse_quick_input" %}',
-        submitUrl: '{% url "activities:activity_quick_sub" activity.id %}',
-        confirmText: '确认创建活动安排',
-        createdLabel: '已创建活动安排',
     });
 })();
 

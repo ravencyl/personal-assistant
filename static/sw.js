@@ -20,7 +20,6 @@ const PRECACHE_URLS = [
   '/static/js/chart.umd.min.js',
   '/static/js/pinyin-pro.js',
   '/static/js/offline-queue.js',
-  '/static/js/quick-parse.js',
   '/static/manifest.json',
 ];
 

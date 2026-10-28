@@ -25,7 +25,6 @@ from django.db.models import Sum
 
 from activities.models import Activity, ActivityDraft, ActivityLog, Attachment, Expense, Participant, CalendarFeed
 from activities.views.daily_views import daily_brief_payload, gather_daily
-from activities.parsing import parse_quick_input
 from core.agent_registry import CandidateToolError, ToolError
 from core.layout_asserts import assert_desktop_two_columns
 from activities.services import (InputError, add_expense,
@@ -279,7 +278,7 @@ class SubactivityManualCreateTest(TestCase):
         self.assertEqual(Activity.objects.get(name='租用车').user_id, self.user.id)
 
     def test_logs_written_for_parent_and_child(self):
-        """父子两条活动日志，与 add_subactivity / activity_quick_sub 口径一致"""
+        """父子两条活动日志，与 add_subactivity 口径一致"""
         from activities.models import ActivityLog
         self.assertEqual(self._post({'name': '办签证'}).status_code, 200)
         child = Activity.objects.get(name='办签证')
@@ -291,7 +290,7 @@ class SubactivityManualCreateTest(TestCase):
         self.assertIn(self.parent.name, child_logs[0].summary)
 
     def test_detail_page_renders_collapsed_manual_form(self):
-        """详情页渲染内联表单（默认折叠）且与 AI 快速入口并存"""
+        """详情页渲染内联表单（默认折叠）"""
         Activity.objects.create(user=self.user, name='已有活动安排', parent=self.parent)
         resp = self.client.get(f'/activities/{self.parent.id}/')
         self.assertEqual(resp.status_code, 200)
@@ -299,7 +298,7 @@ class SubactivityManualCreateTest(TestCase):
         self.assertIn('手动添加活动安排', content)
         self.assertIn('id="sub-manual-form" class="hidden', content)
         self.assertIn('novalidate', content)  # 行内错误接管浏览器原生必填气泡
-        self.assertIn('快速记一笔活动安排', content)   # AI 入口保留
+        self.assertNotIn('快速记一笔活动安排', content)  # AI 快速入口已随快记下线删除
         self.assertIn('已有活动安排', content)
         self.assertIn('sub-manual-tag-options', content)  # 标签 autocomplete 建议
 
@@ -713,8 +712,9 @@ class ActivityIdDisplayTest(SimpleTestCase):
         self.assertNotIn('#{{ activity.id }}', src)
 
 
-class ParticipantQuickEndpointTest(TestCase):
-    """快速创建 / 一句话活动安排：未命中的参与者跳过并在响应 note 中说明"""
+class ManualSubactivityParticipantTest(TestCase):
+    """内联手动创建活动安排：未命中的参与者跳过并在响应 note 中说明
+    （quick-create / quick-sub 两个一句话端点已于 2026-10-28 随快记功能整体下线删除）"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -723,27 +723,12 @@ class ParticipantQuickEndpointTest(TestCase):
         self.yyx = Participant.objects.create(user=self.user, name='YYX')
         self.parent = Activity.objects.create(user=self.user, name='新西兰之旅')
 
-    def test_quick_create_skips_unknown(self):
-        resp = self.client.post(
-            '/activities/quick-create/',
-            data=json.dumps({'name': '周末聚餐', 'participants': ['yyx', '路人甲']}),
-            content_type='application/json')
-        self.assertEqual(resp.status_code, 200)
-        activity = Activity.objects.get(name='周末聚餐')
-        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['YYX'])
-        self.assertIn('路人甲', resp.json()['note'])
-        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
-
-    def test_quick_sub_skips_unknown(self):
-        resp = self.client.post(
-            f'/activities/{self.parent.id}/quick-sub/',
-            data=json.dumps({'name': '订门票', 'participants': ['路人甲']}),
-            content_type='application/json')
-        self.assertEqual(resp.status_code, 200)
-        child = Activity.objects.get(name='订门票')
-        self.assertEqual(child.participants.count(), 0)
-        self.assertIn('路人甲', resp.json()['note'])
-        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+    def test_quick_endpoints_gone(self):
+        """墓碑：一句话创建的两个端点不得复活（404）"""
+        self.assertEqual(self.client.post('/activities/quick-create/',
+                                          data='{}', content_type='application/json').status_code, 404)
+        self.assertEqual(self.client.post(f'/activities/{self.parent.id}/quick-sub/',
+                                          data='{}', content_type='application/json').status_code, 404)
 
     def test_manual_form_normalizes_case_before_creating(self):
         """内联手动表单：手输 yyx 归到已有 YYX，真正的新名字才新建"""
@@ -897,18 +882,10 @@ class DailyPageRetiredTest(TestCase):
             (dj_settings.BASE_DIR / 'templates' / 'activities' / 'daily.html').exists())
 
 
-class QuickParseWiringTest(TestCase):
-    """快速记一笔前端通道：详情页抽屉等入口复用 static/js/quick-parse.js
-    （列表页创建弹窗的入口已于 2026-10-16 按用户决定下线，见反锁用例）
-
-    init()/parse() 传的是元素 id 字符串，模板改了 id 就会静默失效
-    （getElementById 返回 null → 交互没反应且无报错），这里把
-    「配置里引用的 id 必须真实存在于同一页面」钉成测试。
-    """
-
-    # init() 里取值是元素 id 的选项（URL/文案类选项跳过）
-    ID_KEYS = ('input', 'parseBtn', 'confirmBtn', 'closeBtn', 'editBtn',
-               'preview', 'previewBody', 'errEl', 'sourceEl')
+class QuickParseRemovedTest(TestCase):
+    """快记（一句话解析）前端通道 2026-10-28 整体下线：墓碑防复活。
+    quick-parse.js、parsing.py、parse-quick-input / quick-create / quick-sub
+    三个端点已全链删除，任何页面都不得再加载/接线解析通道。"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -916,51 +893,38 @@ class QuickParseWiringTest(TestCase):
         self.client.login(username='testuser', password='test')
         self.activity = Activity.objects.create(user=self.user, name='新西兰之旅')
 
-    def _assert_wired(self, html, call_marker, check_ids=True):
-        self.assertIn('js/quick-parse.js', html, '共用模块未加载')
-        # 普通 <script src> 必须在 head，早于页面里的调用
-        self.assertLess(html.index('js/quick-parse.js'), html.index(call_marker),
-                        '共用模块必须在调用之前加载')
-        if not check_ids:
-            return
-        start = html.index(call_marker)
-        block = html[start:html.index('});', start)]
-        ids = {}
-        for key in self.ID_KEYS:
-            m = re.search(r'\b%s:\s*[\'"]([^\'"]+)[\'"]' % key, block)
-            if m:
-                ids[key] = m.group(1)
-        self.assertTrue(ids, f'未找到任何元素 id 配置：{block[:200]}')
-        for key, value in ids.items():
-            self.assertIn(f'id="{value}"', html,
-                          f'配置 {key}: {value!r} 在页面上没有对应元素')
+    def _page_ok_and_clean(self, url):
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertNotIn('js/quick-parse.js', html)
+        self.assertNotIn('PaQuickParse', html)
+        self.assertNotIn('sub-quick-', html)
+        self.assertNotIn('form-quick-input', html)
+        return html
 
-    def test_activity_list_modal_has_no_quick_parse(self):
-        """列表页创建弹窗的 AI 一句话解析入口已删（2026-10-16 用户决定：
-        统一走底部导航栏快记面板的活动 Tab）——quick-parse.js 不得再在列表页加载"""
-        html = self.client.get(reverse('activities:activity_list')).content.decode()
-        self.assertNotIn('js/quick-parse.js', html, '列表页不应再加载解析通道')
-        self.assertNotIn('PaQuickParse.init(', html, '列表页不应再有解析接线')
-        self.assertNotIn('modal-quick-input', html, '弹窗不应再有一句话解析输入框')
+    def test_detail_page_has_no_quick_parse(self):
+        self._page_ok_and_clean(
+            reverse('activities:activity_detail', args=[self.activity.id]))
 
-    def test_detail_page_subtask_quick_entry(self):
-        html = self.client.get(
-            reverse('activities:activity_detail', args=[self.activity.id])).content.decode()
-        self._assert_wired(html, 'PaQuickParse.init(')
+    def test_create_page_has_no_quick_parse(self):
+        self._page_ok_and_clean(reverse('activities:activity_create'))
 
-    def test_form_page_reuses_parse_channel(self):
-        """创建页只做「解析 → 回填表单」：解析逻辑在共用脚本 activity-form.js，不自己拼 CSRF"""
-        html = self.client.get(reverse('activities:activity_create')).content.decode()
-        self.assertIn('js/quick-parse.js', html, '共用模块未加载')
-        self.assertIn('js/activity-form.js', html, '表单组件脚本未加载')
-        # 普通 <script src> 必须按依赖顺序加载（activity-form.js 的解析调用依赖 PaQuickParse）
-        self.assertLess(html.index('js/quick-parse.js'), html.index('js/activity-form.js'),
-                        '共用模块必须在表单组件脚本之前加载')
-        js = (Path(__file__).resolve().parent.parent
-              / 'static' / 'js' / 'activity-form.js').read_text(encoding='utf-8')
-        self.assertIn('PaQuickParse.parse(', js, '表单组件未复用共用解析通道')
-        self.assertNotIn('function getCookie', js, '表单组件仍在自己解析 cookie 取 CSRF')
-        self.assertNotIn('function getCookie', html, '页面仍在自己解析 cookie 取 CSRF')
+    def test_list_page_has_no_quick_parse(self):
+        self._page_ok_and_clean(reverse('activities:activity_list'))
+
+    def test_parse_endpoint_gone(self):
+        self.assertEqual(
+            self.client.post('/activities/parse-quick-input/',
+                             data='text=x', content_type='application/x-www-form-urlencoded').status_code,
+            404)
+
+    def test_assets_removed(self):
+        base = Path(__file__).resolve().parent.parent
+        self.assertFalse((base / 'static' / 'js' / 'quick-parse.js').exists())
+        self.assertFalse((base / 'activities' / 'parsing.py').exists())
+        sw = (base / 'static' / 'sw.js').read_text(encoding='utf-8')
+        self.assertNotIn('quick-parse.js', sw, 'SW 预缓存清单不得再含已删脚本')
 
 
 class FilterPanelUsabilityTest(TestCase):
@@ -1218,45 +1182,14 @@ class AttachmentUploadTest(TestCase):
         self.assertTrue(any('请选择文件' in m.message for m in resp.wsgi_request._messages))
 
 
-class CostVsBudgetParsingTest(TestCase):
-    """「预算 X」不再写入任何字段（预算上限已随 Activity.budget 字段删除）
-
-    以前「预算 500」写 budget、「花了 300」写 cost；字段删除后只保留费用解析。
-    """
-
-    TODAY = date(2026, 8, 31)   # 周一
-
-    def test_budget_keyword_writes_nothing(self):
-        result = parse_quick_input('下周五团建预算500元', self.TODAY)
-        self.assertNotIn('budget', result)
-        self.assertNotIn('cost', result)
-
-    def test_spent_keywords_write_cost(self):
-        for text, amount in [('聚餐费用2千', 2000.0), ('花了300', 300.0), ('打车500元', 500.0)]:
-            result = parse_quick_input(text, self.TODAY)
-            self.assertEqual(result.get('cost'), amount, text)
-
-
 class CostVsBudgetEndpointsTest(TestCase):
-    """费用记支出，两条入口（快速创建 / 新建表单）口径一致"""
+    """费用记支出，新建表单入口口径一致
+    （快速创建端点已于 2026-10-28 随快记功能整体下线删除）"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
         self.client = Client()
         self.client.login(username='testuser', password='test')
-
-    def test_quick_create_expense_writes_expense(self):
-        resp = self.client.post(
-            reverse('activities:activity_quick_create'),
-            data=json.dumps({'name': '团建', 'cost': 120}),
-            content_type='application/json')
-        self.assertEqual(resp.status_code, 200)
-        activity = Activity.objects.get(name='团建')
-        self.assertEqual(activity.expenses.count(), 1)
-        expense = activity.expenses.first()
-        self.assertEqual(expense.amount, Decimal('120.00'))
-        # 分类已下线：不传 tags 时费用不带任何归类
-        self.assertEqual(tag_names(expense), [])
 
     def _post_create(self, payload):
         """提交新建表单（status 是必填项，模板靠 select 默认值带上）
@@ -1296,144 +1229,9 @@ class CostVsBudgetEndpointsTest(TestCase):
         self.assertIn('name="parsed_cost"', create_html, '创建页丢了「本次费用」入口')
 
 
-class AiParseWeekAnchorTest(TestCase):
-    """给 AI 的提示必须自带日历对照表，不能让它自己推周基准
-
-    实测云端模型把周日（2026-08-30）的「下周五」推到了下下周五，
-    而规则解析给的是 09-04；表格注入后两边口径对齐（已拿真实模型回环验证）。
-    """
-
-    def test_anchor_table_matches_rule_parser_for_next_weekday(self):
-        from activities.views import _week_anchor_text
-        for today in (date(2026, 8, 30), date(2026, 8, 31), date(2026, 9, 4), date(2026, 9, 6)):
-            anchor = _week_anchor_text(today)
-            expected = parse_quick_input('下周五', today)['start_date']
-            self.assertIn(f'周五={expected}', anchor,
-                          f'{today}（{today.strftime("%a")}）的锚点表与规则解析不一致')
-
-    def test_anchor_declares_monday_as_week_start(self):
-        from activities.views import _week_anchor_text
-        anchor = _week_anchor_text(date(2026, 8, 30))
-        self.assertIn('周一开始', anchor)
-        self.assertIn('本周：周一=2026-08-24', anchor)
-        self.assertIn('下周：周一=2026-08-31', anchor)
-
-    def test_past_dates_flagged_for_bare_weekday_postpone(self):
-        """裸「周X」已过时，表格要把本周那个日期标成已过去，否则模型会把活动排到过去
-
-        只写文字约定时实测会返回「今天」（周日说「周六」→ 08-30），单元格标注才能驱动顺延。
-        """
-        from activities.views import _week_anchor_text
-        today = date(2026, 8, 30)      # 周日，本周周六（08-29）已过
-        anchor = _week_anchor_text(today)
-        self.assertIn('周六=2026-08-29（已过去）', anchor)
-        # 规则解析顺延后的目标日期必须能在下周行里找到
-        expected = parse_quick_input('周六', today)['start_date']
-        self.assertEqual(expected, '2026-09-05')
-        self.assertIn(f'周六={expected}', anchor)
-        self.assertIn('不得早于今天', anchor)
-        # 今天本身不算已过去，不然「今天开会」会被推走
-        self.assertNotIn('周日=2026-08-30（已过去）', anchor)
-
-
-class RelativeDateParsingTest(TestCase):
-    """规则解析补上往回看的相对日期（AI 不可用时的降级路径）
-
-    此前只认今天/明天/后天/N天后：「昨天打车28元」会整条丢掉日期，
-    费用落不到花钱那天 → 今日/本周消费统计少一笔。「上周X」旧口径会被
-    当成裸「周X」推到下周去，方向刚好相反。
-    """
-
-    today = date(2026, 8, 31)      # 周一
-
-    def parsed(self, text, today=None):
-        return parse_quick_input(text, today or self.today)
-
-    def test_past_relative_words(self):
-        for word, iso in (('昨天', '2026-08-30'), ('前天', '2026-08-29'),
-                          ('大前天', '2026-08-28')):
-            result = self.parsed(f'{word}开会')
-            self.assertEqual(result.get('start_date'), iso, word)
-            self.assertEqual(result.get('end_date'), iso, word)
-
-    def test_n_days_before_and_after(self):
-        self.assertEqual(self.parsed('3天后出发')['start_date'], '2026-09-03')
-        self.assertEqual(self.parsed('5天前买的机票')['start_date'], '2026-08-26')
-
-    def test_past_day_expense_keeps_date_and_amount(self):
-        result = self.parsed('昨天打车28元')
-        self.assertEqual(result['cost'], 28.0)
-        self.assertEqual(result['start_date'], '2026-08-30')
-
-    def test_last_week_dates_go_back(self):
-        self.assertEqual(self.parsed('上周六爬山')['start_date'], '2026-08-29')
-        self.assertEqual(self.parsed('上周日野餐')['start_date'], '2026-08-30')
-        self.assertEqual(self.parsed('上上周五开会')['start_date'], '2026-08-21')
-
-    def test_future_paths_unchanged(self):
-        self.assertEqual(self.parsed('下周三开会')['start_date'], '2026-09-09')
-        self.assertEqual(self.parsed('本周五团建')['start_date'], '2026-09-04')
-        # 裸「周X」未过 → 取本周，已过 → 顺延下周（旧口径保留）
-        self.assertEqual(self.parsed('周三例会')['start_date'], '2026-09-02')
-        self.assertEqual(self.parsed('周六', date(2026, 8, 30))['start_date'], '2026-09-05')
-
-    def test_anchor_table_covers_last_week_too(self):
-        """AI 锚点表与规则解析同口径，否则降级前后给出的日期不同"""
-        from activities.views import _week_anchor_text
-        anchor = _week_anchor_text(self.today)
-        for phrase in ('上周六', '上周日', '下周三'):
-            expected = self.parsed(phrase)['start_date']
-            self.assertIn(f'={expected}', anchor, phrase)
-        self.assertIn('不得早于今天', anchor)
-
-
 class TimeParsingTest(TestCase):
-    """规则解析识别具体时间表述（2026-09-17）：「明天下午3点」→ 15:00
-
-    原则与日期一致：只提取能明确识别的时间，歧义不猜；
-    无日期的孤时间不输出（无法落到日历）。
-    """
-
-    def parsed(self, text):
-        return parse_quick_input(text, date(2026, 9, 17))
-
-    def test_period_word_and_half(self):
-        d = self.parsed('明天下午3点半看牙')
-        self.assertEqual(d['start_date'], '2026-09-18')
-        self.assertEqual(d['start_time'], '15:30')
-        self.assertEqual(d['name'], '看牙')
-
-    def test_clock_format_and_end_time(self):
-        d = self.parsed('9月20日14:30到16:00开会')
-        self.assertEqual(d['start_date'], '2026-09-20')
-        self.assertEqual(d['start_time'], '14:30')
-        self.assertEqual(d['end_time'], '16:00')
-        self.assertEqual(d['name'], '开会')
-
-    def test_various_periods(self):
-        # 文本须带日期：孤时间按设计不输出（见 test_orphan_time_without_date_dropped）
-        self.assertEqual(self.parsed('明天晚上8点跑步')['start_time'], '20:00')
-        self.assertEqual(self.parsed('明天上午9点体检')['start_time'], '09:00')
-        self.assertEqual(self.parsed('明天中午12点聚餐')['start_time'], '12:00')
-        self.assertEqual(self.parsed('明天中午1点吃饭')['start_time'], '13:00')
-        self.assertEqual(self.parsed('明天15点取快递')['start_time'], '15:00')
-
-    def test_ambiguous_bare_hour_not_guessed(self):
-        """裸「3点」无词头不猜上下午；不产生时间，名称保留原文"""
-        d = self.parsed('明天3点出门')
-        self.assertNotIn('start_time', d)
-        self.assertIn('3点', d['name'])
-
-    def test_orphan_time_without_date_dropped(self):
-        """只有时间没有日期 → 不输出时间（孤时间落不到日历）"""
-        d = self.parsed('下午3点开会')
-        self.assertNotIn('start_time', d)
-        self.assertNotIn('start_date', d)
-
-    def test_time_spans_removed_from_name(self):
-        d = self.parsed('下周三早上7点半晨跑')
-        self.assertEqual(d['name'], '晨跑')
-        self.assertEqual(d['start_time'], '07:30')
+    """normalize_input 的时间归一：孤时间丢弃、越界丢弃、补零
+    （规则解析器 activities/parsing.py 已于 2026-10-28 随快记功能整体下线删除）"""
 
     def test_normalize_time_and_orphan_drop(self):
         from activities.utils import normalize_input
@@ -1603,20 +1401,6 @@ class WritePathServiceTest(TestCase):
         logged = set(ActivityLog.objects.values_list('activity_id', 'action', 'user_id'))
         self.assertIn((parent.id, 'sub_created', self.admin.id), logged)
         self.assertIn((child.id, 'created', self.admin.id), logged)
-
-    def test_quick_sub_cost_lands_on_child_not_parent(self):
-        """一句话建活动安排：花费记在活动安排名下（与内联手动表单同口径）"""
-        parent = Activity.objects.create(user=self.user, name='新西兰之旅')
-        self.client.login(username='testuser', password='test')
-        resp = self.client.post(
-            reverse('activities:activity_quick_sub', args=[parent.id]),
-            data=json.dumps({'name': '办签证', 'cost': 350}),
-            content_type='application/json')
-        self.assertEqual(resp.status_code, 200, resp.content)
-        child = Activity.objects.get(name='办签证')
-        self.assertEqual(Expense.objects.filter(activity=child).count(), 1)
-        self.assertEqual(Expense.objects.filter(activity=parent).count(), 0)
-        self.assertEqual(Expense.objects.get(activity=child).amount, Decimal('350.00'))
 
     def test_add_subactivity_endpoint_keeps_both_logs(self):
         """快捷建活动安排改走 services 后，仍要写父+子两条日志且只建一个对象"""
@@ -2924,45 +2708,18 @@ class AiTagGuardTest(TestCase):
         activity.refresh_from_db()
         self.assertEqual(list(activity.tags.values_list('name', flat=True)), ['出差'])
 
-    def test_quick_parse_ai_tags_gate(self):
-        """快速输入 AI 解析：只保留原文显式 #词，AI 推断的一律丢弃
-        （哪怕命中已有标签，2026-10-08 自动加标签下线）"""
-        from unittest.mock import patch
-        from activities.views import quick_input_views as qiv
-        self._seed()
-        self.client = Client()
-        self.client.login(username='testuser', password='test')
-
-        # 显式 #餐饮 保留；AI 自己推断的「编造标签」被丢弃
-        with patch.object(qiv, '_ai_parse',
-                          return_value={'name': '周五聚餐', 'tags': ['餐饮', '编造标签']}):
-            resp = self.client.post(reverse('activities:parse_quick_input'),
-                                    {'text': '周五聚餐 #餐饮'})
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()['tags'], ['餐饮'])
-        from core.models import Tag
-        self.assertFalse(Tag.objects.filter(name='编造标签').exists())
-
-        # AI 推断的标签哪怕命中已有标签（出差）也被丢弃：tags 字段整个消失
-        with patch.object(qiv, '_ai_parse',
-                          return_value={'name': '去上海出差', 'tags': ['出差']}):
-            resp = self.client.post(reverse('activities:parse_quick_input'),
-                                    {'text': '周五聚餐'})
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotIn('tags', resp.json())
-
 
 class AiAutoTagRemovedTest(SimpleTestCase):
     """「AI 自动加标签」已按用户要求整体下线（2026-10-08）：
-    suggest_tags 兑底推荐函数与三个调用入口（表单创建 / 对话创建 / 快速输入推断）
-    全部拆除。防复活静态锁（不扫 knowledge，那里的建议按钮是用户主动点击）。"""
+    suggest_tags 兑底推荐函数与调用入口（表单创建 / 对话创建）全部拆除。
+    （快速输入推断入口已随快记功能 2026-10-28 整体下线一并删除。）
+    防复活静态锁（不扫 knowledge，那里的建议按钮是用户主动点击）。"""
 
     def test_no_auto_suggest_code_paths(self):
         base = Path(__file__).resolve().parent.parent
         for rel in ('core/tags.py',
                     'activities/views/form_views.py',
-                    'activities/agent_tools.py',
-                    'activities/views/quick_input_views.py'):
+                    'activities/agent_tools.py'):
             self.assertNotIn('suggest_tags', (base / rel).read_text(), rel)
 
 

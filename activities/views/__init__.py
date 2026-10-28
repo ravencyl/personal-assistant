@@ -2,7 +2,6 @@
 
 拆分前是单文件 views.py（1500+ 行），现按域分模块：
 - _common            视图层共享小工具（标签建议 / 问候语 / 费用标注）
-- quick_input_views  一句话快速输入（AI 解析 + 降级规则）与快速创建
 - list_views         活动列表（树形 + 筛选 + 排序 + 分页）
 - detail_views       活动详情及其子资源（活动安排 / 状态 / 附件）
 - form_views         独立创建 / 编辑 / 删除
@@ -11,23 +10,16 @@
 - daily_views        Daily 每日简报与下一步行动
 
 外部入口保持稳定：activities/urls.py 的 `from . import views`、
-personal_assistant/urls.py 的 `from activities.views import daily_view, calendar_feed`、
-tests 的 `from activities.views import _week_anchor_text` 均不受影响。
+personal_assistant/urls.py 的 `from activities.views import daily_view, calendar_feed` 均不受影响。
+（quick_input_views 一句话快速输入已于 2026-10-28 整体下线并删除）
 """
 from ._common import attach_costs  # noqa: F401
-from .quick_input_views import (  # noqa: F401
-    _ai_parse,
-    _week_anchor_text,
-    activity_quick_create,
-    parse_quick_input_view,
-)
 from .list_views import activity_list, activity_pin_toggle  # noqa: F401
 from .detail_views import (  # noqa: F401
     _parse_date_input,
     _split_name_input,
     _subactivity_timeline,
     activity_detail,
-    activity_quick_sub,
     activity_set_status,
     add_subactivity,
     attachment_delete,
@@ -61,11 +53,10 @@ from .export_views import activity_export_csv, expense_export_csv  # noqa: F401
 
 __all__ = [
     'attach_costs',
-    '_ai_parse', '_week_anchor_text', '_parse_date_input', '_split_name_input',
+    '_parse_date_input', '_split_name_input',
     '_subactivity_timeline',
-    'parse_quick_input_view', 'activity_quick_create', 'activity_list',
+    'activity_list',
     'activity_detail', 'activity_set_status', 'add_subactivity',
-    'activity_quick_sub',
     'subactivity_manual_create', 'attachment_upload', 'attachment_delete',
     'activity_create', 'activity_edit', 'activity_delete',
     'expense_create', 'expense_edit', 'expense_delete',

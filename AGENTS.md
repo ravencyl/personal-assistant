@@ -331,14 +331,18 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
   `notes.search` 两个 AI 工具与 INTENT_TOOL_MAP 条目、Tag scope='note'、顶栏「备忘」
   项（顶栏四项）、快记面板备忘 Tab、today_brief 卡的「近期笔记」区与「新建备忘」按钮、
   详情页相关备忘/笔记块
-- **存量消息 payload 里可能残留 `data-quick-open="note"`**：`paQuickOpen(name)` 现在对
-  任何名字都只开面板（面板只剩「一句话创建活动」一个窗格），历史卡片点旧按钮不会报错
+- **存量消息 payload 里可能残留 `data-quick-open="note"`**：`paQuickOpen` 委托分支已随
+  快记下线删除，历史卡片点旧按钮是 no-op（元素无 data-local-card，委托不命中），不会报错
 
-## 快记面板口径（2026-09-21）
+## 快记功能整体下线（2026-10-28 墓碑）
 
-- **费用 Tab 已删（用户决定）：费用一定关联活动，不会有单独的费用**。记费用统一走活动详情页的费用表单；`expense_quick_create` / `expense_quick_candidates` 两个端点与全站 `expense_tag_suggestions` context processor 一并删除（详情页用自己的局部同名 context，不受影响）。不要以「方便」为由把全局记费加回来
-- 历史简报卡片（daily/today_brief）里的「记一笔」按钮已同步删除；`paQuickOpen(name)` 对已删 Tab 名**只开面板不再切 Tab**（备忘 Tab 2026-10-28 随功能下线后，面板只剩活动一个窗格）——存量消息 payload 里可能还残留 `data-quick-open="expense"` / `"note"`，前端必须兜住
-- 浮层表面 `.quick-panel-surface`（淡 accent 顶部渐变 + accent 描边 + 高投影）比普通 panel 醒目一档：浮层要一眼读出「这是弹层」，淡白底点了像没点（用户反馈）。新增浮层容器时复用这个类，不要回退到普通 `.panel`
+「快记」（一句话解析：移动端底部 dock、桌面悬浮 FAB、快记面板、表单页快速填表、详情页一句话子任务）已按用户决定全链删除：
+
+- **删掉的实体**：`activities/parsing.py`（规则解析器）、`activities/views/quick_input_views.py`、`static/js/quick-parse.js`、三个端点（`parse-quick-input/`、`quick-create/`、`<id>/quick-sub/`）、`_week_anchor_text`、`_participant_skip_text`、`.quick-panel-surface` CSS、base.html 的 FAB/面板/脚本整块、chat-turn.js 的 `data-quick-open` 委托分支、activity-form.js 的 `fillForm`/快速填表/草稿读取、sw.js 预缓存条目
+- **保留的共享原语**（勿当死代码删）：`activities.utils.normalize_input`（agent_tools 与 subactivity_manual_create 在用）、`create_activity_from_parsed` / `record_parsed_cost`（services，agent_tools / add_subactivity / template_use 在用）、`extract_json_dict`（core/ai.py，agent_registry 在用）、`resolve_existing_tags` 显式 #词 语义仍由 agent 工具路径承担
+- 历史简报卡片（daily/today_brief）的「＋ 新建活动」从 `data-quick-open` 按钮改为直跳创建页链接；存量消息 payload 里残留的 `data-quick-open` 属性前端已无委托，点击是 no-op
+- 底部导航栏恢复四项纯链接（今日/活动/对话/我的），`PrimaryNavTest` 口径不变
+- 回归锁：`activities/tests.py::QuickParseRemovedTest`（页面无接线 + 端点 404 + 资产已删）、`ManualSubactivityParticipantTest.test_quick_endpoints_gone`、`chat/tests.py` 聊天页快记入口断言反转、`DailyCardActionRowTest`/`WorkbenchCardTest`/`WorkbenchCardWiringTest` 卡片链接口径
 
 ## 详情页「问 AI」抽屉（2026-09-21，PaChatTurn 第三个挂载点）
 
@@ -357,7 +361,7 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
 
 ```python
-# AI 自动识别路径（对话 create/update、快速输入、一句话子任务）：只匹配已有，匹配不到就跳过
+# AI 自动识别路径（对话 create/update）：只匹配已有，匹配不到就跳过
 participants, skipped, _created = resolve_participants(user, names)
 
 # 用户显式填写路径（内联手动表单、活动编辑页）：先大小写不敏感复用已有写法，确实没有才新建
@@ -372,9 +376,9 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 
 ## 标签写入规则（AI 路径，2026-09-21）
 
-AI（对话 `activities.create` / `activities.update`、快速输入 AI 解析）推断的标签一律走 `core/tags.py::resolve_existing_tags(names, scope, user)` 守门：只匹配「预建启用标签 + 该用户在此 scope 用过的标签」（大小写不敏感，命中后落规范写法），**匹配不到的丢弃并在 reply/JSON 中告知，绝不新建 Tag**——否则模型编造的标签名会永久污染标签列表（线上「乱贴标签」事故的根因之一）。与 `resolve_participants` 完全同口径：
+AI（对话 `activities.create` / `activities.update`）推断的标签一律走 `core/tags.py::resolve_existing_tags(names, scope, user)` 守门：只匹配「预建启用标签 + 该用户在此 scope 用过的标签」（大小写不敏感，命中后落规范写法），**匹配不到的丢弃并在 reply/JSON 中告知，绝不新建 Tag**——否则模型编造的标签名会永久污染标签列表（线上「乱贴标签」事故的根因之一）。与 `resolve_participants` 完全同口径：
 
-- **快速输入里用户原文显式写的 `#词` 直接保留**（可以新建），AI 自己推断的部分才守门（`quick_input_views.py` 里先分离 explicit/inferred 再 resolve）
+- ~~快速输入里用户原文显式写的 `#词` 直接保留~~（快速输入已随快记功能 2026-10-28 整体下线，此语义不再有承载入口；AI 工具路径全部守门）
 - `activities.update` 的 tags 分支与 participants 对称：全部未命中时保持原标签不变（「未找到」不等于「清空」），预览卡与 `apply_update` 两阶段都要守门且口径一致
 - 无用户指定时的兑底建议用 `suggest_tags(obj, limit=3, require_relevance=True, scope='activity')`：`require_relevance=True` 会关掉「无脑塞高频常用标签」的策略 1（与内容无关的高频标签是乱贴主因之二）；表单页给人挑的建议 chips 保持默认 `require_relevance=False`
 - `suggest_tags` 的临时对象（未落库预览）无法被 `_scope_of` 反推 scope，**必须显式传 `scope=`**，否则异常被吞、静默返回空（此路径曾因此从未生效过）
@@ -392,7 +396,7 @@ AI（对话 `activities.create` / `activities.update`、快速输入 AI 解析�
 - **视觉对齐四条口径**（2026-10-11 全站走查后定稿，`core/tests.py::VisualAlignmentTest` 逐条静态锁）：① 表面/文字**灰阶只有令牌一份** —— 模板 class 里禁止 `bg-white`、`zinc-*` 系硬编码，一律 `var(--bg-card)` / `var(--border)` / `var(--text-secondary)` / `var(--text-muted)`；唯一白名单是**深底反白元素**（outbox 徽点 `bg-zinc-700 text-white`、附件遮罩上的删除键），判据为同一 class 属性含 `text-white` ② 页面主标题 **h1 一律 `font-bold`**（曾是 dashboard 的 semibold 与其余页 bold 并存两种） ③ 卡片标题 **h2 用 `text-sm font-semibold`**，不得 `font-medium`（曾 medium 8 处 / semibold 9 处并存） ④ 输入框聚焦描边**唯一口径 `focus:border-[var(--accent)]`**（曾并存 `focus:border-zinc-900`、`zinc-500`、`border-[var(--text-secondary)]` 三种灰 —— 品牌色落点在 focus 环与勾选框，聚焦描边跟着它走）。卡片表面分两级：**页面一级卡只挂 `.app-card` 基类**（1.25rem 圆角+描边+影，唯一实现），不得自拼 `rounded-xl bg-[var(--bg-card)]`（登录页曾是手拼第 4 种，已改挂基类）；气泡/卡片内的**二级嵌套面统一 16px（rounded-xl）**，如 chat 各卡片
 - **静态文件**：手写 CSS 在 `static/css/`，PWA 资源（`manifest.json`、`sw.js`）在 `static/` 根目录（但 `sw.js` 对外必须从站点根 `/sw.js` 注册，见下面两条）
 - **AI 回复是纯文本渲染**：`{{ msg.content }}`（`whitespace-pre-wrap`，既不走 markdown 也不走 urlize），所以工具 `reply` 里给用户的链接要 `unquote()` 成可读路径（`knowledge/agent_tools.py::_article_url`），中文 slug 的编码 URL 用户读不了也点不了
-- **对话输入框 Enter 不提交**：两个入口（`chat/conversation_detail.html` 的 `#message-input`、`chat/conversation_list.html` 的 `#split-input`）都是 `<textarea rows="1" data-auto-grow>`，Enter 只换行、**只能点「发送」按钮**（单行 input 在表单里会隐式提交，而误发一条要等 AI 几十秒）；高度由 `base.html` 末尾的 `window.paFitTextarea` 统一接管（程序清空后要再调它重置，内联 `hx-on::after-request` 已这么写），`.chat-input` 负责 `resize:none` + 160px 限高内滚动。该脚本必须保留「元素未渲染就跳过」的守卫：快记浮层面板初始 `display:none`，此时 `scrollHeight` 恒为 0，无条件回写会把输入框压成 0 高、placeholder 裁字（已踩过）；`chat/tests.py::ChatInputEnterBehaviorTest` 锁住这套结构
+- **对话输入框 Enter 不提交**：两个入口（`chat/conversation_detail.html` 的 `#message-input`、`chat/conversation_list.html` 的 `#split-input`）都是 `<textarea rows="1" data-auto-grow>`，Enter 只换行、**只能点「发送」按钮**（单行 input 在表单里会隐式提交，而误发一条要等 AI 几十秒）；高度由 `base.html` 末尾的 `window.paFitTextarea` 统一接管（程序清空后要再调它重置，内联 `hx-on::after-request` 已这么写），`.chat-input` 负责 `resize:none` + 160px 限高内滚动。该脚本必须保留「元素未渲染就跳过」的守卫：隐藏容器（弹窗/抽屉）初始 `display:none`，此时 `scrollHeight` 恒为 0，无条件回写会把输入框压成 0 高、placeholder 裁字（已踩过）；`chat/tests.py::ChatInputEnterBehaviorTest` 锁住这套结构
 - **站点品牌名只有一个口径**：`settings.SITE_NAME`（当前为「三磊」），模板一律写 `{{ SITE_NAME }}`（`core.context_processors.site_brand` 全局注入），**禁止在模板/视图/JS 里硬写站名**；浏览器标签页标题统一「页面名 · {{ SITE_NAME }}」。Admin 标题、AI 自我介绍 prompt 都读同一个 settings。例外：`static/manifest.json`（PWA 安装名）是静态文件、不走模板引擎，**改名时必须手动同步**，`core/tests.py::SiteBrandTest` 会断言它与 settings 一致
 - **Service Worker 只在站点根上注册，脚本本体仍住在 `static/sw.js`**：`base.html` 注册 `{% url 'service_worker' %}` = `/sw.js`，由 `core/views.py::service_worker` 用 `finders.find('sw.js')` 直出（`require_safe` + `Cache-Control: no-store` + `Service-Worker-Allowed: /`），不为它单改 nginx。**SW 可控作用域的上限就是脚本 URL 所在目录**，注册回 `/static/sw.js` 就管不到任何页面导航，脚本里的离线降级分支直接变死代码。装饰器得是 `require_safe` 而不是 `require_GET`：后者把 HEAD 拒成 405，而 `curl -I /sw.js` 正是发布后验响应头的手段。`core/tests.py::ServiceWorkerTest` 锁住这套结构
 - **`static/sw.js` 的三条拦截约束 + 两条回填时序约束**（拦截顺序本身被测试锁定）：❶ **永不拦自己**：`/sw.js`、`/static/sw.js` 要在任何 `respondWith` 之前 return，旧版把脚本归进 `/static/` cache-first 分支，浏览器每次更新检查拿回的都是缓存里的旧脚本，升 `CACHE_VERSION` 也不生效 —— 「发布后样式滞后一次」的真因；❷ 只处理 GET（表单 POST 的 `request.mode` 也是 `navigate`，缓存它等于允许重放写操作，而且 `cache.put()` 遇非 GET 抛异常）；❸ 只缓存顶层导航，判据只能用 `mode === 'navigate'`，**不能用「Accept 含 text/html」**（HTMX 片段请求正带这个头，会被当成页面缓存掉）；❹ `response.clone()` 必须在把响应交给 `respondWith` 之前同步做完（放进 `caches.open().then()` 里时原响应已开始往页面流，`clone()` 抛 `Response body is already used`）；❺ `cache.put` 必须挂在 `event.waitUntil()` 上（即发即忘会在写入前被回收）。❹❺ 都是静默失败：表现为缓存里永远只有 `PRECACHE_URLS`，离线兜底形同虚设（两条都在本地实测踩过，`test_runtime_refill_survives_body_handoff` 锁住）
@@ -442,13 +446,13 @@ REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
 
 ## 修改 activities/views/ 包前须知
 
-views 已按功能域拆包（2026-09-17，原单文件 views.py）：`_common`（共享小工具）、`quick_input_views`、`list_views`、`detail_views`、`form_views`、`expense_views`、`calendar_views`、`daily_views`；`views/__init__.py` 统一再导出，路由与测试仍从 `activities.views` 取符号，不要绕过包入口直接跨模块 import 私有函数。
+views 已按功能域拆包（2026-09-17，原单文件 views.py）：`_common`（共享小工具）、`list_views`、`detail_views`、`form_views`、`expense_views`、`calendar_views`、`daily_views`（`quick_input_views` 一句话快速输入已于 2026-10-28 随快记功能整体下线删除）；`views/__init__.py` 统一再导出，路由与测试仍从 `activities.views` 取符号，不要绕过包入口直接跨模块 import 私有函数。
 
 1. **可见性过滤**：所有查询通过 `visible_qs(Activity, request.user)` 或 `get_visible(Activity, request.user, ...)` 过滤，导入自 `core.utils`
 2. **渲染目标**：视图返回标准 Django `render()` / `JsonResponse()`，HTMX 交互由模板层 `hx-*` 属性控制（主要在 `activity_list.html` 的筛选表单和列表区域）
 3. **装饰器顺序**：`@login_required` → `@ensure_csrf_cookie`（如需）→ `@require_POST`（写操作）
 4. **标签建议**：`_user_tag_names(request.user)` 返回可见范围内已使用过的标签，供表单 autocomplete
-5. **快速输入**：`parse_quick_input_view` 先调 AI（Qoder agent），失败降级为 `parsing.parse_quick_input` 规则解析。两条路径的相对日期口径必须一致（含昨天/前天/大前天/N天前/上周X 这类**往回看**的说法，补记的花费要落在花钱那天）：改一边要同步 `_week_anchor_text` 与 `RelativeDateParsingTest`
+5. **一句话快速输入已下线（2026-10-28）**：`parse_quick_input_view` / `parsing.parse_quick_input` / `_week_anchor_text` 已随快记功能整体删除，相关相对日期口径锁（`RelativeDateParsingTest`）一并移除；自然语言建活动现统一走 AI 对话工具链
 6. **写路径走 `activities/services.py`**：创建活动（含子任务）与记费用一律调 `create_activity_from_parsed` / `add_expense`，视图与 Agent 工具只做取参、鉴权、渲 染；状态变更一律调 `change_activity_status`（页面快捷按钮 / AI 单改 / AI 批量三入口共用）；禁止在视图/工具里直接 `Activity.objects.create` 或 `Expense.objects.create`
 
 ### 写入口径（services 已统一，新增入口不得偏离）
