@@ -1172,3 +1172,57 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
    聊天页回到全站同一套白底黑字令牌，不再有独立深色作用域。
    相关壳类与令牌翻转已从三个聊天挂载点模板及本文件一并移除，
    勿再引用（回归锁：chat/tests.py::ChatWideLayoutTest 的 Aurora 退役条）。 */
+
+/* ── 全站侧边 AI 助手（docs/sidebar-agent-plan.md D2 双栏 shell）─────────
+   只存在 md+：移动端对话走底部 Tab 的完整对话页。收起 = 左缘把手常驻；
+   展开 = 360px 全高栏滑入 + body.side-agent-open 驱动主壳（.min-h-full，
+   nav 与 main 的共同父级）margin-left 整体右移——侧栏是布局的一部分而非浮层，
+   所以 z-index 只压过导航（40），低于搜索面板（60）。 */
+.side-agent-handle,
+.side-agent-panel { display: none; }
+
+@media (min-width: 768px) {
+  .side-agent-handle {
+    display: flex;
+    position: fixed;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 64px;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-left: none;
+    border-radius: 0 var(--radius-ctl) var(--radius-ctl) 0;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color .15s;
+  }
+  .side-agent-handle:hover { color: var(--text); }
+  body.side-agent-open .side-agent-handle { display: none; }
+
+  .side-agent-panel {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 360px;
+    z-index: 50;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    transform: translateX(-100%);
+    transition: transform .2s ease-out;
+  }
+  body.side-agent-open .side-agent-panel { transform: translateX(0); }
+
+  body.side-agent-open .min-h-full { margin-left: 360px; }
+  .min-h-full { transition: margin-left .2s ease-out; }
+
+  /* 「活动数据已更新」提示条居中到右栏剩余区域（360 的一半补回来） */
+  body.side-agent-open #activity-refresh-bar { left: calc(50% + 180px); }
+}

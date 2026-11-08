@@ -1,4 +1,5 @@
 import hmac
+import json
 import logging
 import threading
 import time
@@ -8,10 +9,12 @@ import httpx
 
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse, Http404
+from django.urls import resolve, reverse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST, require_GET
 from django.db import models
 from django.utils import timezone
+from django.utils.html import escape
 
 from .models import (Conversation, Message, TURN_TTL_SECONDS,
                      TURN_IDLE_GRACE_SECONDS, TURN_MAX_RETRIES,
@@ -456,6 +459,63 @@ def activity_conversation(request, activity_id):
 
 
 @json_login_required
+def sidebar_session(request):
+    """全站侧边 AI 助手（docs/sidebar-agent-plan.md D3）：常驻单会话 create-or-get
+
+    定位与「问 AI」抽屉同构：一个入口一个会话，但不钉活动——侧栏服务于
+    「当前页面」而非某个对象。复用 = 取该用户最新非归档对话（历史可回溯，
+    也自然承接用户在聊天页正在聊的话题）；没有才新建。片段直接回
+    widget_messages.html：自带 turn_resume / turn_error / 钉选挂载位，前端
+    PaChatTurn 拿到就能接上正在跑的轮次，不需要另开状态口子。
+
+    必须 filter(user=request.user) 而不是 visible_qs（个人上下文口径，见
+    AGENTS.md 口径表）：对话是私人线程，超管的 visible_qs 会看到全库——
+    若按 updated_at 取全局最新，侧栏会把别人的对话挂进自己面板，随后的
+    发送全部写进对方会话（浏览器实测踩过）。列表页展示用 visible_qs 是
+    管理视角，这里不是。
+    """
+    conversation = (Conversation.objects.filter(user=request.user)
+                    .exclude(status='archived')
+                    .order_by('-updated_at')
+                    .first())
+    created = False
+    if not conversation:
+        try:
+            conversation = _create_conversation_for_user(request.user)
+        except RuntimeError as e:
+            # Agent/Environment 缺配置是环境问题：与 create_conversation 同口径
+            return JsonResponse({'error': str(e)}, status=400)
+        except Exception as e:
+            logger.error(f'侧边助手会话创建失败: {e}')
+            return JsonResponse({'error': '创建对话失败，请稍后重试'}, status=500)
+        created = True
+
+    widget_msgs, older_count = _history_window(conversation)
+    base = f'/chat/{conversation.id}'
+    return JsonResponse({
+        'conversation_id': conversation.id,
+        'title': conversation.title,
+        'created': created,
+        'messages_html': render(request, 'chat/partials/widget_messages.html', {
+            'widget_messages': widget_msgs,
+            'older_count': older_count,
+            'history_all_url': f'{base}/?history=all',
+            'conversation': conversation,
+            'turn_ttl': TURN_TTL_SECONDS,
+            # 侧栏不挂 PaChatPin（输 @ 没有候选），「输入 @ 可钉住」只会误导（同抽屉 item 10）
+            'hide_pin_hint': True,
+        }).content.decode(),
+        'urls': {
+            'send': f'{base}/send/',
+            'poll': f'{base}/turn/',
+            'wait': f'{base}/turn-wait/',
+            'cancel': f'{base}/turn/cancel/',
+            'new_topic': '/chat/create/',
+        },
+    })
+
+
+@json_login_required
 @require_POST
 def create_conversation(request):
     """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）
@@ -666,6 +726,89 @@ def _recent_context_keywords(conversation):
     return ' '.join(tokenize(joined, max_tokens=RECENT_CONTEXT_MAX_TOKENS))
 
 
+# 页面上下文的人话标签（docs/sidebar-agent-plan.md D4）：key = (app_name, url_name)。
+# P1 覆盖主路径；不认识的 url_name 一律返回空串不注入——宁可不注入，也不把前端
+# 可控的原始路径文本交给模型（prompt 注入面）。活动详情/编辑页的对象名在
+# _page_hint_from_path 里单独查库。
+PAGE_HINT_LABELS = {
+    ('', 'home'): '今日首页',
+    ('', 'dashboard'): '「我的」页',
+    ('activities', 'activity_list'): '活动列表页',
+    ('activities', 'activity_create'): '活动创建页',
+    ('activities', 'activity_calendar'): '活动日历页',
+    ('activities', 'expense_report'): '费用报告页',
+    ('activities', 'next_actions'): '下一步行动页',
+    ('activities', 'archive_list'): '活动归档页',
+    ('chat', 'conversation_list'): 'AI 对话页',
+    ('memory', 'memory_list'): '记忆页',
+}
+
+
+def _resolve_page_path(request, field='page_path'):
+    """请求里的页面路径 → ResolverMatch；缺省/解析不出返回 None
+
+    page_path 是前端可控输入，调用方不得把原始路径回显进任何注入文本——
+    这里只负责反解，产出永远来自服务端白名单与数据库。
+    """
+    raw = (request.POST.get(field) or request.GET.get(field) or '').strip()
+    if not raw:
+        return None
+    try:
+        return resolve(raw.split('?')[0])
+    except Exception:
+        return None
+
+
+def _page_hint_from_path(request):
+    """page_path → 一行「用户正在浏览什么」；解析不出返回空串（不注入）
+
+    前端只带 location.pathname（paPageContext 统一产出），服务端 resolve 反解：
+    零模板改动覆盖全站页面。活动详情/编辑页带对象名（visible 过滤，别人的或
+    已删的活动不注入）；注入行进 turn_prompt（send 时拼装，重试重发确定性）。
+    """
+    match = _resolve_page_path(request)
+    if match is None:
+        return ''
+    key = (match.app_name or '', match.url_name or '')
+    if key in (('activities', 'activity_detail'), ('activities', 'activity_edit')):
+        from activities.models import Activity
+        act = visible_qs(Activity, request.user).filter(
+            id=match.kwargs.get('activity_id')).first()
+        if not act:
+            return ''
+        label = '活动详情页' if key[1] == 'activity_detail' else '活动编辑页'
+        return f'用户正在浏览{label}《{act.name}》（ID {act.id}）'
+    label = PAGE_HINT_LABELS.get(key)
+    return f'用户正在浏览{label}' if label else ''
+
+
+def _page_actions_after_write(request, tool_name, result):
+    """活动写操作确认成功后的右侧页面反应（docs/sidebar-agent-plan.md D5）
+
+    统一规则：AI 碰了对象 X —— 右侧不在 X 的页面就 navigate 到 X，已在就
+    refresh（复用「活动数据已更新」提示条 + 3s 自动 reload 机制）。动作由
+    服务端确定性生成：URL 全部 reverse() 产出、类型只有 navigate/refresh 两种，
+    模型协议零参与（协议面积不增加、无截断残骸面）；前端 afterSwap 执行器
+    只认 data-page-action 标记里的白名单类型。仅 activities.* 工具产生反应：
+    知识/记忆落库没有「右侧页面」可联动。删除类（无 activity_ids）回列表。
+    """
+    if not str(tool_name or '').startswith('activities.'):
+        return []
+    current = _resolve_page_path(request)
+    ids = result.get('activity_ids') or []
+    if ids:
+        target = reverse('activities:activity_detail', args=[ids[0]])
+        if (current is not None
+                and current.view_name == 'activities:activity_detail'
+                and current.kwargs.get('activity_id') == ids[0]):
+            return [{'type': 'refresh'}]
+        return [{'type': 'navigate', 'url': target}]
+    target = reverse('activities:activity_list')
+    if current is not None and current.view_name == 'activities:activity_list':
+        return [{'type': 'refresh'}]
+    return [{'type': 'navigate', 'url': target}]
+
+
 def _build_ai_content(request, conversation, content):
     """组装真正发给 Qoder 的文本：页面上下文 + 知识库注入 + 用户原文
 
@@ -673,16 +816,24 @@ def _build_ai_content(request, conversation, content):
     （把它塞进用户消息会污染历史，现有约定只存原文）。
     失败一律降级（铁律：任何环节失败都不得阻断对话）。
     """
-    ai_content = content
+    # 页面上下文（D4）：page_path 为主通道（前端只带 pathname，服务端反解），
+    # 旧 page_context 字段（paPageContext 正则方案）过渡期兼容——全量切
+    # page_path 后删回落分支。注意页面提示必须拼在用户原文之前且协议之后：
+    # 旧实现用 f'...\n\n{content}' 整体重赋值，新对话第一轮同时带协议首帧和
+    # 页面提示时（「问 AI」深链场景）会把协议整段覆盖丢掉（存量 bug，本次修复）
+    page_hint = _page_hint_from_path(request)
+    if not page_hint:
+        legacy = request.POST.get('page_context', '').strip()
+        if legacy and legacy not in ('home', 'chat'):
+            page_hint = legacy
+    body = f'[页面提示: {page_hint}]\n\n{content}' if page_hint else content
+    ai_content = body
     # 首帧协议合并投递（2026-10-28）：旧实现建对话时立刻单发协议首帧，用户紧接着
     # 的第一问必撞 409 忙等（「第一条消息特别慢」的真因——平台要先把协议跑完）。
     # 现在协议跟随第一轮用户消息合并进 turn_prompt 一次投递：存量会话建库时都已
     # 收过首帧（迁移默认 protocol_sent=True），只有新对话的第一轮携带协议
     if not conversation.protocol_sent:
         ai_content = build_protocol_prompt() + '\n\n' + ai_content
-    page_context = request.POST.get('page_context', '').strip()
-    if page_context and page_context != 'home' and page_context != 'chat':
-        ai_content = f'[页面提示: {page_context}]\n\n{content}'
     # 检索关键词规则的每轮补发（协议规则 13）：与规则 10/12 同款存量陷阱，
     # 首帧只对新建对话生效。恒定一行，不值得为省噪声做条件判据
     ai_content = PROTOCOL_SEARCH_REMINDER + ai_content
@@ -1296,6 +1447,14 @@ def confirm_action(request, message_id):
         # 确认后变更了活动数据：附标记，宿主页面据此提示/自动刷新
         if action.get('resolved') == 'confirmed' and action.get('changed'):
             response.content += b'<div data-activity-changed hidden></div>'
+            # 页面动作标记（D5）：afterSwap 执行 navigate/refresh，让右侧页面
+            # 跟着 AI 的写操作联动。JSON 落 HTML 属性必须 escape（活动名等
+            # 用户数据混在 URL 外还可能进未来字段，不转义会被引号截断）
+            for pa in action.get('page_actions') or []:
+                response.content += (
+                    '<div data-page-action="%s" hidden></div>'
+                    % escape(json.dumps(pa, ensure_ascii=False))
+                ).encode()
         return response
 
     if action.get('resolved'):
@@ -1322,6 +1481,16 @@ def confirm_action(request, message_id):
         action['resolved'] = 'confirmed'
         action['result'] = result.get('reply') or '操作完成'
         action['changed'] = bool(result.get('changed'))
+        # 页面联动（D5）：activities.* 写操作成功后生成右侧页面动作。
+        # 确定性生成不经模型协议（零协议面增量）；失败只少一次联动，
+        # 绝不影响确认结果本身（容错铁律）
+        if action['changed']:
+            try:
+                pa = _page_actions_after_write(request, action.get('tool'), result)
+                if pa:
+                    action['page_actions'] = pa
+            except Exception as exc:
+                logger.warning('page_actions 生成失败（不阻断确认流）: %s', exc)
     except Exception as e:
         logger.error(f'确认动作执行失败（消息 {message.id}）: {e}')
         action['resolved'] = 'failed'

@@ -719,6 +719,8 @@ function appendExpenseTag(name) {
                 .then(function (html) {
                     // 片段来自服务端模板渲染（同一份 _message.html），不是拼用户数据
                     messagesEl.innerHTML = html;
+                    // JS 插入的片段含确认卡/候选卡表单：htmx 1.x 没有 MutationObserver，手动接管
+                    if (window.paProcessHtmx) window.paProcessHtmx(messagesEl, 0);
                     mount({ send: d.urls.send, poll: d.urls.poll, wait: d.urls.wait, cancel: d.urls.cancel });
                     input.focus();
                 });

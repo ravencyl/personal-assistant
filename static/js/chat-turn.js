@@ -158,6 +158,22 @@
         });
     };
 
+    /* htmx 1.x 没有 MutationObserver（htmx 2.x 才有，本项目 1.9.12 源码 grep
+     * MutationObserver 0 命中）：JS 插进来的 hx-* 节点（确认卡 / 候选卡的
+     * hx-post 表单）不手动 process 就不会被 htmx 接管，点击回落成原生表单提交
+     * （线上实锤：确认卡点了没反应，CSRF 明文挂上地址栏）。只处理「本次插入」
+     * 的节点：fromIndex 之前的子节点是已绑定过的存量，重复 process 会双重绑定、
+     * 旧节点引用残留（已下线浮窗 r is not a function 的根因）。innerHTML 整体
+     * 替换的宿主传 0 即可 —— 旧节点已全部丢弃，不存在重复绑定。htmx 自己
+     * swap 进来的内容（hx-swap outerHTML 的返回片段）由它接管，无需再处理。 */
+    window.paProcessHtmx = function (box, fromIndex) {
+        if (!window.htmx) return;
+        var kids = box.children;
+        for (var i = (fromIndex || 0); i < kids.length; i++) {
+            try { window.htmx.process(kids[i]); } catch (err) { /* 单节点失败只少一个绑定，不阻断消息流 */ }
+        }
+    };
+
     window.PaChatTurn = function (opts) {
         var messagesEl = opts.messagesEl;
         var statusEl = opts.statusEl;
@@ -208,9 +224,11 @@
 
         function append(html) {
             if (!html) return;
+            var prevCount = messagesEl.childElementCount;
             messagesEl.insertAdjacentHTML('beforeend', html);
-            // 新增节点里的 hx-* 由 htmx 自带的 MutationObserver 处理，
-            // 这里绝不能再调 htmx.process()（会双重绑定、旧节点引用残留）
+            // htmx 1.x 没有 MutationObserver：轮询插进来的确认卡/候选卡表单必须
+            // 手动接管；只处理本次新增的节点（存量重复 process = 双重绑定）
+            window.paProcessHtmx(messagesEl, prevCount);
             if (window.paTidyFollowUps) window.paTidyFollowUps(messagesEl);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
@@ -644,7 +662,10 @@
          详情页是 /chat/<id>/detail/，两个形态都被同一条正则覆盖。 */
     function currentChatId() {
         var m = /\/chat\/(\d+)/.exec(location.pathname);
-        return m ? m[1] : null;
+        if (m) return m[1];
+        // 全站侧栏（sidebar-agent.js）持有自己的会话：非 /chat 页面上 pathname
+        // 命不中，快捷卡片（每日简报等）以侧栏装载的会话为准；未装载时保持 null
+        return window._paSidebarChatId ? String(window._paSidebarChatId) : null;
     }
 
     function flashLocalError(btn, text) {
@@ -660,7 +681,9 @@
         // 但抽屉页不能落到不存在的槽里静默丢弃）
         var box = document.getElementById('split-messages') || document.getElementById('ask-drawer-messages') || document.getElementById('messages');
         if (!box) return;
+        var prevCount = box.childElementCount;
         box.insertAdjacentHTML('beforeend', html);
+        window.paProcessHtmx(box, prevCount);
         box.scrollTop = box.scrollHeight;
         if (window.paTidyFollowUps) window.paTidyFollowUps(box);
     }

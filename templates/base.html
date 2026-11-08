@@ -24,6 +24,8 @@
     <script defer src="{% staticv 'js/timezone.js' %}"></script>
     {# 聊天异步收发流（分栏页与详情页共用一份）；同步加载，见上方例外说明 #}
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
+    {# 全站侧边 AI 助手（桌面端双栏 shell）：壳层开关/装载，defer 到 DOM 解析完再绑 #}
+    <script defer src="{% staticv 'js/sidebar-agent.js' %}"></script>
     {# 全站统一确认卡（data-confirm 表单 + paConfirmCard API），替代原生 confirm() 弹窗 #}
     <script defer src="{% staticv 'js/confirm-card.js' %}"></script>
     {# Web Push 订阅开关（顶栏铃铛），事件驱动 defer 加载；未配置 VAPID 时不加载 #}
@@ -197,28 +199,14 @@
 
     {% if user.is_authenticated %}
     <script>
-    // 页面上下文感知：聊天页（分栏 / 详情）发送消息时携带同一份「用户正在看什么」。
-    // 判定逻辑只有这一份实现（原属聊天浮窗脚本，浮窗下线后独立成块）
-    (function () {
-        var path = location.pathname;
-        var m = path.match(/^\/activities\/(\d+)\/?$/);
-        if (m) {
-            var el = document.querySelector('[data-page-activity]');
-            var name = el ? el.getAttribute('data-page-activity') : '';
-            window.paPageContext = function () {
-                var hint = name ? '用户正在查看活动「' + name + '」（ID: ' + m[1] + '）的详情页。可以帮用户修改活动信息、创建费用、添加参与者等。' : '';
-                return { page_context: hint || 'activity_detail' };
-            };
-            return;
-        }
-        var type = 'home';
-        if (/^\/activities\/new\//.test(path)) type = 'activity_create';
-        else if (/^\/activities/.test(path)) type = 'activity_list';
-        else if (/^\/chat/.test(path)) type = 'chat';
-        window.paPageContext = function () {
-            return { page_context: type };
-        };
-    })();
+    // 页面上下文感知（D4）：前端只带 location.pathname，服务端 resolve 反解出
+    // 「用户正在浏览什么」（页面标签与活动对象名在 chat.views._page_hint_from_path，
+    // 走白名单不回显原始路径，避免把用户可控的字符串拼进 prompt）。判定逻辑
+    // 只有一份实现；旧 page_context 正则方案已由 page_path 取代，存量 SW 缓存页
+    // 发旧字段的过渡期由服务端回落分支兼容
+    window.paPageContext = function () {
+        return { page_path: location.pathname };
+    };
     </script>
     {% endif %}
 
@@ -242,16 +230,49 @@
         }
     }
     document.addEventListener('activities:changed', notifyActivityChanged);
-    // HTMX 响应中的变更标记（完整版对话页/确认按钮等非浮窗链路）
-    document.addEventListener('htmx:afterSwap', function (e) {
-        if (!e.detail.target || !e.detail.target.querySelector) return;
-        var marker = e.detail.target.querySelector('[data-activity-changed]');
-        if (marker) {
-            marker.remove();
+    // HTMX 请求统一携带 page_path（D4）：确认卡 apply 等 hx-post 也要让服务端知道
+    // 「用户此刻在哪个页面」，确认流才能生成右侧页面联动。监听必须挂在 body 上：
+    // chat-turn.js 同步加载于 head，彼时 document.body 还是 null
+    document.body.addEventListener('htmx:configRequest', function (e) {
+        if (e.detail && e.detail.parameters) e.detail.parameters['page_path'] = location.pathname;
+    });
+    // HTMX 响应中的变更标记（完整版对话页/确认按钮等非浮窗链路）+ 页面动作执行器（D5）：
+    // 确认卡 apply 成功后服务端随片段下发 data-page-action；navigate 优先——跳转本身
+    // 就表达了「带用户去看结果」，提示条不必再弹（弹了也会被导航打断，徒增闪烁）
+    // 标记挂点注意：两类标记都是服务端 append 在 response.content 顶层的「兄弟节点」，
+    // outerHTML 替换后落在新内容里；而 htmx:afterSwap 的 e.detail.target 是被换下来的
+    // 旧节点——已脱离文档（实锤 isConnected=false），在它身上 querySelector 永远落空
+    // （首验实锤：确认卡换成 ✓ 但页面毫无反应、标记在 DOM 里越积越多）。所以从
+    // document 全局收走：标记本来就是页面级语义（「这一页的活动数据变了」），
+    // 收走即消费，不会重复触发
+    document.addEventListener('htmx:afterSwap', function () {
+        var actions = [];
+        Array.prototype.forEach.call(document.querySelectorAll('[data-page-action]'), function (node) {
+            node.remove();
+            try { actions.push(JSON.parse(node.getAttribute('data-page-action'))); } catch (err) { /* 坏标记只少一次联动 */ }
+        });
+        var navUrl = null;
+        actions.some(function (a) {
+            if (a && a.type === 'navigate' && a.url) { navUrl = a.url; return true; }
+            return false;
+        });
+        if (navUrl) { location.href = navUrl; return; }
+        var marker = document.querySelector('[data-activity-changed]');
+        if (actions.some(function (a) { return a && a.type === 'refresh'; }) || marker) {
+            if (marker) marker.remove();
             notifyActivityChanged();
         }
     });
     </script>
+
+    {% if user.is_authenticated %}
+    {# 全站侧边 AI 助手（docs/sidebar-agent-plan.md D2）：壳常驻 base.html，全站页面共用 #}
+    {# 恢复类要先于壳渲染执行，否则展开态刷新会看见面板从收起滑入的闪动（Django 注释不能跨行） #}
+    <script>
+    try { if (localStorage.getItem('pa-side-agent-open') === '1') document.body.classList.add('side-agent-open'); } catch (err) {}
+    </script>
+    {% include "chat/partials/_sidebar_agent.html" %}
+    {% endif %}
 
     <!-- 导航切换进度条：任何同源链接点击立即亮条，新页面 pageshow 时收起。
          放页尾即可——点击事件不会早于脚本执行；bfcache 恢复的页面 DOM 是旧的，

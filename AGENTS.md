@@ -356,6 +356,16 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 - **开关类不与 Tailwind display 工具类同层**：抽屉显示/隐藏只走 `.ask-drawer-open`（custom.css 定义 display），不得 `hidden`+`flex` 混用（`turn_status.html` 同款教训）
 - 抽屉内的写操作成功会广播 `activities:changed`，详情页自身数据可能已过时；顺带修正过一个存量 bug：空对话复用判断原来是 `=== ' 暂无消息'`（带前导空格），与 `trim()` 结果永不匹配，导致深链每次都新建对话
 
+## 全站侧边 AI 助手（2026-11-08，PaChatTurn 第四个挂载点）
+
+常驻左侧滑出面板（`_sidebar_agent.html` 壳 + `static/js/sidebar-agent.js`），服务「当前页面」而非某个对象，AI 可对当前页的对象做写操作并让右侧页面联动（设计方案 docs/sidebar-agent-plan.md D2-D5）。
+
+- **会话口径是 `filter(user=request.user)` 而不是 `visible_qs`**（个人上下文口径，见上方口径表）：对话是私人线程，超管的 visible_qs 返回全库——按 updated_at 取全局最新会把**别人的对话**挂进超管面板，随后的发送全部写进对方会话（浏览器实测踩过）。列表页展示用 visible_qs 是管理视角，这里不是。回归锁：`SidebarAgentEndpointTest::test_superuser_never_mounts_another_users_conversation`
+- **JS 插入的 hx-* 节点必须手动接管（htmx 1.x 没有 MutationObserver）**：统一出口 `window.paProcessHtmx(box, fromIndex)`（chat-turn.js），只处理本次插入的根节点（innerHTML 整体替换传 0），绝不重扫整个容器（存量重复 process = 双重绑定，已下线浮窗 r is not a function 的根因）。挂载点共五处：chat-turn.js 的 append/insertLocalHtml、侧栏装载、问 AI 抽屉、分栏页历史加载。**不接管的实锤形状**：确认卡点「确认执行」回落成原生 GET 提交，CSRF 明文挂上地址栏、JSON 端点 403。详见上方前端分端约定的 htmx.process 条
+- **page_path 上下文（D4）**：前端只发 `location.pathname`（base.html 的 `htmx:configRequest` 与聊天 send 的 extraParams），服务端 `_resolve_page_path` 反解成白名单 `PAGE_HINT_LABELS` 或活动详情，**原始路径永不回显进注入文本**（前端可控输入的注入面）
+- **page_actions 页面联动（D5）**：activities.* 写操作确认成功后，`_page_actions_after_write` 确定性生成 navigate/refresh（对象详情 URL 全部 reverse() 产出、删除类回列表、非 activities 工具零反应），随确认卡片段下发 `<div data-page-action="…" hidden>`（JSON 落 HTML 属性必须 escape）。**afterSwap 执行器必须从 document 全局收标记**——两类标记都是 response.content 顶层追加的兄弟节点，outerHTML 替换后挂在新内容里；而 `htmx:afterSwap` 的 `e.detail.target` 是被换下来的**旧节点（已脱离文档）**，在它身上 querySelector 永远落空（首验实锤：确认卡换成 ✓ 但页面毫无反应、标记在 DOM 里越积越多；`data-activity-changed` 提示条同期同病，`test_base_executes_page_actions_after_swap` 双向锁住）。服务端动作矩阵回归锁：`PageActionAfterConfirmTest`（navigate/refresh/删除回列表/取消与非 activities 工具零动作）
+- **展开态走 localStorage（`pa-side-agent-open`）**：开局恢复的内联脚本要先于壳渲染执行（防面板滑入闪动）；「新话题」复用 `POST /chat/create/` + 重挂同一装载链路
+
 ## 参与者写入规则
 
 参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
@@ -416,7 +426,7 @@ AI（对话 `activities.create` / `activities.update`）推断的标签一律走
 - **唯一分端断点**：`md:`（768px，与导航层一致）。结构性显隐只用成对块：桌面元素 `hidden md:flex` / `hidden md:block`，移动元素 `md:hidden`。禁止新增 `sm:` 结构性断点；`sm:p-*` / `sm:text-*` / `sm:gap-*` 等纯尺寸渐进类不属于结构，保留。640-768px 平板竖屏跟随桌面布局（预期行为）。
 - **双协议约定**：UI 局部更新走 HTMX + HTML 片段端点；返回 JSON 的数据端点必须由原生 `fetch()` 消费，**严禁在元素上挂 `hx-*`**（HTMX 会把 JSON 当纯文本插入 DOM；混用还会与 `fetch` 竞争导致渲染失效）。fetch 的 CSRF token 从 `base.html` 的 `<meta name="csrf-token">` 读取。这条口径有机检：`chat/tests.py::JsonEndpointNeverHtmxTest` 从 `@json_login_required` 的标记属性反查 JSON 端点集合（不手维护名单），再扫模板里 `hx-*` 的 `{% url %}` 目标；新增 JSON 端点会自动进锁，新增前先跑它确认自己没有混用。
 - **fetch 端点的登录保护必须用 `@json_login_required`**（`core/utils.py`，是 `@login_required` 的超集）：未登录时 `Accept` 含 `application/json` → `401 + {'error','login_url','reauth'}`，否则保持原生 302。原因：fetch 会自动跟随 302，最终拿到 200 的登录页 HTML，前端只能报「操作失败，请重试」，用户反复重试也不知道是掉线。**不得靠手挂 `HX-Request: true` 骗视图返 JSON**（那样装饰器会当成 HTML 请求返 302，401 分支永远走不到）。聊天侧所有 fetch 必须走 `chat-turn.js` 的 `apiFetch`（对外暴露为 `window.paJsonFetch`），它是 `Accept` 补头 + 401 整页跳转的唯一出口。HTMX 端点仍保持 302 旧行为（换 401 要先验清 `HX-Redirect` 在错误响应上的语义）。
-- **禁止手动 `htmx.process()`**：htmx 内置 MutationObserver 会自动初始化新增节点，手动重复处理会造成双重绑定与旧节点引用残留（曾引发已下线的聊天浮窗 `r is not a function` 错误）。
+- **`htmx.process()` 只许对「JS 新插入的节点」调用，且必须调用**：本项目 htmx 是 **1.9.12，没有 MutationObserver**（那是 htmx 2.x 的能力，旧规则说“自带自动初始化”是错的）。JS 插入的 hx-* 节点（确认卡/候选卡的 hx-post 表单）不手动 process 就不被 htmx 接管，点击回落成原生表单提交（线上实锤：确认卡点了没反应、CSRF 明文挂上地址栏）。统一出口 `window.paProcessHtmx(box, fromIndex)`（chat-turn.js 定义）：`insertAdjacentHTML` 追加传插入前的 `childElementCount`，`innerHTML` 整体替换传 0（旧节点已丢弃）；挂载点共五处 —— chat-turn.js 的 append/insertLocalHtml、侧栏装载、问 AI 抽屉、分栏页历史加载。**禁止对整个容器重扫**：已有节点重复 process 会双重绑定、旧节点引用残留（曾引发已下线的聊天浮窗 `r is not a function` 错误）。htmx 自己 swap 进来的内容（hx-swap outerHTML 的返回片段）由它接管，无需再处理。回归锁：`chat/tests.py::ChatTurnFlowJsTest::test_flow_processes_newly_inserted_htmx_nodes` + `SidebarWiringTest::test_sidebar_mount_processes_inserted_htmx_nodes`
 - **分端工具类**（见 `static/css/custom.css`）：`.tap-target`（移动端最小 44×44 触控区）、`.hover-actions`（桌面随 `.group` 悬停显示，触屏/移动端常驻可见）。
 - **详情页两列具体内容分配**：`activity_detail.html` 用通用列容器（类名口径见上面【前端约定】的 `.page-cols` 条）包住左列（描述·费用·子任务）与右列（快捷操作卡·附件·参与者·关联）。右列整块 DOM 排在左列之后，所以移动端相对旧版只有一处变化：子任务从页底提到费用之后。改这个模板的块顺序就是改移动端顺序，必须同步 `ActivityDetailDesktopLayoutTest` 的顺序锁。
 - **Daily 页两列具体内容分配**：`daily.html` 是 **rail-first**（右列整块 DOM 排在左列之前：今日概览 = 子任务·关键数字·本周消费），桌面端靠 `page-cols--rail-first` 的 `order` 换到右侧，因此移动端阅读顺序与改造前逐块一致。sticky 列有高度预算（`max-height: calc(100vh - 5.5rem)`）：往 `.page-rail` 里加卡片要算总高，超了会出现列内滚动并裁掉底部卡片（靠压缩内容解决，别改 `max-height`）；rail 顶层子块间距统一 `md:mb-6`。三个次要长列表（今日进行中 / 即将开始 / 最近完成）**桌面端默认折叠**，靠 `window.matchMedia('(min-width: 768px)')` 门控默认值，移动端仍默认展开 —— 新增折叠分区要同时进 restore 脚本的 `sections` 数组，且禁止另写一套折叠逻辑（复用 `toggleSection()` + `localStorage['daily_section_'+id]`）。改这个模板的块顺序/显隐要同步 `DailyDesktopLayoutTest` 的顺序锁。

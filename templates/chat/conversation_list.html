@@ -302,6 +302,8 @@
                 .then(function (r) { if (!r.ok) throw new Error(); return r.text(); })
                 .then(function (html) {
                     messagesEl.innerHTML = html;
+                    // JS 插入的历史含确认卡/候选卡表单：htmx 1.x 没有 MutationObserver，手动接管
+                    if (window.paProcessHtmx) window.paProcessHtmx(messagesEl, 0);
                     // turn_resume → 接上轮询
                     var resumeEl = messagesEl.querySelector('[data-turn-resume]');
                     initChatTurn(id);

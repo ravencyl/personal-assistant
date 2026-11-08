@@ -1,0 +1,46 @@
+{% comment %}全站侧边 AI 助手（docs/sidebar-agent-plan.md D2/D3）：桌面端双栏 shell 的左栏。
+
+只服务 md+（移动端对话走底部 Tab 的完整对话页）；显隐由 custom.css 的 .side-agent-*
+媒体查询接管，收起 = 左缘 44px 把手，展开 = 360px 全高栏 + body.side-agent-open
+驱动主壳（.min-h-full）右移。本模板只出壳：状态机与轮询复用 PaChatTurn
+（static/js/sidebar-agent.js 是第四个挂载点），消息片段由 /chat/sidebar/ 下发。
+{% endcomment %}
+<button type="button" id="side-agent-handle" class="side-agent-handle"
+        aria-expanded="false" aria-controls="side-agent-panel"
+        title="AI 助手（可对话操作当前页面）">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5M21 12a9 9 0 11-3.3-6.96L21 3l-.9 3.02A8.96 8.96 0 0121 12z"/>
+    </svg>
+    <span class="sr-only">打开 AI 助手</span>
+</button>
+<aside id="side-agent-panel" class="side-agent-panel" aria-label="AI 助手">
+    <header class="flex h-14 flex-none items-center justify-between border-b border-[var(--border)] px-4">
+        <h2 class="text-sm font-semibold text-[var(--text)]">AI 助手</h2>
+        <div class="flex items-center gap-1">
+            <button type="button" data-side-agent-new
+                    class="tap-target px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text)]">新话题</button>
+            <button type="button" data-side-agent-close title="收起"
+                    class="tap-target p-2 text-[var(--text-secondary)] hover:text-[var(--text)]">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                </svg>
+                <span class="sr-only">收起侧栏</span>
+            </button>
+        </div>
+    </header>
+    <div data-side-agent-messages class="flex-1 overflow-y-auto px-4 py-3">
+        <p class="text-center text-xs text-[var(--text-muted)] py-6">展开即接续你最近的对话</p>
+    </div>
+    <div class="flex-none px-4">
+        {% include "chat/partials/turn_status.html" %}
+    </div>
+    <form data-side-agent-form class="flex-none border-t border-[var(--border)] px-4 py-3">
+        <div class="flex items-end gap-3">
+            <textarea data-side-agent-input rows="1" data-auto-grow
+                placeholder="让 AI 帮你查、记、改…"
+                class="chat-input tf-underline flex-1 px-0 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none"></textarea>
+            <button type="submit"
+                class="tap-target shrink-0 px-2 py-2.5 text-sm font-semibold tracking-widest text-[var(--text)] hover:opacity-60">发送</button>
+        </div>
+    </form>
+</aside>

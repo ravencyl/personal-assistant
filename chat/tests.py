@@ -1166,14 +1166,24 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         """
         self.assertIn('apiFetch(u.send', self._send_fetch_block())
 
-    def test_flow_does_not_call_htmx_process(self):
-        """AGENTS.md：手动 htmx.process 会造成双重绑定与旧节点引用残留
+    def test_flow_processes_newly_inserted_htmx_nodes(self):
+        """htmx 1.x 没有 MutationObserver：JS 插入的 hx-* 必须手动接管
 
-        只扫剔了注释的代码：本文件的注释里就写了“绝不能再调 htmx.process()”，
-        拿全文做禁用词比对会把说明当成违规。
+        旧断言方向反了：htmx.min.js（1.9.12）grep MutationObserver 0 命中——
+        那是 htmx 2.x 的能力。轮询插进来的确认卡/候选卡表单不 process 就不被
+        接管，点击回落成原生 GET 提交（线上实锤：确认卡点了没反应、CSRF 明文
+        挂上地址栏）。真正要禁的是对整个容器重扫 —— 已有节点重复 process 会
+        双重绑定、旧节点引用残留（已下线浮窗 r is not a function 的根因）。
+        所以锁两个方向：新增节点必须接管、且循环必须从「插入前的子节点数」起步。
         """
-        self.assertNotIn('htmx.process', self.flow_code)
-        self.assertIn('htmx.process', self.flow, '注释里的禁令说明也在 —— 证明上面剔注释真的在起作用')
+        self.assertIn('paProcessHtmx', self.flow_code,
+                      'htmx 1.x 没有 MutationObserver：JS 插入的 hx-* 节点必须手动接管')
+        self.assertIn('paProcessHtmx(messagesEl, prevCount)', self.flow_code,
+                      '轮询片段（append）插入后必须处理新增节点')
+        self.assertIn('paProcessHtmx(box, prevCount)', self.flow_code,
+                      '快捷卡片（insertLocalHtml）插入后必须处理新增节点')
+        self.assertIn('var i = (fromIndex || 0)', self.flow_code,
+                      '只处理本次插入的节点：循环必须从插入前的子节点数起步，不许对整个容器重扫')
 
     def test_flow_keeps_the_input_editable_while_waiting(self):
         """等回复期间只锁发送按钮，输入框必须能继续打字 —— 这是异步化的目的之一"""
@@ -1904,6 +1914,7 @@ class ChatFollowUpRenderTest(TestCase):
 JSON_FETCH_ENDPOINTS = {
     'create_conversation': ('post', '/chat/create/'),
     'activity_conversation': ('get', '/chat/for-activity/1/'),
+    'sidebar_session': ('get', '/chat/sidebar/'),
     'send_message': ('post', '/chat/1/send/'),
     'turn_poll': ('get', '/chat/1/turn/'),
     'turn_wait': ('get', '/chat/1/turn-wait/'),
@@ -4150,3 +4161,370 @@ class MemoryPerTurnInjectionTest(TestCase):
         prompt = self._post()
         self.assertNotIn('[用户记忆', prompt)
         self.assertIn('继续', prompt)
+
+
+# ── 全站侧边 AI 助手（docs/sidebar-agent-plan.md，2026-11-08）──────────────
+class SidebarAgentEndpointTest(TestCase):
+    """GET /chat/sidebar/：常驻单会话 create-or-get（D3）
+
+    复用 = 该用户最新非归档对话（历史可回溯）；没有才新建。片段直接回
+    widget_messages.html（自带 turn_resume / pin 挂载位），前端拿到就能
+    接上正在跑的轮次，不需要另开状态口子。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('side', password='pw')
+        self.client.force_login(self.user)
+        from agents.models import AgentConfig, EnvironmentConfig
+        AgentConfig.objects.create(
+            agent_id='agent_side', name='对话', purpose='knowledge', is_active=True)
+        EnvironmentConfig.objects.create(
+            env_id='env_side', name='默认', is_default=True)
+        self.url = reverse('chat:sidebar_session')
+
+    def _get(self):
+        with patch('chat.views.get_service', return_value=_CreateSessionFakeService()):
+            return self.client.get(self.url, HTTP_ACCEPT='application/json')
+
+    def test_creates_when_no_conversation_exists(self):
+        data = self._get().json()
+        self.assertEqual(data['created'], True)
+        conv = Conversation.objects.get(id=data['conversation_id'])
+        self.assertEqual(conv.user, self.user)
+        self.assertTrue(data['urls']['send'].startswith(f"/chat/{conv.id}/send/"))
+        self.assertEqual(data['urls']['new_topic'], '/chat/create/')
+        self.assertIn('wait', data['urls'], '漏了 wait 侧栏就静默退回普通轮询')
+
+    def test_get_twice_reuses_the_same_conversation(self):
+        first = self._get().json()['conversation_id']
+        second = self._get().json()
+        self.assertEqual(second['conversation_id'], first)
+        self.assertEqual(second['created'], False)
+        self.assertEqual(Conversation.objects.filter(user=self.user).count(), 1)
+
+    def test_reuses_latest_non_archived_conversation(self):
+        Conversation.objects.create(user=self.user, session_id='s-old', title='旧对话')
+        newer = Conversation.objects.create(user=self.user, session_id='s-new', title='新对话')
+        Message.objects.create(conversation=newer, role='user', content='帮我看看预算')
+        newer.save()  # updated_at 晚于 old
+        data = self._get().json()
+        self.assertEqual(data['created'], False)
+        self.assertEqual(data['conversation_id'], newer.id)
+        self.assertIn('帮我看看预算', data['messages_html'])
+
+    def test_archived_latest_is_skipped(self):
+        archived = Conversation.objects.create(user=self.user, session_id='s-arch',
+                                               title='已归档', status='archived')
+        data = self._get().json()
+        self.assertNotEqual(data['conversation_id'], archived.id)
+
+    def test_superuser_never_mounts_another_users_conversation(self):
+        """个人上下文口径：侧栏永远接续「自己的」最新对话。
+
+        visible_qs 对超管返回全库，若按 updated_at 取全局最新，会把别人的
+        对话挂进超管面板，随后的发送全部写进对方会话（浏览器实测踩过）。
+        复用查询必须 filter(user=request.user)，不许换成 visible_qs。
+        """
+        mine = Conversation.objects.create(user=self.user, session_id='s-mine', title='我的')
+        other = User.objects.create_user('side-other', password='pw')
+        foreign = Conversation.objects.create(user=other, session_id='s-foreign', title='别人的')
+        foreign.save()  # updated_at 晚于 mine：全局最新是 foreign
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        data = self._get().json()
+        self.assertEqual(data['conversation_id'], mine.id)
+
+    def test_messages_fragment_carries_pin_mount_even_unpinned(self):
+        """没钉也要带挂载位：从「钉了活动的对话」切到「没钉的对话」时，
+        槽里不能留着上一个对话的 chip（分栏页同款口径）"""
+        Conversation.objects.create(user=self.user, session_id='s-frag', title='片段')
+        data = self._get().json()
+        self.assertIn('data-pin-mount', data['messages_html'])
+
+    def test_turn_in_flight_resume_marker_present(self):
+        conv = Conversation.objects.create(user=self.user, session_id='s-run', title='在跑',
+                                           turn_state=Conversation.TURN_AWAITING,
+                                           turn_started_at=timezone.now())
+        msg = Message.objects.create(conversation=conv, role='user', content='还在等')
+        conv.turn_message = msg
+        conv.save(update_fields=['turn_message'])
+        data = self._get().json()
+        self.assertIn('data-turn-resume', data['messages_html'])
+        self.assertIn(f'data-state="{Conversation.TURN_AWAITING}"', data['messages_html'])
+
+    def test_unauthenticated_gets_401_not_html(self):
+        c2 = self.client_class()
+        resp = c2.get(self.url, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 401)
+
+
+class PageContextInjectionTest(TestCase):
+    """page_path 上下文注入（D4）：服务端 resolve 反解，白名单产出注入行
+
+    page_path 是前端可控输入——原始路径绝不回显进 prompt（注入面）；
+    活动详情页带对象名（visible 过滤）；新对话首帧协议与页面提示共存
+    （旧实现 f'...\n\n{content}' 整体重赋值会把协议整段覆盖丢掉，本次修复）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('ctx', password='pw')
+        self.client.force_login(self.user)
+
+    def _send(self, conv, extra):
+        with patch('chat.views.get_service', return_value=FakeQoderService()):
+            return self.client.post(f'/chat/{conv.id}/send/', extra,
+                                    HTTP_ACCEPT='application/json')
+
+    def test_activity_detail_path_injects_object_name(self):
+        activity = Activity.objects.create(user=self.user, name='沟通',
+                                           start_date=timezone.localdate())
+        conv = Conversation.objects.create(user=self.user, session_id='s-ctx1',
+                                           protocol_sent=True)
+        self._send(conv, {'content': '看看这个', 'page_path': f'/activities/{activity.id}/'})
+        conv.refresh_from_db()
+        self.assertIn(f'用户正在浏览活动详情页《沟通》（ID {activity.id}）', conv.turn_prompt)
+        self.assertIn('看看这个', conv.turn_prompt)
+        # 用户消息只存原文：注入不进历史
+        self.assertNotIn('页面提示',
+                         conv.messages.filter(role='user').first().content)
+
+    def test_other_users_activity_page_injects_nothing(self):
+        other = User.objects.create_user('ctx2', password='pw')
+        activity = Activity.objects.create(user=other, name='别人的',
+                                           start_date=timezone.localdate())
+        conv = Conversation.objects.create(user=self.user, session_id='s-ctx2',
+                                           protocol_sent=True)
+        self._send(conv, {'content': '看看这个', 'page_path': f'/activities/{activity.id}/'})
+        conv.refresh_from_db()
+        self.assertNotIn('别人的', conv.turn_prompt, '别人的活动对象名不得注入')
+        self.assertNotIn('/activities/', conv.turn_prompt, '原始路径不得回显进 prompt')
+
+    def test_garbage_path_injects_nothing_and_echoes_nothing(self):
+        conv = Conversation.objects.create(user=self.user, session_id='s-ctx3',
+                                           protocol_sent=True)
+        self._send(conv, {'content': '看看这个',
+                          'page_path': '/definitely/not/a/route<script>'})
+        conv.refresh_from_db()
+        self.assertNotIn('definitely', conv.turn_prompt)
+        self.assertNotIn('<script>', conv.turn_prompt)
+
+    def test_whitelisted_list_page_injects_label(self):
+        conv = Conversation.objects.create(user=self.user, session_id='s-ctx4',
+                                           protocol_sent=True)
+        self._send(conv, {'content': '看看这个', 'page_path': '/activities/'})
+        conv.refresh_from_db()
+        self.assertIn('用户正在浏览活动列表页', conv.turn_prompt)
+
+    def test_first_turn_protocol_survives_page_hint(self):
+        """存量 bug 回归锁：新对话第一轮同时带协议首帧和页面提示时，
+        旧实现把 ai_content 整体重赋值成 f'[页面提示: ...]\n\n{content}'，
+        协议整段被覆盖丢掉（「问 AI」深链场景）"""
+        activity = Activity.objects.create(user=self.user, name='深链活动',
+                                           start_date=timezone.localdate())
+        conv = Conversation.objects.create(user=self.user, session_id='s-ctx5',
+                                           protocol_sent=False)
+        self._send(conv, {'content': '看看这个', 'page_path': f'/activities/{activity.id}/'})
+        conv.refresh_from_db()
+        self.assertTrue(conv.protocol_sent)
+        head = build_protocol_prompt()[:80]
+        self.assertIn(head, conv.turn_prompt, '协议首帧必须还在')
+        self.assertIn('用户正在浏览活动详情页《深链活动》', conv.turn_prompt)
+        self.assertIn('看看这个', conv.turn_prompt)
+        # 顺序：协议在页面提示与原文之前
+        self.assertLess(conv.turn_prompt.index(head[:40]),
+                        conv.turn_prompt.index('页面提示'))
+
+    def test_legacy_page_context_field_still_works(self):
+        """过渡期兼容：SW 缓存的旧页面发的还是旧 page_context 字段"""
+        conv = Conversation.objects.create(user=self.user, session_id='s-ctx6',
+                                           protocol_sent=True)
+        self._send(conv, {'content': '看看这个',
+                          'page_context': '用户正在查看活动「沟通」'})
+        conv.refresh_from_db()
+        self.assertIn('[页面提示: 用户正在查看活动「沟通」]', conv.turn_prompt)
+
+
+class PageActionAfterConfirmTest(TestCase):
+    """确认卡 apply 成功后的页面动作（D5）：fragment 带 data-page-action 标记
+
+    统一规则：AI 碰了对象 X——右侧不在 X 就 navigate 到 X，已在就 refresh；
+    删除类（无 activity_ids）回列表。仅 activities.* 工具产生反应；
+    动作由服务端确定性生成，不经模型协议。JSON 落 HTML 属性必须 escape
+    （引号变 &quot;），断言按转义后的形状写。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('pa-user', password='pw')
+        self.client.force_login(self.user)
+        self.conv = Conversation.objects.create(user=self.user, session_id='s-pa',
+                                                agent_id='a1', title='页面反应')
+        from core.agent_registry import make_action_token
+        self.activity = Activity.objects.create(user=self.user, name='预算活动',
+                                                start_date=timezone.localdate())
+        self.msg = Message.objects.create(
+            conversation=self.conv, role='assistant', event_type='assistant.message',
+            content='收到，按这个改。',
+            payload={
+                'card': 'confirm',
+                'card_data': {'kind': 'update', 'name': '预算活动', 'changes': []},
+                'action': {'tool': 'activities.update',
+                           'params': {'target': '预算活动', 'target_id': self.activity.id,
+                                      'name': '预算活动·改'}},
+            })
+        self.token = make_action_token(self.user, self.msg.id, 'confirm')
+        self.msg.payload['action']['token'] = self.token
+        self.msg.save(update_fields=['payload'])
+
+    def _confirm(self, page_path=None):
+        data = {'decision': 'confirm', 'token': self.token}
+        if page_path:
+            data['page_path'] = page_path
+        return self.client.post(reverse('chat:confirm_action', args=[self.msg.id]), data)
+
+    def test_navigate_when_viewing_elsewhere(self):
+        resp = self._confirm(page_path='/activities/')
+        self.assertEqual(resp.status_code, 200)
+        self.activity.refresh_from_db()
+        self.assertEqual(self.activity.name, '预算活动·改')
+        html = resp.content.decode()
+        self.assertIn('data-page-action', html)
+        self.assertIn(f'/activities/{self.activity.id}/', html, '要 navigate 到对象详情')
+        self.assertNotIn('&quot;refresh&quot;', html)
+
+    def test_refresh_when_already_on_the_object_page(self):
+        resp = self._confirm(page_path=f'/activities/{self.activity.id}/')
+        self.activity.refresh_from_db()
+        self.assertEqual(self.activity.name, '预算活动·改')
+        html = resp.content.decode()
+        self.assertIn('&quot;type&quot;: &quot;refresh&quot;', html)
+        self.assertIn('data-activity-changed', html,
+                      'refresh 复用「活动数据已更新」提示条 + 3s 自动 reload')
+
+    def test_cancel_produces_no_page_actions(self):
+        resp = self.client.post(reverse('chat:confirm_action', args=[self.msg.id]),
+                                {'decision': 'cancel', 'token': 'x'})
+        self.assertNotIn('data-page-action', resp.content.decode())
+
+    def test_delete_navigates_to_list_even_from_detail(self):
+        """删除没有 activity_ids：统一规则回列表（已在详情页也不 refresh——
+        对象没了，refresh 会拿到 404）"""
+        from core.agent_registry import make_action_token
+        msg2 = Message.objects.create(
+            conversation=self.conv, role='assistant', event_type='assistant.message',
+            content='收到，按这个删。',
+            payload={'card': 'confirm',
+                     'card_data': {'kind': 'delete', 'name': '预算活动'},
+                     'action': {'tool': 'activities.delete',
+                                'params': {'target': '预算活动',
+                                           'target_id': self.activity.id}}})
+        token = make_action_token(self.user, msg2.id, 'confirm')
+        msg2.payload['action']['token'] = token
+        msg2.save(update_fields=['payload'])
+        resp = self.client.post(reverse('chat:confirm_action', args=[msg2.id]),
+                                {'decision': 'confirm', 'token': token,
+                                 'page_path': f'/activities/{self.activity.id}/'})
+        html = resp.content.decode()
+        self.assertFalse(Activity.objects.filter(id=self.activity.id).exists())
+        self.assertIn('data-page-action', html)
+        self.assertIn('&quot;/activities/&quot;', html,
+                      '删除后 navigate 回列表而不是 refresh 已删对象的详情页')
+
+    def test_unit_rule_for_non_activities_tools(self):
+        from django.test import RequestFactory
+        from chat.views import _page_actions_after_write
+        rf = RequestFactory()
+        self.assertEqual(
+            _page_actions_after_write(rf.post('/x/', {'page_path': '/memory/'}),
+                                      'knowledge.create', {'changed': True}), [])
+        self.assertEqual(
+            _page_actions_after_write(rf.post('/x/'), '', {'changed': True}), [])
+        self.assertEqual(
+            _page_actions_after_write(rf.post('/x/'), 'activities.update',
+                                      {'changed': True}),
+            [{'type': 'navigate', 'url': '/activities/'}],
+            '无 activity_ids 的 activities.* 写操作回列表')
+
+
+class SidebarWiringTest(SimpleTestCase):
+    """侧栏接线静态锁：壳模板 / base.html / JS / CSS 四处必须互相咬合
+
+    静态扫类名/词的锁必须先剔注释（code_only）：注释里写着「禁止 X」的散文
+    自己就包含那个词，不剔就是假失败（本项目已踩三次）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = Path(__file__).resolve().parent.parent
+        cls.tpl = base / 'templates'
+        cls.js = base / 'static' / 'js'
+        cls.css = base / 'static' / 'css'
+        cls.base_src = (cls.tpl / 'base.html').read_text(encoding='utf-8')
+        cls.base_code = code_only(cls.base_src)
+        cls.shell = (cls.tpl / 'chat' / 'partials' / '_sidebar_agent.html').read_text(encoding='utf-8')
+        cls.agent_js = code_only((cls.js / 'sidebar-agent.js').read_text(encoding='utf-8'))
+        cls.turn_js = code_only((cls.js / 'chat-turn.js').read_text(encoding='utf-8'))
+        cls.css_src = (cls.css / 'custom.css').read_text(encoding='utf-8')
+
+    def test_base_includes_shell_and_script(self):
+        self.assertIn('_sidebar_agent.html', self.base_code)
+        self.assertIn('sidebar-agent.js', self.base_code)
+
+    def test_base_executes_page_actions_after_swap(self):
+        self.assertIn('data-page-action', self.base_code)
+        self.assertIn("type === 'navigate'", self.base_code)
+        self.assertIn("type === 'refresh'", self.base_code)
+        self.assertIn('htmx:afterSwap', self.base_code)
+        # 标记是服务端 append 在 response.content 顶层的兄弟节点，outerHTML 替换
+        # 后挂在新内容里；htmx:afterSwap 的 e.detail.target 是被换下来的旧节点——
+        # 已脱离文档（实锤 isConnected=false），在它身上 querySelector 永远落空
+        # （首验实锤：确认卡换成 ✓ 但页面毫无反应、标记在 DOM 里越积越多）。
+        # 所以执行器必须从 document 全局收走，不许再读 e.detail.target
+        self.assertIn("document.querySelectorAll('[data-page-action]')", self.base_code)
+        self.assertNotIn("root.querySelector('[data-page-action]')", self.base_code)
+        self.assertNotIn('e.detail.target.querySelector', self.base_code)
+
+    def test_sidebar_mount_processes_inserted_htmx_nodes(self):
+        """侧栏装载走 innerHTML 整体替换：htmx 1.x 不会自动接管片段里的 hx-* 表单
+
+        装载片段可能带 pending 确认卡（最新对话正停在确认步）：不手动 process
+        的话点「确认执行」回落成原生 GET，与 chat-turn.js 的 append 同一个坑。
+        """
+        self.assertIn('paProcessHtmx', self.agent_js)
+
+    def test_base_carries_page_path_on_htmx_requests(self):
+        self.assertIn('htmx:configRequest', self.base_code)
+        self.assertIn('page_path', self.base_code)
+
+    def test_pa_page_context_sends_only_path(self):
+        self.assertIn('page_path', self.base_code)
+        self.assertNotIn('page_context:', self.base_code,
+                         '旧 page_context 正则方案已由 page_path 取代，别再双通道发')
+
+    def test_shell_reuses_shared_partials_without_hx(self):
+        self.assertIn('turn_status.html', self.shell)
+        self.assertIn('data-side-agent-messages', self.shell)
+        self.assertIn('data-side-agent-form', self.shell)
+        self.assertIn('data-side-agent-input', self.shell)
+        self.assertNotIn('hx-post', self.shell, '侧栏是 JSON 端点，严禁挂 hx-*')
+
+    def test_agent_js_mounts_via_paJsonFetch_and_resumes(self):
+        self.assertIn("paJsonFetch('/chat/sidebar/'", self.agent_js)
+        self.assertIn('window.PaChatTurn', self.agent_js)
+        self.assertIn('data-turn-resume', self.agent_js)
+        self.assertIn('pa-side-agent-open', self.agent_js)
+        self.assertIn("'/chat/create/'", self.agent_js)
+
+    def test_turn_js_local_card_falls_back_to_sidebar_conversation(self):
+        self.assertIn('_paSidebarChatId', self.turn_js)
+
+    def test_css_shell_rules_and_md_only_guard(self):
+        self.assertIn('.side-agent-panel', self.css_src)
+        self.assertIn('body.side-agent-open .side-agent-panel', self.css_src)
+        self.assertIn('body.side-agent-open .min-h-full', self.css_src)
+        block = self.css_src.split('全站侧边 AI 助手', 1)[1]
+        self.assertIn('@media (min-width: 768px)', block)
+        self.assertNotIn('(min-width: 640px)', block, '唯一分端断点是 md')
+
+    def test_refresh_bar_recentered_when_open(self):
+        self.assertIn('body.side-agent-open #activity-refresh-bar', self.css_src)
