@@ -324,13 +324,24 @@ def apply_create(user, params):
     }
 
 
+def _when_text(data):
+    """日期 + 时间的展示串（预览卡与草稿回复共用一份拼法）
+
+    旧版只展示 start_time，用户反馈「晚上吃饭」建出来只见日期不见时段尾巴，
+    以为时间没识别——end_time 也要上卡（2026-11-10）。
+    """
+    date_part = ' ~ '.join(x for x in (data.get('start_date'), data.get('end_date')) if x)
+    time_part = ' ~ '.join(x for x in (data.get('start_time'), data.get('end_time')) if x)
+    if date_part and time_part:
+        return f'{date_part} {time_part}'
+    return date_part or time_part
+
+
 def _create_fields(user, plan):
     """预览卡上要展示的字段列表（预览阶段实际会发生什么，就展示什么）"""
     data = plan['data']
     fields = []
-    when = ' ~ '.join(x for x in (data.get('start_date'), data.get('end_date')) if x)
-    if data.get('start_time'):
-        when = f'{when} {data["start_time"]}' if when else data['start_time']
+    when = _when_text(data)
     if when:
         fields.append({'label': '日期', 'value': when})
     fields.append({'label': '状态', 'value': STATUS_LABELS.get(data.get('status', 'planned'))})
@@ -392,9 +403,7 @@ def _draft_field_lines(plan):
     lines = []
     if data.get('name'):
         lines.append(f'名称「{data["name"]}」')
-    when = ' ~ '.join(x for x in (data.get('start_date'), data.get('end_date')) if x)
-    if data.get('start_time'):
-        when = f'{when} {data["start_time"]}' if when else data['start_time']
+    when = _when_text(data)
     if when:
         lines.append(f'时间 {when}')
     if data.get('cost') is not None:
@@ -446,7 +455,9 @@ def draft_reminder(conversation):
 
 @agent_tool('activities.create', '创建一个新活动（先出预览确认卡，用户点确认后才会真正创建；不要连发多条）。'
                              '信息不全（比如还不知道日期）时系统会保存草稿并引导用户补充，不要编造默认值',
-            'name（必填）、start_date/end_date（YYYY-MM-DD）、start_time/end_time（HH:MM，可选）、'
+            'name（必填）、start_date/end_date（YYYY-MM-DD）、start_time/end_time（HH:MM；'
+            '用户说「晚上」「下午3点」这类时段/钟点时必须换算填写，如「周三晚上吃饭」'
+            '= 当天 start_time 18:00、end_time 20:00 左右）、'
             'description（活动备注/结论等长文本，可选）、cost（数字，元，将创建为费用条目）、'
             'status、tags（字符串数组，可选；只写用户明确提到的标签，没有就整个省略，'
             '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）、'

@@ -168,6 +168,34 @@ def query_activities(user, params):
 
 回归锁：`activities/tests.py::ActivityCreateDraftFlowTest`（9 条：草稿落库与引导文案、跨轮合并出确认卡且草稿即删、apply 确定性重放、新名替换防串台、force 跳过、过期草稿清空重记、无 conversation_id 不落孤儿、编排器注入 `_conversation_id`、draft_reminder 有/无草稿两态）。
 
+## 活动时间识别：时段词换算（2026-11-10）
+
+用户说「周三晚上和 keying 吃晚饭」，旧版 agent 只填日期不填时间（协议压根没有时段词规则，
+规则 3「禁止编造数据」反而劝模型别填）。三层一起修，缺一层都回到旧行为：
+
+- **首帧协议规则 15**：时段词必须换算成 `start_time`/`end_time`，并明示「按时段填时间**不算**
+  编造数据（规则 3 的例外），只填日期不填时间才是漏信息」——不加这句例外，模型会继续守着
+  「不编造」只填日期
+- **每轮补发当日锚点**（`core/agent_registry.py::build_time_anchor_reminder`，经
+  `_build_ai_content` 恒定注入）：规则 15 有存量陷阱（首帧只对新建对话生效）；且首帧的
+  「今天是 X」定格在建对话那天，**存量会话换算「周三」的基准是过期日期**，锚点每轮带当日
+  日期+星期，这是修日期算错的一半
+- **服务端兜底**（`activities/utils.py::_parse_time_token`，`normalize_input` 内接入）：模型
+  把「晚上」「下午3点」「晚上7点半」原样写进 start_time 时不再被 HH:MM 正则静默丢弃；
+  纯时段词按 start/end 侧取区间端点（晚上 → start 18:00 / end 22:00）。解析不出的杂文本
+  照旧丢弃
+- **区间口径两处一致**：提示词（首帧+补发）的时段区间表与 `_TIME_BANDS` 兜底表数字必须
+  一致，漂移=各说各话（`chat/tests.py::TimeAnchorReminderTest` 逐词对账）
+- **f-string 正则陷阱**：raw **f**-string 里量词花括号必须双写（`{1,2}` 会被求值成元组
+  `(1, 2)`，正则静默变坏）；本项目已踩
+- 预览卡与草稿回复改用 `_when_text` 同时展示 start/end 时间（旧版只显示 start_time，
+  用户以为时间没识别）
+- 顺带修掉存量时区 bug：`supersede_memory` 的 `invalid_at` 从 `now().date()`（UTC）改
+  `localdate()`，本地零点后与测试/展示口径差一天（跨日跑测试必红）
+
+回归锁：`activities/tests.py::TimeParsingTest`（时段词/钟点/杂文本 4 条）、
+`chat/tests.py::TimeAnchorReminderTest`（首帧规则 15 / 存量每轮锚点 / 当日日期 / 两表对账 4 条）。
+
 回归锁：`chat/tests.py`（协议逃生舱、透传路径、含 `{}` 的自然语言不得被误判为协议 JSON、超时链）、`chat/tests.py::ProtocolTruncationFallbackTest` + `ProtocolRefExpansionTest` + `KnowledgeCreateFromReferenceTest`（残骸不泄漏 / 引用展开 / 点一下确实落库，15 条 + 16 项变异反证）、`StaleSessionReferenceReminderTest`（存量会话也能收到规则，5 条 + 5 项变异反证）、`RetryAfterFailureReferenceTest`（失败过一次之后重试仍可落库，9 条 + 8 项变异反证，含一条防「只按长度筛选从而偷换内容」的反向锁）、`PartialProtocolSalvageTest`（`params` 完整但 `reply` 坏掉的半条指令必须照样执行，14 条 + 10 项变异反证，含「未闭合绝不救」与「没工具又没文字就降级」两条安全边界）、`core/tests.py::AgentRegistryConsistencyTest`（意图指向未注册工具会静默失效）、`knowledge/tests.py`、`activities/tests.py::UpdateDescriptionAgentToolTest`、`activities/tests.py::ActivityCreateConfirmFlowTest` + `ExpenseConfirmFlowTest`（创建/记费用预览不落库、apply 确定性重放、salvage 不绕确认）、`activities/tests.py::AddExpenseAutoTargetTest`（预览 → apply 两步）+ `ToolTargetNumericIdTest`（ID 直达同样走两步）。
 
 ## 对话收发是异步 turn（改聊天前必读）

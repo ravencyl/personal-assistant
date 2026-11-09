@@ -32,7 +32,8 @@ from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
 from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_REF_REMINDER,
                                  PROTOCOL_SEARCH_REMINDER,
                                  PROTOCOL_TRUNCATED_NOTE, REF_REMINDER_MIN_CHARS,
-                                 build_protocol_prompt, extract_intent,
+                                 build_protocol_prompt, build_time_anchor_reminder,
+                                 extract_intent,
                                  looks_like_protocol, orchestrator,
                                  resolve_params_refs, salvage_partial_protocol)
 
@@ -979,8 +980,9 @@ class AutoRetryTurnTest(TestCase):
         self.assertEqual(service.sent, [], '失败的那次不会把指令送出去')
         _, data = self._poll(service)
         self.assertEqual(data['phase'], 'sent')
-        self.assertEqual(service.sent, [PROTOCOL_SEARCH_REMINDER + '新问题'],
-                         '重发的是同一份 turn_prompt（含恒定检索补发基线），且只发一份')
+        self.assertEqual(service.sent,
+                         [build_time_anchor_reminder() + PROTOCOL_SEARCH_REMINDER + '新问题'],
+                         '重发的是同一份 turn_prompt（含恒定检索/时间补发基线），且只发一份')
 
     def test_delivery_failure_after_retries_exhausted_errors(self):
         """首发 + 自动重发都失败：中断气泡（不再无限重试）"""
@@ -2623,13 +2625,15 @@ class StaleSessionReferenceReminderTest(TestCase):
         self.assertTrue(sent.endswith('把这份方案存进知识库'), '用户原文必须还在最后')
 
     def test_short_previous_reply_gets_no_reminder(self):
-        """反向锁：没东西可抄时不递引用规则；恒定的检索关键词补发不受此判据管
-        （它没有条件，每轮都在——这里只锁「除基线外不多一行」）"""
+        """反向锁：没东西可抄时不递引用规则；恒定的检索关键词/时间锚点补发不受此判据管
+        （它们没有条件，每轮都在——这里只锁「除基线外不多一行」）"""
         self._reply('好的，已记录。')
-        self.assertEqual(self._build(), PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
+        self.assertEqual(self._build(),
+                         build_time_anchor_reminder() + PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
 
     def test_no_previous_reply_still_sends_nothing(self):
-        self.assertEqual(self._build(), PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
+        self.assertEqual(self._build(),
+                         build_time_anchor_reminder() + PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
 
     def test_reminder_never_pollutes_the_stored_message(self):
         """提醒只能上线路，不能写回消息历史
@@ -2654,6 +2658,56 @@ class StaleSessionReferenceReminderTest(TestCase):
             {'LAST_REPLY': 'A', 'LAST_USER': 'B'})
         self.assertIsNone(error, '提醒里写给模型的标记与实际能展开的对不上')
         self.assertEqual(params['content'], 'B')
+
+
+class TimeAnchorReminderTest(TestCase):
+    """时间换算规则的每轮补发（协议规则 15，2026-11-10）
+
+    起因：用户说「周三晚上和 keying 吃晚饭」，agent 只填了日期。两层原因：
+    ① 协议没有「时段词→start_time/end_time」规则，规则 3「禁止编造数据」反而
+    劝模型别填时间；② 首帧的「今天是 X」定格在建对话那天，存量会话换算「周三」
+    没有当日基准。与规则 10/12/13/14 同款存量陷阱，所以两层都修：首帧加规则，
+    每轮通道带锚点。
+    """
+
+    def setUp(self):
+        from django.test.client import RequestFactory
+        self.req = RequestFactory().post('/', {})
+        self.user = User.objects.create_user('anchor', password='x')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_anchor',
+                                                protocol_sent=True)
+
+    def test_first_frame_carries_rule_15(self):
+        prompt = build_protocol_prompt()
+        self.assertIn('时段词必须换算成时间', prompt)
+        rule_15 = prompt.split('15. ', 1)[1]
+        self.assertIn('start_time', rule_15)
+        self.assertIn('end_time', rule_15)
+
+    def test_stale_session_gets_the_anchor_every_turn(self):
+        sent = chat_views._build_ai_content(self.req, self.conv, '周三晚上和 keying 吃晚饭')
+        self.assertIn(build_time_anchor_reminder(), sent)
+        self.assertTrue(sent.endswith('周三晚上和 keying 吃晚饭'))
+
+    def test_anchor_pins_todays_date_and_weekday(self):
+        """锚点必须带当日日期与星期——存量会话的首帧日期是过期的"""
+        from django.utils import timezone
+        reminder = build_time_anchor_reminder()
+        today = timezone.localdate()
+        self.assertIn(today.isoformat(), reminder)
+        self.assertIn('周', reminder)
+
+    def test_band_ranges_match_the_server_fallback_table(self):
+        """提示词区间与 activities.utils._TIME_BANDS 兜底口径不得漂移：
+        模型按提示换算、服务端按表兜底，两边数字不一样就是各说各话"""
+        from activities.utils import _TIME_BANDS
+        reminder = build_time_anchor_reminder()
+        prompt = build_protocol_prompt()
+        for word, start, end in _TIME_BANDS:
+            if word in ('早晨', '夜里'):
+                continue  # 兜底表认、提示词不教（写法罕见，教了反而稀释重点）
+            self.assertIn(f'{word} {start}–{end}', reminder, f'每轮补发缺 {word} 区间')
+            self.assertIn(f'{word} {start}–{end}', prompt, f'首帧规则 15 缺 {word} 区间')
 
 
 class RetryAfterFailureReferenceTest(TestCase):

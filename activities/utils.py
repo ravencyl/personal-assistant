@@ -193,6 +193,76 @@ def edit_summary(old, activity):
     return '；'.join(changes)[:500]
 
 
+_TIME_HHMM = re.compile(r'^(\d{1,2}):(\d{2})')
+
+# 时段词 → 时段区间（start_time 取区间起点、end_time 取区间终点）。
+# 区间口径与协议规则 15 的补发文案一致，改一边必须改另一边
+_TIME_BANDS = [
+    ('凌晨', '00:00', '06:00'),
+    ('早晨', '06:30', '08:00'),
+    ('早上', '07:00', '09:00'),
+    ('上午', '08:00', '12:00'),
+    ('中午', '12:00', '13:30'),
+    ('下午', '14:00', '18:00'),
+    ('傍晚', '17:30', '19:00'),
+    ('晚上', '18:00', '22:00'),
+    ('夜里', '21:00', '23:00'),
+    ('深夜', '22:00', '23:30'),
+]
+_PM_BANDS = {'中午', '下午', '傍晚', '晚上', '夜里', '深夜'}
+_CN_NUM = {'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6,
+           '七': 7, '八': 8, '九': 9, '十': 10, '十一': 11, '十二': 12}
+_BAND_WORDS = '|'.join(word for word, _, _ in _TIME_BANDS)
+_TIME_TOKEN = re.compile(
+    rf'^(?:(?P<band>{_BAND_WORDS}))?\s*'
+    # 注意：f-string 里量词花括号必须双写（{1,2} 会被求值成元组，已踩过）
+    rf'(?:(?P<hour>\d{{1,2}}|[一二两三四五六七八九十]{{1,3}})\s*[点时]'
+    rf'(?:\s*(?P<half>半|(?P<mm>\d{{1,2}})分))?)?\s*$')
+
+
+def _parse_time_token(value, start_side=True):
+    """把 start_time/end_time 的入参解析成 HH:MM，解析不出返回 None
+
+    接受四种形状：HH:MM（既有口径）、"下午3点"/"晚上7点半"/"6点30分"（时段词+钟点，
+    午后时段 12 以下自动 +12）、"3点"/"15点"（裸钟点）、纯时段词（按
+    start/end 侧取区间端点）。这是服务端兜底，不是解析器：模型按协议
+    换算好 HH:MM 时走不到这些分支。
+    """
+    text = str(value or '').strip()
+    if not text:
+        return None
+    m = _TIME_HHMM.match(text)
+    if m and 0 <= int(m.group(1)) <= 23 and 0 <= int(m.group(2)) <= 59:
+        return f'{int(m.group(1)):02d}:{m.group(2)}'
+    m = _TIME_TOKEN.match(text)
+    if not m:
+        return None
+    band, hour_raw = m.group('band'), m.group('hour')
+    if not band and not hour_raw:
+        return None  # 空串以外的杂文本
+    if hour_raw:
+        hour = int(hour_raw) if hour_raw.isdigit() else _CN_NUM.get(hour_raw)
+        if hour is None or hour > 24:
+            return None
+        if band in _PM_BANDS and hour < 12:
+            hour += 12
+        if hour > 23:
+            return None
+        # half 命名组捕获的是整个交替式（「30分」也算命中），判字面值
+        if m.group('half') == '半':
+            return f'{hour:02d}:30'
+        if m.group('mm') is not None:
+            minutes = int(m.group('mm'))
+            if not 0 <= minutes <= 59:
+                return None
+            return f'{hour:02d}:{minutes:02d}'
+        return f'{hour:02d}:00'
+    for word, start, end in _TIME_BANDS:
+        if word == band:
+            return start if start_side else end
+    return None
+
+
 def normalize_input(data, today):
     """清洗校验解析结果（AI 与规则输出共用），丢弃非法字段"""
     out = {}
@@ -209,10 +279,12 @@ def normalize_input(data, today):
     if out.get('start_date') and out.get('end_date') and out['end_date'] < out['start_date']:
         out['start_date'], out['end_date'] = out['end_date'], out['start_date']
     # 具体时间（可选，2026-09-17）：仅接受 HH:MM/H:MM；孤时间（无任何日期）丢弃
+    # 2026-11-10：再加一层时段词/中文钟点兜底（_parse_time_token），模型把
+    # 「晚上」「下午3点」原样写进 start_time 时不再静默丢弃
     for key in ('start_time', 'end_time'):
-        m = re.match(r'^(\d{1,2}):(\d{2})', str(data.get(key) or ''))
-        if m and 0 <= int(m.group(1)) <= 23 and 0 <= int(m.group(2)) <= 59:
-            out[key] = f'{int(m.group(1)):02d}:{int(m.group(2)):02d}'
+        value = _parse_time_token(data.get(key), start_side=(key == 'start_time'))
+        if value:
+            out[key] = value
     if out.get('start_time') and not out.get('start_date') and not out.get('end_date'):
         out.pop('start_time')
         out.pop('end_time', None)

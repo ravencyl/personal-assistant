@@ -1234,6 +1234,44 @@ class TimeParsingTest(TestCase):
         out = normalize_input({'name': 'x', 'start_time': '25:00'}, date(2026, 9, 17))
         self.assertNotIn('start_time', out)   # 越界丢弃
 
+    def test_time_band_words(self):
+        """时段词兜底（2026-11-10）：模型把「晚上」原样写进 params 时不再静默丢弃
+
+        start 侧取区间起点、end 侧取区间终点——「周三晚上吃饭」只有时段词时
+        也能落出一段时间，而不是只剩一个日期。
+        """
+        from activities.utils import normalize_input
+        out = normalize_input({'name': '晚饭', 'start_date': '2026-11-11',
+                               'start_time': '晚上', 'end_time': '晚上'}, date(2026, 11, 10))
+        self.assertEqual(out['start_time'], '18:00')
+        self.assertEqual(out['end_time'], '22:00')
+
+    def test_time_band_with_clock(self):
+        """时段词+钟点：「下午3点」=15:00、「晚上7点半」=19:30、裸「7点」=07:00"""
+        from activities.utils import normalize_input
+        base = {'name': 'x', 'start_date': '2026-11-11'}
+        self.assertEqual(normalize_input({**base, 'start_time': '下午3点'},
+                                         date(2026, 11, 10))['start_time'], '15:00')
+        self.assertEqual(normalize_input({**base, 'start_time': '晚上7点半'},
+                                         date(2026, 11, 10))['start_time'], '19:30')
+        self.assertEqual(normalize_input({**base, 'start_time': '7点'},
+                                         date(2026, 11, 10))['start_time'], '07:00')
+        self.assertEqual(normalize_input({**base, 'end_time': '晚上8点'},
+                                         date(2026, 11, 10))['end_time'], '20:00')
+        self.assertEqual(normalize_input({**base, 'start_time': '下午三点'},
+                                         date(2026, 11, 10))['start_time'], '15:00')
+        self.assertEqual(normalize_input({**base, 'start_time': '晚上6点30分'},
+                                         date(2026, 11, 10))['start_time'], '18:30')
+
+    def test_time_token_garbage_still_dropped(self):
+        """反向锁：解析不出的杂文本照旧丢弃，不产生脏时间"""
+        from activities.utils import normalize_input
+        base = {'name': 'x', 'start_date': '2026-11-11'}
+        for junk in ('随时', '看情况', '25点', '晚上 18:00 左右', '6点70分'):
+            with self.subTest(value=junk):
+                out = normalize_input({**base, 'start_time': junk}, date(2026, 11, 10))
+                self.assertNotIn('start_time', out)
+
 
 class TimedActivityModelTest(TestCase):
     """Activity 具体时间字段：date_range 展示与表单校验"""

@@ -410,7 +410,7 @@ def supersede_memory(user, old, candidate, source_message=None, user_text=''):
         exclude_ids=[old.id])
     if action in ('written', 'candidate') and memory:
         old.status = 'superseded'
-        old.invalid_at = tz.now().date()
+        old.invalid_at = tz.localdate()  # 必须与测试/展示同用 localdate：UTC 口径在本地零点后差一天（2026-11-10 实测 flaky）
         old.superseded_by = memory
         old.save(update_fields=['status', 'invalid_at', 'superseded_by', 'updated_at'])
         log_audit(user, 'supersede', memory=memory,

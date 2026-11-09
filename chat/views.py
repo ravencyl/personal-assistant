@@ -28,6 +28,7 @@ from core.agent_registry import (MEMORY_META_REMINDER, PROTOCOL_REF_REMINDER,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
                                  CandidateToolError, ToolError,
                                  build_protocol_prompt,
+                                 build_time_anchor_reminder,
                                  looks_like_protocol, get_tool,
                                  make_action_token, orchestrator)
 from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_child,
@@ -877,6 +878,10 @@ def _build_ai_content(request, conversation, content):
     # 检索关键词规则的每轮补发（协议规则 13）：与规则 10/12 同款存量陷阱，
     # 首帧只对新建对话生效。恒定一行，不值得为省噪声做条件判据
     ai_content = PROTOCOL_SEARCH_REMINDER + ai_content
+    # 时间换算规则的每轮补发（协议规则 15，2026-11-10）：同款存量陷阱，且首帧的
+    # 「今天是 X」定格在建对话那天——存量会话拿它换算「周三」必然算错，
+    # 每轮带当日锚点。确定性输出：同一天重试重发的是同一份文本
+    ai_content = build_time_anchor_reminder() + ai_content
     # 知识注入的检索 query 做上下文扩展：用户问「之前那个怎么办来着」时，
     # 单看本轮一个词都不够——把最近几条用户消息并进检索文本，
     # 本地检索层（knowledge.retrieval）有自己的分词，长文本照样拆得出关键词
