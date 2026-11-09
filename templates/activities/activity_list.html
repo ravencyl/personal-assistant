@@ -255,7 +255,6 @@
                 <td class="px-4 py-3 text-[var(--text-secondary)] whitespace-nowrap">{{ activity.date_range }}</td>
                 <td class="px-4 py-3 text-right text-[var(--text)] whitespace-nowrap tabular-nums">
                     <span class="tf-cur">¥</span>{{ activity.show_cost|floatformat:"-2" }}
-                    {% if activity.sub_count %}<span class="text-xs text-[var(--text-muted)]">含子活动</span>{% endif %}
                 </td>
                 <td class="px-3 py-3 text-center">
                     {# 操作列只剩树形折叠钮（2026-10-12 用户决定去掉行内编辑：编辑一律点进详情页做） #}

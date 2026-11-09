@@ -692,10 +692,10 @@ class TombstoneRegistryTest(SimpleTestCase):
             'templates/activities/activity_list.html': [
                 'batch-check', 'batch-bar', 'batch-select-all', 'batch-ops.js'],
         }),
-        ('活动列表「笔数/子活动」列 2026-09-23 下线（费用格「含子活动」标注保留）', {
+        ('活动列表「笔数/子活动」列 2026-09-23 下线（费用格「含子活动」标注 2026-11-09 用户决定一并删除：金额即整个活动的总费用）', {
             'templates/activities/activity_list.html': [
                 '笔数', '笔费用', 'expense_count', 'sort=sub_count',
-                '{{ activity.sub_count }}'],
+                'sub_count', '含子活动'],
         }),
         ('前置依赖+活动评论 2026-10-13 下线（模板层）', {
             'templates/activities/activity_detail.html': [
