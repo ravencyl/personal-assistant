@@ -103,25 +103,6 @@
 <!-- 记忆可视化面板（默认隐藏，切换到「记忆地图」时显示） -->
 <div id="memory-viz-container" class="hidden" data-stats-url="{% url 'memory:memory_stats' %}"></div>
 
-<!-- 目标进度区 -->
-{% if goals %}
-<div class="mt-6">
-    <h2 class="text-sm font-semibold text-[var(--text)] mb-3">目标进度</h2>
-    <div class="space-y-4">
-        {% for goal in goals %}
-        <div class="p-1">
-            <div class="flex items-center justify-between mb-2">
-                <p class="text-sm font-medium text-[var(--text)] truncate flex-1">{{ goal.content }}</p>
-                <span class="text-xs font-bold text-[var(--text)] ml-2">{{ goal.percent }}%</span>
-            </div>
-            <div class="tf-pbar"><div class="tf-pfill" style="width: {{ goal.percent }}%"></div></div>
-            <p class="text-xs text-[var(--text-muted)] mt-1.5">{{ goal.done }}/{{ goal.total }} 个相关活动已完成</p>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
-
 <script>
 // 视图切换：列表 / 记忆地图。
 // 旧实现在切到地图时执行页面重载 —— 重载后服务端仍渲染列表态，地图永远打不开（UI 走查 blocker）。

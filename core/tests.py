@@ -718,6 +718,11 @@ class TombstoneRegistryTest(SimpleTestCase):
         ('快记 2026-10-28 下线（SW 预缓存清单不得再引用已删脚本）', {
             'static/sw.js': ['quick-parse.js'],
         }),
+        ('记忆页「目标进度」2026-11-09 用户决定下线（category=goal 数据分类与 AI 提取保留，只删进度追踪 UI/API）', {
+            'memory/views.py': ['goal_progress', '目标进度'],
+            'memory/urls.py': ['goal_progress'],
+            'templates/memory/memory_list.html': ['目标进度', 'goal.percent'],
+        }),
     ]
 
     # ② 文件必须不存在
@@ -738,6 +743,7 @@ class TombstoneRegistryTest(SimpleTestCase):
         ('activities:activity_comment_add', [1]),
         ('activities:activity_comment_delete', [1]),
         ('activities:dependency_data', []),
+        ('memory:goal_progress', []),
     ]
 
     # ④ Python 模块必须不存在

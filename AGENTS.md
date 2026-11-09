@@ -299,7 +299,7 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
   **两个都要 connect**，handler 内用 `instance.type == 'document'` 分流。只连一个，另一半
   写路径的同步就静默丢失
 - **文章对记忆治理链全程隐身**：`retrieve_memories` / `build_memory_index_context` /
-  `sweep_memories` / `consolidate_memories` / `_find_similar` / memory 列表·统计·目标进度
+  `sweep_memories` / `consolidate_memories` / `_find_similar` / memory 列表·统计
   / memory.search 工具一律 `.exclude(type='document')`——文章是长文，混进注入会撑爆
   3000 字符预算、混进取代链会被 500 字校验截断。新增记忆侧查询时默认带上这个排除
 - **memory.update 工具拒绝 document 目标**（`_apply` 入口 ToolError）：文章有自己的编辑

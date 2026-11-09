@@ -1,6 +1,6 @@
 """记忆管理视图
 
-提供记忆列表（含类别筛选 + 搜索 + 分页）、编辑、删除、目标进度、统计 API。
+提供记忆列表（含类别筛选 + 搜索 + 分页）、编辑、删除、统计 API。
 所有查询按用户隔离（超级用户见全部）。
 """
 import logging
@@ -95,42 +95,10 @@ def _memory_list_context(request):
     }
 
 
-def _compute_goal_progress(user):
-    """计算目标进度：返回 [{content, total, done, percent}, ...]"""
-    from django.db.models import Q
-    from activities.models import Activity
-
-    goals = visible_qs(Memory, user).filter(category='goal').exclude(type='document')
-    result = []
-    for goal in goals:
-        keywords = goal.content.split()[:3]
-        related = Activity.objects.filter(user=user, archived_at__isnull=True)
-        q = Q()
-        for kw in keywords:
-            q |= Q(name__icontains=kw) | Q(tags__name__icontains=kw)
-        if q:
-            related = related.filter(q)
-        else:
-            related = related.none()
-        total = related.count()
-        done = related.filter(status='done').count()
-        pct = int(done / total * 100) if total > 0 else 0
-        result.append({
-            'content': goal.content,
-            'total': total,
-            'done': done,
-            'percent': pct,
-        })
-    return result
-
-
 @login_required
 def memory_list(request):
     """记忆列表页（类别筛选 + 搜索 + 分页）"""
     context = _memory_list_context(request)
-
-    # 目标进度（始终计算，模板用 {% if goals %} 控制显示）
-    goals = _compute_goal_progress(request.user)
 
     # HTMX 请求只返回列表片段
     if request.htmx:
@@ -138,7 +106,6 @@ def memory_list(request):
 
     context.update({
         'categories': Memory.CATEGORY_CHOICES,
-        'goals': goals,
     })
     return render(request, 'memory/memory_list.html', context)
 
@@ -203,12 +170,6 @@ def memory_delete(request, memory_id):
         return HttpResponse('')
 
     return redirect('memory:memory_list')
-
-
-@login_required
-def goal_progress_view(request):
-    """目标进度 API"""
-    return JsonResponse({'goals': _compute_goal_progress(request.user)})
 
 
 @login_required
