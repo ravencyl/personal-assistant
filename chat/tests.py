@@ -4528,3 +4528,15 @@ class SidebarWiringTest(SimpleTestCase):
 
     def test_refresh_bar_recentered_when_open(self):
         self.assertIn('body.side-agent-open #activity-refresh-bar', self.css_src)
+
+    def test_handle_active_rule_composes_centering_transform(self):
+        """全局 button:active { transform: scale(.97) } 是整体替换不是叠加：把手靠
+        translateY(-50%) 垂直居中，被替换的瞬间会下坠 32px 逃出指针正下方——
+        mouseup 落到主内容、click 目标变成 body，监听器永远收不到点击（线上实锤
+        「侧边栏打不开」，所有页面必现；合成 click 不经过 :active，纯 evaluate
+        点击测不出来）。:active 必须带住 translateY(-50%)。"""
+        block = self.css_src.split('全站侧边 AI 助手', 1)[1]
+        self.assertIn('.side-agent-handle:active', block)
+        active_rule = block.split('.side-agent-handle:active', 1)[1].split('}', 1)[0]
+        self.assertIn('translateY(-50%)', active_rule,
+                      '把手的 :active 必须 compose 居中位移，否则按下瞬间逃出指针')

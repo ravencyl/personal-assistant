@@ -1199,9 +1199,15 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
     border-radius: 0 var(--radius-ctl) var(--radius-ctl) 0;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: color .15s;
+    transition: color .15s, transform .12s ease;
   }
   .side-agent-handle:hover { color: var(--text); }
+  /* 全局 button:active { transform: scale(.97) } 是「整体替换」不是叠加：把手靠
+     translateY(-50%) 垂直居中，被替换的瞬间会下坠 32px 逃出指针正下方——mouseup
+     落到主内容、click 目标变成 body，把手监听器永远收不到点击（线上实锤
+     「侧边栏打不开」，所有页面必现；合成 click 不经过 :active 所以测不出来）。
+     :active 必须 compose 居中位移，锁：SidebarWiringTest。 */
+  .side-agent-handle:active { transform: translateY(-50%) scale(0.97); }
   body.side-agent-open .side-agent-handle { display: none; }
 
   .side-agent-panel {
