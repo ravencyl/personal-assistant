@@ -15,13 +15,76 @@
     'use strict';
 
     var OPEN_KEY = 'pa-side-agent-open';
+    var CONV_KEY = 'pa-side-agent-conv';
     var chatTurn = null;
     var mounting = false;
+    var currentConvId = null;
+    var historyOpen = false;
 
     function handle() { return document.getElementById('side-agent-handle'); }
     function messagesEl() { return document.querySelector('[data-side-agent-messages]'); }
     function formEl() { return document.querySelector('[data-side-agent-form]'); }
     function inputEl() { return document.querySelector('[data-side-agent-input]'); }
+    function historyEl() { return document.querySelector('[data-side-agent-history-panel]'); }
+
+    function mountUrl(convId) {
+        // 指定会话重挂（历史列表点选 / 跨页恢复）；不带参数 = 服务端取最新非归档
+        return convId ? '/chat/sidebar/?conversation_id=' + encodeURIComponent(convId) : '/chat/sidebar/';
+    }
+
+    function rememberConv(id) {
+        currentConvId = id;
+        window._paSidebarChatId = id;
+        try { localStorage.setItem(CONV_KEY, String(id)); } catch (err) { /* 同 OPEN_KEY，静默降级 */ }
+        markActive();
+    }
+
+    function markActive() {
+        var hp = historyEl();
+        if (!hp) return;
+        var items = hp.querySelectorAll('[data-sb-conv-id]');
+        for (var i = 0; i < items.length; i++) {
+            items[i].classList.toggle('active',
+                items[i].getAttribute('data-sb-conv-id') === String(currentConvId));
+        }
+    }
+
+    function showHistory(open) {
+        historyOpen = open;
+        var hp = historyEl();
+        if (hp) hp.hidden = !open;
+        // 聊天视图三件套用 hidden 属性切换（都不是带 display 类的同层元素，无 hidden 失效坑）
+        var bits = [messagesEl(), document.querySelector('[data-side-agent-status]'), formEl()];
+        for (var i = 0; i < bits.length; i++) { if (bits[i]) bits[i].hidden = open; }
+        var btn = document.querySelector('[data-side-agent-history]');
+        if (btn) btn.setAttribute('aria-pressed', open ? 'true' : 'false');
+    }
+
+    function renderHistory(open) {
+        showHistory(open);
+        if (!open) { fit(); return; }   // 回到聊天视图：textarea 刚从 hidden 恢复，补一次拟合
+        var hp = historyEl();
+        if (!hp) return;
+        hp.innerHTML = '<p class="side-hist-note">加载中…</p>';
+        window.paJsonFetch('/chat/sidebar/conversations/', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!historyOpen) return;   // 等待期间用户已点「历史」切回去：别把列表写进隐藏面板
+                if (hp) hp.innerHTML = d.list_html || '<p class="side-hist-note">还没有历史对话</p>';
+                markActive();
+            })
+            .catch(function () {
+                if (hp && historyOpen) hp.innerHTML = '<p class="side-hist-note">历史列表加载失败，请重试</p>';
+            });
+    }
+
+    function switchTo(convId) {
+        if (!convId || String(convId) === String(currentConvId)) { renderHistory(false); return; }
+        if (chatTurn) chatTurn.halt();   // 同「新话题」：只停轮询，不打断服务端正在跑的本轮
+        chatTurn = null;
+        mount(convId);
+        renderHistory(false);
+    }
 
     function setOpen(open) {
         document.body.classList.toggle('side-agent-open', open);
@@ -38,12 +101,12 @@
         if (ta && window.paFitTextarea) window.paFitTextarea(ta);
     }
 
-    function mount() {
+    function mount(convId) {
         if (chatTurn || mounting) return;
         mounting = true;
         var msgs = messagesEl();
         if (msgs) msgs.innerHTML = '<p class="text-center text-xs text-[var(--text-muted)] py-6">正在接续对话…</p>';
-        window.paJsonFetch('/chat/sidebar/', { cache: 'no-store' })
+        window.paJsonFetch(mountUrl(convId), { cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 mounting = false;
@@ -54,7 +117,7 @@
                 if (msgs && window.paProcessHtmx) window.paProcessHtmx(msgs, 0);
                 // 非 /chat 页面上，快捷卡片（每日简报等）的 chatId 以侧栏装载的会话为准
                 // （chat-turn.js::currentChatId 在 pathname 命不中时读这个钩子）
-                window._paSidebarChatId = d.conversation_id;
+                rememberConv(d.conversation_id);
                 var base = '/chat/' + d.conversation_id + '/';
                 chatTurn = window.PaChatTurn({
                     messagesEl: msgs,
@@ -81,6 +144,9 @@
             })
             .catch(function () {
                 mounting = false;
+                // 带着历史点选/跨页恢复的 convId 装载失败（多半已被归档或删除）：
+                // 静默回落「最新非归档」，重试一次不带参数的装载
+                if (convId) { mount(); return; }
                 if (msgs) msgs.innerHTML = '<p class="text-center text-sm text-[var(--text)] font-semibold py-6">侧栏装载失败，请重试</p>';
             });
     }
@@ -96,6 +162,7 @@
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d.conversation_id) throw new Error(d.error || '创建失败');
+                renderHistory(false);   // 从历史视图点「新话题」：先回聊天视图再挂载
                 mount();   // 最新非归档对话就是刚建的这条，复用同一份装载链路
             })
             .catch(function () {
@@ -112,13 +179,24 @@
     if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
     var newBtn = document.querySelector('[data-side-agent-new]');
     if (newBtn) newBtn.addEventListener('click', newTopic);
+    var histBtn = document.querySelector('[data-side-agent-history]');
+    if (histBtn) histBtn.addEventListener('click', function () { renderHistory(!historyOpen); });
+    // 历史列表是 innerHTML 换进来的动态节点：委托绑在常驻面板容器上，条目随便换
+    var hp = historyEl();
+    if (hp) hp.addEventListener('click', function (e) {
+        var item = e.target.closest('[data-sb-conv-id]');
+        if (item) switchTo(item.getAttribute('data-sb-conv-id'));
+    });
 
     // 开局恢复（D3 常驻）：上次展开过就直接还原并装载。base.html 里更早的内联脚本
-    // 已先把 body.side-agent-open 加上（防面板滑入闪动），这里只补 aria 与装载
+    // 已先把 body.side-agent-open 加上（防面板滑入闪动），这里只补 aria 与装载。
+    // 会话选择也一并恢复（P2）：侧栏跨页保持用户挑的那条对话；它若已被归档/删除，
+    // mount 的 404 分支自动回落「最新非归档」
     try {
         if (localStorage.getItem(OPEN_KEY) === '1') {
             if (h) h.setAttribute('aria-expanded', 'true');
-            mount();
+            var stored = localStorage.getItem(CONV_KEY);
+            mount(stored && /^\d+$/.test(stored) ? stored : null);
         }
     } catch (err) { /* 同上，静默降级 */ }
 })();

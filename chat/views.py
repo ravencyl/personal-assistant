@@ -473,9 +473,23 @@ def sidebar_session(request):
     若按 updated_at 取全局最新，侧栏会把别人的对话挂进自己面板，随后的
     发送全部写进对方会话（浏览器实测踩过）。列表页展示用 visible_qs 是
     管理视角，这里不是。
+
+    ?conversation_id=<id>（2026-11-09 侧栏历史 P2）：前端历史列表点选后带
+    id 重挂指定会话；同一条 filter(user) 守门，别人的/已归档/不存在的都
+    JSON 404（不用 get_visible——Http404 渲染 HTML 错误页会炸 r.json()，
+    钉选端点同款口径）。参数非数字一律忽略走「最新非归档」兜底。
     """
-    conversation = (Conversation.objects.filter(user=request.user)
-                    .exclude(status='archived')
+    conversation = None
+    raw_conv_id = request.GET.get('conversation_id', '')
+    if raw_conv_id.isdigit():
+        conversation = (Conversation.objects.filter(user=request.user, id=int(raw_conv_id))
+                        .exclude(status='archived')
+                        .first())
+        if not conversation:
+            return JsonResponse({'error': '对话不存在或已归档'}, status=404)
+    if not conversation:
+        conversation = (Conversation.objects.filter(user=request.user)
+                        .exclude(status='archived')
                     .order_by('-updated_at')
                     .first())
     created = False
@@ -513,6 +527,32 @@ def sidebar_session(request):
             'new_topic': '/chat/create/',
         },
     })
+
+
+@json_login_required
+def sidebar_conversations(request):
+    """侧栏历史对话列表（2026-11-09 P2）：返回服务端渲染的列表片段
+
+    只服务「选择会话」这一件事：filter(user=request.user)（个人上下文口径，
+    超管也不混他人对话——与 sidebar_session 同一条红线）、排除归档与空对话
+    （深链留下的空壳没有可看的历史）、按 updated_at 倒序取最近 30 条。
+    HTML 由 Django 模板转义产出（标题是用户数据），前端 innerHTML 后给
+    当前会话补 active 高亮；列表条目不带 hx-*（纯 button + data 属性，
+    委托点击在 sidebar-agent.js），不需要 paProcessHtmx 接管。
+    """
+    conversations = (Conversation.objects.filter(user=request.user)
+                     .exclude(status='archived')
+                     .filter(messages__isnull=False)
+                     .distinct()
+                     .order_by('-updated_at')[:30])
+    conversations = conversations.prefetch_related(
+        models.Prefetch('messages',
+                        queryset=Message.objects.order_by('-created_at')[:1],
+                        to_attr='last_message_list'))
+    html = render(request, 'chat/partials/_sidebar_history.html', {
+        'conversations': conversations,
+    }).content.decode()
+    return JsonResponse({'list_html': html, 'count': len(conversations)})
 
 
 @json_login_required

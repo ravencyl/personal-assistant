@@ -15,6 +15,8 @@ urlpatterns = [
     path('for-activity/<int:activity_id>/', views.activity_conversation, name='activity_conversation'),
     # 全站侧边 AI 助手：常驻单会话 create-or-get（JSON，原生 fetch，禁 hx-*）
     path('sidebar/', views.sidebar_session, name='sidebar_session'),
+    # 侧栏历史对话列表片段（JSON 包 HTML，原生 fetch，禁 hx-*）
+    path('sidebar/conversations/', views.sidebar_conversations, name='sidebar_conversations'),
     path('<int:conversation_id>/send/', views.send_message, name='send_message'),
     # 非 AI 快捷卡片：点击 → 服务端直出（不碰 Qoder / turn 状态机，JSON 由原生 fetch 消费，禁挂 hx-*）
     path('<int:conversation_id>/local-card/', views.local_card_create, name='local_card_create'),

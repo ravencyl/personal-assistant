@@ -1,0 +1,18 @@
+{% comment %}侧栏历史对话列表（2026-11-09 P2）：GET /chat/sidebar/conversations/ 下发的片段。
+
+只渲染条目，不做任何交互接线——条目是纯 button（data-sb-conv-id + data 属性，
+不带 hx-*，前端委托点击在 sidebar-agent.js），标题等用户数据靠模板自动转义。
+选中态由前端在 innerHTML 后给当前会话补 .active（服务端不知道侧栏此刻挂的是哪条）。
+样式在 custom.css 的 .side-hist-*（Typeframe 排版列表，与主对话页 chat-conv-item 同语言）。
+{% endcomment %}
+{% if conversations %}
+    {% for conv in conversations %}
+    <button type="button" class="side-hist-item" data-sb-conv-id="{{ conv.id }}"
+            data-sb-conv-title="{{ conv.title }}" title="{{ conv.title }}">
+        <span class="side-hist-title">{{ conv.title }}</span>
+        <span class="side-hist-time">{{ conv.updated_at|timesince }}前</span>
+    </button>
+    {% endfor %}
+{% else %}
+    <p class="side-hist-note">还没有历史对话</p>
+{% endif %}

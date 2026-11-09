@@ -4,6 +4,8 @@
 媒体查询接管，收起 = 左缘 44px 把手，展开 = 360px 全高栏 + body.side-agent-open
 驱动主壳（.min-h-full）右移。本模板只出壳：状态机与轮询复用 PaChatTurn
 （static/js/sidebar-agent.js 是第四个挂载点），消息片段由 /chat/sidebar/ 下发。
+2026-11-09 P2 增加历史对话视图：「历史」按钮切换 [data-side-agent-history-panel]
+列表（/chat/sidebar/conversations/ 下发），点条目带 ?conversation_id= 重挂指定会话。
 {% endcomment %}
 <button type="button" id="side-agent-handle" class="side-agent-handle"
         aria-expanded="false" aria-controls="side-agent-panel"
@@ -17,6 +19,8 @@
     <header class="flex h-14 flex-none items-center justify-between border-b border-[var(--border)] px-4">
         <h2 class="text-sm font-semibold text-[var(--text)]">AI 助手</h2>
         <div class="flex items-center gap-1">
+            <button type="button" data-side-agent-history aria-pressed="false" title="历史对话"
+                    class="tap-target px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text)]">历史</button>
             <button type="button" data-side-agent-new
                     class="tap-target px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text)]">新话题</button>
             <button type="button" data-side-agent-close title="收起"
@@ -28,10 +32,11 @@
             </button>
         </div>
     </header>
+    <div data-side-agent-history-panel hidden class="side-agent-list"></div>
     <div data-side-agent-messages class="flex-1 overflow-y-auto px-4 py-3">
         <p class="text-center text-xs text-[var(--text-muted)] py-6">展开即接续你最近的对话</p>
     </div>
-    <div class="flex-none px-4">
+    <div data-side-agent-status class="flex-none px-4">
         {% include "chat/partials/turn_status.html" %}
     </div>
     <form data-side-agent-form class="flex-none border-t border-[var(--border)] px-4 py-3">

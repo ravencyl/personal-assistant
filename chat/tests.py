@@ -1915,6 +1915,7 @@ JSON_FETCH_ENDPOINTS = {
     'create_conversation': ('post', '/chat/create/'),
     'activity_conversation': ('get', '/chat/for-activity/1/'),
     'sidebar_session': ('get', '/chat/sidebar/'),
+    'sidebar_conversations': ('get', '/chat/sidebar/conversations/'),
     'send_message': ('post', '/chat/1/send/'),
     'turn_poll': ('get', '/chat/1/turn/'),
     'turn_wait': ('get', '/chat/1/turn-wait/'),
@@ -4258,6 +4259,132 @@ class SidebarAgentEndpointTest(TestCase):
         self.assertEqual(resp.status_code, 401)
 
 
+class SidebarHistorySwitchTest(TestCase):
+    """GET /chat/sidebar/?conversation_id=<id>：历史列表点选后重挂指定会话（P2）
+
+    守门同 sidebar_session 本体：filter(user=request.user)（个人上下文口径），
+    别人的/已归档的 JSON 404（不用 get_visible——Http404 渲染 HTML 错误页会炸
+    r.json()，钉选端点同款口径）；参数非数字一律忽略走「最新非归档」兜底。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('side-sw', password='pw')
+        self.client.force_login(self.user)
+        self.url = reverse('chat:sidebar_session')
+
+    def _get(self, conv_id):
+        return self.client.get(f'{self.url}?conversation_id={conv_id}',
+                               HTTP_ACCEPT='application/json')
+
+    def test_switch_loads_requested_conversation(self):
+        old = Conversation.objects.create(user=self.user, session_id='s-old', title='旧对话')
+        Message.objects.create(conversation=old, role='assistant', content='旧对话里的结论')
+        newer = Conversation.objects.create(user=self.user, session_id='s-new', title='新对话')
+        Message.objects.create(conversation=newer, role='user', content='新对话里的话')
+        newer.save()
+        resp = self._get(old.id)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['conversation_id'], old.id)
+        self.assertIn('旧对话里的结论', data['messages_html'])
+        self.assertNotIn('新对话里的话', data['messages_html'])
+
+    def test_switch_to_foreign_conversation_is_json_404_even_for_superuser(self):
+        other = User.objects.create_user('side-sw-other', password='pw')
+        foreign = Conversation.objects.create(user=other, session_id='s-f', title='别人的')
+        resp = self._get(foreign.id)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+        # 个人上下文口径：超管也不能把别人的对话挂进侧栏（visible_qs 会放行，禁止）
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        resp = self._get(foreign.id)
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()['error'], '对话不存在或已归档')
+
+    def test_switch_to_archived_conversation_is_json_404(self):
+        archived = Conversation.objects.create(user=self.user, session_id='s-a',
+                                               title='已归档', status='archived')
+        resp = self._get(archived.id)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+
+    def test_non_numeric_param_is_ignored_and_falls_back_to_latest(self):
+        conv = Conversation.objects.create(user=self.user, session_id='s-1', title='唯一')
+        resp = self._get('999abc')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['conversation_id'], conv.id)
+
+
+class SidebarHistoryListEndpointTest(TestCase):
+    """GET /chat/sidebar/conversations/：侧栏历史列表片段（P2）
+
+    个人上下文口径（filter(user)）、排除归档与空对话、updated_at 倒序、
+    最近 30 条；HTML 由模板转义产出，条目是纯 button + data 属性（无 hx-*）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('side-hl', password='pw')
+        self.client.force_login(self.user)
+        self.url = reverse('chat:sidebar_conversations')
+
+    def _make(self, session_id, title, with_message=True, status=None):
+        conv = Conversation.objects.create(user=self.user, session_id=session_id,
+                                           title=title,
+                                           **({'status': status} if status else {}))
+        if with_message:
+            Message.objects.create(conversation=conv, role='user', content=f'{title}的首条消息')
+        conv.save()
+        return conv
+
+    def test_lists_own_conversations_newest_first(self):
+        old = self._make('s-old', '旧对话')
+        newer = self._make('s-new', '新对话')
+        resp = self.client.get(self.url, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['count'], 2)
+        html = data['list_html']
+        self.assertIn('data-sb-conv-id', html)
+        self.assertLess(html.index('data-sb-conv-id="%d"' % newer.id),
+                        html.index('data-sb-conv-id="%d"' % old.id),
+                        '列表必须按 updated_at 倒序（最新在前）')
+
+    def test_excludes_archived_and_empty_conversations(self):
+        keep = self._make('s-keep', '正常对话')
+        self._make('s-arch', '已归档', status='archived')
+        self._make('s-empty', '空壳对话', with_message=False)
+        data = self.client.get(self.url, HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['count'], 1)
+        self.assertIn('data-sb-conv-id="%d"' % keep.id, data['list_html'])
+        self.assertNotIn('已归档', data['list_html'])
+        self.assertNotIn('空壳对话', data['list_html'])
+
+    def test_superuser_never_sees_others_conversations(self):
+        mine = self._make('s-mine', '我的对话')
+        other = User.objects.create_user('side-hl-other', password='pw')
+        foreign = Conversation.objects.create(user=other, session_id='s-foreign', title='别人的对话')
+        Message.objects.create(conversation=foreign, role='user', content='别人的首条消息')
+        foreign.save()
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        data = self.client.get(self.url, HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['count'], 1)
+        self.assertIn('data-sb-conv-id="%d"' % mine.id, data['list_html'])
+        self.assertNotIn('别人的对话', data['list_html'])
+
+    def test_items_are_plain_buttons_without_hx(self):
+        self._make('s-plain', '纯条目')
+        html = self.client.get(self.url, HTTP_ACCEPT='application/json').json()['list_html']
+        self.assertIn('<button type="button"', html)
+        self.assertNotIn('hx-', html, '侧栏是 JSON 端点，严禁挂 hx-*（htmx 会把 JSON 当文本插 DOM）')
+
+    def test_unauthenticated_gets_401_not_html(self):
+        c2 = self.client_class()
+        resp = c2.get(self.url, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 401)
+
+
 class PageContextInjectionTest(TestCase):
     """page_path 上下文注入（D4）：服务端 resolve 反解，白名单产出注入行
 
@@ -4509,7 +4636,9 @@ class SidebarWiringTest(SimpleTestCase):
         self.assertNotIn('hx-post', self.shell, '侧栏是 JSON 端点，严禁挂 hx-*')
 
     def test_agent_js_mounts_via_paJsonFetch_and_resumes(self):
-        self.assertIn("paJsonFetch('/chat/sidebar/'", self.agent_js)
+        # mount 经 mountUrl() 组 URL（无参 = 最新非归档，带参 = ?conversation_id=）
+        self.assertIn('paJsonFetch(mountUrl(convId)', self.agent_js)
+        self.assertIn("'/chat/sidebar/'", self.agent_js)
         self.assertIn('window.PaChatTurn', self.agent_js)
         self.assertIn('data-turn-resume', self.agent_js)
         self.assertIn('pa-side-agent-open', self.agent_js)
@@ -4540,3 +4669,35 @@ class SidebarWiringTest(SimpleTestCase):
         active_rule = block.split('.side-agent-handle:active', 1)[1].split('}', 1)[0]
         self.assertIn('translateY(-50%)', active_rule,
                       '把手的 :active 必须 compose 居中位移，否则按下瞬间逃出指针')
+
+    # ── 历史对话视图（2026-11-09 P2）静态锁 ──
+
+    def test_shell_has_history_toggle_and_panel(self):
+        """「历史」按钮 + 列表面板 + 状态条标记必须同时在壳里
+
+        data-side-agent-status 是 JS 切聊天视图显隐用的钩子（历史视图隐藏
+        消息流/状态条/表单三件套），漏了它历史视图会留下悬空的状态条。"""
+        self.assertIn('data-side-agent-history', self.shell)
+        self.assertIn('data-side-agent-history-panel', self.shell)
+        self.assertIn('data-side-agent-status', self.shell)
+        self.assertNotIn('hx-post', self.shell, '侧栏是 JSON 端点，严禁挂 hx-*')
+
+    def test_agent_js_history_wiring(self):
+        """列表装载 / 点选切换 / 会话选择恢复 / 失败回落 四条接线缺一不可"""
+        self.assertIn("'/chat/sidebar/conversations/'", self.agent_js,
+                      '历史列表必须走 JSON 端点（原生 fetch）')
+        self.assertIn('conversation_id=', self.agent_js,
+                      'mount 必须支持 ?conversation_id= 重挂指定会话')
+        self.assertIn("data-sb-conv-id", self.agent_js,
+                      '条目点击委托必须认 data-sb-conv-id（列表是 innerHTML 换的动态节点）')
+        self.assertIn('pa-side-agent-conv', self.agent_js,
+                      '会话选择要记 localStorage，跨页展开恢复用户挑的那条')
+        self.assertIn('if (convId) { mount(); return; }', self.agent_js,
+                      '指定会话装载失败（被归档/删除）必须回落「最新非归档」，不能停在报错态')
+
+    def test_css_history_list_rules(self):
+        block = self.css_src.split('全站侧边 AI 助手', 1)[1]
+        self.assertIn('.side-agent-list', block)
+        self.assertIn('.side-hist-item', block)
+        self.assertIn('.side-hist-item.active', block,
+                      '当前会话在历史列表里要有 active 高亮')

@@ -365,6 +365,7 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 - **page_path 上下文（D4）**：前端只发 `location.pathname`（base.html 的 `htmx:configRequest` 与聊天 send 的 extraParams），服务端 `_resolve_page_path` 反解成白名单 `PAGE_HINT_LABELS` 或活动详情，**原始路径永不回显进注入文本**（前端可控输入的注入面）
 - **page_actions 页面联动（D5）**：activities.* 写操作确认成功后，`_page_actions_after_write` 确定性生成 navigate/refresh（对象详情 URL 全部 reverse() 产出、删除类回列表、非 activities 工具零反应），随确认卡片段下发 `<div data-page-action="…" hidden>`（JSON 落 HTML 属性必须 escape）。**afterSwap 执行器必须从 document 全局收标记**——两类标记都是 response.content 顶层追加的兄弟节点，outerHTML 替换后挂在新内容里；而 `htmx:afterSwap` 的 `e.detail.target` 是被换下来的**旧节点（已脱离文档）**，在它身上 querySelector 永远落空（首验实锤：确认卡换成 ✓ 但页面毫无反应、标记在 DOM 里越积越多；`data-activity-changed` 提示条同期同病，`test_base_executes_page_actions_after_swap` 双向锁住）。服务端动作矩阵回归锁：`PageActionAfterConfirmTest`（navigate/refresh/删除回列表/取消与非 activities 工具零动作）
 - **展开态走 localStorage（`pa-side-agent-open`）**：开局恢复的内联脚本要先于壳渲染执行（防面板滑入闪动）；「新话题」复用 `POST /chat/create/` + 重挂同一装载链路
+- **历史对话视图（2026-11-09 P2）**：头部「历史」按钮切换 `[data-side-agent-history-panel]` 列表（`GET /chat/sidebar/conversations/` 下发服务端渲染片段：filter(user) 个人上下文口径、排除归档与空对话、updated_at 倒序最近 30 条），点条目走 `GET /chat/sidebar/?conversation_id=<id>` 重挂指定会话（别人的/已归档 → JSON 404；装载失败前端静默回落「最新非归档」）；会话选择记 `pa-side-agent-conv`，跨页展开恢复用户挑的那条。列表条目是纯 button + data 属性（无 hx-*），委托绑在常驻面板容器上。回归锁：`SidebarHistorySwitchTest` / `SidebarHistoryListEndpointTest` / `SidebarWiringTest::test_shell_has_history_toggle_and_panel` + `test_agent_js_history_wiring`
 
 ## 参与者写入规则
 
