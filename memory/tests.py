@@ -452,11 +452,12 @@ class MemoryViewsTest(TestCase):
 
 
 class MemoryListDesktopLayoutTest(TestCase):
-    """记忆管理页桌面两列布局回归锁（右列 = 搜索 + 类别筛选）
+    """记忆管理页桌面两列布局回归锁（右列 = 类别筛选 + 导出）
 
     本页原来套 max-w-3xl 居中壳，桌面端右侧白掉约 448px。
     rail-first 保证移动端顺序（搜索 → 类别 → 列表）与改造前逐块一致；
     搜索/筛选上的 hx-* 契约必须原样保留（这两个端点返回 HTML 片段，走 HTMX 是对的）。
+    2026-11-09 用户决定：搜索框移出右列，放到页面顶部通栏（不再进 .page-cols）。
     """
     TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'memory' / 'memory_list.html'
 
@@ -471,12 +472,21 @@ class MemoryListDesktopLayoutTest(TestCase):
         assert_desktop_two_columns(
             self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
             left=[('id="memory-list"', 'HTMX 局部刷新区'), ('喜欢喝咖啡', '记忆条目')],
-            right=[('搜索记忆...', '搜索框'), ('id="memory-category-filter"', '类别筛选区')],
-            mobile_order=['搜索记忆...', 'id="memory-list"', '喜欢喝咖啡'],
+            right=[('id="memory-category-filter"', '类别筛选区')],
+            mobile_order=['搜索记忆...', 'id="memory-category-filter"',
+                          'id="memory-list"', '喜欢喝咖啡'],
             rail_first=True)
 
+    def test_search_box_is_full_width_above_the_columns(self):
+        """搜索框在 .page-cols 之前（顶部通栏），不在任何一列里"""
+        search_at = self.html.find('搜索记忆...')
+        cols_at = self.html.find('class="page-cols')
+        self.assertGreater(search_at, -1, '搜索框不见了')
+        self.assertLess(search_at, cols_at,
+                        '搜索框已按用户决定移到页面顶部，不得再搬回两列容器里（右列或左列都不行）')
+
     def test_htmx_targets_survive_the_split(self):
-        """控件搬进右列后 hx-target / hx-include 关系不能断（跨列引用靠 id，仍能命中）"""
+        """控件移位后 hx-target / hx-include 关系不能断（跨容器引用靠 id，仍能命中）"""
         src = self.TEMPLATE.read_text(encoding='utf-8')
         self.assertIn('hx-target="#memory-list"', src)
         self.assertIn('hx-include="#memory-category-filter"', src)
