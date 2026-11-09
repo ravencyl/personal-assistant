@@ -3,15 +3,12 @@
 重点是 knowledge.create：让 AI 在对话里把讨论出来的结论直接沉淀成文章。
 约定：正文由模型自己根据当前会话整理，服务端只负责落库 + 回链接。
 """
-import json
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
 from core.tags import apply_tags
-from django.core.cache import cache
-from django.test import TestCase, Client, override_settings
+from django.test import TestCase, Client
 
 from activities.models import Activity
 from core.layout_asserts import assert_desktop_two_columns, code_only
@@ -19,7 +16,6 @@ from core.layout_asserts import assert_desktop_two_columns, code_only
 from core.agent_registry import ToolError, get_tool
 from core.utils import visible_qs
 
-from . import qmind, qmind_sync
 from .models import Article
 from .retrieval import search_knowledge
 
@@ -274,107 +270,44 @@ class ArticleDetailDesktopLayoutTest(TestCase):
                         'data-page-context 应在包住两列区的外层元素上')
 
 
-class QMindClientTest(TestCase):
-    """QMind 客户端：token 缓存、401 重试、同步与 409 去重（HTTP 全 mock，不出网）"""
-
-    def setUp(self):
-        cache.delete(qmind.TOKEN_CACHE_KEY)
-        # 预置缓存 token，让只测同步逻辑的用例不必给 exchange 打桩
-        cache.set(qmind.TOKEN_CACHE_KEY, 'jt-test', 600)
-
-    def _config(self):
-        return override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x')
-
-    def test_configured_requires_notebook_and_token(self):
-        with self._config():
-            self.assertTrue(qmind.configured())
-        with override_settings(QMIND_NOTEBOOK_ID=''):
-            self.assertFalse(qmind.configured())
-
-    def test_job_token_is_cached_across_calls(self):
-        cache.delete(qmind.TOKEN_CACHE_KEY)  # setUp 预置了 token，这里从冷启动开始验证 exchange 只发生一次
-        with self._config(), \
-             patch('knowledge.qmind.httpx.post', return_value=self._resp(200, {'token': 'jt-1', 'expires_in': 86400000})) as m_post, \
-             patch('knowledge.qmind.httpx.request', return_value=self._resp(200, {'chunks': []})) as m_req:
-            qmind.retrieve('q1')
-            qmind.retrieve('q2')
-        self.assertEqual(m_post.call_count, 1, '第二次调用应命中缓存，不再 exchange')
-        self.assertEqual(m_req.call_count, 2)
-
-    def test_retrieve_401_retries_once_with_fresh_token(self):
-        responses = [self._resp(401, {}), self._resp(200, {'chunks': [{'title': 'T', 'snippet': 's', 'score': 0.9}]})]
-        with self._config(), \
-             patch('knowledge.qmind.httpx.post', return_value=self._resp(200, {'token': 'jt-1', 'expires_in': 86400000})), \
-             patch('knowledge.qmind.httpx.request', side_effect=responses) as m_req:
-            out = qmind.retrieve('q')
-        self.assertEqual(m_req.call_count, 2)
-        self.assertEqual(out[0]['title'], 'T')
-
-    def test_retrieve_not_configured_returns_none(self):
-        with override_settings(QMIND_NOTEBOOK_ID=''):
-            self.assertIsNone(qmind.retrieve('q'))
-
-    def test_sync_article_returns_id_and_deletes_old_first(self):
-        calls = []
-        with self._config(), \
-             patch('knowledge.qmind.httpx.request',
-                   side_effect=lambda m, url, **kw: calls.append(m) or self._resp(200, {'id': 'src-new'})):
-            sid = qmind.sync_article('T', 'c', old_source_id='src-old')
-        self.assertEqual(sid, 'src-new')
-        self.assertEqual(calls, ['DELETE', 'POST'], '更新 = 先删旧源再上传')
-
-    def test_sync_article_409_dedup_falls_back_to_title_lookup(self):
-        with self._config(), \
-             patch('knowledge.qmind.httpx.request', side_effect=[
-                 self._resp(409, {'errorCode': 'AlreadyExists'}),
-                 self._resp(200, {'sources': [{'id': 'src-dup', 'title': 'T'}]}),
-             ]):
-            sid = qmind.sync_article('T', 'c')
-        self.assertEqual(sid, 'src-dup')
-
-    def test_delete_source_tolerates_404(self):
-        with self._config(), \
-             patch('knowledge.qmind.httpx.request', return_value=self._resp(404, {})):
-            qmind.delete_source('gone')  # 不抛即通过
-
-    @staticmethod
-    def _resp(status, data):
-        m = Mock()
-        m.status_code = status
-        m.json.return_value = data
-        m.text = json.dumps(data)
-        return m
-
-
 class KnowledgeRetrievalLayerTest(TestCase):
-    """统一检索层：QMind 优先、失败降级本地、片段回挂本地文章"""
+    """本地检索层（2026-11-09 QMind 下线）：只用站内文章，分词 + 关键词 OR
+
+    原类验证的是「QMind 优先、失败降级本地、片段回挂」；QMind 整体拆除后
+    这里改锁本地检索本身的形状：统一结构不变、自然语言能拆出关键词、
+    tag 过滤收进同一入口。
+    """
 
     def setUp(self):
         self.user = User.objects.create_user(username='kr', password='x')
         self.article = Article.objects.create(user=self.user, title='桐庐行程', content='预算 1200 元，带溯溪鞋')
 
-    def test_not_configured_falls_back_to_local(self):
-        with override_settings(QMIND_NOTEBOOK_ID=''):
-            hits = search_knowledge(self.user, '桐庐', limit=3)
+    def test_keyword_hit_returns_unified_structure(self):
+        hits = search_knowledge(self.user, '桐庐', limit=3)
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]['article'], self.article)
         self.assertIn('预算', hits[0]['content'])
+        self.assertIsNone(hits[0]['score'], '本地关键词命中没有相似度分值，结构保持兼容')
 
-    def test_qmind_error_degrades_to_local(self):
-        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
-             patch('knowledge.qmind.retrieve', side_effect=qmind.QMindError('boom')):
-            hits = search_knowledge(self.user, '桐庐', limit=3)
+    def test_natural_language_query_is_tokenized(self):
+        """整句提问不再依赖云端语义：本地分词拆出「桐庐」也要能命中"""
+        hits = search_knowledge(self.user, '帮我看看桐庐的行程安排', limit=3)
         self.assertEqual(len(hits), 1)
-        self.assertEqual(hits[0]['article'], self.article)
+        self.assertEqual(hits[0]['title'], '桐庐行程')
 
-    def test_qmind_chunks_mapped_back_to_local_article(self):
-        chunks = [{'title': '桐庐行程', 'snippet': '带防滑溯溪鞋', 'score': 0.8, 'uri': 'notebook/sources/x/桐庐行程.md'}]
-        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
-             patch('knowledge.qmind.retrieve', return_value=chunks):
-            hits = search_knowledge(self.user, '溯溪装备要注意什么', limit=3)
-        self.assertEqual(len(hits), 1)
-        self.assertEqual(hits[0]['article'], self.article, '片段应回挂到本地文章获得深链')
-        self.assertEqual(hits[0]['content'], '带防滑溯溪鞋')
+    def test_tag_filter_goes_through_the_same_entry(self):
+        """QMind 分叉路径收编：tag 条件不再需要调用方自己走 search_articles"""
+        from core.tags import apply_tags
+        apply_tags(self.article, ['亲子'])
+        self.assertEqual(len(search_knowledge(self.user, '桐庐', limit=3, tag='亲子')), 1)
+        self.assertEqual(search_knowledge(self.user, '桐庐', limit=3, tag='出差'), [],
+                         '标签不匹配时应缩小为空，而不是忽略条件')
+
+    def test_only_visible_articles_are_searched(self):
+        other = User.objects.create_user(username='kr2', password='x')
+        Article.objects.create(user=other, title='桐庐行程（他人）', content='别人的攻略')
+        hits = search_knowledge(self.user, '桐庐', limit=5)
+        self.assertEqual([h['title'] for h in hits], ['桐庐行程'])
 
 
 class RagContextDedupTest(TestCase):
@@ -413,92 +346,24 @@ class RagContextDedupTest(TestCase):
         self.assertLessEqual(ctx.count('来源'), 2, '段落注入上限 top2')
 
 
-class ArticleQMindSyncSignalTest(TestCase):
-    """信号同步：内容变化才同步、删除清理云端源（同步线程同步化执行以便断言）"""
+class KnowledgeSearchAgentToolLocalTest(TestCase):
+    """knowledge.search 全本地后的行为（2026-11-09 QMind 下线）
 
-    def setUp(self):
-        self.user = User.objects.create_user(username='ks', password='x')
-
-    def _run_inline(self):
-        """把后台线程替换成立即执行，方便断言"""
-        class InlineThread:
-            def __init__(self, target, args, **kw):
-                self._target, self._args = target, args
-
-            def start(self):
-                self._target(*self._args)
-
-        return patch('knowledge.qmind_sync.threading.Thread', InlineThread)
-
-    def test_save_syncs_new_article_and_stores_source_id(self):
-        with patch('knowledge.qmind_sync._enabled', return_value=True), \
-             patch('knowledge.qmind.sync_article', return_value='src-1') as m_sync, \
-             self._run_inline():
-            article = Article.objects.create(user=self.user, title='新文章', content='正文')
-        m_sync.assert_called_once()
-        article.refresh_from_db()
-        self.assertEqual(article.qmind_source_id, 'src-1')
-        self.assertEqual(article.qmind_sync_hash, qmind_sync.content_hash(article))
-
-    def test_unchanged_resave_skips_sync(self):
-        with patch('knowledge.qmind_sync._enabled', return_value=True), \
-             patch('knowledge.qmind.sync_article', return_value='src-1'), \
-             self._run_inline():
-            article = Article.objects.create(user=self.user, title='稳文章', content='v1')
-        article.refresh_from_db()  # 模拟下一次请求从 DB 读到同步后的状态
-        with patch('knowledge.qmind_sync._enabled', return_value=True), \
-             patch('knowledge.qmind.sync_article') as m_sync, \
-             self._run_inline():
-            article.save()
-        self.assertFalse(m_sync.called, '指纹未变不应再发同步请求')
-
-    def test_sync_failure_does_not_break_article_save(self):
-        with patch('knowledge.qmind_sync._enabled', return_value=True), \
-             patch('knowledge.qmind.sync_article', side_effect=qmind.QMindError('网络炸了')), \
-             self._run_inline():
-            article = Article.objects.create(user=self.user, title='炸文章', content='正文')  # 不抛即通过
-        article.refresh_from_db()
-        self.assertEqual(article.qmind_source_id, '', '失败时云端状态保持为空，下次保存重试')
-
-    def test_delete_cleans_cloud_source(self):
-        with patch('knowledge.qmind_sync._enabled', return_value=True), \
-             patch('knowledge.qmind.sync_article', return_value='src-9'), \
-             self._run_inline():
-            article = Article.objects.create(user=self.user, title='删文章', content='正文')
-        article.refresh_from_db()  # 同步在后台完成，删除信号需要拿到落库后的 source_id
-        with patch('knowledge.qmind_sync._enabled', return_value=True), \
-             patch('knowledge.qmind.delete_source') as m_del, \
-             self._run_inline():
-            article.delete()
-        m_del.assert_called_once_with('src-9')
-
-    def test_disabled_does_nothing(self):
-        with patch('knowledge.qmind_sync._enabled', return_value=False), \
-             patch('knowledge.qmind.sync_article') as m_sync, \
-             self._run_inline():
-            Article.objects.create(user=self.user, title='关文章', content='正文')
-        m_sync.assert_not_called()
-
-
-class KnowledgeSearchAgentToolQMindTest(TestCase):
-    """knowledge.search 走统一检索层后的行为保持"""
+    原类 mock 云端 retrieve 验证「片段回挂深链」；现在检索只用站内文章，
+    这里锁住的是统一结构、深链、空命中文案、事实条并入与多词关键词。
+    """
 
     def setUp(self):
         self.user = User.objects.create_user(username='kt', password='x')
         Article.objects.create(user=self.user, title='独处训练', content='从每天 10 分钟开始练习')
 
-    def test_search_hits_via_qmind_with_deep_link(self):
-        chunks = [{'title': '独处训练', 'snippet': '四周阶梯练习', 'score': 0.7, 'uri': ''}]
-        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
-             patch('knowledge.qmind.retrieve', return_value=chunks):
-            out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '一个人待着心慌怎么办'})
+    def test_search_hits_local_article_with_deep_link(self):
+        out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '独处 训练 练习'})
         self.assertIn('独处训练', out['reply'])
         self.assertIn('knowledge/', out['reply'], '命中本地文章时要给深链')
 
     def test_search_empty_reply_unchanged(self):
-        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
-             patch('knowledge.qmind.retrieve', return_value=[]):
-            out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '不存在的主题'})
+        out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '不存在的主题'})
         self.assertIn('记忆和文章里都没有', out['reply'])
 
     def test_search_covers_memory_facts_too(self):
@@ -506,9 +371,7 @@ class KnowledgeSearchAgentToolQMindTest(TestCase):
         from memory.services import gate_and_write
         gate_and_write(self.user, {'content': '每周三晚上去健身房'},
                        user_text='记住我每周三晚上健身')
-        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
-             patch('knowledge.qmind.retrieve', return_value=[]):
-            out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '健身'})
+        out = get_tool('knowledge.search')['fn'](self.user, {'keyword': '健身'})
         self.assertIn('记忆：', out['reply'])
         self.assertIn('每周三晚上去健身房', out['reply'])
         self.assertNotIn('文章：', out['reply'])
@@ -521,10 +384,8 @@ class KnowledgeSearchAgentToolQMindTest(TestCase):
         from memory.services import gate_and_write
         gate_and_write(self.user, {'content': '每周三晚上去健身房'},
                        user_text='记住我每周三晚上健身')
-        with override_settings(QMIND_NOTEBOOK_ID='nb-1', QODER_ACCESS_TOKEN='pt-x'), \
-             patch('knowledge.qmind.retrieve', return_value=[]):
-            out = get_tool('knowledge.search')['fn'](
-                self.user, {'keyword': '健身 安排'})
+        out = get_tool('knowledge.search')['fn'](
+            self.user, {'keyword': '健身 安排'})
         self.assertIn('每周三晚上去健身房', out['reply'])
 
     def test_search_descriptions_advertise_recent_context_ref(self):

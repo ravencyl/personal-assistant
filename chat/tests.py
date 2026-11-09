@@ -114,7 +114,7 @@ class KnowledgeSearchFallbackTextTest(TestCase):
         from knowledge.agent_tools import tool_knowledge_search
 
         user = User.objects.create_user(username='u2')
-        with patch('knowledge.agent_tools.search_articles', return_value=[]):
+        with patch('knowledge.utils.search_articles', return_value=[]):
             result = tool_knowledge_search(user, {'keyword': '美国出差准备'})
         reply = result['reply']
         self.assertIn('记忆和文章里都没有', reply)

@@ -18,7 +18,8 @@ class Memory(models.Model):
     - superseded_by 取代链：改写记忆不原位覆盖，新建新条 + 旧条指向新条
     - sensitivity 敏感闸门：仅用户显式要求记住时才落库
     - type='document'：原知识库文章（2026-10-28 两库合并）整表迁入，slug/tags/
-      版本历史/QMind 同步全保留；与 episodic 同语义——可检索，不进常驻注入，
+      版本历史全保留（QMind 云端镜像已于 2026-11-09 下线，qmind_* 两列由迁移删除）；
+      与 episodic 同语义——可检索，不进常驻注入，
       也不参与遗忘批扫（文章的去留只归 owner）
     """
     CATEGORY_CHOICES = [
@@ -106,10 +107,6 @@ class Memory(models.Model):
         '已被聚合', default=False,
         help_text='该条记忆已被 consolidate_memories 命令合成为画像，检索时跳过',
     )
-    # QMind 云端镜像状态（knowledge.qmind_sync）：仅 document 用。
-    # source_id 用于更新/删除时定位云端源，sync_hash 判断内容是否变化
-    qmind_source_id = models.CharField('QMind 源 ID', max_length=64, blank=True, default='')
-    qmind_sync_hash = models.CharField('QMind 同步指纹', max_length=32, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

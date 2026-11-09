@@ -6,17 +6,6 @@ class KnowledgeConfig(AppConfig):
     name = 'knowledge'
     verbose_name = '知识库'
 
-    def ready(self):
-        # Memory(document) → QMind 异步镜像同步（knowledge/qmind_sync），失败只记日志。
-        # proxy 的 sender 与实体类不同：保存走 Document、迁移/旁路可能走 Memory，
-        # 两个 sender 都要连，handler 内按 type 判断（fact 条直接跳过）。
-        from django.db.models.signals import post_delete, post_save
-
-        from memory.models import Memory
-
-        from . import qmind_sync, models
-
-        post_save.connect(qmind_sync.article_saved, sender=models.Document)
-        post_save.connect(qmind_sync.article_saved, sender=Memory)
-        post_delete.connect(qmind_sync.article_deleted, sender=models.Document)
-        post_delete.connect(qmind_sync.article_deleted, sender=Memory)
+    # 2026-11-09：QMind 云端镜像同步按用户决定整体下线（本模块 ready() 曾在这里
+    # 给 Document/Memory 两个 sender 连 post_save/post_delete）。文章的 FTS 索引
+    # 与跨模块关联同步仍在 core/apps.py 里连接，与本模块无关。

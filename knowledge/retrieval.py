@@ -1,77 +1,33 @@
-"""知识库统一检索层：QMind 语义检索优先，本地关键词兜底
+"""知识库本地检索层（2026-11-09：QMind 云端检索按用户决定下线，检索只用本地知识库）
 
 消费方：chat.views._build_knowledge_context（每条消息的知识注入）与
-knowledge.search agent 工具。两边都不感知后端差异——拿到的都是
-[{'title','content','score','article'}] 统一结构。
+knowledge.search agent 工具。返回结构保持统一 [{'title','content','score','article'}]，
+消费方不感知后端差异；score 恒为 None（本地关键词命中没有相似度分值），
+历史调用都只读 title/content/article，不受影响。
 
-降级规则（容错铁律）：
-- QMind 未配置（QMIND_NOTEBOOK_ID 为空）→ 直接走本地
-- QMind 调用失败/超时（5s）→ logger.warning 后走本地
-- QMind 命中但片段关联不到本地文章 → article 为 None，不返回链接（内容照给）
+检索策略（纯本地、零外呼）：
+- knowledge.utils.tokenize 把查询切成实词关键词（过滤停用词、短词优先）
+- 标题/标签命中优先、正文命中补足（knowledge.utils.search_articles）
 """
-import logging
-
 from core.utils import visible_qs
 
-logger = logging.getLogger(__name__)
 
+def search_knowledge(user, query, limit=3, tag=None):
+    """按查询意图检索用户自己的知识库（本地文章分区），返回统一结构的结果列表
 
-def search_knowledge(user, query, limit=3):
-    """按查询意图检索用户自己的知识库，返回统一结构的结果列表"""
-    results = _search_qmind(user, query, limit)
-    if results is None:
-        results = _search_local(user, query, limit)
-    return results
-
-
-def _search_qmind(user, query, limit):
-    """QMind 语义检索。返回 None 表示「走本地降级」，[] 表示「命中为空」"""
-    from . import qmind
-
-    if not qmind.configured():
-        return None
-    try:
-        chunks = qmind.retrieve(query, top_k=limit)
-    except Exception as e:
-        logger.warning(f'QMind 检索失败，降级本地关键词: {e}')
-        return None
-    if chunks is None:
-        return None
-
-    articles = {a.title: a for a in visible_qs(_article_model(), user)}
-    results = []
-    for c in chunks:
-        # uri 末段即上传时的文件名（= 文章标题），借它把片段挂回本地文章拿深链
-        article = articles.get(c['title']) or _match_article(articles, c['title'])
-        results.append({
-            'title': article.title if article else c['title'],
-            'content': c['snippet'],
-            'score': c['score'],
-            'article': article,
-        })
-    return results
-
-
-def _search_local(user, query, limit):
+    tag 非空时先按标签缩小范围（原 QMind 不支持标签过滤而存在的分叉路径，
+    下线后统一收进本函数，调用方不必再自己分叉）。
+    """
     from .utils import search_articles
 
-    qs = search_articles(visible_qs(_article_model(), user), query, limit=limit)
+    articles = search_articles(visible_qs(_article_model(), user), query,
+                               tag=tag, limit=limit)
     return [
         {'title': a.title, 'content': a.content, 'score': None, 'article': a}
-        for a in qs
+        for a in articles
     ]
 
 
 def _article_model():
     from .models import Document
     return Document
-
-
-def _match_article(articles, title):
-    """精确匹配失败后做包含匹配（云端标题与本地标题可能有 .md 尾巴等微差）"""
-    if not title:
-        return None
-    for name, article in articles.items():
-        if title in name or name in title:
-            return article
-    return None

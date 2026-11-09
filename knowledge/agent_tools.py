@@ -19,7 +19,7 @@ from chat.models import Message
 from memory.models import Memory
 
 from .models import Document
-from .utils import search_articles, tokenize
+from .utils import tokenize
 
 # 未展开的协议引用标记（$LAST_REPLY / $LAST_USER），定义见 core.agent_registry
 _UNRESOLVED_REF = re.compile(r'^\$LAST_(REPLY|USER)$')
@@ -35,7 +35,7 @@ def _article_url(article):
     return unquote(reverse('knowledge:article_detail', kwargs={'slug': article.slug}))
 
 
-@agent_tool('knowledge.search', '在用户自己的记忆与文章里检索（语义检索，能命中近义表达；'
+@agent_tool('knowledge.search', '在用户自己的记忆与文章里检索（本地关键词检索，分词后任一词命中即入选；'
                         '覆盖文章和 AI 记住的事实/偏好/目标，用户问“我还记不记得/之前存过什么”时用它；'
                         '只能查本地存量内容，通用知识/时效/攻略类问题不要用它，应直接联网回答或走 ask）',
             'keyword（搜索关键词或自然语言问题，必填；从对话内容提炼关键词，'
@@ -46,23 +46,18 @@ def tool_knowledge_search(user, params):
     """统一检索：文章分区（原知识库）+ 记忆事实条一起查，分区呈现
 
     2026-10-28 两库数据层合并后，「记忆里有没有…」和「知识库里有没有…」
-    对用户是同一个问题，分两个工具问两遍只会得到半个答案。文章走语义检索
-    （QMind 优先 + 关键词兜底），事实条走分词多词 OR（量小，够用）。
+    对用户是同一个问题，分两个工具问两遍只会得到半个答案。文章走本地检索
+    （分词 + 关键词 OR，2026-11-09 QMind 下线后即为唯一后端），
+    事实条走分词多词 OR（量小，够用）。
     """
     keyword = str(params.get('keyword') or '').strip()
     if not keyword:
         raise ToolError('请告诉我搜索关键词')
     tag = str(params.get('tag') or '').strip()
 
-    if tag:
-        # 带标签条件时走本地检索（QMind 不支持按站内标签过滤）
-        articles = search_articles(visible_qs(Document, user), keyword, tag=tag, limit=5)
-        hits = [{'title': a.title, 'content': a.content, 'score': None, 'article': a}
-                for a in articles]
-    else:
-        from .retrieval import search_knowledge
+    from .retrieval import search_knowledge
 
-        hits = search_knowledge(user, keyword, limit=5)
+    hits = search_knowledge(user, keyword, limit=5, tag=tag or None)
 
     # 记忆事实条（active/candidate；文档分区已在上面查过）。
     # 模型的 keyword 可能是整句自然语言，单串 icontains 必然落空——
@@ -249,7 +244,7 @@ def _apply_article_update(user, article, new_title, content, mode, tags):
         return {'reply': f'《{article.title}》已经是最新内容，没有需要修改的地方',
                 'changed': False}
 
-    article.save()  # post_save 信号会把变更同步到 QMind 云端镜像（若已配置）
+    article.save()
     return {
         'reply': f'已更新《{article.title}》（{_article_url(article)}）：' + '；'.join(changes),
         'changed': True,

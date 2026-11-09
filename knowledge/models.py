@@ -6,11 +6,12 @@ memory.MemoryVersion，本文件只留 **Document 代理**：
 - proxy 到 Memory，不另建表——全站只有一张知识存储；
 - DocumentManager 强制 `type='document'` 过滤 + create 默认值，知识库
   侧代码永远看不到记忆事实条；
-- slug/tags/版本历史/QMind 同步字段全在 Memory 上，行为不变。
+- slug/tags/版本历史全在 Memory 上，行为不变（QMind 镜像字段 qmind_* 已随
+  云端知识库下线由迁移删除，2026-11-09）。
 
 信号注意：proxy 的 sender 与实体类不同（post_save 会不会触发取决于
-保存时用的是哪个类）。core/apps.py 与 knowledge/apps.py 对 Memory 和
-Document **两个 sender 都要连接**，handler 内按 type 判断是否文章。
+保存时用的是哪个类）。core/apps.py 对 Memory 和 Document **两个 sender
+都要连接**（FTS 索引与跨模块关联），handler 内按 type 判断是否文章。
 """
 from django.db import models
 
@@ -42,6 +43,6 @@ class Document(Memory):
         return self.title
 
 
-# 兼容别名：合并前的大量引用（测试、QMind 同步内部变量名等）仍写 Article；
+# 兼容别名：合并前的大量引用（测试、旧视图变量名等）仍写 Article；
 # 实体已并入 Memory，这里统一指到代理类，不再单留一个空壳模型
 Article = Document

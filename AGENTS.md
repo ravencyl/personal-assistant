@@ -295,8 +295,8 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 文章页头部互切分区。改这两个模块前必读：
 
 - **proxy 的 signal sender 与实体类不同**：post_save/post_delete 对 `Document` 和 `Memory`
-  是两个 sender，`knowledge/apps.py`（QMind 同步）与 `core/apps.py`（FTS/cross_link）对
-  **两个都要 connect**，handler 内用 `instance.type == 'document'` 分流。只连一个，另一半
+  是两个 sender，`core/apps.py`（FTS/cross_link）对 **两个都要 connect**，handler 内用
+  `instance.type == 'document'` 分流。只连一个，另一半
   写路径的同步就静默丢失
 - **文章对记忆治理链全程隐身**：`retrieve_memories` / `build_memory_index_context` /
   `sweep_memories` / `consolidate_memories` / `_find_similar` / memory 列表·统计
@@ -304,17 +304,20 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
   3000 字符预算、混进取代链会被 500 字校验截断。新增记忆侧查询时默认带上这个排除
 - **memory.update 工具拒绝 document 目标**（`_apply` 入口 ToolError）：文章有自己的编辑
   页 + 版本链（knowledge.update），走事实记忆的取代/删除会毁掉长文
-- **knowledge.search 是统一检索**：文章（语义检索层）+ 记忆事实条（icontains）分区呈现；
+- **knowledge.search 是统一检索**：文章（本地检索层）+ 记忆事实条（icontains）分区呈现；
   `memory.search` 只查事实条。工具描述与 reply 文案一律说「记忆/文章」，不再说「知识库」
-- **QMind 同步指纹是模块函数** `knowledge/qmind_sync.py::content_hash(instance)`（md5 of
-  `title\ncontent`），不在模型上——别在 Memory 上找 `sync_hash()` 方法，也没有
+- **QMind 云端知识库 2026-11-09 整体下线（用户决定「采用本地知识库，不使用 QMind」）**：
+  检索只用本地——`knowledge/retrieval.py` = tokenize + 关键词 OR（tag 过滤也在这一入口），
+  零外呼；客户端 `qmind.py`、信号同步 `qmind_sync.py`、批量命令 `sync_knowledge_to_qmind`、
+  settings `QMIND_*`、`Memory.qmind_source_id/qmind_sync_hash`（迁移 0008 删列）全删。
+  防复活墓碑登记在 `core/tests.py::TombstoneRegistryTest`；.env 里遗留的 QMIND_* 是死变量
 - **老 URL 与 slug 全保留**：`/knowledge/<slug>/`、`knowledge:` 命名空间、文章 slug、标签
   （scope=knowledge 的反向查询名是 `memory`）都没变，迁移 0007 幂等、可反向
 - 测试兼容别名 `knowledge.models.Article = Document`（存量测试与旧引用统一指代理类）
 
 回归锁：`memory/tests.py`（document 不进注入/检索/批扫）、`knowledge/tests.py`（Document
-代理 + 统一检索 + QMind 同步）、`core/tests.py::PrimaryNavTest`（顶栏四项）、
-`knowledge/tests.py::KnowledgeSearchAgentToolQMindTest`（事实条也进统一检索）。
+代理 + 本地统一检索）、`core/tests.py::PrimaryNavTest`（顶栏四项）、
+`knowledge/tests.py::KnowledgeSearchAgentToolLocalTest`（事实条也进统一检索）。
 
 ## 备忘功能整体下线（2026-10-28）
 

@@ -723,6 +723,14 @@ class TombstoneRegistryTest(SimpleTestCase):
             'memory/urls.py': ['goal_progress'],
             'templates/memory/memory_list.html': ['目标进度', 'goal.percent'],
         }),
+        ('QMind 云端知识库 2026-11-09 用户决定下线（知识检索改纯本地；扫描剔注释/docstring，「为什么下线」的注释提到 QMind 不算复活）', {
+            'knowledge/retrieval.py': ['qmind', 'QMIND'],
+            'knowledge/agent_tools.py': ['qmind', 'QMIND'],
+            'knowledge/apps.py': ['qmind_sync', 'post_save.connect'],
+            'memory/models.py': ['qmind'],
+            'personal_assistant/settings.py': ['QMIND'],
+            'chat/views.py': ['qmind', 'QMIND'],
+        }),
     ]
 
     # ② 文件必须不存在
@@ -732,6 +740,9 @@ class TombstoneRegistryTest(SimpleTestCase):
         'static/js/quick-parse.js',          # 快记 2026-10-28 下线
         'activities/parsing.py',             # 快记规则解析器
         'static/js/dependency-graph.js',     # 依赖关系图 2026-10-13 下线
+        'knowledge/qmind.py',                # QMind 云端知识库 2026-11-09 下线
+        'knowledge/qmind_sync.py',           # 同上（信号镜像同步层）
+        'knowledge/management/commands/sync_knowledge_to_qmind.py',  # 同上（批量同步命令）
     ]
 
     # ③ 路由必须不存在：(url name, args)
@@ -747,7 +758,9 @@ class TombstoneRegistryTest(SimpleTestCase):
     ]
 
     # ④ Python 模块必须不存在
-    GONE_MODULES = ['activities.views.batch_views', 'activities.views.dependency_views']
+    GONE_MODULES = ['activities.views.batch_views', 'activities.views.dependency_views',
+                    'knowledge.qmind', 'knowledge.qmind_sync',
+                    'knowledge.management.commands.sync_knowledge_to_qmind']
 
     # ⑤ Agent 工具与协议意图必须不存在
     GONE_TOOLS = ['activities.comments', 'activities.add_comment', 'activities.check_blocked']
@@ -792,9 +805,11 @@ class TombstoneRegistryTest(SimpleTestCase):
                                   f'{mod} 已下线，不得复活')
 
     def test_tombstone_model_bits_are_gone(self):
-        """前置依赖 + 活动评论的模型层墓碑（含 commented choice 防「兼容旧数据」复活）"""
+        """模型层墓碑：前置依赖+活动评论（含 commented choice 防「兼容旧数据」复活）、
+        QMind 镜像字段（2026-11-09 下线，qmind_* 两列由迁移删除）"""
         from activities import models as act_models
         from activities.models import ActivityLog
+        from memory.models import Memory
         for attr in ('blocked_by', 'is_blocked', 'blocking_names', 'would_create_cycle'):
             with self.subTest(attr=attr):
                 self.assertFalse(hasattr(act_models.Activity, attr),
@@ -805,6 +820,10 @@ class TombstoneRegistryTest(SimpleTestCase):
         with self.subTest(choice='commented'):
             self.assertNotIn('commented', dict(ActivityLog.ACTION_CHOICES),
                              'commented choice 不得以「兼容旧数据」为由回来')
+        for field in ('qmind_source_id', 'qmind_sync_hash'):
+            with self.subTest(memory_field=field):
+                self.assertFalse(hasattr(Memory, field),
+                                 f'{field} 已随 QMind 下线删除，不得复活')
 
     def test_tombstone_agent_tools_are_gone(self):
         from core.agent_registry import INTENT_TOOL_MAP, get_tool

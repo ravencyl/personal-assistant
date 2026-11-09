@@ -878,8 +878,8 @@ def _build_ai_content(request, conversation, content):
     # 首帧只对新建对话生效。恒定一行，不值得为省噪声做条件判据
     ai_content = PROTOCOL_SEARCH_REMINDER + ai_content
     # 知识注入的检索 query 做上下文扩展：用户问「之前那个怎么办来着」时，
-    # 单看本轮一个词都不够——把最近几条用户消息并进检索文本，QMind 语义检索
-    # 吃自然语言没问题，本地兜底有自己的分词
+    # 单看本轮一个词都不够——把最近几条用户消息并进检索文本，
+    # 本地检索层（knowledge.retrieval）有自己的分词，长文本照样拆得出关键词
     try:
         recent_user = ' '.join(
             (m.content or '').strip()
@@ -972,8 +972,9 @@ def _deliver(service, conversation):
 def _build_knowledge_context(user, text):
     """按用户消息检索相关知识库内容，构造注入上下文；无命中返回 ('', [])
 
-    走 knowledge.retrieval 统一检索层（QMind 语义优先，失败自动降级本地
-    关键词），本函数不感知后端差异。返回 (注入文本, 命中文章标题列表)——
+    走 knowledge.retrieval 本地检索层（分词 + 关键词 OR，2026-11-09 起
+    QMind 云端检索已下线，站内没有外部检索后端），本函数不感知实现细节。
+    返回 (注入文本, 命中文章标题列表)——
     标题给 RAG 段落检索做去重（同一篇不注入两遍）。预算口径（2026-10-28
     注入瘦身）：最多 2 篇 × 500 字；记忆注入另算，别在这挤占它的预算。
     """
