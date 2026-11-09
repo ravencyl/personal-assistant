@@ -182,10 +182,11 @@ class KnowledgeUpdateAgentToolTest(TestCase):
 
 
 class ArticleListDesktopLayoutTest(TestCase):
-    """知识库列表页桌面两列布局回归锁（右列 = 搜索 + 标签筛选）
+    """知识库列表页桌面两列布局回归锁（右列 = 标签筛选）
 
     本页原来套 max-w-4xl 居中，桌面端右侧白掉约 320px。rail-first 保证移动端
     顺序（搜索 → 标签 → 列表）与改造前一致。
+    2026-11-09 用户决定（与记忆页同款）：搜索框移出右列，放到页面顶部通栏。
     """
     TEMPLATE = Path(settings.BASE_DIR) / 'templates' / 'knowledge' / 'article_list.html'
 
@@ -202,9 +203,25 @@ class ArticleListDesktopLayoutTest(TestCase):
         assert_desktop_two_columns(
             self, self.html, template_src=self.TEMPLATE.read_text(encoding='utf-8'),
             left=[('桐庐周末游', '文章卡标题'), ('前更新', '文章卡时间')],
-            right=[('搜索文章...', '搜索框'), ('id="article-tag-filter"', '标签筛选栏')],
-            mobile_order=['搜索文章...', '桐庐周末游'],
+            right=[('id="article-tag-filter"', '标签筛选栏')],
+            mobile_order=['搜索文章...', 'id="article-tag-filter"', '桐庐周末游'],
             rail_first=True)
+
+    def test_search_box_is_full_width_above_the_columns(self):
+        """搜索框在 .page-cols 之前（顶部通栏），不在任何一列里；GET 表单与 tag 隐藏域口径不变"""
+        search_at = self.html.find('搜索文章...')
+        cols_at = self.html.find('class="page-cols')
+        self.assertGreater(search_at, -1, '搜索框不见了')
+        self.assertLess(search_at, cols_at,
+                        '搜索框已按用户决定移到页面顶部，不得再搬回两列容器里（右列或左列都不行）')
+        src = self.TEMPLATE.read_text(encoding='utf-8')
+        # 切片基准必须走 code_only：上面那段「为什么改」的注释里就写了 .page-cols，
+        # 不剔注释切出来的「表单区」是散文而不是代码（同一坑本项目踩过两次）
+        stripped = code_only(src)
+        self.assertIn('<form method="get">', stripped[:stripped.find('class="page-cols')],
+                      '顶部搜索必须仍是 GET 表单（回车提交的唯一实现）')
+        self.assertIn('<input type="hidden" name="tag"', src,
+                      'tag 隐藏域不得丢：带标签筛选时搜索会丢条件')
 
     def test_no_legacy_centering_container(self):
         """旧的 max-w-4xl 居中壳必须去掉：套两层会把左列挤窄，两列口径就白做
