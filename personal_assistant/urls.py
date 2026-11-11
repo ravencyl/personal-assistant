@@ -7,7 +7,7 @@ from core.views import (dashboard, search_api, weekly_report, monthly_report, ye
                         report_send_to_chat, service_worker,
                         push_subscribe, push_unsubscribe, push_test,
                         weekly_review_view, weekly_review_complete_view,
-                        today_view, set_timezone, get_timezone)
+                        today_view, set_timezone, get_timezone, safe_login_view)
 from activities.views import daily_view, calendar_feed, today_home
 
 urlpatterns = [
@@ -31,6 +31,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     # Authentication
+    # 自定义登录视图必须排在 auth.urls 之前：覆盖默认 login，做 next 消毒 + 禁缓存
+    # （2026-11-11 登录页 ?next= 无限嵌套致 nginx 400 死循环修复，见 core/views.py::SafeLoginView）
+    path('accounts/login/', safe_login_view, name='login'),
     path('accounts/', include('django.contrib.auth.urls')),
 
     # 日历订阅（ICS/webcal）：token 即鉴权，Apple 日历服务器代拉取无法带会话；

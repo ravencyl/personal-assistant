@@ -10,7 +10,7 @@
 //     而且 cache.put() 遇到非 GET 会直接抛异常。
 //  3. 只缓存顶层导航。判据只能用 mode === 'navigate'，不能再用「Accept 含 text/html」：
 //     HTMX 的片段请求就是 Accept: text/html,*/*，一旦被缓存，打卡/搜索/聊天会拿到过期片段。
-const CACHE_VERSION = 'personal-assistant-v31';
+const CACHE_VERSION = 'personal-assistant-v32';
 
 // 预缓存的核心静态资源（已自托管，不再依赖 CDN）
 const PRECACHE_URLS = [
@@ -130,6 +130,11 @@ self.addEventListener('fetch', (event) => {
 
   // 页面：网络优先 + 离线降级（只有顶层导航进得来，见文件头第 3 条）
   if (request.mode === 'navigate') {
+    // 认证页（登录/登出）永不缓存：networkFirst 的 cachePut 不看 Cache-Control，
+    // 会把「登录态时渲染的带侧栏壳登录页」存下来；会话过期后网络一抖，caches.match
+    // 把这份旧 HTML 顶回来，侧栏装载 fetch 拿 401 → 跳登录页 → next 无限嵌套 →
+    // nginx 400 死循环（2026-11-11 线上事故的真源头）。直连网络，不进缓存。
+    if (url.pathname.startsWith('/accounts/')) return;
     event.respondWith(
       networkFirst(event, request, new Response(OFFLINE_HTML, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },

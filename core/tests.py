@@ -865,6 +865,25 @@ class ServiceWorkerTest(TestCase):
         body = handler[start:]
         return body[:body.index('return;') + len('return;')]
 
+    def _navigate_block(self):
+        """导航分支整块（按花括号配平取，含内层 /accounts/ 早退守卫）。
+
+        不能复用 _branch：它只截到第一个 return;，而本分支现在有两个 return
+        （认证页守卫 + 收尾），会被守卫那个 return 提前截断，networkFirst 落在窗外。
+        """
+        handler = self._fetch_handler()
+        start = handler.index("request.mode === 'navigate'")
+        brace = handler.index('{', start)
+        depth = 0
+        for i in range(brace, len(handler)):
+            if handler[i] == '{':
+                depth += 1
+            elif handler[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    return handler[start:i + 1]
+        raise AssertionError('navigate 分支花括号不配平')
+
     def test_sw_served_from_site_root_and_public(self):
         """登录页也要能装 SW，这个路由不能挂 @login_required"""
         self.assertEqual(reverse('service_worker'), '/sw.js')
@@ -1005,10 +1024,41 @@ class ServiceWorkerTest(TestCase):
 
         ?page=2 / ?tag=自驾 / ?q=xxx 都是不同内容，剥掉查询串会把筛选结果串页。
         """
-        branch = self._branch("request.mode === 'navigate'")
+        branch = self._navigate_block()
         self.assertIn('networkFirst(event, request,', branch,
                       '导航分支必须继续用原始 request 做缓存键')
         self.assertNotIn('staticKey', branch, '剥查询串的处理不能泄漏到页面导航上')
+
+    def test_auth_pages_are_never_cached(self):
+        """认证页（/accounts/）导航必须直连网络、绝不进缓存。
+
+        真源头（2026-11-11 线上 400 死循环）：networkFirst 的 cachePut 不看 Cache-Control，
+        会把「登录态时渲染的带侧栏壳登录页」存进缓存；会话过期后网络一抖，caches.match
+        把这份旧 HTML 顶回来 → 侧栏装载 fetch 拿 401 → 跳登录页 → next 无限嵌套 → nginx 400。
+        守卫必须排在任何 respondWith / networkFirst 之前，否则等于没写。
+        """
+        block = self._navigate_block()
+        self.assertIn("startsWith('/accounts/')", block, '导航分支必须放行认证页')
+        self.assertLess(block.index("'/accounts/'"), block.index('networkFirst('),
+                        '认证页守卫必须排在缓存逻辑之前，否则旧登录页仍会被存下来')
+        self.assertLess(block.index("'/accounts/'"), block.index('respondWith'),
+                        '认证页守卫必须排在 respondWith 之前')
+        # 守卫那一行必须是裸 return（直连网络），不能自己 respondWith / networkFirst
+        guard_line = next(l for l in block.splitlines() if "'/accounts/'" in l)
+        self.assertIn('return', guard_line)
+        self.assertNotIn('respondWith', guard_line)
+        self.assertNotIn('networkFirst', guard_line)
+
+    def test_cache_version_bumped_past_the_login_poison_purge(self):
+        """v32 是「清掉被污染登录页缓存」的版本下限。
+
+        低于它，存量浏览器里那份登录态时缓存的登录页 HTML 不会被 activate 的旧缓存
+        清理逻辑淘汰，死循环的燃料还在。这个号只升不降。
+        """
+        m = re.search(r"CACHE_VERSION = 'personal-assistant-v(\d+)'", self._sw_source())
+        self.assertIsNotNone(m, 'CACHE_VERSION 命名格式变了，版本号锁要同步更新')
+        self.assertGreaterEqual(int(m.group(1)), 32,
+                                'CACHE_VERSION 不得低于 v32（登录页污染清除版本）')
 
 
 class DashboardDesktopLayoutTest(TestCase):
@@ -2595,3 +2645,65 @@ class MobileUiRevampLockTest(SimpleTestCase):
                         and 'font-semibold' in '<h2 class="text-sm font-semibold">x</h2>')
         self.assertIsNotNone(self.BAD_RADIUS.search('rounded-md'))
         self.assertIsNone(self.BAD_RADIUS.search('rounded-2xl'))
+
+
+class LoginRedirectLoopTest(TestCase):
+    """登录页 ?next= 无限嵌套死循环修复（2026-11-11 线上 400 事故）
+
+    事故链：会话过期 → 浏览器复用「登录态时缓存的登录页 HTML」（带侧栏壳）→
+    侧栏装载 fetch /chat/sidebar/ 拿 401 → chat-turn.js 跳登录页并把当前整页 URL
+    塞进 next，而当前页本身就是 /accounts/login/?next=… → 每跳一层 next 翻倍膨胀 →
+    十几轮后撞 nginx 请求行上限（4170 > 4094）整站 Bad Request。
+
+    服务端两道防线在这里钉死：next 指向登录页自身一律剥掉 + 登录页禁缓存。
+    前端 reauthTarget / sidebar-agent.js 的登录页守卫见 chat/tests.py 的静态锁。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('loopuser', password='looppass')
+
+    def test_login_page_is_never_cached(self):
+        """登录页 HTML 绝不允许被浏览器缓存——否则登录态渲染的带侧栏壳版本
+        会在会话过期后被复用，正是本次事故的起点。"""
+        resp = self.client.get(reverse('login'))
+        self.assertEqual(resp.status_code, 200)
+        cache = resp.get('Cache-Control', '')
+        self.assertIn('no-cache', cache)
+        self.assertIn('no-store', cache)
+        self.assertIn('must-revalidate', cache)
+
+    def test_next_pointing_at_login_is_stripped_after_login(self):
+        """next 指向登录页自身（无论嵌套多少层）登录后不得再跳回登录页，
+        落回 LOGIN_REDIRECT_URL，从根上掐断 next 里套登录页的增殖。"""
+        nested = '/accounts/login/?next=%2Faccounts%2Flogin%2F%3Fnext%3D%252F'
+        resp = self.client.post(reverse('login'), {
+            'username': 'loopuser', 'password': 'looppass', 'next': nested,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], settings.LOGIN_REDIRECT_URL)
+        self.assertNotIn('/accounts/login', resp['Location'])
+
+    def test_plain_login_next_is_stripped_too(self):
+        """单层 next=/accounts/login/ 同样剥掉（不只是多层嵌套才拦）。"""
+        resp = self.client.post(reverse('login'), {
+            'username': 'loopuser', 'password': 'looppass',
+            'next': '/accounts/login/',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], settings.LOGIN_REDIRECT_URL)
+
+    def test_legitimate_next_is_preserved(self):
+        """正常的 next（指回业务页）登录后必须一步回到原地，消毒不能误伤。"""
+        resp = self.client.post(reverse('login'), {
+            'username': 'loopuser', 'password': 'looppass',
+            'next': '/activities/',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], '/activities/')
+
+    def test_login_route_resolves_to_safe_view(self):
+        """路由必须命中自定义 SafeLoginView 而非 django 默认 login——
+        默认视图既不禁缓存也不消毒 next，换回去事故就复活。"""
+        from core.views import SafeLoginView
+        match = self.client.get(reverse('login')).resolver_match
+        self.assertIs(match.func.view_class, SafeLoginView)

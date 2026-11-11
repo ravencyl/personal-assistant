@@ -110,6 +110,19 @@
 
     function reauthTarget(loginUrl) {
         var here = location.pathname + location.search;
+        // 已经在登录页就绝不再把「当前整页 URL」塞进 next：会话过期后浏览器可能拿出
+        // 登录态时缓存的登录页 HTML（带着侧栏壳），侧栏一装载就 401 → 跳登录页，
+        // 而 here 本身已是 /accounts/login/?next=…，每跳一层 next 翻倍膨胀，
+        // 十几轮后撞 nginx 请求行上限（4170 > 4094）整站 400（2026-11-11 线上实锤）。
+        // 这里只保留一个「非登录页」的既有 next，没有就干净地重载登录页，循环即断。
+        if (location.pathname.indexOf('/accounts/login') === 0) {
+            var keep = '';
+            try { keep = new URLSearchParams(location.search).get('next') || ''; } catch (err) {}
+            if (keep && keep.indexOf('/accounts/login') !== 0) {
+                return '/accounts/login/?next=' + encodeURIComponent(keep);
+            }
+            return '/accounts/login/';
+        }
         if (!loginUrl) return '/accounts/login/?next=' + encodeURIComponent(here);
         try {
             var u = new URL(loginUrl, location.href);

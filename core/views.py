@@ -1,10 +1,13 @@
 from datetime import date
 
+from django.conf import settings
+from django.contrib.auth.views import LoginView
 from django.contrib.staticfiles import finders
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Sum
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST, require_safe
 from django.http import Http404, HttpResponse, JsonResponse
 
@@ -657,3 +660,28 @@ def set_timezone(request):
 def get_timezone(request):
     """获取当前用户时区"""
     return JsonResponse({'timezone': get_user_timezone(request), 'valid_timezones': sorted(VALID_TIMEZONES)})
+
+
+class SafeLoginView(LoginView):
+    """登录页：next 消毒 + 禁缓存（2026-11-11 线上 400 死循环修复）
+
+    事故链：会话过期后浏览器拿出「登录态时缓存的登录页 HTML」（带着侧栏壳），
+    侧栏一装载就 401 → chat-turn.js 跳登录页并把当前整页 URL 塞进 next，
+    而当前页本身就是 /accounts/login/?next=…，每跳一层 next 翻倍膨胀，
+    十几轮后撞 nginx 请求行上限（4170 > 4094）整站 Bad Request。
+
+    两道服务端防线（前端 reauthTarget 的登录页守卫是第一道）：
+    ① next 指向登录页自身一律剥掉——登录成功后不该再跳回登录页，
+       无论它嵌套了多少层，从根上掐断「next 里套登录页」的增殖；
+    ② never_cache——登录页 HTML 绝不允许被浏览器缓存，否则登录态渲染出的
+       带侧栏壳版本会在会话过期后被复用，正是本次事故的起点。
+    """
+
+    def get_redirect_url(self):
+        nxt = self.request.POST.get('next') or self.request.GET.get('next') or ''
+        if nxt.startswith(settings.LOGIN_URL):
+            return ''   # 落回 LOGIN_REDIRECT_URL，绝不跳回登录页
+        return super().get_redirect_url()
+
+
+safe_login_view = never_cache(SafeLoginView.as_view())

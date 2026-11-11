@@ -14,6 +14,12 @@
 (function () {
     'use strict';
 
+    // 登录页不装载侧栏：会话过期后浏览器可能复用「登录态时缓存的登录页 HTML」
+    // （带着侧栏壳），若照常恢复展开态就会 fetch /chat/sidebar/ → 401 → 跳登录页，
+    // 与 reauthTarget 的 next 嵌套叠加成死循环（2026-11-11 线上 400 事故）。
+    // 登录页本就不该有侧栏，这里直接早退，连事件都不绑。
+    if (location.pathname.indexOf('/accounts/login') === 0) return;
+
     var OPEN_KEY = 'pa-side-agent-open';
     var CONV_KEY = 'pa-side-agent-conv';
     var chatTurn = null;

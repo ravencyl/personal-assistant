@@ -2097,6 +2097,43 @@ class ChatAuthExpiryWiringTest(SimpleTestCase):
         self.assertEqual(problems, [], '\n'.join(problems))
 
 
+class LoginLoopGuardWiringTest(SimpleTestCase):
+    """登录页 ?next= 死循环的前端守卫（2026-11-11 线上 400 事故）
+
+    服务端防线见 core/tests.py::LoginRedirectLoopTest。这里钉前端两道：
+    ① reauthTarget 已在登录页时绝不再把当前整页 URL 塞进 next（循环的直接引擎）；
+    ② sidebar-agent.js 登录页早退（缓存的旧 HTML 也不触发装载 fetch）。
+    静态锁只能证形状，真机行为靠浏览器实测；但删掉守卫这两条会立刻响。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        root = Path(__file__).resolve().parent.parent
+        cls.turn_js = ChatTurnFlowJsTest._strip_js_comments(
+            (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8'))
+        cls.sidebar_js = ChatTurnFlowJsTest._strip_js_comments(
+            (root / 'static' / 'js' / 'sidebar-agent.js').read_text(encoding='utf-8'))
+
+    def test_reauth_target_guards_against_login_page_nesting(self):
+        block = self.turn_js[self.turn_js.index('function reauthTarget'):
+                             self.turn_js.index('window.paJsonFetch')]
+        self.assertGreater(len(block.strip()), 200, '切片切空了，这条锁就是假的')
+        # 守卫真在判断里：只断字符串存在是假的，删掉 if 但留着注释照样能过
+        self.assertIn("location.pathname.indexOf('/accounts/login') === 0", block,
+                      '已在登录页就必须走干净重载分支，不能再嵌套 next')
+        self.assertIn("return '/accounts/login/';", block,
+                      '没有可保留的非登录页 next 时，干净重载登录页即断循环')
+        # 保留既有 next 时也要排除登录页自身，否则换个入口照样嵌套
+        self.assertIn("keep.indexOf('/accounts/login') !== 0", block)
+
+    def test_sidebar_agent_bails_out_on_login_page(self):
+        head = self.sidebar_js[:self.sidebar_js.index('var OPEN_KEY')]
+        self.assertIn("location.pathname.indexOf('/accounts/login') === 0", head,
+                      '侧栏脚本必须在登录页早退，缓存的带壳 HTML 也不触发装载')
+        self.assertIn('return;', head)
+
+
 class ConversationRenameDeleteTest(TestCase):
     """AI 对话的改名 / 删除：权限隔离 + 清理顺序 + 空 title 不改"""
 
