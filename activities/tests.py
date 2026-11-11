@@ -3011,8 +3011,9 @@ class ListRowClutterRemovedTest(SimpleTestCase):
 class TodayHomeTest(TestCase):
     """「今日」首页（2026-10-16 复活，Bento 视觉，设为站点根路径）
 
-    数据层与 daily 简报卡同源（gather_daily），本锁盯三件事：
-    根路径渲染 / 时间线只收今日三组 / 标签云按可见活动计数。
+    数据层与 daily 简报卡同源（gather_daily），本锁盯两件事：
+    根路径渲染 / 时间线只收今日三组。
+    （「按标签看」标签云 2026-11-11 用户决定下线，防复活锁见 TombstoneRegistryTest。）
     """
 
     def setUp(self):
@@ -3035,7 +3036,7 @@ class TodayHomeTest(TestCase):
         self.assertIn('今日概览', html)
         self.assertIn('本月支出', html)
         self.assertIn('今天的时间线', html)
-        self.assertIn('按标签看', html)
+        self.assertNotIn('按标签看', html)
         self.assertIn('今日待办', html)
 
     def test_timeline_only_takes_today_groups(self):
@@ -3043,20 +3044,11 @@ class TodayHomeTest(TestCase):
         self._activity('今日的事', start_time='09:00')
         self._activity('下周的事', start_date=self.today + timedelta(days=5))
         html = self.client.get('/').content.decode()
-        timeline = html[html.index('今天的时间线'):html.index('按标签看')]
+        timeline = html[html.index('今天的时间线'):html.index('本月支出')]
         self.assertIn('今日的事', timeline)
         self.assertNotIn('下周的事', timeline)
         rest = html[html.index('接下来'):]
         self.assertIn('下周的事', rest)
-
-    def test_tag_cloud_counts_visible_activities(self):
-        tag = Tag.objects.create(scope='activity', name='旅游', color='#34d399')
-        act = self._activity('旅行计划')
-        act.tags.add(tag)
-        html = self.client.get('/').content.decode()
-        # 标签色已下线（2026-10-27）：标签云只渲染名字与计数，不再带彩点/颜色变量
-        self.assertNotIn('--tag-color', html)
-        self.assertIn('旅游', html)
 
     def test_login_required(self):
         self.client.logout()

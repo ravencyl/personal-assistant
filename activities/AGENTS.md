@@ -72,6 +72,7 @@ suggestions = tag_suggestions('expense', request.user)  # 活跃标签 ∪ 用�
 | 列表「笔数 / 子活动」列 | 2026-09-23 | 费用格「含子活动」标注 2026-11-09 用户决定一并删除——列表金额就是整个活动的总费用（`show_cost` 递归含子活动），不再加口径提示 |
 | 前置依赖 `blocked_by` + 依赖关系图 | 2026-10-13 | 用户决定，含数据一并删除（M2M 表已 drop） |
 | 活动评论 `ActivityComment` | 2026-10-13 | 用户决定，含数据一并删除 |
+| 今日页「按标签看」标签筛选 | 2026-11-11 | 用户决定；`today.html` 标签云分区与 `today_home` 的 `tag_rows` 数据全删（活动列表页的 `?tag=` 筛选不受影响） |
 
 前置依赖与评论的删除范围：模型字段/模型、`is_blocked`·`blocking_names`·`would_create_cycle`、
 表单 `blocked_by` 字段与 `save_blocked_by`、`blocked_search/add/remove` 与

@@ -731,6 +731,10 @@ class TombstoneRegistryTest(SimpleTestCase):
             'personal_assistant/settings.py': ['QMIND'],
             'chat/views.py': ['qmind', 'QMIND'],
         }),
+        ('今日页「按标签看」标签筛选 2026-11-11 用户决定下线（标签云分区与 tag_rows 数据全删；扫描剔注释，「为什么下线」的注释提到不算复活）', {
+            'templates/activities/today.html': ['按标签看', 'tag_rows'],
+            'activities/views/daily_views.py': ['tag_rows'],
+        }),
     ]
 
     # ② 文件必须不存在

@@ -8,7 +8,8 @@
 Typeframe 今日页（2026-10-27 定稿，对标 typeframe mockup VIEW 1）：
 纯白画布 + 浅灰水印日期 + 排版分区（.tf-lb 小标签），无边框零卡片。
 本页刻意单列（Typeframe 画布自成分区节奏），section 标签文案被
-TodayHomeTest 锁定：「今天的时间线」→「按标签看」→「接下来」顺序不可乱。
+TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下来」顺序不可乱。
+（「按标签看」标签筛选分区 2026-11-11 用户决定下线。）
 {% endcomment %}
 <section class="relative" aria-label="今日概览">
     {# 浅灰水印大数字（Playfair，纯装饰；字号在 custom.css 的 .tf-watermark）#}
@@ -80,22 +81,6 @@ TodayHomeTest 锁定：「今天的时间线」→「按标签看」→「接下
         </p>
         <div class="tf-pbar mt-4 max-w-sm" role="img" aria-label="本月时间进度 {{ month_pct }}%">
             <div class="tf-pfill" style="width: {{ month_pct }}%;"></div>
-        </div>
-    </div>
-
-    {# ── 按标签看：纯文字标签行 ── #}
-    <div class="relative z-10 mt-11">
-        <p class="tf-lb">按标签看</p>
-        <div class="flex flex-wrap gap-x-6 gap-y-2.5">
-            {% for tag in tag_rows %}
-            <a href="{% url 'activities:activity_list' %}?tag={{ tag.name|urlencode }}"
-               class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
-                {{ tag.name }}
-                <span class="tf-num text-base">{{ tag.n }}</span>
-            </a>
-            {% empty %}
-            <p class="text-sm text-[var(--text-muted)]">还没有打标签的活动</p>
-            {% endfor %}
         </div>
     </div>
 </section>
