@@ -13,6 +13,8 @@
 <div class="mt-4">
     <label for="id_description" class="block text-sm font-medium text-[var(--text-secondary)] mb-1">活动描述 <span class="text-xs font-normal text-[var(--text-muted)]">（可选）</span></label>
     {{ form.description }}
+    {# AI 优化进行中时描述锁定（readonly），这里把锁定原因显示出来（help_text 由 form_views 设置） #}
+    {% if form.description.help_text %}<p class="mt-1 text-xs text-[var(--text-muted)]">{{ form.description.help_text }}</p>{% endif %}
 </div>
 
 {# 日期-时间配对（2026-10-16 用户要求）：开始日期-开始时间一列、结束日期-结束时间一列； #}

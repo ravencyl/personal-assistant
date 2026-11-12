@@ -241,3 +241,18 @@
     #upcoming-timeline .tl-detail-wrap,
     #upcoming-timeline .tl-chev { transition: none; }
 }
+
+/* ── 描述优化弹窗：AI 优化中旋转指示器（2026-11-12）──
+   弹窗 #desc-edit-modal 是 #upcoming-timeline 的兄弟节点（共享 partial），
+   故 .desc-spinner 不带 #upcoming-timeline 前缀。颜色走站点令牌（强调色=黑）。 */
+.desc-spinner {
+    width: 15px; height: 15px; flex: none;
+    border: 2px solid var(--border, rgba(0, 0, 0, .12));
+    border-top-color: var(--accent, #111);
+    border-radius: 50%;
+    animation: desc-spin .7s linear infinite;
+}
+@keyframes desc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .desc-spinner { animation-duration: 1.6s; }
+}

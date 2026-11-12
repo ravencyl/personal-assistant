@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib.auth.views import LoginView
 from django.contrib.staticfiles import finders
 from django.shortcuts import render, redirect
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Sum
 from django.utils import timezone
@@ -13,9 +14,10 @@ from django.http import Http404, HttpResponse, JsonResponse
 
 from chat.models import Conversation
 from activities.models import Activity, Expense
-from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS, get_user_timezone, set_user_timezone, VALID_TIMEZONES, greeting
+from core.utils import visible_qs, week_monday, daily_totals, WEEKDAY_LABELS, get_user_timezone, set_user_timezone, VALID_TIMEZONES, greeting, json_login_required
 from core.search import global_search
 from core.report_generator import generate_report, save_report_to_knowledge
+from core.notifications import unread_count, recent as recent_notifications
 from knowledge.models import Document
 
 
@@ -103,7 +105,67 @@ def dashboard(request):
         'today': today,
         'greeting': greeting_text,
         'today_display': today_display,
+        'notifications': recent_notifications(user, limit=20),
+        'unread_count': unread_count(user),
     })
+
+
+# ── 站内通知（2026-11-12）─────────────────────────────────────────────────────
+# 个人口径：一律 filter(user=request.user)，超管也不混他人通知（不走 visible_qs）。
+# 全部 JSON 端点（@json_login_required + 原生 fetch，严禁 hx-*）；read_url 由服务端
+# reverse() 产出随条目下发，前端只跳转/POST 不拼路由。
+
+def _notif_payload(n):
+    """单条通知 → 前端可读 dict（link/read_url 都是服务端产出的路径）。"""
+    return {
+        'id': n.id,
+        'kind': n.kind,
+        'title': n.title,
+        'body': n.body,
+        'link': n.link,
+        'is_read': n.is_read,
+        'created_at': timezone.localtime(n.created_at).strftime('%m-%d %H:%M'),
+        'read_url': reverse('notification_read', args=[n.id]),
+    }
+
+
+@json_login_required
+@require_safe
+def notifications_list(request):
+    """最近通知列表 + 未读数（PC 铃铛弹窗 / 移动「我的」页共用数据源）。"""
+    user = request.user
+    items = [_notif_payload(n) for n in recent_notifications(user, limit=30)]
+    return JsonResponse({'ok': True, 'unread': unread_count(user), 'items': items})
+
+
+@json_login_required
+@require_safe
+def notifications_unread(request):
+    """仅未读数（徽标轮询的轻量端点）。"""
+    return JsonResponse({'ok': True, 'unread': unread_count(request.user)})
+
+
+@json_login_required
+@require_POST
+def notification_read(request, pk):
+    """标记单条已读。越权/不存在 → JSON 404（个人口径，不能用 get_visible 抛 HTML）。"""
+    from core.models import Notification
+    n = Notification.objects.filter(user=request.user, id=pk).first()
+    if n is None:
+        return JsonResponse({'error': '通知不存在或无权访问'}, status=404)
+    if not n.is_read:
+        n.is_read = True
+        n.save(update_fields=['is_read'])
+    return JsonResponse({'ok': True, 'id': n.id, 'unread': unread_count(request.user)})
+
+
+@json_login_required
+@require_POST
+def notifications_read_all(request):
+    """全部已读（个人口径批量置位）。"""
+    from core.models import Notification
+    Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+    return JsonResponse({'ok': True, 'unread': 0})
 
 
 @login_required

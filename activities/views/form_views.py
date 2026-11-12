@@ -11,6 +11,7 @@ from core.utils import get_visible, visible_qs
 
 from ..forms import ActivityForm
 from ..models import Activity, Participant
+from ..services import active_description_task
 from ..utils import edit_summary, log_activity, snapshot_activity
 from ._common import _user_tag_names
 
@@ -63,14 +64,26 @@ def activity_create(request):
 
 @login_required
 def activity_edit(request, activity_id):
-    """编辑活动（超级用户编辑他人活动时保持原属主）"""
+    """编辑活动（超级用户编辑他人活动时保持原属主）
+
+    描述 AI 优化进行中时描述锁定：无论表单提交什么都保持原描述（其余字段照常保存），
+    并把描述输入框置 readonly + 提示。原描述取自绑定前的快照 old['description']——
+    ModelForm._post_clean 会在 is_valid() 期间把提交值写进内存实例，直接读
+    activity.description 会拿到被污染的新值。
+    """
     activity = get_visible(Activity, request.user, id=activity_id)
     owner = activity.user
+    optimizing = active_description_task(activity) is not None
 
     if request.method == 'POST':
         old = snapshot_activity(activity)
         form = ActivityForm(request.POST, instance=activity, user=owner)
         if form.is_valid():
+            if optimizing:
+                if form.cleaned_data.get('description', '') != old['description']:
+                    messages.warning(request, '描述正在 AI 优化中，本次未改动描述，其余字段已保存')
+                form.cleaned_data['description'] = old['description']
+                activity.description = old['description']
             form.save()
             apply_tags(activity, form.cleaned_data.get('tags'))
             form.save_participants(activity)
@@ -79,6 +92,10 @@ def activity_edit(request, activity_id):
             return redirect('activities:activity_detail', activity.id)
     else:
         form = ActivityForm(instance=activity, user=owner)
+
+    if optimizing:
+        form.fields['description'].widget.attrs['readonly'] = True
+        form.fields['description'].help_text = 'AI 正在优化描述，完成后可编辑'
 
     return render(request, 'activities/activity_form.html', {
         'form': form,

@@ -8,16 +8,21 @@
 这类差异正是「同一件事在不同入口结果不一样」的来源。
 """
 import logging
+import re
+import threading
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, connection, transaction
+from django.urls import reverse
 from django.utils import timezone
 
+from core.notifications import notify
 from core.tags import apply_tags
 
-from .models import Activity, Expense
-from .utils import log_activity, resolve_participants
+from .models import Activity, ActivityDescriptionTask, Expense
+from .utils import edit_summary, log_activity, resolve_participants, snapshot_activity
 
 logger = logging.getLogger(__name__)
 
@@ -224,3 +229,159 @@ def start_due_activities(user=None, *, dry_run=False):
                            f' activity={activity.id}')
     logger.info(f'自动状态变更: {len(activities)} 个活动 planned → in_progress')
     return activities
+
+
+# ── 活动描述 AI 优化（2026-11-12）─────────────────────────────────────────────
+# 一键优化 → 后台 daemon 线程跑 ai_round_trip → 写回描述 + 落通知。优化期间描述
+# 锁定不可编辑（每活动至多一个 running 任务，partial unique 约束在数据库层挡竞态）。
+# 前端轮询状态端点；线程因 worker 重启/崩溃留下僵尸 running 时按 updated_at 超时回收。
+
+DESC_OPTIMIZE_TIMEOUT = 90        # 单次 AI 往返上限（与聊天 AI_WAIT_TIMEOUT 同量级）
+DESC_OPTIMIZE_STALE_SECONDS = 240  # running 超过此时长视为线程已死，回收解锁（> 90s 留足余量）
+
+
+class OptimizeBusyError(InputError):
+    """该活动已有优化在跑（视图转 409 + optimizing 标记，前端据此恢复轮询）。"""
+
+
+def build_optimization_prompt(description, activity_name=''):
+    """描述优化的提示词：梳理逻辑 / 用词 / 错别字 / 语病四项都点到，且守住「不增删事实」。"""
+    return (
+        '你是中文文字编辑。请优化下面这条活动描述的文字表达：梳理文字逻辑与顺序、'
+        '修正错别字、改正语病、让用词更准确自然。\n'
+        '要求：\n'
+        '- 保持原意，不新增事实、不删减关键信息（时间、地点、人物、金额、待办等必须保留）。\n'
+        '- 保持第一人称与原有语气，不要改成报告体或公文腔。\n'
+        '- 保留原有的分段与列表结构（如果有）。\n'
+        '- 只输出优化后的描述正文，不要任何解释、标题、前后缀或代码块。\n\n'
+        f'活动名称：{activity_name}\n'
+        f'原始描述：\n{description}'
+    )
+
+
+def clean_optimized_text(text):
+    """从 AI 回复里取出描述正文：剥外层代码块与「优化后的描述：」这类前缀，保留分段。
+
+    提示词已要求只输出正文，这里只做保守兜底，绝不二次改写用户内容。空/None → ''。
+    """
+    if not text:
+        return ''
+    s = str(text).strip()
+    if s.startswith('```'):
+        s = re.sub(r'^```[a-zA-Z]*\s*\n?', '', s)
+        s = re.sub(r'\n?```\s*$', '', s).strip()
+    s = re.sub(r'^(?:优化后的?描述|优化结果|修改后的?描述)\s*[：:]\s*', '', s).strip()
+    return s
+
+
+def active_description_task(activity):
+    """返回该活动当前 running 的优化任务；没有则 None。顺带回收僵尸 running。
+
+    僵尸回收：running 但 updated_at 超过 DESC_OPTIMIZE_STALE_SECONDS（线程随 worker
+    重启/崩溃死了，永远不会自己收尾）→ 置 error + 发失败通知 + 解锁。合法任务在 90s
+    内必收尾，240s 阈值不会误伤正在跑的任务。
+    """
+    task = (ActivityDescriptionTask.objects
+            .filter(activity=activity, status='running')
+            .select_related('user').first())
+    if task is None:
+        return None
+    age = (timezone.now() - task.updated_at).total_seconds()
+    if age > DESC_OPTIMIZE_STALE_SECONDS:
+        task.status = 'error'
+        task.error = '优化超时，已自动取消'
+        task.save(update_fields=['status', 'error', 'updated_at'])
+        notify(task.user, f'「{activity.name}」描述优化超时',
+               kind='desc_optimize_failed',
+               body='优化耗时过长已自动取消，描述保持原样，可重新发起。',
+               link=reverse('activities:activity_detail', args=[activity.id]))
+        logger.warning(f'描述优化僵尸任务回收 task={task.id} activity={activity.id} age={age:.0f}s')
+        return None
+    return task
+
+
+def start_description_optimization(activity, user):
+    """发起一次描述优化：校验 → 建 running 任务 → 起后台线程。返回任务对象。
+
+    - 描述为空 → InputError（没东西可优化，视图转 400）。
+    - 已有 running（含并发竞态撞 partial unique）→ OptimizeBusyError（视图转 409）。
+    线程入口 _spawn_optimization 单独抽出，便于测试替身（lock 测试 no-op / worker 测试同步跑）。
+    """
+    if not (activity.description or '').strip():
+        raise InputError('描述为空，先写点内容再优化')
+    if active_description_task(activity) is not None:
+        raise OptimizeBusyError('描述正在优化中，请等完成后再试')
+    try:
+        # 包一层 savepoint：撞 partial unique 抛 IntegrityError 时只回滚这个保存点，
+        # 不把外层事务（测试的 atomic / 请求的事务）打成「已中止」状态。
+        with transaction.atomic():
+            task = ActivityDescriptionTask.objects.create(
+                activity=activity, user=user,
+                status='running', original=activity.description,
+            )
+    except IntegrityError:
+        # 先读后写的窗口里另一请求刚建了 running：数据库 partial unique 兜底
+        raise OptimizeBusyError('描述正在优化中，请等完成后再试')
+    _spawn_optimization(task.id)
+    return task
+
+
+def _spawn_optimization(task_id):
+    """起 daemon 线程跑优化（测试替身点：lock 测试 patch 成 no-op，worker 测试 patch 成同步）。"""
+    threading.Thread(
+        target=run_description_optimization, args=(task_id,),
+        daemon=True, name=f'desc-opt-{task_id}',
+    ).start()
+
+
+def run_description_optimization(task_id):
+    """后台 worker：调 AI → 写回描述 + 日志 → 任务 done + 成功通知；失败置 error + 失败通知。
+
+    线程独立 DB 连接，finally 必须 connection.close()（gthread 下不关会泄漏连接）。
+    写回前 refresh 任务确认仍 running（可能已被僵尸回收），不是则放弃，绝不覆盖。
+    """
+    from core.ai import ai_round_trip
+
+    task = (ActivityDescriptionTask.objects.filter(id=task_id)
+            .select_related('activity', 'user').first())
+    if task is None or task.status != 'running':
+        return
+    activity, user = task.activity, task.user
+    detail_url = reverse('activities:activity_detail', args=[activity.id])
+    try:
+        prompt = build_optimization_prompt(task.original, activity.name)
+        raw = ai_round_trip(prompt, timeout=DESC_OPTIMIZE_TIMEOUT, purpose='content')
+        task.refresh_from_db()
+        if task.status != 'running':
+            return  # 已被回收/取消，放弃写回
+        cleaned = clean_optimized_text(raw)
+        if not cleaned:
+            raise ValueError('AI 未返回有效内容')
+        activity.refresh_from_db()
+        old = snapshot_activity(activity)
+        activity.description = cleaned
+        activity.save(update_fields=['description', 'updated_at'])
+        log_activity(user, activity, 'edited', 'AI 优化：' + edit_summary(old, activity))
+        task.result = cleaned
+        task.status = 'done'
+        task.save(update_fields=['result', 'status', 'updated_at'])
+        notify(user, f'「{activity.name}」描述已优化',
+               kind='desc_optimized',
+               body='AI 已梳理文字逻辑、用词与错别字语病，点击查看优化后的描述。',
+               link=detail_url)
+    except Exception as e:
+        logger.warning(f'描述优化失败 task={task_id} activity={activity.id}: {e}')
+        try:
+            task.refresh_from_db()
+            if task.status == 'running':
+                task.status = 'error'
+                task.error = '优化失败，请稍后重试'
+                task.save(update_fields=['status', 'error', 'updated_at'])
+                notify(user, f'「{activity.name}」描述优化失败',
+                       kind='desc_optimize_failed',
+                       body='本次优化没有成功，描述保持原样，可稍后重新发起。',
+                       link=detail_url)
+        except Exception as inner:  # 收尾失败也只告警，线程必须正常退出
+            logger.warning(f'描述优化失败收尾异常 task={task_id}: {inner}')
+    finally:
+        connection.close()

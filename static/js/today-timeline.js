@@ -121,9 +121,14 @@
     var editStatus = document.getElementById('desc-edit-status');
     var editError = document.getElementById('desc-edit-error');
     var editSubmit = document.getElementById('desc-edit-submit');
-    var editState = null;        // { id, url, trigger }：当前编辑的活动 + 触发按钮（关闭后还焦点）
-    var editLoaded = false;      // GET 成功前禁止保存，避免拿空值冲掉真实描述
+    var aiBtn = document.getElementById('desc-edit-ai');
+    var aiLabel = document.getElementById('desc-edit-ai-label');
+    var optimizingBanner = document.getElementById('desc-edit-optimizing');
+    var editState = null;        // { id, url, optimizeUrl, optimizeStatusUrl, trigger }
+    var editLoaded = false;      // GET 成功前禁止保存/优化，避免拿空值冲掉真实描述
     var editLastFocus = null;
+    var optimizeTimer = null;    // 优化状态轮询定时器（关闭弹窗即清，后台任务不受影响）
+    var optimizePolls = 0;       // 轮询计数上限，防网络持续失败时无限重排
 
     // 与服务端 daily_views 同口径：折叠空白 + 200 字截断（卡片预览，不是全文）
     function descPreview(text) {
@@ -146,7 +151,9 @@
         var id = btn.dataset.editDesc;
         var url = btn.dataset.url;
         if (!id || !url) return;
-        editState = { id: id, url: url, trigger: btn };
+        if (optimizeTimer) { clearTimeout(optimizeTimer); optimizeTimer = null; }
+        optimizePolls = 0;
+        editState = { id: id, url: url, optimizeUrl: '', optimizeStatusUrl: '', trigger: btn };
         editLastFocus = document.activeElement;
         editLoaded = false;
         // 先用卡片上的名字兜底，GET 回来再覆盖为权威值
@@ -155,6 +162,9 @@
         if (editName) editName.textContent = nameEl ? nameEl.textContent : '';
         if (editInput) { editInput.value = ''; editInput.disabled = true; }
         if (editSubmit) { editSubmit.disabled = true; editSubmit.textContent = '保存'; }
+        if (aiBtn) aiBtn.disabled = true;
+        if (aiLabel) aiLabel.textContent = 'AI优化';
+        if (optimizingBanner) optimizingBanner.classList.add('hidden');
         editErrorMsg('');
         editStatusMsg('加载中…');
         modal.classList.remove('hidden');
@@ -171,10 +181,21 @@
             if (!editState || editState.id !== id) return;   // 慢响应不得盖掉已切换的活动
             if (!d || !d.ok) throw new Error('bad payload');
             if (editName) editName.textContent = d.name || '';
-            if (editInput) { editInput.value = d.description || ''; editInput.disabled = false; }
+            if (editInput) { editInput.value = d.description || ''; }
+            // 优化端点 URL 由服务端下发，JS 不拼路由
+            editState.optimizeUrl = d.optimize_url || '';
+            editState.optimizeStatusUrl = d.optimize_status_url || '';
             editLoaded = true;
-            if (editSubmit) editSubmit.disabled = false;
-            editStatusMsg('');
+            if (d.optimizing) {
+                // 上次发起的优化仍在后台跑：恢复锁定 + 轮询，描述不可编辑
+                setOptimizing(true);
+                pollOptimize();
+            } else {
+                if (editInput) editInput.disabled = false;
+                if (editSubmit) editSubmit.disabled = false;
+                if (aiBtn) aiBtn.disabled = false;
+                editStatusMsg('');
+            }
         }).catch(function () {
             if (!editState || editState.id !== id) return;
             editStatusMsg('');
@@ -184,6 +205,7 @@
 
     function closeEditModal() {
         if (!modal || modal.classList.contains('hidden')) return;
+        if (optimizeTimer) { clearTimeout(optimizeTimer); optimizeTimer = null; }
         modal.classList.add('hidden');
         document.body.style.overflow = '';
         var trigger = editState && editState.trigger;
@@ -191,8 +213,11 @@
         editLoaded = false;
         editErrorMsg('');
         editStatusMsg('');
+        if (optimizingBanner) optimizingBanner.classList.add('hidden');
         if (editSubmit) { editSubmit.disabled = false; editSubmit.textContent = '保存'; }
         if (editInput) editInput.disabled = false;
+        if (aiBtn) aiBtn.disabled = false;
+        if (aiLabel) aiLabel.textContent = 'AI优化';
         // 焦点还给触发按钮（无障碍）；按钮已不在 DOM 就还给开弹窗前的焦点元素
         if (trigger && document.contains(trigger)) trigger.focus();
         else if (editLastFocus && document.contains(editLastFocus)) editLastFocus.focus();
@@ -253,11 +278,96 @@
         });
     }
 
+    /* ── 6. AI 优化描述（后台任务 + 轮询 + 编辑锁） ── */
+    // 锁定态：横幅显示 + textarea/保存/AI按钮禁用。优化期间描述不可编辑（服务端 POST 也 409）。
+    function setOptimizing(on) {
+        if (optimizingBanner) optimizingBanner.classList.toggle('hidden', !on);
+        if (editInput) editInput.disabled = on;
+        if (editSubmit) editSubmit.disabled = on;
+        if (aiBtn) aiBtn.disabled = on;
+        if (aiLabel) aiLabel.textContent = on ? '优化中' : 'AI优化';
+        if (on) { editErrorMsg(''); editStatusMsg(''); }
+    }
+
+    function startOptimize() {
+        if (!editState || !editLoaded || !editState.optimizeUrl) return;
+        if (aiBtn && aiBtn.disabled) return;
+        var id = editState.id;
+        editErrorMsg('');
+        if (aiBtn) aiBtn.disabled = true;
+        if (aiLabel) aiLabel.textContent = '发起中…';
+        var opts = { method: 'POST', headers: { 'X-CSRFToken': csrfToken(), 'Accept': 'application/json' } };
+        var doFetch = window.paJsonFetch ? window.paJsonFetch(editState.optimizeUrl, opts) : fetch(editState.optimizeUrl, opts);
+        doFetch.then(function (r) {
+            return r.json().catch(function () { return null; }).then(function (d) {
+                // 409 = 已有优化在跑：不当错误，恢复锁定 + 轮询即可
+                if (r.status === 409) return { ok: true, optimizing: true, status_url: d && d.status_url };
+                if (r.status === 404) { var e = new Error('404'); e.user = (d && d.error) || '活动不存在或无权访问'; throw e; }
+                if (!r.ok || !d || !d.ok) { var e2 = new Error('start failed'); e2.user = (d && d.error) || '发起优化失败，请稍后重试'; throw e2; }
+                return d;
+            });
+        }).then(function (d) {
+            if (!editState || editState.id !== id) return;
+            if (d.status_url) editState.optimizeStatusUrl = d.status_url;
+            optimizePolls = 0;
+            setOptimizing(true);
+            pollOptimize();
+        }).catch(function (err) {
+            if (!editState || editState.id !== id) return;
+            if (aiBtn) aiBtn.disabled = false;
+            if (aiLabel) aiLabel.textContent = 'AI优化';
+            editErrorMsg((err && err.user) || '发起优化失败，请稍后重试');
+        });
+    }
+
+    function pollOptimize() {
+        if (!editState || !editState.optimizeStatusUrl) return;
+        var id = editState.id;
+        var url = editState.optimizeStatusUrl;
+        optimizePolls += 1;
+        if (optimizePolls > 90) {           // ~3 分钟上限：停止轮询并解锁，让用户重试
+            setOptimizing(false);
+            editErrorMsg('优化耗时过长，请关闭后重新发起');
+            return;
+        }
+        var opts = { method: 'GET', headers: { 'Accept': 'application/json' } };
+        var doFetch = window.paJsonFetch ? window.paJsonFetch(url, opts) : fetch(url, opts);
+        doFetch.then(function (r) {
+            if (!r.ok) throw new Error('http ' + r.status);
+            return r.json();
+        }).then(function (d) {
+            if (!editState || editState.id !== id) return;   // 弹窗已关/已切换活动
+            if (!d || !d.ok) throw new Error('bad payload');
+            if (d.state === 'running') {
+                optimizeTimer = setTimeout(pollOptimize, 2000);
+                return;
+            }
+            if (d.state === 'done') {
+                setOptimizing(false);
+                if (editInput) editInput.value = d.description || '';
+                updateCardDesc(id, d.description || '');
+                editStatusMsg('AI 优化完成，可继续编辑或关闭');
+                document.dispatchEvent(new CustomEvent('activities:changed'));
+                document.dispatchEvent(new CustomEvent('notifications:changed'));
+                return;
+            }
+            // error / idle：解锁，回填当前描述
+            setOptimizing(false);
+            if (editInput) editInput.value = d.description || '';
+            if (d.state === 'error') editErrorMsg(d.error || '优化失败，请稍后重试');
+        }).catch(function () {
+            if (!editState || editState.id !== id) return;
+            // 网络抖动不直接判失败（任务可能仍在跑），稍后重试；上限由 optimizePolls 兜底
+            optimizeTimer = setTimeout(pollOptimize, 3000);
+        });
+    }
+
     if (modal) {
         var closeBtn = document.getElementById('desc-edit-close');
         var cancelBtn = document.getElementById('desc-edit-cancel');
         if (closeBtn) closeBtn.addEventListener('click', closeEditModal);
         if (cancelBtn) cancelBtn.addEventListener('click', closeEditModal);
+        if (aiBtn) aiBtn.addEventListener('click', startOptimize);
         // 点遮罩空白处关闭（点面板内部不关）
         modal.addEventListener('click', function (e) { if (e.target === modal) closeEditModal(); });
         if (editForm) editForm.addEventListener('submit', function (e) { e.preventDefault(); saveEdit(); });

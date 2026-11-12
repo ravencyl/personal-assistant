@@ -131,3 +131,42 @@ class PushSchedule(models.Model):
         # str(self.time)[:5] 而非 {self.time:%H:%M}：实例内存里 time 可能仍是
         # 未经字段转换的 str（get_or_create 后直接 print 就会踩），time.strftime 会炸
         return f'{self.user.username} · {self.get_push_type_display()} · {str(self.time)[:5]}'
+
+
+class Notification(models.Model):
+    """站内通知（2026-11-12）：后台任务完成等事件的收件箱，PC 顶栏铃铛 + 移动「我的」徽标
+
+    - **个人口径**：查询一律 filter(user=request.user)，超管也不混他人通知
+      （与侧栏对话同款「这堆数据是谁的」口径，不走 visible_qs）。写入唯一入口
+      core.notifications.notify（容错，失败只 warning 不阻断主流程）。
+    - kind 只标来源类型（用于图标/文案），不是路由键；link 是服务端 reverse()
+      产出的可读路径，前端只跳转不拼接。
+    - is_read 单条已读；「全部已读」批量置位。未读计数走 (user, is_read) 复合索引。
+    """
+
+    KIND_CHOICES = [
+        ('desc_optimized', '描述优化完成'),
+        ('desc_optimize_failed', '描述优化失败'),
+        ('system', '系统通知'),
+    ]
+
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE,
+                             related_name='notifications')
+    kind = models.CharField('类型', max_length=30, choices=KIND_CHOICES, default='system')
+    title = models.CharField('标题', max_length=200)
+    body = models.TextField('正文', blank=True, default='')
+    link = models.CharField('跳转链接', max_length=500, blank=True, default='')
+    is_read = models.BooleanField('已读', default=False, db_index=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '通知'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read', '-created_at'],
+                         name='notif_user_read_created'),
+        ]
+
+    def __str__(self):
+        return f'{self.user.username} · {self.title}'

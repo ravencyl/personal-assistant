@@ -30,6 +30,8 @@
     <script defer src="{% staticv 'js/confirm-card.js' %}"></script>
     {# Web Push 订阅开关（顶栏铃铛），事件驱动 defer 加载；未配置 VAPID 时不加载 #}
     {% if push_ready %}<script defer src="{% staticv 'js/push.js' %}"></script>{% endif %}
+    {# 站内通知（2026-11-12）：PC 铃铛弹窗 + 移动「我的」未读徽标 + 轮询，登录后全站加载 #}
+    {% if user.is_authenticated %}<script defer src="{% staticv 'js/notifications.js' %}"></script>{% endif %}
     {% comment %}
     导航预渲染（Speculation Rules）：Chrome 系在 hover/按下时后台完整渲染目标页，
     点击近秒开；Safari/Firefox 忽略本标签，无副作用。
@@ -139,6 +141,19 @@
                     </div>
                     <div class="flex items-center space-x-3">
                         {% if user.is_authenticated %}
+                            {# 站内通知（2026-11-12）：PC 顶栏铃铛 + 未读徽标 + 点击弹窗。URL 由服务端 reverse 下发到 data-*，JS 不拼路由。移动端徽标在底部「我的」上（见下方 nav），弹窗仅桌面 #}
+                            <div id="notif-root" class="relative hidden md:block"
+                                 data-unread-url="{% url 'notifications_unread' %}"
+                                 data-list-url="{% url 'notifications_list' %}"
+                                 data-read-all-url="{% url 'notifications_read_all' %}">
+                                <button type="button" id="notif-toggle" class="tap-target relative p-2 -mx-1 text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors" title="通知" aria-label="通知" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                                    </svg>
+                                    <span id="notif-badge" class="hidden absolute top-0.5 right-0 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold leading-4 text-center"></span>
+                                </button>
+                                {% include "core/_notifications_popup.html" %}
+                            </div>
                             <button type="button" id="search-toggle-btn" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text)] transition-colors" title="搜索（Cmd+K 打开命令面板）">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -192,7 +207,7 @@
             <a href="/" aria-label="今日" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">今日</a>
             <a href="{% url 'activities:activity_list' %}" aria-label="活动" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.app_name == 'activities' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">活动</a>
             <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.app_name == 'chat' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">对话</a>
-            <a href="{% url 'dashboard' %}" aria-label="我的" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.url_name == 'dashboard' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">我的</a>
+            <a href="{% url 'dashboard' %}" aria-label="我的" class="tap-target relative px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.url_name == 'dashboard' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">我的<span id="nav-mine-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold leading-4 text-center"></span></a>
         </div>
     </nav>
     {% endif %}

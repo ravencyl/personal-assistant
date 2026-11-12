@@ -19,9 +19,10 @@ from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
 from core.utils import get_visible, json_login_required, visible_qs, wants_json
 
 from ..models import Activity, Participant, Attachment
-from ..services import (InputError, add_expense, change_activity_status,
+from ..services import (InputError, OptimizeBusyError, active_description_task,
+                        add_expense, change_activity_status,
                         clean_amount, create_activity_from_parsed,
-                        start_due_activities)
+                        start_description_optimization, start_due_activities)
 from ..utils import edit_summary, log_activity, resolve_participants, snapshot_activity
 from ._common import _user_tag_names, attach_costs
 
@@ -170,17 +171,28 @@ def activity_edit_description(request, activity_id):
     """今日页时间线「编辑描述」弹窗（JSON 通道，原生 fetch 消费，严禁 hx-*）。
 
     GET 回当前描述全文：时间线卡片上的 desc 是 200 字截断预览，编辑必须拿全文，
-    否则用户一保存就把 200 字之后的内容冲掉了。POST 落库并记日志，允许清空
-    （TextField blank=True，与表单编辑同口径，不做下限校验）。
+    否则用户一保存就把 200 字之后的内容冲掉了。同时回 optimizing 标记与两个优化
+    端点 URL（前端只读不拼路由），弹窗据此决定是否锁定 + 恢复轮询。
+    POST 落库并记日志，允许清空（TextField blank=True，与表单编辑同口径，不做下限
+    校验）；**优化进行中拒绝写入（409 + optimizing）**，必须等 AI 改完才能再编辑。
     越权/不存在回 JSON 404（get_visible 抛 Http404 会回 HTML 错误页，fetch 的
     r.json() 直接炸）；与状态/钉选/问 AI 端点同口径。
     """
     activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
     if activity is None:
         return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    optimizing = active_description_task(activity) is not None
     if request.method == 'GET':
-        return JsonResponse({'ok': True, 'id': activity.id, 'name': activity.name,
-                             'description': activity.description or ''})
+        return JsonResponse({
+            'ok': True, 'id': activity.id, 'name': activity.name,
+            'description': activity.description or '',
+            'optimizing': optimizing,
+            'optimize_url': reverse('activities:activity_description_optimize', args=[activity.id]),
+            'optimize_status_url': reverse('activities:activity_description_optimize_status', args=[activity.id]),
+        })
+    if optimizing:
+        return JsonResponse({'ok': False, 'optimizing': True,
+                             'error': '描述正在 AI 优化中，请等完成后再编辑'}, status=409)
     new_desc = request.POST.get('description', '')
     if new_desc != (activity.description or ''):
         old = snapshot_activity(activity)
@@ -188,6 +200,62 @@ def activity_edit_description(request, activity_id):
         activity.save(update_fields=['description', 'updated_at'])
         log_activity(request.user, activity, 'edited', edit_summary(old, activity))
     return JsonResponse({'ok': True, 'id': activity.id,
+                         'description': activity.description or ''})
+
+
+@json_login_required
+@require_POST
+def activity_description_optimize(request, activity_id):
+    """发起描述 AI 优化（JSON，原生 fetch）：建后台任务立即返回，前端转轮询。
+
+    已有优化在跑 → 409 + optimizing（前端据此恢复轮询而不是报错）；描述为空 → 400。
+    越权/不存在 → JSON 404。任务在 daemon 线程里跑，本请求不等 AI（避免占死 worker）。
+    """
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if activity is None:
+        return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    if active_description_task(activity) is not None:
+        return JsonResponse({'ok': False, 'optimizing': True,
+                             'error': '描述正在优化中'}, status=409)
+    try:
+        start_description_optimization(activity, request.user)
+    except OptimizeBusyError:
+        return JsonResponse({'ok': False, 'optimizing': True,
+                             'error': '描述正在优化中'}, status=409)
+    except InputError as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=400)
+    return JsonResponse({
+        'ok': True, 'optimizing': True,
+        'status_url': reverse('activities:activity_description_optimize_status', args=[activity.id]),
+    })
+
+
+@json_login_required
+@require_http_methods(['GET'])
+def activity_description_optimize_status(request, activity_id):
+    """轮询优化状态（JSON，原生 fetch）：running / done / error / idle。
+
+    - running：仍在跑，前端继续轮询；
+    - done：回优化后描述全文（前端就地更新卡片 + 填弹窗）；
+    - error：回失败文案（前端解锁 + 提示）；
+    - idle：没有任务（从未发起或任务已被清理），前端按未优化处理。
+    越权/不存在 → JSON 404。状态判定走 active_description_task（顺带回收僵尸 running）。
+    """
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if activity is None:
+        return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    task = active_description_task(activity)
+    if task is not None:
+        return JsonResponse({'ok': True, 'state': 'running', 'optimizing': True})
+    latest = (activity.desc_tasks.order_by('-created_at').first())
+    if latest is None:
+        return JsonResponse({'ok': True, 'state': 'idle', 'optimizing': False,
+                             'description': activity.description or ''})
+    if latest.status == 'done':
+        return JsonResponse({'ok': True, 'state': 'done', 'optimizing': False,
+                             'description': activity.description or ''})
+    return JsonResponse({'ok': True, 'state': 'error', 'optimizing': False,
+                         'error': latest.error or '优化失败，请稍后重试',
                          'description': activity.description or ''})
 
 

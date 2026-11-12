@@ -7,7 +7,9 @@ from core.views import (dashboard, search_api, weekly_report, monthly_report, ye
                         report_send_to_chat, service_worker,
                         push_subscribe, push_unsubscribe, push_test,
                         weekly_review_view, weekly_review_complete_view,
-                        today_view, set_timezone, get_timezone, safe_login_view)
+                        today_view, set_timezone, get_timezone, safe_login_view,
+                        notifications_list, notifications_unread,
+                        notification_read, notifications_read_all)
 from activities.views import daily_view, calendar_feed, today_home
 
 urlpatterns = [
@@ -51,6 +53,12 @@ urlpatterns = [
 
     # Global search API
     path('api/search/', search_api, name='global_search'),
+
+    # 站内通知（2026-11-12）：PC 顶栏铃铛弹窗 + 移动「我的」徽标/列表（notifications.js 消费）
+    path('api/notifications/', notifications_list, name='notifications_list'),
+    path('api/notifications/unread/', notifications_unread, name='notifications_unread'),
+    path('api/notifications/read-all/', notifications_read_all, name='notifications_read_all'),
+    path('api/notifications/<int:pk>/read/', notification_read, name='notification_read'),
 
     # Web Push（VAPID）：订阅增删 + 测试推送（static/js/push.js 消费）
     path('api/push/subscribe/', push_subscribe, name='push_subscribe'),

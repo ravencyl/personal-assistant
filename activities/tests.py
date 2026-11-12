@@ -22,7 +22,7 @@ from django.contrib import admin
 from django.utils import timezone
 from django.db.models import Sum
 
-from activities.models import Activity, ActivityDraft, ActivityLog, Attachment, Expense, Participant, CalendarFeed
+from activities.models import Activity, ActivityDraft, ActivityDescriptionTask, ActivityLog, Attachment, Expense, Participant, CalendarFeed
 from activities.views.daily_views import daily_brief_payload, gather_daily
 from core.agent_registry import CandidateToolError, ToolError
 from core.layout_asserts import assert_desktop_two_columns, code_only
@@ -32,6 +32,14 @@ from activities.services import (InputError, add_expense,
 from activities.utils import (get_daily_bucket, DAILY_BUCKET_NAME,
                               DAILY_BUCKET_MARKER, daily_bucket_q, is_daily_bucket,
                               exclude_daily_bucket, resolve_participants)
+from unittest.mock import patch, MagicMock
+from django.db import IntegrityError, transaction
+from core.models import Notification
+from activities.services import (OptimizeBusyError, active_description_task,
+                                 build_optimization_prompt, clean_optimized_text,
+                                 run_description_optimization,
+                                 start_description_optimization,
+                                 DESC_OPTIMIZE_STALE_SECONDS)
 
 
 class AddExpenseAutoTargetTest(TestCase):
@@ -3487,3 +3495,448 @@ class TodayDescriptionEditTest(TestCase):
         self.assertIn('#upcoming-timeline .td-edit:hover', self.css)
         self.assertIn('#upcoming-timeline .td-edit:focus-visible', self.css)
         self.assertIn('#upcoming-timeline .td-ic', self.css)
+
+
+class DescriptionOptimizeTest(TestCase):
+    """活动描述「AI优化」后台任务（2026-11-12 用户要求：弹窗加按钮，后台优化文字，
+    优化中锁定不可编辑，完成落站内通知）。
+
+    四组锁：
+      · 服务层 —— 提示词四项目标 / 清洗代码块与前缀 / 发起建 running 任务起线程 /
+        空描述报错 / 重复发起 Busy / 数据库 partial unique 挡竞态 / 僵尸 running 回收；
+      · 后台 worker —— 成功写回描述+日志+成功通知 / 清洗 AI 产出 / 失败置 error+失败通知 /
+        空结果按失败 / 任务已非 running 放弃写回 / finally 关连接；
+      · 端点 —— 发起 200/空 400/忙 409/越权 404/匿名 401/GET 405；状态 running/done/error/idle；
+        编辑 GET 带 optimizing+URL、POST 优化中 409 锁定、完成后可编辑；表单页描述 readonly+提交不改描述；
+      · 接线 —— 弹窗 AI 按钮+优化中横幅 / JS 三函数走共享 fetch+CSRF+轮询+广播 / CSS spinner。
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.root = Path(settings.BASE_DIR)
+        cls.js = (cls.root / 'static' / 'js' / 'today-timeline.js').read_text(encoding='utf-8')
+        cls.js_code = cls._strip_js_comments(cls.js)
+        cls.modal = (cls.root / 'templates' / 'activities' /
+                     '_description_edit_modal.html').read_text(encoding='utf-8')
+        cls.css = (cls.root / 'static' / 'css' / 'today-timeline.css').read_text(encoding='utf-8')
+
+    def setUp(self):
+        self.user = User.objects.create_user('optuser', password='p')
+        self.client = Client()
+        self.client.login(username='optuser', password='p')
+        self.today = timezone.localdate()
+
+    @staticmethod
+    def _strip_js_comments(src):
+        no_block = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+        return re.sub(r'^\s*//.*$', '', no_block, flags=re.M)
+
+    def _act(self, name='看爸爸', description='原始的描述文字', **kw):
+        defaults = dict(user=self.user, name=name, status='planned',
+                        start_date=self.today, description=description)
+        defaults.update(kw)
+        return Activity.objects.create(**defaults)
+
+    def _task(self, a, status='running', **kw):
+        defaults = dict(activity=a, user=self.user, status=status,
+                        original=a.description or '')
+        defaults.update(kw)
+        return ActivityDescriptionTask.objects.create(**defaults)
+
+    def _opt_url(self, a):
+        return reverse('activities:activity_description_optimize', args=[a.id])
+
+    def _status_url(self, a):
+        return reverse('activities:activity_description_optimize_status', args=[a.id])
+
+    def _edit_url(self, a):
+        return reverse('activities:activity_edit_description', args=[a.id])
+
+    # ── 服务层：提示词与清洗 ──
+
+    def test_prompt_covers_four_goals_and_keeps_facts(self):
+        p = build_optimization_prompt('明天去开会', '项目评审')
+        for goal in ('逻辑', '错别字', '语病', '用词'):
+            self.assertIn(goal, p)
+        self.assertIn('不新增事实', p)
+        self.assertIn('明天去开会', p)
+        self.assertIn('项目评审', p)
+
+    def test_clean_strips_code_fence_and_prefix(self):
+        self.assertEqual(clean_optimized_text('```\n优化后的描述：你好世界\n```'), '你好世界')
+        self.assertEqual(clean_optimized_text('```text\n正文\n```'), '正文')
+        self.assertEqual(clean_optimized_text('优化结果：干净正文'), '干净正文')
+        self.assertEqual(clean_optimized_text('  普通正文  '), '普通正文')
+        self.assertEqual(clean_optimized_text(''), '')
+        self.assertEqual(clean_optimized_text(None), '')
+
+    def test_clean_preserves_paragraphs(self):
+        self.assertEqual(clean_optimized_text('第一段\n\n第二段'), '第一段\n\n第二段')
+
+    # ── 服务层：发起与锁 ──
+
+    def test_start_creates_running_task_and_spawns_thread(self):
+        a = self._act()
+        with patch('activities.services._spawn_optimization') as spawn:
+            task = start_description_optimization(a, self.user)
+        spawn.assert_called_once_with(task.id)
+        self.assertEqual(task.status, 'running')
+        self.assertEqual(task.original, a.description)
+        self.assertEqual(task.activity_id, a.id)
+        self.assertEqual(task.user_id, self.user.id)
+
+    def test_start_empty_description_raises_inputerror(self):
+        a = self._act(description='   ')
+        with patch('activities.services._spawn_optimization') as spawn:
+            with self.assertRaises(InputError):
+                start_description_optimization(a, self.user)
+        spawn.assert_not_called()
+        self.assertFalse(ActivityDescriptionTask.objects.filter(activity=a).exists())
+
+    def test_start_while_running_raises_busy(self):
+        a = self._act()
+        self._task(a, status='running')
+        with patch('activities.services._spawn_optimization') as spawn:
+            with self.assertRaises(OptimizeBusyError):
+                start_description_optimization(a, self.user)
+        spawn.assert_not_called()
+        self.assertEqual(ActivityDescriptionTask.objects.filter(activity=a, status='running').count(), 1)
+
+    def test_db_partial_unique_blocks_second_running_only(self):
+        a = self._act()
+        self._task(a, status='running')
+        # 第二个 running 撞 partial unique；savepoint 包住以免污染外层事务
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ActivityDescriptionTask.objects.create(
+                    activity=a, user=self.user, status='running', original='y')
+        # done/error 不受约束限制（同活动可有多条历史任务）
+        ActivityDescriptionTask.objects.create(activity=a, user=self.user, status='done', original='z')
+        self.assertEqual(ActivityDescriptionTask.objects.filter(activity=a).count(), 2)
+
+    def test_start_race_integrity_error_becomes_busy(self):
+        # 先读后写窗口里另一请求刚建了 running：模拟 create 撞约束 → Busy（不是 500）
+        a = self._act()
+        with patch('activities.services.active_description_task', return_value=None), \
+             patch('activities.services.ActivityDescriptionTask.objects.create',
+                   side_effect=IntegrityError('dup')), \
+             patch('activities.services._spawn_optimization') as spawn:
+            with self.assertRaises(OptimizeBusyError):
+                start_description_optimization(a, self.user)
+        spawn.assert_not_called()
+
+    # ── 服务层：僵尸回收 ──
+
+    def test_active_task_keeps_fresh_running(self):
+        a = self._act()
+        task = self._task(a, status='running')
+        self.assertEqual(active_description_task(a).id, task.id)
+
+    def test_active_task_reclaims_stale_running(self):
+        a = self._act()
+        task = self._task(a, status='running')
+        old_ts = timezone.now() - timedelta(seconds=DESC_OPTIMIZE_STALE_SECONDS + 60)
+        ActivityDescriptionTask.objects.filter(id=task.id).update(updated_at=old_ts)
+        self.assertIsNone(active_description_task(a))
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'error')
+        self.assertTrue(Notification.objects.filter(user=self.user, kind='desc_optimize_failed').exists())
+
+    def test_active_task_none_when_no_running(self):
+        a = self._act()
+        self._task(a, status='done')
+        self.assertIsNone(active_description_task(a))
+
+    # ── 后台 worker ──
+
+    def test_worker_success_writes_description_logs_and_notifies(self):
+        a = self._act(description='原始的描述文字')
+        task = self._task(a, status='running')
+        with patch('core.ai.ai_round_trip', return_value='优化后的描述文字') as ai, \
+             patch('activities.services.connection') as conn:
+            run_description_optimization(task.id)
+        ai.assert_called_once()
+        self.assertEqual(ai.call_args.kwargs.get('purpose'), 'content')
+        a.refresh_from_db()
+        task.refresh_from_db()
+        self.assertEqual(a.description, '优化后的描述文字')
+        self.assertEqual(task.status, 'done')
+        self.assertEqual(task.result, '优化后的描述文字')
+        self.assertTrue(ActivityLog.objects.filter(
+            activity=a, action='edited', summary__startswith='AI 优化').exists())
+        n = Notification.objects.filter(user=self.user, kind='desc_optimized').first()
+        self.assertIsNotNone(n)
+        self.assertIn(a.name, n.title)
+        self.assertEqual(n.link, reverse('activities:activity_detail', args=[a.id]))
+        conn.close.assert_called()
+
+    def test_worker_cleans_ai_output_before_write(self):
+        a = self._act(description='旧')
+        task = self._task(a, status='running')
+        with patch('core.ai.ai_round_trip', return_value='```\n优化后的描述：干净正文\n```'), \
+             patch('activities.services.connection'):
+            run_description_optimization(task.id)
+        a.refresh_from_db()
+        self.assertEqual(a.description, '干净正文')
+
+    def test_worker_failure_keeps_description_and_notifies(self):
+        a = self._act(description='不能动的原描述')
+        task = self._task(a, status='running')
+        with patch('core.ai.ai_round_trip', return_value=None), \
+             patch('activities.services.connection'):
+            run_description_optimization(task.id)
+        a.refresh_from_db()
+        task.refresh_from_db()
+        self.assertEqual(a.description, '不能动的原描述')
+        self.assertEqual(task.status, 'error')
+        self.assertTrue(Notification.objects.filter(user=self.user, kind='desc_optimize_failed').exists())
+        self.assertFalse(Notification.objects.filter(user=self.user, kind='desc_optimized').exists())
+
+    def test_worker_ai_exception_is_failure_not_crash(self):
+        a = self._act(description='原描述')
+        task = self._task(a, status='running')
+        with patch('core.ai.ai_round_trip', side_effect=RuntimeError('boom')), \
+             patch('activities.services.connection') as conn:
+            run_description_optimization(task.id)   # 不得抛出
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'error')
+        a.refresh_from_db()
+        self.assertEqual(a.description, '原描述')
+        conn.close.assert_called()
+
+    def test_worker_empty_result_is_failure(self):
+        a = self._act(description='原描述')
+        task = self._task(a, status='running')
+        with patch('core.ai.ai_round_trip', return_value='   '), \
+             patch('activities.services.connection'):
+            run_description_optimization(task.id)
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'error')
+        a.refresh_from_db()
+        self.assertEqual(a.description, '原描述')
+
+    def test_worker_aborts_if_task_no_longer_running(self):
+        a = self._act(description='原描述')
+        task = self._task(a, status='running')
+        ActivityDescriptionTask.objects.filter(id=task.id).update(status='error')
+        with patch('core.ai.ai_round_trip', return_value='不该写回') as ai, \
+             patch('activities.services.connection'):
+            run_description_optimization(task.id)
+        ai.assert_not_called()
+        a.refresh_from_db()
+        self.assertEqual(a.description, '原描述')
+
+    # ── 端点：发起优化 ──
+
+    def test_optimize_endpoint_starts_task(self):
+        a = self._act()
+        with patch('activities.services._spawn_optimization'):
+            resp = self.client.post(self._opt_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['optimizing'])
+        self.assertEqual(data['status_url'], self._status_url(a))
+        self.assertTrue(ActivityDescriptionTask.objects.filter(activity=a, status='running').exists())
+
+    def test_optimize_endpoint_empty_description_400(self):
+        a = self._act(description='')
+        with patch('activities.services._spawn_optimization'):
+            resp = self.client.post(self._opt_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json()['ok'])
+
+    def test_optimize_endpoint_busy_409(self):
+        a = self._act()
+        self._task(a, status='running')
+        resp = self.client.post(self._opt_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 409)
+        self.assertTrue(resp.json()['optimizing'])
+
+    def test_optimize_endpoint_cross_user_json_404(self):
+        other = User.objects.create_user('otheropt', password='p')
+        a = Activity.objects.create(user=other, name='别人的', status='planned',
+                                    start_date=self.today, description='私密')
+        resp = self.client.post(self._opt_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+        self.assertFalse(ActivityDescriptionTask.objects.filter(activity=a).exists())
+
+    def test_optimize_endpoint_anonymous_401(self):
+        a = self._act()
+        self.client.logout()
+        resp = self.client.post(self._opt_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 401)
+        self.assertTrue(resp.json().get('reauth'))
+
+    def test_optimize_endpoint_get_405(self):
+        a = self._act()
+        resp = self.client.get(self._opt_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 405)
+
+    # ── 端点：状态轮询 ──
+
+    def test_status_running(self):
+        a = self._act()
+        self._task(a, status='running')
+        data = self.client.get(self._status_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['state'], 'running')
+        self.assertTrue(data['optimizing'])
+
+    def test_status_done_returns_description(self):
+        a = self._act(description='优化后的全文')
+        self._task(a, status='done', result='优化后的全文')
+        data = self.client.get(self._status_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['state'], 'done')
+        self.assertFalse(data['optimizing'])
+        self.assertEqual(data['description'], '优化后的全文')
+
+    def test_status_error_returns_message(self):
+        a = self._act(description='原描述')
+        self._task(a, status='error', error='优化失败，请稍后重试')
+        data = self.client.get(self._status_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['state'], 'error')
+        self.assertFalse(data['optimizing'])
+        self.assertEqual(data['error'], '优化失败，请稍后重试')
+        self.assertEqual(data['description'], '原描述')
+
+    def test_status_idle_when_no_task(self):
+        a = self._act()
+        data = self.client.get(self._status_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['state'], 'idle')
+        self.assertFalse(data['optimizing'])
+
+    def test_status_cross_user_json_404(self):
+        other = User.objects.create_user('otheropt2', password='p')
+        a = Activity.objects.create(user=other, name='别人的', status='planned',
+                                    start_date=self.today, description='私密')
+        resp = self.client.get(self._status_url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+
+    def test_status_reclaims_stale_running(self):
+        a = self._act()
+        task = self._task(a, status='running')
+        old_ts = timezone.now() - timedelta(seconds=DESC_OPTIMIZE_STALE_SECONDS + 60)
+        ActivityDescriptionTask.objects.filter(id=task.id).update(updated_at=old_ts)
+        data = self.client.get(self._status_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['state'], 'error')   # 僵尸回收后不再是 running
+        self.assertFalse(data['optimizing'])
+
+    # ── 端点：编辑锁 ──
+
+    def test_edit_get_includes_optimizing_flag_and_urls(self):
+        a = self._act()
+        data = self.client.get(self._edit_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertFalse(data['optimizing'])
+        self.assertEqual(data['optimize_url'], self._opt_url(a))
+        self.assertEqual(data['optimize_status_url'], self._status_url(a))
+
+    def test_edit_get_optimizing_true_when_running(self):
+        a = self._act()
+        self._task(a, status='running')
+        data = self.client.get(self._edit_url(a), HTTP_ACCEPT='application/json').json()
+        self.assertTrue(data['optimizing'])
+
+    def test_edit_post_locked_409_while_running(self):
+        a = self._act(description='锁定中的原描述')
+        self._task(a, status='running')
+        resp = self.client.post(self._edit_url(a), {'description': '想篡改'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 409)
+        self.assertTrue(resp.json()['optimizing'])
+        a.refresh_from_db()
+        self.assertEqual(a.description, '锁定中的原描述')   # 优化中绝不落库
+
+    def test_edit_post_allowed_after_done(self):
+        a = self._act(description='优化后的描述')
+        self._task(a, status='done', result='优化后的描述')
+        resp = self.client.post(self._edit_url(a), {'description': '继续手动编辑'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        a.refresh_from_db()
+        self.assertEqual(a.description, '继续手动编辑')
+
+    # ── 表单页描述锁 ──
+
+    def test_form_edit_description_readonly_while_running(self):
+        a = self._act()
+        self._task(a, status='running')
+        html = self.client.get(reverse('activities:activity_edit', args=[a.id])).content.decode()
+        self.assertIn('AI 正在优化描述，完成后可编辑', html)
+        self.assertIn('readonly', html)
+
+    def test_form_post_keeps_description_while_running(self):
+        a = self._act(description='原始描述', name='旧名字')
+        self._task(a, status='running')
+        resp = self.client.post(reverse('activities:activity_edit', args=[a.id]), {
+            'name': '新名字', 'status': 'planned', 'description': '想篡改的描述',
+            'start_date': self.today.isoformat(),
+        }, follow=True)
+        self.assertEqual(resp.status_code, 200)
+        a.refresh_from_db()
+        self.assertEqual(a.description, '原始描述')   # 描述被锁，其余字段照常保存
+        self.assertEqual(a.name, '新名字')
+        self.assertIn('本次未改动描述', resp.content.decode())
+
+    # ── 接线：弹窗 ──
+
+    def test_modal_has_ai_button_and_optimizing_banner(self):
+        for el_id in ('desc-edit-ai', 'desc-edit-ai-label', 'desc-edit-optimizing'):
+            self.assertIn(f'id="{el_id}"', self.modal)
+        self.assertIn('AI优化', self.modal)
+        self.assertIn('role="status"', self.modal)
+        self.assertIn('aria-live="polite"', self.modal)
+        self.assertIn('desc-spinner', self.modal)
+        self.assertIn('disabled:opacity-60', self.modal)   # textarea 锁定态
+
+    def test_modal_ai_button_does_not_use_htmx(self):
+        self.assertNotIn('hx-', code_only(self.modal))
+
+    # ── 接线：JS ──
+
+    def test_js_has_three_optimize_functions(self):
+        for fn in ('function setOptimizing', 'function startOptimize', 'function pollOptimize'):
+            self.assertIn(fn, self.js_code)
+
+    def test_js_setoptimizing_locks_input_submit_and_ai(self):
+        body = self.js_code[self.js_code.index('function setOptimizing'):
+                            self.js_code.index('function startOptimize')]
+        self.assertIn('editInput.disabled = on', body)
+        self.assertIn('editSubmit.disabled = on', body)
+        self.assertIn('aiBtn.disabled = on', body)
+        self.assertIn("'优化中'", body)
+
+    def test_js_start_optimize_uses_shared_outlet_and_csrf(self):
+        body = self.js_code[self.js_code.index('function startOptimize'):
+                            self.js_code.index('function pollOptimize')]
+        self.assertIn('window.paJsonFetch', body)
+        self.assertIn("method: 'POST'", body)
+        self.assertIn("'X-CSRFToken': csrfToken()", body)
+        self.assertIn('r.status === 409', body)   # 忙不当错误，恢复轮询
+
+    def test_js_poll_handles_running_done_error_and_broadcasts(self):
+        body = self.js_code[self.js_code.index('function pollOptimize'):
+                            self.js_code.index('if (modal) {')]
+        self.assertIn("d.state === 'running'", body)
+        self.assertIn("d.state === 'done'", body)
+        self.assertIn('setTimeout(pollOptimize', body)
+        self.assertIn('updateCardDesc(id', body)
+        self.assertIn("document.dispatchEvent(new CustomEvent('notifications:changed'))", body)
+        self.assertIn("document.dispatchEvent(new CustomEvent('activities:changed'))", body)
+
+    def test_js_poll_cap_unlocks(self):
+        self.assertIn('optimizePolls > 90', self.js_code)
+
+    def test_js_ai_button_wired_to_start(self):
+        self.assertIn("aiBtn.addEventListener('click', startOptimize)", self.js_code)
+
+    def test_js_optimize_does_not_add_global_keydown(self):
+        self.assertNotIn("document.addEventListener('keydown'", self.js_code)
+
+    # ── 接线：CSS ──
+
+    def test_css_spinner_defined_with_reduced_motion(self):
+        self.assertIn('.desc-spinner', self.css)
+        self.assertIn('@keyframes desc-spin', self.css)
+        self.assertIn('prefers-reduced-motion', self.css)

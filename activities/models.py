@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.conf import settings
 from django.utils import timezone
 import secrets
@@ -374,3 +374,57 @@ class ActivityDraft(models.Model):
 
     def __str__(self):
         return f'{self.user.username} {self.date}'
+
+
+class ActivityDescriptionTask(models.Model):
+    """活动描述 AI 优化的后台任务（2026-11-12）：一键优化 → 后台线程跑 → 完成落通知
+
+    - **每活动至多一个 running**（partial unique 约束）：优化期间描述锁定不可编辑，
+      重复点「AI优化」被数据库层挡住（IntegrityError），不靠先读后写的竞态判断。
+    - status：running（线程在跑/前端轮询）→ done（结果已写回 Activity.description）
+      / error（AI 失败或超时，描述保持原样，发失败通知）。
+    - original/result 留痕：original 是发起时的描述快照，result 是 AI 产出（done 时
+      已写回活动）；error 存面向用户的失败文案。
+    - 线程可能因 worker 重启/崩溃留下僵尸 running：services 的 stale 回收按
+      updated_at 超过 DESC_OPTIMIZE_STALE_SECONDS 判死，置 error 并解锁。
+    """
+    STATUS_CHOICES = [
+        ('running', '优化中'),
+        ('done', '已完成'),
+        ('error', '失败'),
+    ]
+
+    activity = models.ForeignKey(
+        Activity,
+        on_delete=models.CASCADE,
+        related_name='desc_tasks',
+        verbose_name='关联活动',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='description_tasks',
+        verbose_name='发起人',
+    )
+    status = models.CharField('状态', max_length=10, choices=STATUS_CHOICES,
+                              default='running', db_index=True)
+    original = models.TextField('优化前描述', blank=True, default='')
+    result = models.TextField('优化后描述', blank=True, default='')
+    error = models.CharField('失败原因', max_length=200, blank=True, default='')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '描述优化任务'
+        verbose_name_plural = verbose_name
+        constraints = [
+            models.UniqueConstraint(
+                fields=['activity'],
+                condition=Q(status='running'),
+                name='uniq_running_desc_task_per_activity',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.activity.name} · {self.get_status_display()}'

@@ -13,7 +13,8 @@ from django.urls import reverse
 from core.tags import (add_tags, apply_tags, active_tag_names, split_tag_names,
                        tag_names, tag_suggestions, used_tags, ensure_tags,
                        random_tag_color)
-from core.models import Tag
+from core.models import Tag, Notification
+from core.notifications import notify, unread_count, recent as recent_notifications
 from activities.models import Activity, Expense
 from knowledge.models import Article
 from chat.models import Conversation, Message
@@ -2711,3 +2712,267 @@ class LoginRedirectLoopTest(TestCase):
         from core.views import SafeLoginView
         match = self.client.get(reverse('login')).resolver_match
         self.assertIs(match.func.view_class, SafeLoginView)
+
+
+class NotificationTest(TestCase):
+    """站内通知（2026-11-12）：后台任务完成落通知，PC 顶栏铃铛弹窗 + 移动「我的」徽标。
+
+    五组锁：
+      · 写入口与读取助手 —— notify 容错（无用户返回 None）/ 标题截断 / unread_count·recent
+        都是个人口径（超管也不混他人通知）；
+      · JSON 端点 —— list（items+unread）/ unread / read（标已读、越权 JSON 404）/ read_all /
+        匿名 401；
+      · dashboard 通知卡 —— 条目 data-notif-click/data-read-url/data-link + 全部已读按钮 +
+        未读徽标 + 空态，且记忆入口仍在（PrimaryNavTest 要求）；
+      · base.html / 弹窗 partial 接线 —— PC 铃铛+徽标+三个 data URL、移动我的徽标是 span、
+        notifications.js 加载、弹窗 role=dialog + 列表/空/加载态；
+      · notifications.js 接线 —— 双徽标同步 / createElement+textContent 不拼 HTML /
+        点击外部关闭不挂全局 keydown / 委托 read-all+click / 轮询+可见性+广播刷新。
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.root = Path(settings.BASE_DIR)
+        cls.base = (cls.root / 'templates' / 'base.html').read_text(encoding='utf-8')
+        cls.popup = (cls.root / 'templates' / 'core' /
+                     '_notifications_popup.html').read_text(encoding='utf-8')
+        cls.js = (cls.root / 'static' / 'js' / 'notifications.js').read_text(encoding='utf-8')
+        cls.js_code = cls._strip_js_comments(cls.js)
+
+    def setUp(self):
+        self.user = User.objects.create_user('notifuser', password='p')
+        self.client = Client()
+        self.client.login(username='notifuser', password='p')
+
+    @staticmethod
+    def _strip_js_comments(src):
+        no_block = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+        return re.sub(r'^\s*//.*$', '', no_block, flags=re.M)
+
+    # ── 写入口与读取助手 ──
+
+    def test_notify_creates_notification(self):
+        n = notify(self.user, '描述已优化', kind='desc_optimized',
+                   body='正文', link='/activities/1/')
+        self.assertIsNotNone(n)
+        self.assertEqual(n.user_id, self.user.id)
+        self.assertEqual(n.kind, 'desc_optimized')
+        self.assertEqual(n.title, '描述已优化')
+        self.assertEqual(n.link, '/activities/1/')
+        self.assertFalse(n.is_read)
+
+    def test_notify_without_user_returns_none(self):
+        self.assertIsNone(notify(None, '无主通知'))
+        self.assertIsNone(notify(User(username='nopk'), '无主通知'))
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_notify_truncates_long_title_and_link(self):
+        n = notify(self.user, '标' * 300, link='/' + 'x' * 600)
+        self.assertEqual(len(n.title), 200)
+        self.assertEqual(len(n.link), 500)
+
+    def test_unread_count_is_personal_even_for_superuser(self):
+        superuser = User.objects.create_superuser('rootsu', password='p')
+        other = User.objects.create_user('othernotif', password='p')
+        notify(self.user, '我的未读')
+        notify(other, '别人的未读')
+        notify(superuser, '超管自己的未读')
+        self.assertEqual(unread_count(self.user), 1)
+        self.assertEqual(unread_count(other), 1)
+        # 超管只数自己的，不混他人（个人口径，不走 visible_qs）
+        self.assertEqual(unread_count(superuser), 1)
+
+    def test_recent_is_personal_and_newest_first(self):
+        other = User.objects.create_user('othernotif2', password='p')
+        n1 = notify(self.user, '第一条')
+        n2 = notify(self.user, '第二条')
+        notify(other, '别人的')
+        got = list(recent_notifications(self.user))
+        self.assertEqual([n.id for n in got], [n2.id, n1.id])   # 倒序，且不含他人
+        self.assertEqual(recent_notifications(self.user, limit=1).count(), 1)
+
+    def test_unread_count_excludes_read(self):
+        n = notify(self.user, '会被读掉')
+        self.assertEqual(unread_count(self.user), 1)
+        n.is_read = True
+        n.save(update_fields=['is_read'])
+        self.assertEqual(unread_count(self.user), 0)
+
+    # ── JSON 端点 ──
+
+    def test_list_endpoint_returns_items_and_unread(self):
+        notify(self.user, '通知一', kind='desc_optimized', link='/activities/1/')
+        notify(self.user, '通知二')
+        resp = self.client.get(reverse('notifications_list'), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['unread'], 2)
+        self.assertEqual(len(data['items']), 2)
+        item = data['items'][0]
+        for key in ('id', 'kind', 'title', 'body', 'link', 'is_read', 'created_at', 'read_url'):
+            self.assertIn(key, item)
+        self.assertEqual(item['read_url'], reverse('notification_read', args=[item['id']]))
+
+    def test_list_endpoint_is_personal_for_superuser(self):
+        superuser = User.objects.create_superuser('rootsu2', password='p')
+        notify(self.user, '别人的通知')
+        notify(superuser, '超管自己的')
+        self.client.login(username='rootsu2', password='p')
+        data = self.client.get(reverse('notifications_list'), HTTP_ACCEPT='application/json').json()
+        self.assertEqual(data['unread'], 1)
+        self.assertEqual(len(data['items']), 1)
+        self.assertEqual(data['items'][0]['title'], '超管自己的')
+
+    def test_unread_endpoint(self):
+        notify(self.user, '未读')
+        data = self.client.get(reverse('notifications_unread'), HTTP_ACCEPT='application/json').json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['unread'], 1)
+
+    def test_read_endpoint_marks_read(self):
+        n = notify(self.user, '读我')
+        resp = self.client.post(reverse('notification_read', args=[n.id]),
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['unread'], 0)
+        n.refresh_from_db()
+        self.assertTrue(n.is_read)
+
+    def test_read_endpoint_cross_user_json_404(self):
+        other = User.objects.create_user('othernotif3', password='p')
+        n = notify(other, '别人的通知')
+        resp = self.client.post(reverse('notification_read', args=[n.id]),
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+        n.refresh_from_db()
+        self.assertFalse(n.is_read)   # 越权绝不标已读
+
+    def test_read_endpoint_nonexistent_json_404(self):
+        resp = self.client.post(reverse('notification_read', args=[999999]),
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+
+    def test_read_all_endpoint(self):
+        notify(self.user, '一')
+        notify(self.user, '二')
+        other = User.objects.create_user('othernotif4', password='p')
+        notify(other, '别人的未读')
+        resp = self.client.post(reverse('notifications_read_all'), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['unread'], 0)
+        self.assertEqual(unread_count(self.user), 0)
+        self.assertEqual(unread_count(other), 1)   # 只清自己的
+
+    def test_json_endpoints_anonymous_401(self):
+        self.client.logout()
+        for name in ('notifications_list', 'notifications_unread'):
+            resp = self.client.get(reverse(name), HTTP_ACCEPT='application/json')
+            self.assertEqual(resp.status_code, 401)
+            self.assertTrue(resp.json().get('reauth'))
+        resp = self.client.post(reverse('notifications_read_all'), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 401)
+
+    def test_read_endpoints_reject_get(self):
+        n = notify(self.user, '读我')
+        self.assertEqual(self.client.get(reverse('notification_read', args=[n.id]),
+                                         HTTP_ACCEPT='application/json').status_code, 405)
+        self.assertEqual(self.client.get(reverse('notifications_read_all'),
+                                         HTTP_ACCEPT='application/json').status_code, 405)
+
+    # ── dashboard 通知卡 ──
+
+    def test_dashboard_renders_notification_card_with_contract_attrs(self):
+        n = notify(self.user, '描述已优化', kind='desc_optimized', link='/activities/')
+        html = self.client.get(reverse('dashboard')).content.decode()
+        self.assertIn('data-notif-click', html)
+        self.assertIn(f'data-read-url="{reverse("notification_read", args=[n.id])}"', html)
+        self.assertIn('data-link="/activities/"', html)
+        self.assertIn('data-notif-read-all', html)
+        self.assertIn(f'data-url="{reverse("notifications_read_all")}"', html)
+        self.assertIn('描述已优化', html)
+
+    def test_dashboard_keeps_memory_entry(self):
+        # PrimaryNavTest.test_mobile_dropped_entries_live_in_dashboard 要求记忆入口仍在
+        html = self.client.get(reverse('dashboard')).content.decode()
+        self.assertIn(reverse('memory:memory_list'), html)
+
+    def test_dashboard_empty_state_when_no_notifications(self):
+        html = self.client.get(reverse('dashboard')).content.decode()
+        # 只看左列通知卡（base.html 的 PC 弹窗 partial 常驻且自带 read-all/暂无通知，不能全局断言）
+        card = html[html.index('page-main'):html.index('/左列')]
+        card = re.sub(r'<!--.*?-->', '', card, flags=re.S)   # 剔注释：说明散文里也写了属性名
+        self.assertIn('暂无通知', card)
+        self.assertNotIn('data-notif-click', card)        # 无条目
+        self.assertNotIn('data-notif-read-all', card)     # 无未读不显示全部已读
+
+    # ── base.html / 弹窗 partial 接线 ──
+
+    def test_base_has_pc_bell_badge_and_data_urls(self):
+        for el_id in ('notif-root', 'notif-toggle', 'notif-badge'):
+            self.assertIn(f'id="{el_id}"', self.base)
+        self.assertIn('data-unread-url=', self.base)
+        self.assertIn('data-list-url=', self.base)
+        self.assertIn('data-read-all-url=', self.base)
+        self.assertIn('aria-haspopup="true"', self.base)
+        self.assertIn("{% include \"core/_notifications_popup.html\" %}", self.base)
+
+    def test_base_mobile_mine_badge_is_span_not_new_link(self):
+        # 移动我的徽标必须是 span（PrimaryNavTest 锁底栏 <a> 数 == aria-label 数）
+        self.assertIn('id="nav-mine-badge"', self.base)
+        mine_line = next(l for l in self.base.splitlines() if 'nav-mine-badge' in l)
+        self.assertIn('<span', mine_line)
+        self.assertIn('aria-label="我的"', mine_line)
+
+    def test_base_loads_notifications_js_for_authenticated(self):
+        self.assertIn("js/notifications.js", self.base)
+        self.assertIn('{% if user.is_authenticated %}', self.base)
+
+    def test_popup_partial_has_dialog_and_states(self):
+        for el_id in ('notif-popup', 'notif-list', 'notif-empty', 'notif-loading', 'notif-read-all'):
+            self.assertIn(f'id="{el_id}"', self.popup)
+        self.assertIn('role="dialog"', self.popup)
+        self.assertIn('data-notif-read-all', self.popup)
+        self.assertIn('data-url=', self.popup)
+
+    def test_popup_and_bell_do_not_use_htmx(self):
+        self.assertNotIn('hx-', code_only(self.popup))
+
+    # ── notifications.js 接线 ──
+
+    def test_js_syncs_both_badges(self):
+        body = self.js_code[self.js_code.index('function setBadges'):
+                            self.js_code.index('function refreshUnread')]
+        self.assertIn('pcBadge', body)
+        self.assertIn('mineBadge', body)
+        self.assertIn("'99+'", body)
+
+    def test_js_renders_items_with_textcontent_not_innerhtml(self):
+        body = self.js_code[self.js_code.index('function renderItem'):
+                            self.js_code.index('function loadList')]
+        self.assertIn('createElement', body)
+        self.assertIn('textContent', body)
+        self.assertNotIn('innerHTML', body)
+
+    def test_js_uses_shared_json_outlet_and_csrf(self):
+        self.assertIn('window.paJsonFetch', self.js_code)
+        self.assertIn("'X-CSRFToken': csrfToken()", self.js_code)
+
+    def test_js_closes_popup_on_outside_click_not_global_keydown(self):
+        self.assertIn('!root.contains(e.target)', self.js_code)
+        self.assertIn("document.addEventListener('click'", self.js_code)
+        self.assertNotIn("document.addEventListener('keydown'", self.js_code)
+
+    def test_js_delegates_read_all_and_item_click(self):
+        self.assertIn("closest('[data-notif-read-all]')", self.js_code)
+        self.assertIn("closest('[data-notif-click]')", self.js_code)
+
+    def test_js_refresh_triggers(self):
+        self.assertIn('setInterval(refreshUnread, 20000)', self.js_code)
+        self.assertIn("document.addEventListener('visibilitychange'", self.js_code)
+        self.assertIn("window.addEventListener('focus', refreshUnread)", self.js_code)
+        self.assertIn("document.addEventListener('notifications:changed'", self.js_code)

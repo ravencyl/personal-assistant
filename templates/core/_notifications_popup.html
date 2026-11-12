@@ -1,0 +1,15 @@
+{% comment %}PC 顶栏通知弹窗（2026-11-12）：铃铛点击展开，列出最近通知，未读可点击阅读。
+壳常驻 base.html 的 #notif-root（hidden md:block，仅桌面）。列表由 notifications.js 用
+createElement + textContent 填充（标题/正文是用户相关数据，绝不拼 HTML 字符串）；每条携带
+服务端下发的 read_url / link，点击先标记已读再跳转。URL 全部来自 #notif-root 的 data-* 与
+列表 JSON，JS 不拼路由。原生 fetch（window.paJsonFetch），严禁 hx-*。{% endcomment %}
+<div id="notif-popup" class="hidden panel absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden bg-[var(--bg-card)] shadow-xl z-50" role="dialog" aria-label="通知列表">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+        <h2 class="text-sm font-semibold text-[var(--text)]">通知</h2>
+        <button type="button" id="notif-read-all" data-notif-read-all data-url="{% url 'notifications_read_all' %}"
+                class="text-xs text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">全部已读</button>
+    </div>
+    <div id="notif-list" class="max-h-[60vh] overflow-y-auto divide-y divide-[var(--border)]"></div>
+    <div id="notif-empty" class="hidden px-4 py-8 text-center text-sm text-[var(--text-muted)]">暂无通知</div>
+    <div id="notif-loading" class="hidden px-4 py-6 text-center text-sm text-[var(--text-muted)]">加载中…</div>
+</div>
