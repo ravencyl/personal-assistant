@@ -26,6 +26,8 @@
     <script src="{% staticv 'js/chat-turn.js' %}"></script>
     {# 全站侧边 AI 助手（桌面端双栏 shell）：壳层开关/装载，defer 到 DOM 解析完再绑 #}
     <script defer src="{% staticv 'js/sidebar-agent.js' %}"></script>
+    {# 全站移动端浮窗 AI 助手（手机弹窗 shell，2026-11-13）：与侧栏 matchMedia 互斥，defer 加载 #}
+    {% if user.is_authenticated %}<script defer src="{% staticv 'js/mobile-agent.js' %}"></script>{% endif %}
     {# 全站统一确认卡（data-confirm 表单 + paConfirmCard API），替代原生 confirm() 弹窗 #}
     <script defer src="{% staticv 'js/confirm-card.js' %}"></script>
     {# Web Push 订阅开关（顶栏铃铛），事件驱动 defer 加载；未配置 VAPID 时不加载 #}
@@ -287,6 +289,9 @@
     try { if (localStorage.getItem('pa-side-agent-open') === '1') document.body.classList.add('side-agent-open'); } catch (err) {}
     </script>
     {% include "chat/partials/_sidebar_agent.html" %}
+    {# 全站移动端浮窗 AI 助手（2026-11-13）：手机专属弹窗壳，与桌面侧栏 matchMedia 互斥 #}
+    {# 浮窗不做跨页持久化（每次导航按当前页面重新装载），无需侧栏那样的恢复类前置脚本 #}
+    {% include "chat/partials/_mobile_agent.html" %}
     {% endif %}
 
     <!-- 导航切换进度条：任何同源链接点击立即亮条，新页面 pageshow 时收起。

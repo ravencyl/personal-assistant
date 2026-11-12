@@ -1240,48 +1240,120 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
   /* 「活动数据已更新」提示条居中到右栏剩余区域（360 的一半补回来） */
   body.side-agent-open #activity-refresh-bar { left: calc(50% + 180px); }
 
-  /* 历史对话列表（P2）：Typeframe 排版列表，与主对话页 .chat-conv-item 同语言——
-     无底色无边线、默认 L3 灰、悬停加深、当前会话纯黑加粗；时间戳 L4 灰。
-     列表容器与消息流互斥（JS 切 hidden），不用 Tailwind display 类同层切换 */
-  .side-agent-list {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 0.5rem 0.75rem;
-  }
-  .side-hist-item {
+}
+
+/* 历史对话列表（P2）：Typeframe 排版列表，与主对话页 .chat-conv-item 同语言——
+   无底色无边线、默认 L3 灰、悬停加深、当前会话纯黑加粗；时间戳 L4 灰。
+   列表容器与消息流互斥（JS 切 hidden），不用 Tailwind display 类同层切换。
+   放在媒体查询外：桌面侧栏与移动浮窗（2026-11-13）共用同一份历史片段
+   （_sidebar_history.html 的 .side-hist-* 条目），样式要在两个断点都生效 */
+.side-agent-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+}
+.side-hist-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-ctl);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.side-hist-item:hover { color: var(--text); background: var(--accent-light); }
+.side-hist-item.active { color: var(--text); background: var(--accent-light); }
+.side-hist-item.active .side-hist-title { font-weight: 700; }
+.side-hist-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-hist-time {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.side-hist-note {
+  padding: 1.5rem 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── 全站移动端浮窗 AI 助手（2026-11-13）─────────────────────────
+   只存在 <768px：桌面端对话走左侧 sidebar-agent 栏（两壳 matchMedia 互斥早退）。
+   FAB 常驻右下角（底部导航之上），点开是底部上滑弹窗（bottom-sheet）。
+   显隐与滑动全在这里定义（display/transform 一处），不用 Tailwind hidden+flex
+   同层切换（turn_status 同款教训）。弹窗盖过导航(40)/提示条(50)/搜索面板(60)。 */
+.mobile-agent-fab,
+.mobile-agent-backdrop,
+.mobile-agent-panel { display: none; }
+
+@media (max-width: 767.98px) {
+  .mobile-agent-fab {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    width: 100%;
-    text-align: left;
-    padding: 0.5rem 0.625rem;
-    border-radius: var(--radius-ctl);
-    color: var(--text-secondary);
+    position: fixed;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom) + 72px);
+    width: 52px;
+    height: 52px;
+    align-items: center;
+    justify-content: center;
+    z-index: 45;
+    background: var(--accent);
+    color: var(--bg-card);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
     cursor: pointer;
-    transition: color 0.15s ease, background-color 0.15s ease;
   }
-  .side-hist-item:hover { color: var(--text); background: var(--accent-light); }
-  .side-hist-item.active { color: var(--text); background: var(--accent-light); }
-  .side-hist-item.active .side-hist-title { font-weight: 700; }
-  .side-hist-title {
-    min-width: 0;
-    flex: 1 1 auto;
-    font-size: 0.8125rem;
-    line-height: 1.5;
+  /* FAB 用 right/bottom 定位（不是 transform），全局 button:active{scale(.97)}
+     只会原地轻收，不会像侧栏把手那样位移逃出指针——无需 compose 位移 */
+  body.mobile-agent-open .mobile-agent-fab { display: none; }
+
+  .mobile-agent-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(0, 0, 0, 0.25);
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease-out;
+  }
+  body.mobile-agent-open .mobile-agent-backdrop {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-agent-panel {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 71;
+    height: 78vh;
+    background: var(--bg-card);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.16);
+    transform: translateY(100%);
+    transition: transform 0.24s ease-out;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .side-hist-time {
-    flex: none;
-    font-size: 10px;
-    color: var(--text-muted);
-  }
-  .side-hist-note {
-    padding: 1.5rem 0;
-    text-align: center;
-    font-size: 0.75rem;
-    color: var(--text-muted);
+  body.mobile-agent-open .mobile-agent-panel { transform: translateY(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-agent-panel, .mobile-agent-backdrop { transition: none; }
   }
 }

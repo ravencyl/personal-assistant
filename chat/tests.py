@@ -26,7 +26,7 @@ from django.utils import timezone
 
 from chat import views as chat_views
 from activities.models import Activity
-from core.layout_asserts import assert_desktop_two_columns, code_only
+from core.layout_asserts import assert_desktop_two_columns, code_only, css_rules
 from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
                          TURN_TTL_SECONDS)
 from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_REF_REMINDER,
@@ -4792,3 +4792,135 @@ class SidebarWiringTest(SimpleTestCase):
         self.assertIn('.side-hist-item', block)
         self.assertIn('.side-hist-item.active', block,
                       '当前会话在历史列表里要有 active 高亮')
+
+
+class MobileAgentWiringTest(SimpleTestCase):
+    """移动端浮窗 AI 助手接线静态锁（2026-11-13）：壳模板 / base.html / JS / CSS 四处咬合。
+
+    浮窗是 PaChatTurn 的第五个挂载点，功能与桌面侧栏一致（收发 / 历史 / 新话题），
+    全部复用既有端点（零后端改动）。锁钉死五件事：
+      ① 两壳 matchMedia 互斥早退（同一视口只有一个壳在跑，不抢 _paActiveChatTurn）；
+      ② 活动详情/编辑页走 for-activity 自动钉选当前活动；
+      ③ 顶部标题 = document.title 剥「 · 站名」后缀（与网页标题一致）；
+      ④ JS 插入的 hx-* 手动 paProcessHtmx 接管 + turn_resume 续轮询；
+      ⑤ 无全局键盘快捷键（AGENTS.md 禁令），收起走背板 / 关闭钮。
+    JS 禁用词扫描先剔注释（_strip_js_comments），否则注释散文会假失败。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = Path(__file__).resolve().parent.parent
+        cls.tpl = base / 'templates'
+        cls.js = base / 'static' / 'js'
+        cls.css = base / 'static' / 'css'
+        cls.base_code = code_only((cls.tpl / 'base.html').read_text(encoding='utf-8'))
+        cls.shell = code_only(
+            (cls.tpl / 'chat' / 'partials' / '_mobile_agent.html').read_text(encoding='utf-8'))
+        cls.mobile_js = ChatTurnFlowJsTest._strip_js_comments(
+            (cls.js / 'mobile-agent.js').read_text(encoding='utf-8'))
+        cls.sidebar_js = ChatTurnFlowJsTest._strip_js_comments(
+            (cls.js / 'sidebar-agent.js').read_text(encoding='utf-8'))
+        cls.css_src = (cls.css / 'custom.css').read_text(encoding='utf-8')
+
+    def test_base_includes_shell_and_script(self):
+        self.assertIn('_mobile_agent.html', self.base_code)
+        self.assertIn('mobile-agent.js', self.base_code)
+
+    def test_shell_has_fab_backdrop_panel_and_hooks(self):
+        for hook in ('mobile-agent-fab', 'mobile-agent-backdrop', 'mobile-agent-panel',
+                     'mobile-agent-title', 'data-mobile-agent-messages',
+                     'data-mobile-agent-form', 'data-mobile-agent-input',
+                     'data-mobile-agent-status', 'data-mobile-agent-history',
+                     'data-mobile-agent-history-panel', 'data-mobile-agent-new',
+                     'data-mobile-agent-close'):
+            self.assertIn(hook, self.shell, f'壳里缺 {hook} 钩子')
+        self.assertIn('turn_status.html', self.shell)
+        self.assertNotIn('hx-post', self.shell, '浮窗走 JSON 端点，严禁挂 hx-*')
+
+    def test_shell_title_slot_and_site_name_hook(self):
+        # 标题槽 h2 text-sm font-semibold（VisualAlignment 卡片标题口径）；
+        # data-site-name 供 JS 剥「 · 站名」后缀，必须随壳下发（JS 不硬写站名）
+        self.assertIn('id="mobile-agent-title"', self.shell)
+        self.assertIn('text-sm font-semibold', self.shell)
+        self.assertIn('data-site-name="{{ SITE_NAME }}"', self.shell)
+
+    def test_mobile_js_bails_on_login_and_desktop(self):
+        head = self.mobile_js[:self.mobile_js.index('var chatTurn')]
+        self.assertIn("location.pathname.indexOf('/accounts/login') === 0", head,
+                      '登录页早退（缓存的带壳 HTML 也不触发装载，登录死循环守卫）')
+        self.assertIn('(min-width: 768px)', head,
+                      '桌面视口由侧栏接管，浮窗必须早退，避免双壳抢会话钩子')
+        self.assertIn('return;', head)
+
+    def test_sidebar_js_bails_on_mobile(self):
+        head = self.sidebar_js[:self.sidebar_js.index('var OPEN_KEY')]
+        self.assertIn('(max-width: 767.98px)', head,
+                      '移动视口由浮窗接管，侧栏必须早退——否则 mount 一个看不见的会话，'
+                      '与浮窗抢 _paActiveChatTurn / _paSidebarChatId（活动页两者会话不同）')
+
+    def test_activity_page_auto_pins_via_for_activity(self):
+        # 活动详情/编辑页 → for-activity（create-or-get + 服务端自动钉选）。
+        # 正则锁 URL 形状：/activities/<id>/ 与 /activities/<id>/edit/
+        self.assertIn('/^\\/activities\\/(\\d+)\\/(?:edit\\/)?$/', self.mobile_js)
+        self.assertIn("'/chat/for-activity/' + activityId", self.mobile_js)
+        self.assertIn('if (activityId) mountActivity();', self.mobile_js,
+                      'mount 必须按 activityId 分流到活动专属会话')
+        self.assertIn('chrome=drawer', self.mobile_js,
+                      '历史片段带 chrome=drawer 隐藏 @ 钉选误导提示（同抽屉口径）')
+
+    def test_non_activity_page_uses_sidebar_endpoint(self):
+        self.assertIn("'/chat/sidebar/'", self.mobile_js)
+        self.assertIn('mountSidebar', self.mobile_js)
+
+    def test_mount_processes_htmx_and_resumes(self):
+        self.assertIn('paProcessHtmx', self.mobile_js,
+                      'innerHTML 整体替换的历史片段含确认卡表单，htmx 1.x 须手动接管')
+        self.assertIn('window.PaChatTurn', self.mobile_js)
+        self.assertIn('data-turn-resume', self.mobile_js)
+        self.assertIn('paJsonFetch', self.mobile_js)
+
+    def test_page_context_and_local_card_hook(self):
+        self.assertIn('paPageContext', self.mobile_js,
+                      '发送须带 page_path，服务端才能注入「用户正在浏览哪个页面/活动」')
+        self.assertIn('_paSidebarChatId', self.mobile_js,
+                      '非 /chat 页快捷卡片以浮窗会话为准（移动视口侧栏早退不写这个钩子）')
+
+    def test_title_derived_from_document_title(self):
+        self.assertIn('document.title', self.mobile_js)
+        self.assertIn('data-site-name', self.mobile_js)
+        self.assertIn("' · '", self.mobile_js, '标题 = 网页 title 剥「 · 站名」后缀')
+
+    def test_new_topic_mounts_created_id_explicitly(self):
+        # 新话题必须按新建会话 id 显式挂载（绕过活动自动钉选）：不能走 mount()——
+        # 那在活动页会又挂回活动专属会话，刚建的通用会话被晾在一边
+        self.assertIn("'/chat/create/'", self.mobile_js)
+        self.assertIn('mountSidebar(d.conversation_id)', self.mobile_js)
+
+    def test_history_wiring(self):
+        self.assertIn("'/chat/sidebar/conversations/'", self.mobile_js)
+        self.assertIn('data-sb-conv-id', self.mobile_js)
+        self.assertIn('conversation_id=', self.mobile_js)
+
+    def test_no_global_keydown_shortcut(self):
+        self.assertNotIn('keydown', self.mobile_js,
+                         'AGENTS.md 禁全局键盘快捷键：浮窗收起走背板点击 / 关闭钮')
+
+    def test_css_mobile_only_and_open_rules(self):
+        block = self.css_src.split('全站移动端浮窗 AI 助手', 1)[1]
+        self.assertIn('@media (max-width: 767.98px)', block)
+        self.assertNotIn('(min-width: 640px)', block, '唯一分端断点是 md')
+        self.assertIn('body.mobile-agent-open .mobile-agent-panel', block)
+        self.assertIn('body.mobile-agent-open .mobile-agent-fab', block)
+        self.assertIn('translateY(100%)', block, '弹窗底部上滑：收起时整体移出屏幕')
+        self.assertIn('translateY(0)', block)
+
+    def test_css_default_hides_mobile_shell_on_desktop(self):
+        # 媒体查询外三件套 display:none（桌面不可见）；媒体查询内才 display:flex
+        rules = css_rules(self.css_src, '.mobile-agent-panel')
+        default = [r for r in rules if r['media'] == '']
+        self.assertTrue(any('display: none' in r['body'] for r in default),
+                        '浮窗默认必须 display:none（桌面），否则会漏到桌面视口')
+        mobile = [r for r in rules if r['media'] == '(max-width: 767.98px)']
+        self.assertTrue(any('display: flex' in r['body'] for r in mobile),
+                        '移动视口内浮窗面板须 display:flex（底部上滑弹窗）')

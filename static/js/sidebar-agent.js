@@ -19,6 +19,10 @@
     // 与 reauthTarget 的 next 嵌套叠加成死循环（2026-11-11 线上 400 事故）。
     // 登录页本就不该有侧栏，这里直接早退，连事件都不绑。
     if (location.pathname.indexOf('/accounts/login') === 0) return;
+    // 移动视口由 mobile-agent.js 的浮窗接管（侧栏壳在移动端 display:none）：不早退会在
+    // 移动视口白白 mount 一个看不见的会话，还与浮窗抢 _paActiveChatTurn / _paSidebarChatId
+    // （活动页浮窗挂活动专属会话、侧栏挂最新通用会话，两者不同，快捷卡片会落错对话）。
+    if (window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches) return;
 
     var OPEN_KEY = 'pa-side-agent-open';
     var CONV_KEY = 'pa-side-agent-conv';

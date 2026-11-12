@@ -1,0 +1,62 @@
+{% comment %}全站移动端浮窗 AI 助手（2026-11-13）：手机专属的弹窗式对话壳。
+
+只服务 <768px（桌面端对话走左侧 sidebar-agent 栏）。两个壳由 matchMedia 互斥早退
+（sidebar-agent.js 在移动视口 return、mobile-agent.js 在桌面视口 return），同一视口
+只有一个壳在跑，不会双双 mount 抢 window._paActiveChatTurn / _paSidebarChatId。
+
+FAB 悬浮按钮常驻右下角（底部导航之上），点开是底部上滑的弹窗（bottom-sheet）。
+功能与侧栏一致：收发 / 历史 / 新话题，复用 PaChatTurn（static/js/mobile-agent.js 是
+第五个挂载点）与既有端点——非活动页走 /chat/sidebar/（页面感知），活动详情/编辑页走
+/chat/for-activity/<id>/（服务端自动钉选当前活动，AI 默认以它沟通与操作）。
+
+弹窗顶部标题 = 当前网页 document.title 去掉「 · 站名」后缀（今日 / 活动记录 / 活动名…），
+与用户所在页面的标题保持一致（用户要求）。显隐全由 custom.css 的 .mobile-agent-* 接管，
+不用 Tailwind hidden+flex 同层切换（turn_status 同款教训）。
+{% endcomment %}
+<button type="button" id="mobile-agent-fab" class="mobile-agent-fab rounded-full"
+        aria-expanded="false" aria-controls="mobile-agent-panel"
+        title="AI 助手（可对话操作当前页面）">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8m-8 4h5M21 12a9 9 0 11-3.3-6.96L21 3l-.9 3.02A8.96 8.96 0 0121 12z"/>
+    </svg>
+    <span class="sr-only">打开 AI 助手</span>
+</button>
+<div id="mobile-agent-backdrop" class="mobile-agent-backdrop" aria-hidden="true"></div>
+<div id="mobile-agent-panel" class="mobile-agent-panel" role="dialog" aria-modal="true"
+     aria-label="AI 助手" aria-hidden="true" data-site-name="{{ SITE_NAME }}">
+    <header class="flex flex-none items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+        <div class="min-w-0">
+            <p class="text-[10px] tracking-widest text-[var(--text-muted)]">AI 助手 · 当前页面</p>
+            <h2 id="mobile-agent-title" class="text-sm font-semibold text-[var(--text)] truncate">当前页面</h2>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+            <button type="button" data-mobile-agent-history aria-pressed="false" title="历史对话"
+                    class="tap-target px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text)]">历史</button>
+            <button type="button" data-mobile-agent-new title="新话题"
+                    class="tap-target px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text)]">新话题</button>
+            <button type="button" data-mobile-agent-close title="收起"
+                    class="tap-target p-2 text-[var(--text-secondary)] hover:text-[var(--text)]">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+                <span class="sr-only">收起弹窗</span>
+            </button>
+        </div>
+    </header>
+    <div data-mobile-agent-history-panel hidden class="side-agent-list"></div>
+    <div data-mobile-agent-messages class="flex-1 overflow-y-auto px-4 py-3">
+        <p class="text-center text-xs text-[var(--text-muted)] py-6">点开后接续你最近的对话</p>
+    </div>
+    <div data-mobile-agent-status class="flex-none px-4">
+        {% include "chat/partials/turn_status.html" %}
+    </div>
+    <form data-mobile-agent-form class="flex-none border-t border-[var(--border)] px-4 py-3">
+        <div class="flex items-end gap-3">
+            <textarea data-mobile-agent-input rows="1" data-auto-grow
+                placeholder="让 AI 帮你查、记、改…"
+                class="chat-input tf-underline flex-1 px-0 py-2.5 text-base text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none"></textarea>
+            <button type="submit"
+                class="tap-target shrink-0 px-2 py-2.5 text-sm font-semibold tracking-widest text-[var(--text)] hover:opacity-60">发送</button>
+        </div>
+    </form>
+</div>
