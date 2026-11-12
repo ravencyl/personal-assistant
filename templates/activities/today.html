@@ -3,6 +3,10 @@
 
 {% block title %}今日 · {{ SITE_NAME }}{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{% staticv 'css/today-timeline.css' %}">
+{% endblock %}
+
 {% block content %}
 {% comment %}
 Typeframe 今日页（2026-10-27 定稿，对标 typeframe mockup VIEW 1）：
@@ -85,24 +89,98 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
     </div>
 </section>
 
-{# ── 接下来：7 天内开始（衬线大标题 + 类型化行）── #}
-<section class="relative z-10 mt-11 mb-8" aria-label="即将开始的活动">
-    <div class="flex items-baseline gap-3">
-        <p class="tf-lb">接下来</p>
-        <span class="text-xs text-[var(--text-muted)]">7 天内开始</span>
-        <span class="flex-1"></span>
-        <a href="{% url 'activities:activity_list' %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">全部活动 →</a>
+{% comment %}
+── 接下来：7 天时间线（2026-11-12 用户定策：完全还原 demo 变体A）──
+按天分组 / 舒展密度 / 全显示（近深远浅·标签·费用·参与者·周末）/ 天默认展开。
+脊柱与文字近深远浅、粉色节点=今天；点活动展开内联详情、点日期折叠整天。
+交互在 static/js/today-timeline.js；样式在 static/css/today-timeline.css 的 #upcoming-timeline 段。
+{% endcomment %}
+<section id="upcoming-timeline" class="relative z-10 mt-11 mb-8" aria-label="即将开始的活动">
+    <div class="tl-wm" aria-hidden="true">7</div>
+    <div class="tl-head">
+        <div>
+            <p class="tf-lb">接下来</p>
+            <p class="tl-title">7 天内开始</p>
+        </div>
+        <div class="tl-headmeta">
+            <p class="tl-headcount"><span class="tf-num tl-headnum">{{ upcoming_count }}</span> 项活动</p>
+            <p class="tl-range">{{ upcoming_range }}</p>
+            <a href="{% url 'activities:activity_list' %}" class="tl-all">全部活动 →</a>
+        </div>
     </div>
-    {% for a in upcoming %}
-    <a href="{% url 'activities:activity_detail' a.id %}"
-       class="group flex items-baseline gap-3 sm:gap-4 py-3 hover:opacity-70 transition-opacity">
-        <span class="w-20 flex-none text-xs text-[var(--tf-fg4)] tabular-nums">{{ a.date_range }}</span>
-        <span class="flex-1 min-w-0 text-base font-semibold truncate">{{ a.name }}</span>
-        {% if a.tile_tag %}<span class="hidden md:inline text-xs text-[var(--text-muted)] flex-none">{{ a.tile_tag }}</span>{% endif %}
-        <span class="flex-none text-xs text-[var(--text-muted)]">{{ a.get_status_display }} →</span>
-    </a>
-    {% empty %}
+
+    {% if upcoming_days %}
+    <div class="tl">
+        {% for day in upcoming_days %}
+        <div class="reveal" style="--i:{{ forloop.counter0 }}">
+            <div class="tl-day" data-off="{{ day.off }}" data-depth="{{ day.depth }}">
+                <div class="tl-dayhead" data-head="{{ day.off }}" role="button" tabindex="0" aria-expanded="true">
+                    <span class="tl-node tl-node--day{% if day.is_today %} now{% endif %}"></span>
+                    <span class="tl-date tf-num">{{ day.day_num }}</span>
+                    <span class="tl-daymeta">
+                        <span class="tl-week">{{ day.week_label }}</span>
+                        {% if day.rel_label %}<span class="tl-rel{% if day.is_today %} now{% endif %}">{{ day.rel_label }}</span>{% endif %}
+                    </span>
+                    <span class="tl-count">{{ day.count }} 项</span>
+                    <svg class="tl-chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="tl-items"><div class="tl-items-inner">
+                    {% for a in day.items %}
+                    <div class="tl-item{% if a.is_done %} done{% endif %}" data-id="{{ a.id }}" data-off="{{ a.off }}" role="button" tabindex="0" aria-expanded="false">
+                        <span class="tl-node tl-node--act{% if a.is_in_progress %} in_progress{% endif %}{% if day.is_today %} now{% endif %}"></span>
+                        <span class="tl-time{% if a.is_allday %} allday{% endif %}">{{ a.time_label }}</span>
+                        <span class="tl-body">
+                            <span class="tl-name">{{ a.name }}</span>
+                            {% if a.meta_parts %}<span class="tl-meta">{% for p in a.meta_parts %}{% if not forloop.first %}<span class="sep">·</span>{% endif %}{{ p }}{% endfor %}</span>{% endif %}
+                        </span>
+                        <span class="tl-status {{ a.status }}"><span class="sd"></span>{{ a.status_label }}</span>
+                        <svg class="tl-go" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </div>
+                    <div class="tl-detail-wrap" data-detail="{{ a.id }}"><div class="tl-detail-inner">
+                        <div class="tl-detail">
+                            <button type="button" class="td-close" data-close="{{ a.id }}" aria-label="收起详情">×</button>
+                            <div class="td-top">
+                                <div class="td-big"><span class="td-num tf-num">{{ day.day_num }}</span><span class="td-mon">{{ day.month_num }}月</span></div>
+                                <div class="td-col">
+                                    <div class="td-wk">{{ day.week_base }}{% if day.rel_label %} · <span class="{% if day.is_today %}now{% endif %}">{{ day.rel_label }}</span>{% endif %}</div>
+                                    <div class="td-tm">{% if a.is_allday %}全天{% else %}{{ a.time_label }} 开始{% endif %}</div>
+                                </div>
+                                <div class="td-statuswrap"><span class="tl-status {{ a.status }}"><span class="sd"></span>{{ a.status_label }}</span></div>
+                            </div>
+                            <div class="td-name">{{ a.name }}</div>
+                            {% if a.tag or a.cost_str or a.people %}
+                            <div class="td-rows">
+                                {% if a.tag %}<div class="td-row"><span class="td-k">标签</span><span class="td-v">#{{ a.tag }}</span></div>{% endif %}
+                                {% if a.cost_str %}<div class="td-row"><span class="td-k">费用</span><span class="td-v"><span class="cur">¥</span><span class="amt">{{ a.cost_str }}</span></span></div>{% endif %}
+                                {% if a.people %}<div class="td-row"><span class="td-k">参与者</span><span class="td-v td-people">{% for p in a.people %}<span class="td-person">{{ p }}</span>{% endfor %}</span></div>{% endif %}
+                            </div>
+                            {% endif %}
+                            {% if a.desc %}<div class="td-desc">{{ a.desc }}</div>{% endif %}
+                            <div class="td-actions">
+                                <button type="button" class="td-done{% if a.is_done %} is-done{% endif %}" data-done="{{ a.id }}" data-prev="{{ a.restore_status }}" data-url="{% url 'activities:activity_set_status' a.id %}">{% if a.is_done %}取消完成{% else %}标记完成{% endif %}</button>
+                                <a class="td-open" href="{% url 'activities:activity_detail' a.id %}">完整详情 →</a>
+                            </div>
+                        </div>
+                    </div></div>
+                    {% endfor %}
+                </div></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="tl-legend">
+        <span class="lg"><span class="lg-dot now"></span>今天</span>
+        <span class="lg"><span class="lg-dot plan"></span>计划</span>
+        <span class="lg"><span class="lg-dot prog"></span>进行中</span>
+        <span class="lg"><span class="lg-grad"></span>近 → 远</span>
+        <span class="lg">点活动看详情 · 点日期可折叠</span>
+    </div>
+    {% else %}
     <p class="py-4 text-sm text-[var(--text-muted)]">未来 7 天没有新安排</p>
-    {% endfor %}
+    {% endif %}
 </section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% staticv 'js/today-timeline.js' %}" defer></script>
 {% endblock %}

@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST
 
 from core.tags import apply_tags, tag_names, tag_suggestions, used_tags
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
-from core.utils import get_visible, wants_json
+from core.utils import get_visible, json_login_required, visible_qs, wants_json
 
 from ..models import Activity, Participant, Attachment
 from ..services import (InputError, add_expense, change_activity_status,
@@ -111,14 +111,30 @@ def activity_detail(request, activity_id):
     })
 
 
-@login_required
+@json_login_required
 @require_POST
 def activity_set_status(request, activity_id):
-    """快捷修改活动状态"""
-    activity = get_visible(Activity, request.user, id=activity_id)
-    status = request.POST.get('status', '')
+    """快捷修改活动状态
+
+    三种响应形态：HTMX（HX-Request）回 _daily_card 片段；原生 fetch
+    （Accept: application/json，今日页时间线「标记完成」）回 JSON；
+    其余整页表单回 redirect。写库统一走 change_activity_status。
+    """
     is_fragment = bool(request.headers.get('HX-Request'))
+    # HTMX 片段优先于 JSON：既有片段消费者即使带 Accept json 也仍拿片段
+    is_json = wants_json(request) and not is_fragment
+    if is_json:
+        # JSON 通道越权/不存在回 JSON 404（get_visible 抛 Http404 会回 HTML 错误页，
+        # fetch 的 r.json() 直接炸）；与钉选/问 AI 端点同口径
+        activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+        if activity is None:
+            return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    else:
+        activity = get_visible(Activity, request.user, id=activity_id)
+    status = request.POST.get('status', '')
     if status not in dict(Activity.STATUS_CHOICES):
+        if is_json:
+            return JsonResponse({'error': '无效的状态值'}, status=400)
         if is_fragment:
             return HttpResponse('错误：无效的状态值', status=400)
         messages.error(request, '无效的状态值')
@@ -126,7 +142,7 @@ def activity_set_status(request, activity_id):
         if status != activity.status:
             # 落库 + 日志走 services 统一实现（与 AI 单改 / AI 批量同一口径）
             _old_label, new_label = change_activity_status(activity, request.user, status)
-            if not is_fragment:
+            if not is_fragment and not is_json:
                 messages.success(request, f'状态已更新为「{new_label}」')
         if is_fragment:
             attach_costs([activity])
@@ -136,6 +152,12 @@ def activity_set_status(request, activity_id):
                 'ending' if activity.end_date == today else '')
             return render(request, 'activities/_daily_card.html',
                           {'activity': activity, 'badge': badge})
+        if is_json:
+            return JsonResponse({
+                'ok': True, 'id': activity.id, 'status': activity.status,
+                'status_label': activity.get_status_display(),
+                'done': activity.status == 'done',
+            })
     referer = request.META.get('HTTP_REFERER')
     if referer:
         return redirect(referer)

@@ -8,6 +8,8 @@ from django.db import models
 from django.db.models import Sum
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 
 from core.utils import visible_qs, week_monday, WEEKDAY_LABELS
 
@@ -237,6 +239,114 @@ def daily_view(request):
 
 
 
+def _tl_depth(off):
+    """时间线「近深远浅」档位（与 demo depthInk 同口径）：0 近 → 3 远。
+
+    具体墨色写在 custom.css / today-timeline.css 的 data-depth 选择器里，
+    视图只下发档位整数，不在视图/模板里下发 hex（整站去色口径）。
+    """
+    if off <= 1:
+        return 0
+    if off <= 3:
+        return 1
+    if off <= 5:
+        return 2
+    return 3
+
+
+def _tl_money(n):
+    """费用展示：千分位、整数不带小数（与 demo money() 同口径）；0/空返回 ''。"""
+    n = float(n or 0)
+    if n <= 0:
+        return ''
+    return f'{n:,.0f}' if n == int(n) else f'{n:,.2f}'
+
+
+def _upcoming_timeline(user, today):
+    """「接下来」时间线（2026-11-12 用户定策：还原 demo 变体A 按天分组）。
+
+    口径：today..today+7（含今天，粉色「今天」节点是 demo 的签名元素）、
+    排除 cancelled、按天分组、天内按开始时间排序（全天排最后）。
+    全显示（标签/费用/参与者/周末/近深远浅）+ 默认展开，故这里一次性把
+    展示字段都备好，模板只负责排版。返回 (days, count, range_label)。
+    """
+    acts = list(visible_qs(Activity, user).filter(
+        start_date__gte=today,
+        start_date__lte=today + timedelta(days=7),
+    ).exclude(status='cancelled').order_by('start_date').prefetch_related(
+        'tags', 'participants'))
+    attach_costs(acts)
+
+    groups = {}
+    for a in acts:
+        groups.setdefault(a.start_date, []).append(a)
+
+    days = []
+    for d in sorted(groups):
+        off = (d - today).days
+        depth = _tl_depth(off)
+        items = []
+        for a in sorted(groups[d], key=lambda x: (x.start_time or time(23, 59), x.name)):
+            tags = list(a.tags.all())
+            people = [p.name for p in a.participants.all()]
+            desc = ' '.join((a.description or '').split())
+            if len(desc) > 200:
+                desc = desc[:200] + '…'
+            cost_str = _tl_money(getattr(a, 'expense_total', 0))
+            # 行内 meta（标签·费用·参与者）用「·」分隔；片段在视图 escape 后
+            # mark_safe，模板只负责 join，避免在模板里写分隔符条件分支
+            meta_parts = []
+            if tags:
+                meta_parts.append(mark_safe(
+                    f'<span class="tag">#{escape(tags[0].name)}</span>'))
+            if cost_str:
+                meta_parts.append(mark_safe(
+                    f'<span class="cost"><span class="cur">¥</span>'
+                    f'<span class="amt">{cost_str}</span></span>'))
+            if people:
+                meta_parts.append(mark_safe(
+                    f'<span class="ppl">{escape("、".join(people))}</span>'))
+            items.append({
+                'id': a.id,
+                'off': off,
+                'time_label': a.start_time.strftime('%H:%M') if a.start_time else '全天',
+                'is_allday': a.start_time is None,
+                'name': a.name,
+                'tag': tags[0].name if tags else '',
+                'cost_str': cost_str,
+                'meta_parts': meta_parts,
+                'people': people,
+                'people_str': '、'.join(people),
+                'status': a.status,
+                'status_label': a.get_status_display(),
+                'is_done': a.status == 'done',
+                'is_in_progress': a.status == 'in_progress',
+                'desc': desc,
+                # 「取消完成」回退到的状态：已完成条默认回 planned，
+                # 未完成条回退到它当前状态（前端标记完成时会改写 data-prev）
+                'restore_status': 'planned' if a.status == 'done' else a.status,
+            })
+        week = WEEKDAY_LABELS[d.weekday()]
+        week_base = week
+        if d.weekday() >= 5:
+            week += ' · 周末'
+        days.append({
+            'off': off,
+            'day_num': d.day,
+            'month_num': d.month,
+            'week_base': week_base,
+            'week_label': week,
+            'rel_label': {0: '今天', 1: '明天', 2: '后天'}.get(off, ''),
+            'is_today': off == 0,
+            'depth': depth,
+            'count': len(items),
+            'items': items,
+        })
+    end = today + timedelta(days=7)
+    range_label = f'{today.month}/{today.day} – {end.month}/{end.day}'
+    return days, len(acts), range_label
+
+
 def _daily_greeting(hour):
     """Daily 页问候语（阈值与文案独立于 _common._greeting，保留原行为）"""
     if hour < 5:
@@ -280,9 +390,8 @@ def today_home(request):
     month_pct = round(today.day / days_in_month * 100)
     daily_avg = month_expense / today.day if today.day else 0
 
-    # ── 接下来：7 天内将开始的计划活动（卡片流）──
-    for a in data['upcoming'][:6]:
-        a.tile_tag = list(a.tags.all())[0].name if a.tags.all() else ''
+    # ── 接下来：7 天时间线（含今天，按天分组；2026-11-12 还原 demo 变体A）──
+    upcoming_days, upcoming_count, upcoming_range = _upcoming_timeline(user, today)
 
     hour = now.hour
     return render(request, 'activities/today.html', {
@@ -305,7 +414,9 @@ def today_home(request):
         'daily_avg': daily_avg,
         'today_expense': data['today_expense'],
         'week_expense': data['this_week_expense'],
-        'upcoming': data['upcoming'][:6],
+        'upcoming_days': upcoming_days,
+        'upcoming_count': upcoming_count,
+        'upcoming_range': upcoming_range,
         'hour': hour,
     })
 

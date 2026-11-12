@@ -3055,3 +3055,213 @@ class TodayHomeTest(TestCase):
         resp = self.client.get('/')
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/accounts/login/', resp['Location'])
+
+
+class TodayTimelineTest(TestCase):
+    """「接下来」7 天时间线（2026-11-12 用户定策：完全还原 demo 变体A）。
+
+    固定配置：按天分组 / 舒展密度 / 全显示（近深远浅·标签·费用·参与者·周末）/
+    天默认展开。双锁：
+      · 数据层 _upcoming_timeline —— 分组 / 近深远浅档位 / 周末 / 天内排序 /
+        排除口径（cancelled·窗口外）/ 计数 / 区间，走 helper 单测精确断言；
+      · 渲染 markup —— 默认展开 / 内联详情 / 标记完成按钮 / 品牌粉今天节点 /
+        全显示字段，走页面断言（slice 到 #upcoming-timeline 段，避开今日时间线）。
+    状态端点 JSON 分支（时间线「标记完成」）单独一组：落库 + 日志 / 越权 JSON 404 /
+    无效 400 / 匿名 401 / HTMX 片段优先于 JSON / 整页表单 redirect。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('tluser', password='p')
+        self.client = Client()
+        self.client.login(username='tluser', password='p')
+        self.today = timezone.localdate()
+
+    def _act(self, name, off=0, **kw):
+        defaults = dict(user=self.user, name=name, status='planned',
+                        start_date=self.today + timedelta(days=off))
+        defaults.update(kw)
+        return Activity.objects.create(**defaults)
+
+    def _data(self):
+        from activities.views.daily_views import _upcoming_timeline
+        return _upcoming_timeline(self.user, self.today)
+
+    def _section(self):
+        html = self.client.get('/').content.decode()
+        return html[html.index('upcoming-timeline'):]
+
+    # ── 数据层 ──
+
+    def test_depth_tiers_near_to_far(self):
+        """近深远浅档位与 demo depthInk 同口径：0/1→0，2/3→1，4/5→2，6/7→3"""
+        for off in range(8):
+            self._act(f'd{off}', off=off)
+        days, count, _ = self._data()
+        self.assertEqual({d['off']: d['depth'] for d in days},
+                         {0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3})
+        self.assertEqual(count, 8)
+
+    def test_groups_by_day(self):
+        self._act('今天甲', off=0)
+        self._act('今天乙', off=0)
+        self._act('后天', off=2)
+        days, count, _ = self._data()
+        self.assertEqual([d['off'] for d in days], [0, 2])
+        self.assertEqual([d['count'] for d in days], [2, 1])
+        self.assertEqual(count, 3)
+        self.assertTrue(days[0]['is_today'])
+        self.assertFalse(days[1]['is_today'])
+        self.assertEqual(days[0]['rel_label'], '今天')
+        self.assertEqual(days[1]['rel_label'], '后天')
+
+    def test_within_day_sorted_by_time_allday_last(self):
+        self._act('晚', off=2, start_time='19:00')
+        self._act('早', off=2, start_time='08:00')
+        self._act('全天', off=2)
+        days, _, _ = self._data()
+        day = next(d for d in days if d['off'] == 2)
+        self.assertEqual([i['name'] for i in day['items']], ['早', '晚', '全天'])
+        self.assertTrue(day['items'][2]['is_allday'])
+        self.assertEqual(day['items'][2]['time_label'], '全天')
+
+    def test_cancelled_and_out_of_window_excluded(self):
+        self._act('正常', off=1)
+        self._act('取消', off=1, status='cancelled')
+        self._act('太远', off=8)
+        self._act('过去', off=-1)
+        days, count, _ = self._data()
+        self.assertEqual(count, 1)
+        self.assertEqual([i['name'] for d in days for i in d['items']], ['正常'])
+
+    def test_weekend_label(self):
+        wk_off = next(off for off in range(8)
+                      if (self.today + timedelta(days=off)).weekday() >= 5)
+        self._act('周末的事', off=wk_off)
+        days, _, _ = self._data()
+        wk = next(d for d in days if d['off'] == wk_off)
+        self.assertTrue(wk['week_label'].endswith(' · 周末'))
+        self.assertNotIn('周末', wk['week_base'])
+
+    def test_range_label(self):
+        _, _, rng = self._data()
+        end = self.today + timedelta(days=7)
+        self.assertEqual(rng, f'{self.today.month}/{self.today.day} – {end.month}/{end.day}')
+
+    def test_cost_thousands_separator(self):
+        a = self._act('贵', off=1)
+        Expense.objects.create(activity=a, user=self.user, amount=Decimal('12000'))
+        days, _, _ = self._data()
+        item = days[0]['items'][0]
+        self.assertEqual(item['cost_str'], '12,000')
+
+    # ── 渲染 markup ──
+
+    def test_days_expanded_by_default(self):
+        self._act('a', off=0)
+        self._act('b', off=2)
+        sec = self._section()
+        self.assertEqual(sec.count('aria-expanded="true"'), 2)
+        self.assertNotIn('tl-day collapsed', sec)
+
+    def test_today_node_pink_and_rel(self):
+        self._act('今天的事', off=0)
+        sec = self._section()
+        self.assertIn('tl-node--day now', sec)
+        self.assertIn('tl-rel now', sec)
+        self.assertIn('今天', sec)
+
+    def test_inline_detail_and_mark_complete_button(self):
+        a = self._act('看详情', off=1)
+        sec = self._section()
+        self.assertIn(f'data-detail="{a.id}"', sec)
+        self.assertIn(f'data-done="{a.id}"', sec)
+        url = reverse('activities:activity_set_status', args=[a.id])
+        self.assertIn(f'data-url="{url}"', sec)
+        self.assertIn('标记完成', sec)
+        self.assertIn('完整详情', sec)
+
+    def test_all_display_fields_rendered(self):
+        a = self._act('全显示', off=1, start_time='10:00', description='一段描述')
+        apply_tags(a, ['差旅'])
+        a.participants.add(Participant.objects.create(user=self.user, name='YYX'))
+        Expense.objects.create(activity=a, user=self.user, amount=Decimal('12000'))
+        sec = self._section()
+        self.assertIn('#差旅', sec)
+        self.assertIn('12,000', sec)
+        self.assertIn('YYX', sec)
+        self.assertIn('一段描述', sec)
+        self.assertIn('10:00', sec)
+
+    def test_done_item_rendered_done(self):
+        self._act('已完成', off=1, status='done')
+        sec = self._section()
+        self.assertIn('tl-item done', sec)
+        self.assertIn('取消完成', sec)
+
+    def test_empty_state(self):
+        sec = self._section()
+        self.assertIn('未来 7 天没有新安排', sec)
+        self.assertNotIn('tl-dayhead', sec)
+
+    # ── 状态端点 JSON 分支（时间线「标记完成」）──
+
+    def test_json_mark_complete_updates_db_and_logs(self):
+        a = self._act('完成它', off=1)
+        url = reverse('activities:activity_set_status', args=[a.id])
+        resp = self.client.post(url, {'status': 'done'}, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['done'])
+        self.assertEqual(data['status'], 'done')
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'done')
+        self.assertTrue(ActivityLog.objects.filter(
+            activity=a, action='status_changed').exists())
+
+    def test_json_unauthorized_returns_json_404(self):
+        other = User.objects.create_user('other', password='p')
+        a = Activity.objects.create(user=other, name='别人的', status='planned',
+                                    start_date=self.today + timedelta(days=1))
+        url = reverse('activities:activity_set_status', args=[a.id])
+        resp = self.client.post(url, {'status': 'done'}, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'planned')
+
+    def test_json_invalid_status_returns_400(self):
+        a = self._act('x', off=1)
+        url = reverse('activities:activity_set_status', args=[a.id])
+        resp = self.client.post(url, {'status': 'bogus'}, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('error', resp.json())
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'planned')
+
+    def test_json_anonymous_returns_401(self):
+        a = self._act('x', off=1)
+        self.client.logout()
+        url = reverse('activities:activity_set_status', args=[a.id])
+        resp = self.client.post(url, {'status': 'done'}, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 401)
+        self.assertTrue(resp.json().get('reauth'))
+
+    def test_htmx_fragment_priority_over_json(self):
+        """既有片段消费者即使带 Accept json 也仍拿 _daily_card 片段（HTML），不拿 JSON"""
+        a = self._act('x', off=1)
+        url = reverse('activities:activity_set_status', args=[a.id])
+        resp = self.client.post(url, {'status': 'done'},
+                                HTTP_ACCEPT='application/json', HTTP_HX_REQUEST='true')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('text/html', resp['Content-Type'])
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'done')
+
+    def test_full_page_form_redirects(self):
+        a = self._act('x', off=1)
+        url = reverse('activities:activity_set_status', args=[a.id])
+        resp = self.client.post(url, {'status': 'done'}, HTTP_REFERER='/')
+        self.assertEqual(resp.status_code, 302)
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'done')
