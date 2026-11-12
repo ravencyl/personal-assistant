@@ -3058,6 +3058,15 @@ class TodayHomeTest(TestCase):
         rest = html[html.index('接下来'):]
         self.assertIn('下周的事', rest)
 
+    def test_today_tile_shows_all_tags(self):
+        """今日时间线一行也展示全部标签，不只首个（2026-11-13 用户要求）"""
+        a = self._activity('今日多标签', start_time='09:00')
+        apply_tags(a, ['差旅', '美食', '亲子'])
+        html = self.client.get('/').content.decode()
+        timeline = html[html.index('今天的时间线'):html.index('本月支出')]
+        for name in ('差旅', '美食', '亲子'):
+            self.assertIn(f'#{name}', timeline)
+
     def test_login_required(self):
         self.client.logout()
         resp = self.client.get('/')
@@ -3199,6 +3208,24 @@ class TodayTimelineTest(TestCase):
         self.assertIn('YYX', sec)
         self.assertIn('一段描述', sec)
         self.assertIn('10:00', sec)
+
+    def test_multiple_tags_all_rendered(self):
+        """多标签活动展示全部标签，不再只取首个（2026-11-13 用户要求）"""
+        a = self._act('多标签', off=1)
+        apply_tags(a, ['差旅', '美食', '亲子'])
+        # 数据层：tags 是完整列表；折叠行 meta_parts 含每个 #名称
+        days, _, _ = self._data()
+        item = days[0]['items'][0]
+        self.assertEqual(set(item['tags']), {'差旅', '美食', '亲子'})
+        meta_html = ''.join(str(p) for p in item['meta_parts'])
+        for name in ('差旅', '美食', '亲子'):
+            self.assertIn(f'#{name}', meta_html)
+        # 渲染：折叠 meta 与展开详情都出现全部标签，详情每个标签一个 .td-tag
+        sec = self._section()
+        for name in ('差旅', '美食', '亲子'):
+            self.assertIn(f'#{name}', sec)
+        self.assertIn('td-tags', sec)
+        self.assertEqual(sec.count('class="td-tag"'), 3)
 
     def test_done_item_rendered_done(self):
         self._act('已完成', off=1, status='done')

@@ -150,9 +150,9 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
                                 <div class="td-statuswrap"><span class="tl-status {{ a.status }}"><span class="sd"></span>{{ a.status_label }}</span></div>
                             </div>
                             <div class="td-name">{{ a.name }}</div>
-                            {% if a.tag or a.cost_str or a.people %}
+                            {% if a.tags or a.cost_str or a.people %}
                             <div class="td-rows">
-                                {% if a.tag %}<div class="td-row"><span class="td-k">标签</span><span class="td-v">#{{ a.tag }}</span></div>{% endif %}
+                                {% if a.tags %}<div class="td-row"><span class="td-k">标签</span><span class="td-v td-tags">{% for t in a.tags %}<span class="td-tag">#{{ t }}</span>{% endfor %}</span></div>{% endif %}
                                 {% if a.cost_str %}<div class="td-row"><span class="td-k">费用</span><span class="td-v"><span class="cur">¥</span><span class="amt">{{ a.cost_str }}</span></span></div>{% endif %}
                                 {% if a.people %}<div class="td-row"><span class="td-k">参与者</span><span class="td-v td-people">{% for p in a.people %}<span class="td-person">{{ p }}</span>{% endfor %}</span></div>{% endif %}
                             </div>

@@ -297,8 +297,10 @@ def _upcoming_timeline(user, today):
             # mark_safe，模板只负责 join，避免在模板里写分隔符条件分支
             meta_parts = []
             if tags:
-                meta_parts.append(mark_safe(
-                    f'<span class="tag">#{escape(tags[0].name)}</span>'))
+                # 全部标签都展示（2026-11-13 用户要求，不再只取首个）：一个 .tag
+                # span 内空格分隔每个 #名称，整段随 .tl-meta 的 flex-wrap 自然换行
+                tags_html = ' '.join(f'#{escape(t.name)}' for t in tags)
+                meta_parts.append(mark_safe(f'<span class="tag">{tags_html}</span>'))
             if cost_str:
                 meta_parts.append(mark_safe(
                     f'<span class="cost"><span class="cur">¥</span>'
@@ -312,7 +314,7 @@ def _upcoming_timeline(user, today):
                 'time_label': a.start_time.strftime('%H:%M') if a.start_time else '全天',
                 'is_allday': a.start_time is None,
                 'name': a.name,
-                'tag': tags[0].name if tags else '',
+                'tags': [t.name for t in tags],
                 'cost_str': cost_str,
                 'meta_parts': meta_parts,
                 'people': people,
@@ -379,7 +381,8 @@ def today_home(request):
     timeline.sort(key=lambda a: (a.start_time or time(23, 59), a.start_date or today))
     for a in timeline:
         a.time_label = a.start_time.strftime('%H:%M') if a.start_time else '全天'
-        a.tile_tag = list(a.tags.all())[0].name if a.tags.all() else ''
+        # 全部标签都展示（2026-11-13 用户要求）：#名称 空格分隔，与「接下来」同口径
+        a.tile_tag = ' '.join(f'#{t.name}' for t in a.tags.all())
 
     # ── 本月支出（个人指标口径：只算本人费用，不走 visible_qs）──
     month_start = today.replace(day=1)
