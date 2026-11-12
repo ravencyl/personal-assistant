@@ -25,7 +25,7 @@ from django.db.models import Sum
 from activities.models import Activity, ActivityDraft, ActivityLog, Attachment, Expense, Participant, CalendarFeed
 from activities.views.daily_views import daily_brief_payload, gather_daily
 from core.agent_registry import CandidateToolError, ToolError
-from core.layout_asserts import assert_desktop_two_columns
+from core.layout_asserts import assert_desktop_two_columns, code_only
 from activities.services import (InputError, add_expense,
                                  create_activity_from_parsed, record_parsed_cost,
                                  start_due_activities)
@@ -3265,3 +3265,225 @@ class TodayTimelineTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         a.refresh_from_db()
         self.assertEqual(a.status, 'done')
+
+
+class TodayDescriptionEditTest(TestCase):
+    """今日页时间线「编辑描述」弹窗（2026-11-12 用户要求：卡片加按钮，点开弹窗直接编辑描述）。
+
+    三组锁：
+      · 端点行为 —— GET 取全文（卡片预览是 200 字截断，编辑必须拿全文，否则一保存就冲掉
+        200 字之后的内容）/ POST 落库+日志 / 允许清空 / 未变更不重复记日志 / 越权 JSON 404 /
+        匿名 401 / 非 GET·POST 405；
+      · 模板接线 —— 卡片按钮 data-edit-desc + data-url（reverse）/ 共享弹窗 role=dialog +
+        textarea name=description + JS 要查的 id 齐全 / 不挂 hx-*；
+      · JS·CSS 接线 —— data-edit-desc 委托开弹窗 / GET·POST 走 paJsonFetch / POST 带 X-CSRFToken /
+        就地更新 .td-desc + 广播 activities:changed / Escape 挂弹窗自身不挂 document /
+        预览截断与服务端同口径 / 用户数据走 textContent / .td-edit 样式与焦点环。
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.root = Path(settings.BASE_DIR)
+        cls.js = (cls.root / 'static' / 'js' / 'today-timeline.js').read_text(encoding='utf-8')
+        cls.js_code = cls._strip_js_comments(cls.js)
+        cls.modal = (cls.root / 'templates' / 'activities' /
+                     '_description_edit_modal.html').read_text(encoding='utf-8')
+        cls.css = (cls.root / 'static' / 'css' / 'today-timeline.css').read_text(encoding='utf-8')
+
+    def setUp(self):
+        self.user = User.objects.create_user('descuser', password='p')
+        self.client = Client()
+        self.client.login(username='descuser', password='p')
+        self.today = timezone.localdate()
+
+    @staticmethod
+    def _strip_js_comments(src):
+        # 与 chat/tests.py 同款：剔块注释 + 整行 // 注释，避免说明散文把禁用词锁打成假失败
+        no_block = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+        return re.sub(r'^\s*//.*$', '', no_block, flags=re.M)
+
+    def _act(self, name='看爸爸', off=0, **kw):
+        defaults = dict(user=self.user, name=name, status='planned',
+                        start_date=self.today + timedelta(days=off))
+        defaults.update(kw)
+        return Activity.objects.create(**defaults)
+
+    def _url(self, a):
+        return reverse('activities:activity_edit_description', args=[a.id])
+
+    def _today_section(self):
+        html = self.client.get('/').content.decode()
+        return html[html.index('upcoming-timeline'):]
+
+    # ── 端点行为 ──
+
+    def test_get_returns_full_description_not_truncated(self):
+        full = '描' * 300
+        a = self._act(description=full)
+        resp = self.client.get(self._url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['id'], a.id)
+        self.assertEqual(data['name'], a.name)
+        self.assertEqual(data['description'], full)      # 全文，不是 200 字预览
+        self.assertEqual(len(data['description']), 300)
+
+    def test_get_empty_description_returns_empty_string(self):
+        a = self._act(description='')
+        resp = self.client.get(self._url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['description'], '')
+
+    def test_post_saves_and_logs(self):
+        a = self._act(description='旧备注')
+        resp = self.client.post(self._url(a), {'description': '新备注：结论已定'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['description'], '新备注：结论已定')
+        a.refresh_from_db()
+        self.assertEqual(a.description, '新备注：结论已定')
+        self.assertTrue(ActivityLog.objects.filter(activity=a, action='edited').exists())
+
+    def test_post_clears_description(self):
+        a = self._act(description='要清掉的备注')
+        resp = self.client.post(self._url(a), {'description': ''},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['description'], '')
+        a.refresh_from_db()
+        self.assertEqual(a.description, '')
+
+    def test_post_unchanged_does_not_log(self):
+        a = self._act(description='一样的内容')
+        resp = self.client.post(self._url(a), {'description': '一样的内容'},
+                                HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(ActivityLog.objects.filter(activity=a, action='edited').exists())
+
+    def test_other_users_activity_get_and_post_json_404(self):
+        other = User.objects.create_user('other2', password='p')
+        a = Activity.objects.create(user=other, name='别人的', status='planned',
+                                    start_date=self.today, description='私密')
+        url = self._url(a)
+        g = self.client.get(url, HTTP_ACCEPT='application/json')
+        self.assertEqual(g.status_code, 404)
+        self.assertIn('error', g.json())
+        p = self.client.post(url, {'description': '篡改'}, HTTP_ACCEPT='application/json')
+        self.assertEqual(p.status_code, 404)
+        self.assertIn('error', p.json())
+        a.refresh_from_db()
+        self.assertEqual(a.description, '私密')          # 越权写绝不落库
+
+    def test_nonexistent_activity_json_404(self):
+        url = reverse('activities:activity_edit_description', args=[999999])
+        resp = self.client.get(url, HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('error', resp.json())
+
+    def test_anonymous_returns_401(self):
+        a = self._act()
+        self.client.logout()
+        resp = self.client.get(self._url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 401)
+        self.assertTrue(resp.json().get('reauth'))
+
+    def test_method_not_allowed(self):
+        a = self._act()
+        resp = self.client.put(self._url(a), HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 405)
+
+    # ── 模板接线 ──
+
+    def test_today_card_has_edit_button_with_url(self):
+        a = self._act(off=1)
+        sec = self._today_section()
+        self.assertIn(f'data-edit-desc="{a.id}"', sec)
+        self.assertIn(f'data-url="{self._url(a)}"', sec)
+        self.assertIn('编辑描述', sec)
+        self.assertIn('aria-haspopup="dialog"', sec)
+
+    def test_modal_partial_included_with_dialog_semantics(self):
+        self._act(off=1)
+        html = self.client.get('/').content.decode()
+        self.assertIn('id="desc-edit-modal"', html)
+        self.assertIn('id="desc-edit-panel"', html)
+        self.assertIn('role="dialog"', html)
+        self.assertIn('aria-modal="true"', html)
+        self.assertIn('aria-labelledby="desc-edit-title"', html)
+        for el_id in ('desc-edit-name', 'desc-edit-form', 'desc-edit-input',
+                      'desc-edit-status', 'desc-edit-error', 'desc-edit-submit',
+                      'desc-edit-close', 'desc-edit-cancel'):
+            self.assertIn(f'id="{el_id}"', html)
+        self.assertIn('name="description"', html)
+
+    def test_edit_button_and_modal_do_not_use_htmx(self):
+        # 按钮与弹窗都走原生 fetch，不得挂 hx-*（JsonEndpointNeverHtmxTest 也会自动扫到本端点）
+        self.assertNotIn('hx-', code_only(self.modal))
+        self._act(off=1)
+        for line in self._today_section().splitlines():
+            if 'data-edit-desc' in line:
+                self.assertNotIn('hx-', line)
+
+    # ── JS 接线 ──
+
+    def test_js_delegates_edit_desc_to_open_modal(self):
+        self.assertIn("closest('[data-edit-desc]')", self.js_code)
+        self.assertIn('openEditModal(editBtn)', self.js_code)
+
+    def test_js_get_and_post_go_through_shared_json_outlet(self):
+        get_body = self.js_code[self.js_code.index('function openEditModal'):
+                                self.js_code.index('function closeEditModal')]
+        post_body = self.js_code[self.js_code.index('function saveEdit'):
+                                 self.js_code.index('if (modal) {')]
+        self.assertIn('window.paJsonFetch', get_body)
+        self.assertIn("method: 'GET'", get_body)
+        self.assertIn('window.paJsonFetch', post_body)
+        self.assertIn("method: 'POST'", post_body)
+
+    def test_js_post_sends_csrf_and_description(self):
+        self.assertIn("body.set('description', value)", self.js_code)
+        self.assertIn("'X-CSRFToken': csrfToken()", self.js_code)
+
+    def test_js_updates_card_desc_and_broadcasts(self):
+        self.assertIn('function updateCardDesc', self.js_code)
+        self.assertIn("document.dispatchEvent(new CustomEvent('activities:changed'))", self.js_code)
+        self.assertIn('descEl.remove()', self.js_code)
+        self.assertIn('descEl.textContent = preview', self.js_code)
+        self.assertIn("detail.insertBefore(descEl, detail.querySelector('.td-actions')", self.js_code)
+
+    def test_js_preview_truncation_matches_server(self):
+        # 与服务端 daily_views 同口径：折叠空白 + 200 字截断
+        self.assertIn(".replace(/\\s+/g, ' ').trim()", self.js_code)
+        self.assertIn('s.length > 200 ? s.slice(0, 200)', self.js_code)
+
+    def test_js_escape_scoped_to_modal_not_document(self):
+        # AGENTS.md 禁全局键盘快捷键：Escape 必须挂弹窗自身
+        self.assertIn("modal.addEventListener('keydown'", self.js_code)
+        self.assertIn("e.key === 'Escape'", self.js_code)
+        self.assertNotIn("document.addEventListener('keydown'", self.js_code)
+
+    def test_js_card_desc_uses_textcontent_not_innerhtml(self):
+        # 用户数据（描述）一律 textContent；updateCardDesc 函数体内不得拼 HTML 字符串
+        body = self.js_code[self.js_code.index('function updateCardDesc'):
+                            self.js_code.index('function saveEdit')]
+        self.assertIn('textContent', body)
+        self.assertNotIn('innerHTML', body)
+
+    def test_js_focuses_panel_not_textarea_on_open(self):
+        self.assertIn('editPanel.focus()', self.js_code)
+
+    def test_js_get_failure_keeps_save_disabled(self):
+        # 加载失败绝不让用户在空值上保存（editLoaded 守门）
+        self.assertIn('if (!editState || !editLoaded) return', self.js_code)
+        self.assertIn('editLoaded = true', self.js_code)
+
+    # ── CSS 接线 ──
+
+    def test_css_styles_edit_button_and_focus_ring(self):
+        self.assertIn('#upcoming-timeline .td-edit', self.css)
+        self.assertIn('#upcoming-timeline .td-edit:hover', self.css)
+        self.assertIn('#upcoming-timeline .td-edit:focus-visible', self.css)
+        self.assertIn('#upcoming-timeline .td-ic', self.css)

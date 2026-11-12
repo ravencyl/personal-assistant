@@ -176,13 +176,18 @@
     border-radius: 999px; padding: 2px 9px;
 }
 #upcoming-timeline .td-desc { font-size: 12.5px; color: var(--tl-2); line-height: 1.65; padding-top: 11px; border-top: 1px dotted var(--tl-4); }
-#upcoming-timeline .td-actions { margin-top: 13px; display: flex; align-items: center; gap: 8px; }
-#upcoming-timeline .td-done {
+#upcoming-timeline .td-actions { margin-top: 13px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+#upcoming-timeline .td-done,
+#upcoming-timeline .td-edit {
     appearance: none; border: 1px solid var(--tl-line2); background: var(--tl-bg); color: var(--tl-2);
     font: inherit; font-size: 12px; padding: 6px 13px; border-radius: 9px; cursor: pointer; transition: background .15s, color .15s;
 }
 #upcoming-timeline .td-done:hover { background: var(--tl-text); color: var(--tl-bg); border-color: var(--tl-text); }
 #upcoming-timeline .td-done.is-done { color: var(--tl-3); }
+/* 编辑描述：次级动作，hover 走浅灰 inset（不像「标记完成」那样反黑），带铅笔图标 */
+#upcoming-timeline .td-edit { display: inline-flex; align-items: center; gap: 5px; }
+#upcoming-timeline .td-edit:hover { background: var(--tl-inset); color: var(--tl-text); }
+#upcoming-timeline .td-ic { width: 13px; height: 13px; flex: none; }
 #upcoming-timeline .td-open { font-size: 12px; color: var(--tl-3); transition: color .15s; }
 #upcoming-timeline .td-open:hover { color: var(--tl-text); }
 
@@ -211,6 +216,7 @@
 #upcoming-timeline .tl-item:focus-visible,
 #upcoming-timeline .td-close:focus-visible,
 #upcoming-timeline .td-done:focus-visible,
+#upcoming-timeline .td-edit:focus-visible,
 #upcoming-timeline .td-open:focus-visible,
 #upcoming-timeline .tl-all:focus-visible { outline: 2px solid var(--tl-text); outline-offset: 2px; }
 

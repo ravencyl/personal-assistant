@@ -12,7 +12,7 @@ from django.db.models import Count, Sum
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 
 from core.tags import apply_tags, tag_names, tag_suggestions, used_tags
 from core.upload import MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB
@@ -22,7 +22,7 @@ from ..models import Activity, Participant, Attachment
 from ..services import (InputError, add_expense, change_activity_status,
                         clean_amount, create_activity_from_parsed,
                         start_due_activities)
-from ..utils import log_activity, resolve_participants
+from ..utils import edit_summary, log_activity, resolve_participants, snapshot_activity
 from ._common import _user_tag_names, attach_costs
 
 
@@ -162,6 +162,33 @@ def activity_set_status(request, activity_id):
     if referer:
         return redirect(referer)
     return redirect('activities:activity_detail', activity.id)
+
+
+@json_login_required
+@require_http_methods(['GET', 'POST'])
+def activity_edit_description(request, activity_id):
+    """今日页时间线「编辑描述」弹窗（JSON 通道，原生 fetch 消费，严禁 hx-*）。
+
+    GET 回当前描述全文：时间线卡片上的 desc 是 200 字截断预览，编辑必须拿全文，
+    否则用户一保存就把 200 字之后的内容冲掉了。POST 落库并记日志，允许清空
+    （TextField blank=True，与表单编辑同口径，不做下限校验）。
+    越权/不存在回 JSON 404（get_visible 抛 Http404 会回 HTML 错误页，fetch 的
+    r.json() 直接炸）；与状态/钉选/问 AI 端点同口径。
+    """
+    activity = visible_qs(Activity, request.user).filter(id=activity_id).first()
+    if activity is None:
+        return JsonResponse({'error': '活动不存在或无权访问'}, status=404)
+    if request.method == 'GET':
+        return JsonResponse({'ok': True, 'id': activity.id, 'name': activity.name,
+                             'description': activity.description or ''})
+    new_desc = request.POST.get('description', '')
+    if new_desc != (activity.description or ''):
+        old = snapshot_activity(activity)
+        activity.description = new_desc
+        activity.save(update_fields=['description', 'updated_at'])
+        log_activity(request.user, activity, 'edited', edit_summary(old, activity))
+    return JsonResponse({'ok': True, 'id': activity.id,
+                         'description': activity.description or ''})
 
 
 @login_required

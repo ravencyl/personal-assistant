@@ -10,6 +10,8 @@ urlpatterns = [
     path('new/', views.activity_create, name='activity_create'),
     path('<int:activity_id>/', views.activity_detail, name='activity_detail'),
     path('<int:activity_id>/status/', views.activity_set_status, name='activity_set_status'),
+    path('<int:activity_id>/description/', views.activity_edit_description,
+         name='activity_edit_description'),
     path('<int:activity_id>/pin/', views.activity_pin_toggle, name='activity_pin_toggle'),
     path('<int:activity_id>/edit/', views.activity_edit, name='activity_edit'),
     path('<int:activity_id>/subactivities/', views.add_subactivity, name='add_subactivity'),

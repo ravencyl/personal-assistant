@@ -1,0 +1,32 @@
+{% comment %}今日页时间线「编辑描述」弹窗（2026-11-12 用户要求：卡片上加按钮，点开弹窗直接编辑活动描述）。
+共享单实例：点卡片「编辑描述」按钮时由 today-timeline.js 填充活动名与描述全文（GET 端点），
+保存走 POST JSON 端点，成功后就地更新卡片描述预览，不整页刷新。结构沿用新建活动弹窗
+（.panel + role=dialog + aria-modal + 行内错误条，不用原生 alert）。Escape 监听挂在弹窗自身
+（焦点在弹窗内才生效），不挂 document 全局——AGENTS.md 禁全局键盘快捷键。原生 fetch，严禁 hx-*。{% endcomment %}
+<div id="desc-edit-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div id="desc-edit-panel" class="panel w-full max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="desc-edit-title" tabindex="-1">
+        <div class="flex items-center justify-between px-5 sm:px-6 pt-4 pb-3 border-b border-[var(--border)] shrink-0">
+            <h3 id="desc-edit-title" class="text-lg font-bold text-[var(--text)]">编辑描述</h3>
+            <button type="button" id="desc-edit-close" class="tap-target inline-flex items-center justify-center w-8 h-8 rounded-full text-[var(--text-muted)] hover:bg-[var(--accent-light)] hover:text-[var(--text)] transition-colors" title="关闭" aria-label="关闭">&#10005;</button>
+        </div>
+        <div class="overflow-y-auto px-5 sm:px-6 py-4">
+            <p class="tf-lb mb-1">活动</p>
+            <p id="desc-edit-name" class="text-base font-semibold text-[var(--text)] mb-4 break-words"></p>
+            <form id="desc-edit-form" class="space-y-4">
+                {% csrf_token %}
+                <div>
+                    <label for="desc-edit-input" class="tf-lb block mb-2">描述</label>
+                    <textarea id="desc-edit-input" name="description" rows="6"
+                              class="w-full rounded-[var(--radius-ctl)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:outline-none resize-y"
+                              placeholder="补充这个活动的备注、结论或待定项…"></textarea>
+                </div>
+                <p id="desc-edit-status" class="hidden text-sm text-[var(--text-muted)]"></p>
+                <p id="desc-edit-error" class="hidden text-sm font-semibold text-[var(--text)]"></p>
+                <div class="flex items-center gap-2 pt-1">
+                    <button type="submit" id="desc-edit-submit" class="tap-target inline-flex items-center justify-center rounded-full bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50">保存</button>
+                    <button type="button" id="desc-edit-cancel" class="tap-target inline-flex items-center justify-center rounded-full border border-[var(--border)] px-5 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--accent-light)] transition-colors">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

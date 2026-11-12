@@ -160,6 +160,7 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
                             {% if a.desc %}<div class="td-desc">{{ a.desc }}</div>{% endif %}
                             <div class="td-actions">
                                 <button type="button" class="td-done{% if a.is_done %} is-done{% endif %}" data-done="{{ a.id }}" data-prev="{{ a.restore_status }}" data-url="{% url 'activities:activity_set_status' a.id %}">{% if a.is_done %}取消完成{% else %}标记完成{% endif %}</button>
+                                <button type="button" class="td-edit" data-edit-desc="{{ a.id }}" data-url="{% url 'activities:activity_edit_description' a.id %}" aria-haspopup="dialog"><svg class="td-ic" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>编辑描述</button>
                                 <a class="td-open" href="{% url 'activities:activity_detail' a.id %}">完整详情 →</a>
                             </div>
                         </div>
@@ -181,6 +182,8 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
     <p class="py-4 text-sm text-[var(--text-muted)]">未来 7 天没有新安排</p>
     {% endif %}
 </section>
+
+{% include "activities/_description_edit_modal.html" %}
 {% endblock %}
 
 {% block extra_js %}
