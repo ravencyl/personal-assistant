@@ -9,9 +9,9 @@
 
 {% block content %}
 {% comment %}
-Typeframe 今日页（2026-10-27 定稿，对标 typeframe mockup VIEW 1）：
-纯白画布 + 浅灰水印日期 + 排版分区（.tf-lb 小标签），无边框零卡片。
-本页刻意单列（Typeframe 画布自成分区节奏），section 标签文案被
+灰底白卡今日页（2026-11-12 用户决定：灰色底、白色板块、圆角阴影）：
+浅灰画布 + 页眉水印日期（.tf-watermark）留在灰底，正在处理 / 今天的时间线 /
+本月支出 / 接下来各包一块白色 .app-card 面板。本页刻意单列，section 标签文案被
 TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下来」顺序不可乱。
 （「按标签看」标签筛选分区 2026-11-11 用户决定下线。）
 {% endcomment %}
@@ -19,7 +19,7 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
     {# 浅灰水印大数字（Playfair，纯装饰；字号在 custom.css 的 .tf-watermark）#}
     <div class="tf-watermark tf-watermark--page absolute right-0 top-0 select-none" aria-hidden="true">{{ today_day }}</div>
 
-    {# 问候：标题行「周一 / 10 月 27 日」 #}
+    {# 问候：标题行「周一 / 10 月 27 日」（页眉留在灰底上，下方分区进白卡） #}
     <div class="relative z-10">
         <h1 class="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
             {{ weekday_label }} <span class="font-normal text-[var(--tf-fg4)]">/</span> {{ month_day }}
@@ -32,33 +32,35 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
             <span>{{ covered_count }} 项覆盖今天</span>
         </p>
     </div>
+</section>
 
-    {# ── 正在处理：头条排版，无卡片 ── #}
-    <div class="relative z-10 mt-11">
-        <p class="tf-lb">正在处理</p>
-        {% if in_progress %}
-        <a href="{% url 'activities:activity_detail' in_progress.0.id %}"
-           class="block text-xl sm:text-2xl font-bold leading-relaxed tracking-tight hover:opacity-65 transition-opacity">
-            {{ in_progress.0.name }}
-        </a>
-        <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
-            共 {{ in_progress|length }} 项长期进行中
-            {% if in_progress|length > 1 %}，如 {{ in_progress.1.name }}{% endif %}
-        </p>
-        {% else %}
-        <p class="text-sm text-[var(--text-muted)]">没有长期进行中的活动</p>
-        {% endif %}
-        {% if overdue %}
-        <p class="mt-4 text-sm text-[var(--text-secondary)]">
-            <span class="tf-num text-lg font-medium align-middle">{{ overdue|length }}</span> 项过期待处理 ——
-            <a href="{% url 'activities:activity_list' %}" class="underline underline-offset-4 decoration-[var(--tf-fg4)] hover:decoration-[var(--text)]">{{ overdue.0.name }}{% if overdue|length > 1 %} 等 {{ overdue|length }} 项{% endif %} →</a>
-        </p>
-        {% endif %}
-    </div>
+{# ── 正在处理：白色卡片（灰底白卡 2026-11-12） ── #}
+<div class="app-card relative z-10 mt-8 p-5 sm:p-6" aria-label="正在处理">
+    <p class="tf-lb">正在处理</p>
+    {% if in_progress %}
+    <a href="{% url 'activities:activity_detail' in_progress.0.id %}"
+       class="mt-2 block text-xl sm:text-2xl font-bold leading-relaxed tracking-tight hover:opacity-65 transition-opacity">
+        {{ in_progress.0.name }}
+    </a>
+    <p class="mt-1.5 text-sm text-[var(--text-secondary)]">
+        共 {{ in_progress|length }} 项长期进行中
+        {% if in_progress|length > 1 %}，如 {{ in_progress.1.name }}{% endif %}
+    </p>
+    {% else %}
+    <p class="mt-2 text-sm text-[var(--text-muted)]">没有长期进行中的活动</p>
+    {% endif %}
+    {% if overdue %}
+    <p class="mt-4 text-sm text-[var(--text-secondary)]">
+        <span class="tf-num text-lg font-medium align-middle">{{ overdue|length }}</span> 项过期待处理 ——
+        <a href="{% url 'activities:activity_list' %}" class="underline underline-offset-4 decoration-[var(--tf-fg4)] hover:decoration-[var(--text)]">{{ overdue.0.name }}{% if overdue|length > 1 %} 等 {{ overdue|length }} 项{% endif %} →</a>
+    </p>
+    {% endif %}
+</div>
 
-    {# ── 今天的时间线：一行一事项，时间用 Playfair ── #}
-    <div class="relative z-10 mt-11">
-        <p class="tf-lb">今天的时间线</p>
+{# ── 今天的时间线：一行一事项，时间用 Playfair ── #}
+<div class="app-card relative z-10 mt-5 p-5 sm:p-6" aria-label="今天的时间线">
+    <p class="tf-lb">今天的时间线</p>
+    <div class="mt-2">
         {% for a in timeline %}
         <a href="{% url 'activities:activity_detail' a.id %}"
            class="group flex items-baseline gap-3 sm:gap-4 py-2.5 hover:opacity-70 transition-opacity">
@@ -73,21 +75,21 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
         <p class="py-4 text-sm text-[var(--text-muted)]">今天没有安排，享受空白</p>
         {% endfor %}
     </div>
+</div>
 
-    {# ── 本月花费：pull-quote 大数字（¥ 独立 sans span，Playfair 缺 ¥ 字形）── #}
-    <div class="relative z-10 mt-11">
-        <p class="tf-lb">本月支出</p>
-        <p class="tf-num text-4xl sm:text-5xl font-medium tracking-tight">
-            <span class="tf-cur">¥</span>{{ month_expense|floatformat:0 }}
-        </p>
-        <p class="mt-2.5 text-xs text-[var(--text-muted)]">
-            今天 ¥{{ today_expense|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>本周 ¥{{ week_expense|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>日均 ¥{{ daily_avg|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>月份已过 {{ month_pct }}%
-        </p>
-        <div class="tf-pbar mt-4 max-w-sm" role="img" aria-label="本月时间进度 {{ month_pct }}%">
-            <div class="tf-pfill" style="width: {{ month_pct }}%;"></div>
-        </div>
+{# ── 本月花费：pull-quote 大数字（¥ 独立 sans span，Playfair 缺 ¥ 字形）── #}
+<div class="app-card relative z-10 mt-5 p-5 sm:p-6" aria-label="本月支出">
+    <p class="tf-lb">本月支出</p>
+    <p class="tf-num mt-2 text-4xl sm:text-5xl font-medium tracking-tight">
+        <span class="tf-cur">¥</span>{{ month_expense|floatformat:0 }}
+    </p>
+    <p class="mt-2.5 text-xs text-[var(--text-muted)]">
+        今天 ¥{{ today_expense|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>本周 ¥{{ week_expense|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>日均 ¥{{ daily_avg|floatformat:0 }}<span class="mx-1.5 text-[var(--tf-fg4)]" aria-hidden="true">·</span>月份已过 {{ month_pct }}%
+    </p>
+    <div class="tf-pbar mt-4 max-w-sm" role="img" aria-label="本月时间进度 {{ month_pct }}%">
+        <div class="tf-pfill" style="width: {{ month_pct }}%;"></div>
     </div>
-</section>
+</div>
 
 {% comment %}
 ── 接下来：7 天时间线（2026-11-12 用户定策：完全还原 demo 变体A）──
@@ -95,7 +97,7 @@ TodayHomeTest 锁定：「今天的时间线」→「本月支出」→「接下
 脊柱与文字近深远浅、粉色节点=今天；点活动展开内联详情、点日期折叠整天。
 交互在 static/js/today-timeline.js；样式在 static/css/today-timeline.css 的 #upcoming-timeline 段。
 {% endcomment %}
-<section id="upcoming-timeline" class="relative z-10 mt-11 mb-8" aria-label="即将开始的活动">
+<section id="upcoming-timeline" class="app-card relative z-10 mt-5 mb-8 overflow-hidden p-5 sm:p-6" aria-label="即将开始的活动">
     <div class="tl-wm" aria-hidden="true">7</div>
     <div class="tl-head">
         <div>

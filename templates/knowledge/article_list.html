@@ -53,6 +53,8 @@
     <!-- 标签筛选栏 -->
     {# 标签筛选：移动端一行横滑，桌面换行；chips 32px 折衷触区 #}
     {% if all_tags %}
+    {# 灰底白卡（2026-11-12）：标签 chips 包白色面板，浅灰 chip 在白底上才看得见；无标签时整卡不渲染 #}
+    <div class="app-card p-4">
     <div class="flex flex-nowrap overflow-x-auto pb-1 -mx-1 px-1 gap-2 md:flex-wrap" id="article-tag-filter">
         <a href="{% url 'knowledge:article_list' %}{% if query %}?q={{ query|urlencode }}{% endif %}"
            class="shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-colors {% if not current_tag %}bg-[var(--accent)] text-white{% else %}bg-[var(--accent-light)] text-[var(--text-secondary)] hover:text-[var(--text)]{% endif %}">
@@ -65,6 +67,7 @@
         </a>
         {% endfor %}
     </div>
+    </div><!-- /标签白卡 -->
     {% endif %}
 
 </div><!-- /右列 -->

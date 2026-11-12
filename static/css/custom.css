@@ -1,9 +1,10 @@
 /* ============================================================
-   Typeframe 设计系统（纯白黑字 · 零框线 · 排版层级 · 2026-10-27 定稿）
+   灰底白卡设计系统（浅灰画布 · 白色圆角阴影卡片 · 排版层级 · 2026-11-12 定稿）
    ============================================================
 
-   【核心理念】纯白 #FFFFFF 画布 + 黑色文字。没有任何框、线、卡片、阴影
-   （浮层除外）；功能隔离全部交给字号 / 字重 / 五档灰阶 / 留白 / 小写大写标签。
+   【核心理念】浅灰 #F2F2F7 画布 + 白色圆角阴影卡片（.app-card/.panel）+ 黑色文字。
+   模块边界由「白色卡片表面 + 柔和阴影 + 圆角」承担，卡内层级仍靠字号 / 字重 /
+   五档灰阶 / 留白 / 小写大写标签。强调色即黑色本身，品牌粉只点缀「今天」。
 
    【灰阶五档】（层级唯一来源之一）
    - L1 #000000 标题/重点数字    L2 #555555 正文次要    L3 #8A8A8A 说明/辅助
@@ -22,7 +23,7 @@
      （进行中=黑 > 计划=中灰 > 完成=浅灰 > 取消=最浅+删除线），见下方状态段
    - 标签色已整体下线（tag-wash/tag-chip/tag-dot/--tag-color 全链删除），
      Tag.color 字段保留但不再用于渲染
-   - 仍然禁止：渐变、大面积色块、装饰性边框
+   - 仍然禁止：彩虹色相、大面积彩色块；灰底白卡的中性灰与黑字是唯一底色
 
    【字体层级】（2026-10-13 收敛为 7 档，同角色禁止多档并存）
    - display：text-2xl sm:text-3xl（报告/登录大标题）
@@ -43,8 +44,8 @@
    - 用留白替代分隔线
 
    【边框原则】
-   - 平面元素一律无边框无底色（.app-card/.card 已改为透明无界）
-   - 仅浮层（弹窗/下拉/抽屉/快记面板）保留 .panel：白底 + 1px 细线 + 中性投影
+   - 页面一级卡 .app-card：白底 + 圆角(--radius-card 20px) + 柔和阴影 + 发丝边
+   - 浮层（弹窗/下拉/抽屉/搜索面板）.panel：白底 + 圆角 + 1px 细线 + 较重投影
    - 输入框：无框线，底部 1px 黑下划线（.tf-underline），聚焦加粗到 2px
 
    【状态映射】（唯一定义处 = 下方 --status-* 变量与四个工具类）
@@ -64,45 +65,45 @@
    ============================================================ */
 
 :root {
-    /* 2026-10-27 全站切换 Typeframe 视觉（typeframe mockup 用户定稿）：
-       纯白画布 + 黑字，零边框零卡片零阴影，层级靠字号/字重/灰阶/留白。
-       强调色即黑色本身（主按钮黑底白字、链接纯黑下划线、聚焦黑描边）；
-       accent-* 令牌改指黑/浅灰，模板无需改名即可整体换向。
-       状态语义色（--status-*）是数据语义，不属于「框线色彩」，保持彩色。 */
+    /* 2026-11-12 全站切换「灰底白卡」视觉（用户决定：灰色底、白色板块、圆角阴影）：
+       浅灰画布（--bg）承托白色圆角阴影卡片（--bg-card / .app-card），层级靠
+       卡片表面 + 字号/字重/灰阶/留白。强调色仍是黑色本身（主按钮黑底白字、
+       链接纯黑、聚焦黑描边）；品牌粉 #d98aa0 只用于「今天」节点。
+       状态语义（--status-*）保持灰阶强度、标签纯文字（2026-10-27 去色决定不变）。 */
     --accent: #000000;
     --accent-hover: #333333;
     --accent-text: #000000;
-    --accent-light: #f5f5f5;    /* hover/选中浅灰底 */
-    --bg: #ffffff;              /* Typeframe（2026-10-27 定稿）：纯白画布，零边框零卡片 */
-    --bg-card: #ffffff;
-    --text: #000000;            /* Typeframe 灰阶五档：黑 → #555 → #8A8A8A → #B5B5B5 → #E5E5E5 */
+    --accent-light: #f5f5f5;    /* 白卡上的 hover/选中浅灰底 */
+    --bg: #f2f2f7;              /* 灰底白卡（2026-11-12 定稿）：iOS 分组浅灰画布 */
+    --bg-card: #ffffff;         /* 白色板块：.app-card / .panel / 导航 */
+    --text: #000000;            /* 灰阶五档：黑 → #555 → #8A8A8A → #B5B5B5 → #E5E5E5 */
     --text-secondary: #555555;
     --text-muted: #8a8a8a;
     --border: rgba(0, 0, 0, 0.06);
     --border-strong: rgba(0, 0, 0, 0.12);
-    /* Typeframe 新灰阶档位（与上面旧 token 并存，逐步迁移）：
-       tf-4 = 时间/小标签（#B5B5B5），tf-5 = 背景装饰/水印（#E5E5E5） */
+    /* 灰阶档位：tf-4 = 时间/小标签（#B5B5B5），tf-5 = 背景装饰/水印（#E5E5E5） */
     --tf-fg4: #b5b5b5;
     --tf-fg5: #e5e5e5;
 
-    /* 阴影令牌（Typeframe：纯中性黑，仅浮层用，平面元素一律 none） */
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.10);
-    --shadow-hover: 0 18px 36px -18px rgba(0, 0, 0, 0.18);
+    /* 阴影令牌（灰底白卡：卡片柔和投影，浮层更重） */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.12);
+    --shadow-hover: 0 18px 36px -18px rgba(0, 0, 0, 0.20);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.05);
     --card-inner-glow: none;
 
-    /* 圆角 4 档（2026-10-16 Bento 定稿：页面一级卡 28px / 二级面 20px / 控件 16px；
-       控件档 12→16 为 2026-10-16 用户拍板的整站圆角升级）：
-       R-card 页面一级卡 / R-surface 卡内二级面·弹窗·气泡 / R-ctl 按钮·输入框·select / R-pill 徽章·chip */
-    --radius-card: 1.75rem;     /* 28px，.app-card/.panel/今日页 tile */
+    /* 圆角档位（灰底白卡 2026-11-12：页面一级卡 20px / 二级面 16px / 控件 16px）：
+       R-card 页面一级卡(.app-card/.panel) / R-ctl 按钮·输入框·select / R-pill 徽章·chip */
+    --radius-card: 1.25rem;     /* 20px，.app-card/.panel/今日页面板 */
     --radius-ctl: 16px;
 }
 
 /* ══════════════════════════════════════════════════════════
-   Typeframe 设计体系（2026-10-27 定稿，全站落地）
+   排版原语（tf-*，2026-10-27 定稿；2026-11-12 灰底白卡后仍沿用）
    ──────────────────────────────────────────────────────────
-   纯白底 + 黑字，零边框零卡片零阴影，层级全靠字号/字重/灰度/留白。
+   画布已改浅灰 + 白色圆角阴影卡片（见 :root 与 .app-card/.panel），
+   但卡内层级仍靠这套排版原语：字号/字重/五档灰阶/留白。
    • 数字字体 Playfair Display（woff2 本地可变字体，38KB）：
      必须带 font-feature-settings: "lnum" 1, "tnum" 1 —— Playfair 默认
      oldstyle figures（3/4/5/7/9 有升部、6/8 有降部），金额数字会上下
@@ -110,8 +111,8 @@
    • ¥ 符号在 Playfair latin 子集里缺字：货币符号必须单独挂 sans
      （.tf-cur），否则回落冬青黑与衬线数字混排（同日 mockup 实锤）。
    • 中文回落系统黑体（PingFang SC / Hiragino Sans GB）。
-   • 全站唯一允许的「线」：输入框底线（.tf-underline）与点线引导
-     （.tf-dots）。卡片、边框、阴影一律不用。
+   • 卡内允许的「线」：输入框底线（.tf-underline）与点线引导（.tf-dots）；
+     卡片边界由白卡表面 + 发丝边 + 阴影承担，不再另画分隔线。
    ══════════════════════════════════════════════════════════ */
 @font-face {
     font-family: 'Playfair Display';
@@ -322,14 +323,14 @@ textarea {
     border-radius: var(--radius-ctl) !important;
 }
 
-/* 卡片：Typeframe（2026-10-27）——透明无界。卡片时代终结，模块边界
-   由留白 + .tf-lb 小标签承担；类名保留是为了不逐个改 60+ 模板引用 */
+/* 卡片：灰底白卡（2026-11-12 用户决定）——白色表面 + 圆角 + 柔和阴影 + 发丝边。
+   60+ 模板引用 .app-card，改这一处即整站恢复卡片层级；内距仍由模板 p-* 给。 */
 .app-card {
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    transition: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    transition: box-shadow 0.2s ease;
 }
 
 /* 折叠卡（活动详情页的 details.app-card）：折叠态就是一行标题，别让上下留白占大头
@@ -341,13 +342,13 @@ textarea {
     margin-bottom: 0.75rem;
 }
 
-/* 面板：浮层容器（弹窗/下拉/抽屉仍需要边界感——浮在纯白页上若无边界
-   会看不出哪里是浮层，此处保留 Typeframe 版极简边界：1px 细线，无阴影） */
+/* 面板：浮层容器（弹窗/下拉/抽屉/搜索面板）——白底 + 圆角 + 细线 + 较重投影，
+   浮在灰底页上有清晰边界（灰底白卡 2026-11-12） */
 .panel {
     background: var(--bg-card);
     border: 1px solid var(--border-strong);
-    border-radius: 0;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-card);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.10);
 }
 
 /* 问 AI 抽屉：活动详情页内嵌对话（2026-09-21）。
@@ -1022,6 +1023,13 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
     flex-direction: column;
     /* 顶距压小后（聊天页 main py-3）：顶栏 3.5rem + 上 0.75rem + 下 Tab 区 4.5rem */
     height: calc(100dvh - 8.75rem - env(safe-area-inset-bottom, 0px));
+    /* 灰底白卡（2026-11-12）：聊天容器本身是一块白色圆角阴影面板，
+       左栏列表与右栏消息流同在白卡内，靠 .chat-sidebar 的 border-right 分隔 */
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
 }
 
 /* 桌面端侧栏折叠（状态存 localStorage）：把横向空间还给消息流 */
@@ -1219,7 +1227,7 @@ details[data-mobile-collapse][open] summary span[aria-hidden] {
     bottom: 0;
     width: 360px;
     z-index: 50;
-    background: var(--bg);
+    background: var(--bg-card);
     border-right: 1px solid var(--border);
     transform: translateX(-100%);
     transition: transform .2s ease-out;

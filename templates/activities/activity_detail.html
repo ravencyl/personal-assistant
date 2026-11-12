@@ -300,8 +300,8 @@
     <!-- 右列：附件 · 参与者 · 关联（桌面端 320px 栏且整列常驻，移动端顺排在主内容流之后） -->
     <div class="page-rail space-y-4 sm:space-y-6">
         <!-- 桌面端快捷操作（右列顶部，随整列常驻）：移动端隐藏，四个入口本身就在单列流里，重复出现反而占高。
-             Typeframe：非浮层不用 panel 卡壳，纯文字链接列表 -->
-        <section class="hidden md:block">
+             灰底白卡（2026-11-12）：与右列其余 fold-card app-card 同款白色圆角阴影面板 -->
+        <section class="hidden md:block app-card p-4">
             <p class="tf-lb mb-2">快捷操作</p>
             <div class="grid grid-cols-2 gap-x-3 gap-y-1">
                 <a href="{% url 'activities:activity_edit' activity.id %}"

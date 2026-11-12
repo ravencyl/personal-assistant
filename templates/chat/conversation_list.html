@@ -3,11 +3,12 @@
 
 {% block title %}AI 对话 · {{ SITE_NAME }}{% endblock %}
 
-{# 对话是默认界面，把屏幕还给消息流：加宽容器、压小留白（base.html main 的 main_class 钩子） #}
-{% block main_class %}mx-auto max-w-[1700px] px-0 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-28 sm:py-4 md:pb-4{% endblock %}
+{% comment %}对话是默认界面，把屏幕还给消息流：加宽容器、压小留白（base.html main 的 main_class 钩子）。
+灰底白卡（2026-11-12）：px-3 sm:px-4 让白色 .chat-layout 卡片四周露出浅灰画布{% endcomment %}
+{% block main_class %}mx-auto max-w-[1700px] px-3 sm:px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-28 sm:py-4 md:pb-4{% endblock %}
 
 {% block content %}
-{# Typeframe（2026-10-27）：聊天页回到全站白底黑字令牌，Aurora 深色壳已退役 #}
+{# 灰底白卡（2026-11-12）：聊天容器是白色圆角阴影面板（.chat-layout），黑字令牌；深色沉浸壳已退役 #}
 {# 分栏布局容器：桌面端左右两栏同屏；移动端靠 data-view 在列表/聊天视图间切换 #}
 <div id="chat-layout" class="chat-layout"
      data-active-id="{{ active_conversation.id|default:'' }}">

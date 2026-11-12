@@ -3,7 +3,7 @@
 {% block title %}{{ conversation.title }} · {{ SITE_NAME }}{% endblock %}
 
 {% block content %}
-{# Typeframe（2026-10-27）：聊天页回到全站白底黑字令牌，Aurora 深色壳已退役 #}
+{# 灰底白卡（2026-11-12）：消息流 + 输入框包白色面板，黑字令牌；深色沉浸壳已退役 #}
 <div class="flex justify-between items-center mb-4">
     <div>
         <a href="{% url 'chat:conversation_list_with_active' conversation.id %}" class="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">&larr; 返回对话列表</a>
@@ -39,6 +39,9 @@ Django 消息框架变量消费）。单条消息的渲染在 chat/partials/_mes
 末尾两个 include 是异步收发的接线：
   turn_resume → 「这一轮还在跑」的隐藏数据，JS 读到就接上轮询（刷新不丢本轮）
   turn_error  → 本轮中断的气泡 + 「重试」（原文带在 data-retry-text 里）{% endcomment %}
+{% comment %}灰底白卡（2026-11-12）：消息流 + 进度 + 钉选 + 输入框包一块白色面板，页眉留在灰底。
+各 id（messages/message-form/message-input/message-pin）不变，chat-turn.js 接线不受影响{% endcomment %}
+<div class="app-card p-4 sm:p-6">
 <div id="messages" class="space-y-4 mb-2" data-turn-resume-host>
     {% include "chat/partials/_history_older.html" %}
     {% for msg in chat_messages %}{% include "chat/partials/_message.html" %}{% empty %}
@@ -76,6 +79,7 @@ action 保留是为了给 JS 提供 URL，也兼容无 JS 提交（视图会 red
         </button>
     </div>
 </form>
+</div><!-- /.app-card 聊天面板 -->
 
 <script>
 // 与分栏页共用同一个 PaChatTurn 实现（两处各写一套必然漂移）

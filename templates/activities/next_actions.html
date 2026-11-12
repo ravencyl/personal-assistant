@@ -16,7 +16,8 @@
         接下来 7 天
         <span class="ml-1.5 text-[var(--text-muted)] font-normal normal-case">{{ upcoming|length }}</span>
     </h2>
-    <div class="space-y-2" id="next-actions-list">
+    {# 灰底白卡（2026-11-12）：行动列表包白色面板，行 hover 浅灰；id 不变，整卡触区委托照常 #}
+    <div class="app-card space-y-1 p-2 sm:p-3" id="next-actions-list">
         {% for a in upcoming %}
         {# 外 div 内 a 模式（与活动列表移动卡同款）：卡片名就是真链接，整卡空白由页尾委托跳详情；#}
         {# 不用 onclick location.href，行内「属于 xx」父活动链接不受影响（委托先排除 a/button/form） #}

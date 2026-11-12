@@ -66,8 +66,8 @@
     <link rel="icon" type="image/png" sizes="48x48" href="{% static 'icons/favicon-48.png' %}">
     {# iOS 加到主屏只认这个文件名，且必须方角铺满（系统会再罩一层 mask） #}
     <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
-    {# theme-color 可被页面覆写（聊天页 Aurora 深色用 #0b0d1a，PWA 状态栏同色） #}
-    {% block meta_theme %}<meta name="theme-color" content="#ffffff">{% endblock %}
+    {# theme-color 可被页面覆写（灰底白卡 2026-11-12：默认与画布同色 #f2f2f7，PWA 状态栏同色） #}
+    {% block meta_theme %}<meta name="theme-color" content="#f2f2f7">{% endblock %}
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="{{ SITE_NAME }}">
@@ -95,7 +95,7 @@
         <!-- Navigation（2026-10-08 移动端合并进底部 Tab 栏：登录后顶栏只剩 logo+铃铛+退出，
              logo 链接 / 实际重定向到对话页与 Tab 重复，故整条隐藏；铃铛/退出落点在「我的」(dashboard)，
              未登录顶栏保留「登录」入口） -->
-        <nav class="{% if user.is_authenticated %}hidden md:block {% endif %}bg-[var(--bg)] sticky top-0 z-40">
+        <nav class="{% if user.is_authenticated %}hidden md:block {% endif %}bg-[var(--bg-card)] shadow-[var(--shadow-sm)] sticky top-0 z-40">
             <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <div class="flex h-14 justify-between">
                     <div class="flex">
@@ -187,7 +187,7 @@
          激活黑粗、未激活灰（mockup .mob-nav 同款）。条目清单仍由 PrimaryNavTest 锁定：
          今日/活动/对话/我的（快记 dock 2026-10-28 随快记功能整体下线移除）；
          「记忆」入口在桌面顶栏（2026-10-28 备忘已下线）。 -->
-    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg)] pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)] border-t border-[var(--border)] pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
         <div class="mx-auto max-w-md flex items-center justify-around px-2">
             <a href="/" aria-label="今日" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">今日</a>
             <a href="{% url 'activities:activity_list' %}" aria-label="活动" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.app_name == 'activities' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">活动</a>

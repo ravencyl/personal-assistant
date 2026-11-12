@@ -3,8 +3,9 @@
    ──────────────────────────────────────────────────────────
    配置固定：按天分组 / 舒展密度 / 全显示（近深远浅·标签·费用·参与者·周末）/
    天默认展开。故这里只移植变体A + 舒展，不含变体B/C、紧凑密度与演示控制区。
-   视觉口径继承 Typeframe：纯白画布、零边框零卡片零阴影（内联详情用浅灰 inset
-   二级面）、层级靠字号/字重/灰度/留白；唯一彩色是「今天」的品牌粉节点。
+   2026-11-12 起整块时间线包在白色 .app-card 面板里（灰底白卡），面板 overflow-hidden；
+   内部层级仍靠字号/字重/灰度/留白，内联详情用浅灰 inset 二级面；唯一彩色是「今天」品牌粉节点。
+   水印「7」定位在面板内右上角（不再是负 top，避免被 overflow 裁掉）。
    墨色近深远浅用 data-depth 档位（0 近 → 3 远），hex 只出现在本文件，
    视图/模板只下发档位整数（整站去色口径）。
    作用域限定 #upcoming-timeline，避免与全站其它 .tl-* / .td-* 冲突。
@@ -31,10 +32,11 @@
 }
 #upcoming-timeline * { box-sizing: border-box; }
 
-/* 分区水印大数字「7」（纯装饰，Playfair，极浅） */
+/* 分区水印大数字「7」（纯装饰，Playfair，极浅）——
+   面板 overflow-hidden，水印必须落在面板内（top 非负），否则被裁掉 */
 #upcoming-timeline .tl-wm {
-    position: absolute; top: -26px; right: 6px;
-    font-family: var(--tl-serif); font-weight: 800; font-size: 150px; line-height: 1;
+    position: absolute; top: 6px; right: 16px;
+    font-family: var(--tl-serif); font-weight: 800; font-size: 104px; line-height: 1;
     color: rgba(0, 0, 0, .035); pointer-events: none; user-select: none;
     font-feature-settings: "lnum" 1;
 }
@@ -214,7 +216,7 @@
 
 /* ── 窄屏 ── */
 @media (max-width: 560px) {
-    #upcoming-timeline .tl-wm { font-size: 104px; top: -14px; }
+    #upcoming-timeline .tl-wm { font-size: 80px; top: 6px; right: 12px; }
     #upcoming-timeline .tl-date { font-size: 26px; min-width: 32px; }
     #upcoming-timeline .tl-item,
     #upcoming-timeline .tl-dayhead { padding-left: 30px; }

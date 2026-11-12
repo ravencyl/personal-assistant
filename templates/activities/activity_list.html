@@ -192,7 +192,8 @@
 
 <!-- Activity table (md+) / 卡片列表（移动端）：桌面行按圆角卡片渲染（见 custom.css #activity-list 段） -->
 {% if activities %}
-<div id="activity-list" class="hidden md:block">
+{# 灰底白卡（2026-11-12）：桌面宽表包白色圆角面板，overflow-hidden 裁圆角，内层 overflow-x-auto 横滚 #}
+<div id="activity-list" class="hidden md:block app-card overflow-hidden">
     <div class="overflow-x-auto">
     <table class="min-w-[640px] w-full text-sm">
         <thead class="border-b border-[var(--border)]">

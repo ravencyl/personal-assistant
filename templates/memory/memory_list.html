@@ -56,6 +56,9 @@
 
 <!-- 右列：类别筛选与导出 -->
 <div class="page-rail space-y-4 sm:space-y-6">
+    {% comment %}灰底白卡（2026-11-12）：筛选 chips 包白色面板 —— 浅灰 chip（accent-light）在白底上才看得见，
+    直接落在浅灰画布上会与背景融为一体。id 不变，hx-include 跨容器引用照常命中{% endcomment %}
+    <div class="app-card space-y-4 p-4">
 
     <!-- 类别筛选 Tab -->
     <div class="flex flex-wrap gap-2" id="memory-category-filter">
@@ -91,6 +94,7 @@
         </a>
     </div>
 
+    </div><!-- /筛选白卡 -->
 </div><!-- /右列 -->
 
 <!-- 左列：记忆列表 -->
