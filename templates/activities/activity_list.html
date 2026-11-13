@@ -86,7 +86,7 @@
     {% if date_to %}<input type="hidden" name="date_to" value="{{ date_to }}">{% endif %}
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     {% if keyword_filter %}
-    <p class="mt-2 px-1 text-xs text-[var(--text-muted)]">关键词「{{ keyword_filter }}」命中 <span class="font-semibold text-[var(--text-secondary)]">{{ match_count }}</span> 个活动（匹配描述/参与者/标签时保留树形上下文展示）</p>
+    <p class="mt-2 px-1 text-xs text-[var(--text-muted)]">关键词「{{ keyword_filter }}」命中 <span class="font-semibold text-[var(--text-secondary)]">{{ match_count }}</span> 个活动（平铺展示，子任务命中会单独列出并标注父任务）</p>
     {% endif %}
 </form>
 
@@ -180,8 +180,8 @@
     <div class="space-y-2">
         {% for activity in pinned_activities %}
         <div class="app-card px-4 py-3 flex items-center gap-2 flex-wrap" data-id="{{ activity.id }}">
-            {% if activity.depth %}<span class="text-[var(--text-muted)] select-none" style="margin-left: {% widthratio activity.depth 1 1 %}em">&#9492;</span>{% endif %}
             <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-[var(--text)] hover:text-[var(--text-secondary)] break-words min-w-0">{{ activity.name }}</a>
+            {% if activity.parent %}<span class="text-xs text-[var(--text-muted)] break-words min-w-0">└ {{ activity.parent.name }}</span>{% endif %}
             {% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display %}
             <span class="ml-auto shrink-0 text-xs text-[var(--text-muted)] tabular-nums whitespace-nowrap">{{ activity.date_range }}</span>
         </div>
@@ -219,27 +219,22 @@
                         费用{% if sort == 'cost' %} ▲{% elif sort == '-cost' %} ▼{% endif %}
                     </a>
                 </th>
-                <th class="w-12 px-3 py-3"></th>
             </tr>
         </thead>
         <tbody>
             {% for activity in activities %}
-            <tr class="hover:bg-[var(--accent-light)] tree-row" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
-                style="{% if not expand_all and activity.depth %}display:none{% endif %}">
+            <tr class="hover:bg-[var(--accent-light)] activity-row" data-id="{{ activity.id }}">
                 <td class="px-4 py-3">
-                    <div class="flex items-center gap-1.5" style="margin-left: {% widthratio activity.depth|default:0 1 1.5 %}em">
-                        {# 名字行不放控件（树形钮已挪到行尾操作区）：所有名字同列左对齐；#}
-                        {# 子级靠缩进 + └ 表达层级 #}
-                        {% if activity.depth %}
-                        <span class="text-[var(--text-muted)] select-none">&#9492;</span>
-                        {% endif %}
-                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %} hover:text-[var(--text-secondary)]">
+                    {# 平铺（2026-11-13 去树形）：所有活动含子任务各占一行，名字一律主色；#}
+                    {# 子任务在名字边用灰阶 └ 标出上一级父任务名 #}
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <a href="{% url 'activities:activity_detail' activity.id %}" class="font-medium text-[var(--text)] hover:text-[var(--text-secondary)] break-words">
                             {{ activity.name }}
                         </a>
+                        {% if activity.parent %}
+                        <span class="text-xs text-[var(--text-muted)] break-words">└ {{ activity.parent.name }}</span>
+                        {% endif %}
                     </div>
-                    {% if not tree_mode and activity.parent %}
-                    <span class="ml-1 text-xs text-[var(--text-muted)]">└ {{ activity.parent.name }}</span>
-                    {% endif %}
                 </td>
                 <td class="px-4 py-3">
                     <div class="flex flex-wrap gap-1">
@@ -257,16 +252,6 @@
                 <td class="px-4 py-3 text-right text-[var(--text)] whitespace-nowrap tabular-nums">
                     <span class="tf-cur">¥</span>{{ activity.show_cost|floatformat:"-2" }}
                 </td>
-                <td class="px-3 py-3 text-center">
-                    {# 操作列只剩树形折叠钮（2026-10-12 用户决定去掉行内编辑：编辑一律点进详情页做） #}
-                    <div class="flex items-center justify-center gap-1">
-                        {% if tree_mode and activity.has_children %}
-                        {# 树形钮放行尾操作区（2026-10-08 用户反馈：放名字前同一列名字对不齐） #}
-                        <button type="button" class="tree-toggle inline-flex items-center justify-center w-7 h-7 rounded-2xl text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--accent-light)] select-none"
-                                data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
-                        {% endif %}
-                    </div>
-                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -274,25 +259,21 @@
     </div>
 </div>
 
-<!-- 移动端卡片列表（2026-10-12 用户走查后收敛为一行口径）：
-     名字换行展示全（禁 truncate，锁见 MobileActivityCardDisplayTest），右侧是三条**恒定宽度的固定列**
-     （折叠钮槽位 44px / 日期 / 状态 icon），没有子活动与没有折叠的行的槽位留空但占位，
-     所以右缘逐行对齐、不再歪歪扭扭；编辑按钮、#ID、费用全部从列表去掉
+<!-- 移动端卡片列表（2026-11-13 去树形改平铺）：
+     所有活动含子任务各占一行，名字换行展示全（禁 truncate，锁见 MobileActivityCardDisplayTest）；
+     子任务在名字下方用灰阶 └ 标出上一级父任务名。右侧两条恒定宽度固定列（日期 w-10 / 状态 icon），
+     折叠钮槽位已随树形一起去掉，右缘逐行对齐；编辑按钮、#ID、费用全部从列表去掉
      （编辑走详情页，ID 在详情页与对话卡片里仍可口述，费用看详情页）。整卡空白处仍是进详情的触区 -->
 <div id="mobile-activity-list" class="md:hidden space-y-2">
     {% for activity in activities %}
-    <div class="tree-row app-card flex items-center gap-1.5 px-4 py-3" data-id="{{ activity.id }}" data-parent="{{ activity.parent_id|default:'' }}" data-depth="{{ activity.depth|default:0 }}"
-         style="{% if not expand_all and activity.depth %}display:none{% endif %}">
-        <a href="{% url 'activities:activity_detail' activity.id %}"
-           class="flex-1 min-w-0 break-words text-sm font-medium {% if activity.depth %}text-[var(--text-secondary)]{% else %}text-[var(--text)]{% endif %}"
-           style="margin-left: {% widthratio activity.depth|default:0 1 1 %}em">{{ activity.name }}</a>
-        <span class="shrink-0 w-11 flex items-center justify-center">
-            {# 折叠钮槽位恒占 44px（tap-target 宽度），无子活动留空：状态列才逐行对齐 #}
-            {% if tree_mode and activity.has_children %}
-            <button type="button" class="tree-toggle tap-target -my-2.5 text-[var(--text-muted)] hover:text-[var(--text)] active:bg-[var(--accent-light)] select-none"
-                    data-target="{{ activity.id }}" aria-expanded="{% if expand_all %}true{% else %}false{% endif %}">{% if expand_all %}&#9660;{% else %}&#9654;{% endif %}</button>
+    <div class="activity-row app-card flex items-center gap-1.5 px-4 py-3" data-id="{{ activity.id }}">
+        <div class="flex-1 min-w-0">
+            <a href="{% url 'activities:activity_detail' activity.id %}"
+               class="block break-words text-sm font-medium text-[var(--text)]">{{ activity.name }}</a>
+            {% if activity.parent %}
+            <span class="block break-words text-xs text-[var(--text-muted)] mt-1">└ {{ activity.parent.name }}</span>
             {% endif %}
-        </span>
+        </div>
         <span class="shrink-0 w-10 text-right text-xs tabular-nums text-[var(--text-muted)] whitespace-nowrap" title="{{ activity.date_range }}">{{ activity.start_date|date:'m-d' }}</span>
         <span class="shrink-0 flex items-center justify-center">{% include "activities/_status_badge.html" with status=activity.status label=activity.get_status_display icon_only=True %}</span>
     </div>
@@ -300,7 +281,7 @@
 </div>
 
 <!-- 分页：桌面表格与移动卡片共用同一份 page 数据；
-     按顶级活动分页，子活动跟随父活动同页；翻页链接携带全部筛选/排序参数 -->
+     平铺后每条活动（含子任务）各占一个名额；翻页链接携带全部筛选/排序参数 -->
 {% if page_obj.paginator.num_pages > 1 %}
 <div class="mt-6 flex flex-col items-center gap-2 fade-in">
     {# Typeframe：分页去胶囊壳，纯排字（当前页黑粗、其余灰阶文字链接） #}
@@ -342,67 +323,19 @@
 <!-- 新建活动弹窗：唯一实现在共享 partial（原 Daily 页已下线，现对话快记面板/列表页等共用） -->
 {% include "activities/_activity_create_modal.html" %}
 
-{# 整卡触区委托：点卡片空白处进详情；树形钮等真实交互元素先排除（行内编辑已下线，卡上只剩详情链与折叠钮） #}
+{# 整卡触区委托：点卡片空白处进详情；真实交互元素先排除（行内编辑与折叠钮均已下线，卡上只剩详情链） #}
 <script>
 (function () {
     var list = document.getElementById('mobile-activity-list');
     if (!list) return;
     list.addEventListener('click', function (e) {
         if (e.target.closest('a, button, form')) return;
-        var card = e.target.closest('.tree-row');
+        var card = e.target.closest('.activity-row');
         var link = card && card.querySelector('a[href*="/activities/"]');
         if (link) window.location.href = link.href;
     });
 })();
 </script>
-
-{% if tree_mode %}
-<script>
-(function () {
-    var rows = Array.prototype.slice.call(document.querySelectorAll('.tree-row'));
-
-    function childrenOf(parentId) {
-        return rows.filter(function (r) { return r.dataset.parent === String(parentId); });
-    }
-
-    // 递归收集某节点的所有后代行
-    function descendantsOf(parentId) {
-        var result = [];
-        childrenOf(parentId).forEach(function (child) {
-            result.push(child);
-            result = result.concat(descendantsOf(child.dataset.id));
-        });
-        return result;
-    }
-
-    document.querySelectorAll('.tree-toggle').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var expanded = btn.getAttribute('aria-expanded') === 'true';
-            var targetId = btn.dataset.target;
-            if (expanded) {
-                // 折叠：隐藏所有后代，并把后代的箭头也重置为折叠态
-                var descendants = descendantsOf(targetId);
-                descendants.forEach(function (r) {
-                    r.style.display = 'none';
-                    var b = r.querySelector('.tree-toggle');
-                    if (b) {
-                        b.setAttribute('aria-expanded', 'false');
-                        b.innerHTML = '&#9654;';
-                    }
-                });
-                btn.setAttribute('aria-expanded', 'false');
-                btn.innerHTML = '&#9654;';
-            } else {
-                // 展开：只显示直接子级（孙级保持折叠状态）；单行卡用 flex，表格行恢复默认
-                childrenOf(targetId).forEach(function (r) { r.style.display = r.classList.contains('app-card') ? 'flex' : ''; });
-                btn.setAttribute('aria-expanded', 'true');
-                btn.innerHTML = '&#9660;';
-            }
-        });
-    });
-})();
-</script>
-{% endif %}
 
 <!-- pin-toggle.js 已随列表内 pin 钮一起下线：开关挪到详情页（列表只展示置顶效果） -->
 {% endblock %}

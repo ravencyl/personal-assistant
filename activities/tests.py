@@ -170,20 +170,24 @@ class ActivitySearchTest(TestCase):
         # 全非法值 = 不过滤
         self.assertEqual(len(self._filter_names(status='bogus,foo')), 3)
 
-    def test_list_page_search_view_and_tree_ancestors(self):
-        """列表页搜索：命中子活动保留祖先链展示，未命中活动隐藏，显示命中提示"""
-        parent = Activity.objects.create(user=self.user, name='新西兰之旅')
+    def test_list_page_search_flat_no_ancestor_chain(self):
+        """列表页搜索（2026-11-13 平铺）：命中子任务单独成行并标父名，
+        不再补祖先链把未命中的父任务也拉成独立行；未命中活动隐藏，显示命中提示"""
+        parent = Activity.objects.create(user=self.user, name='旅行计划')
         child = Activity.objects.create(user=self.user, name='订机票', parent=parent,
                                         description='新西兰航空')
         Activity.objects.create(user=self.user, name='本地跑步')
 
         response = self.client.get('/activities/?keyword=新西兰')
         self.assertEqual(response.status_code, 200)
+        rows = list(response.context['activities'])
+        # 只有子任务命中（描述含「新西兰」）；父任务名不含关键词，不作为独立行出现
+        self.assertEqual([a.name for a in rows], ['订机票'])
         content = response.content.decode()
-        self.assertIn('订机票', content)      # 命中（描述）
-        self.assertIn('新西兰之旅', content)  # 祖先链保留
+        self.assertIn('订机票', content)        # 命中（描述）
+        self.assertIn('└ 旅行计划', content)    # 父任务名只作为子任务行上的归属标记
         self.assertNotIn('本地跑步', content)
-        self.assertIn('命中', content)          # 命中数提示
+        self.assertIn('命中', content)           # 命中数提示
 
     def test_list_page_search_combines_with_status_filter(self):
         """搜索 + 状态筛选叠加，且关键词回填到搜索框"""
@@ -2752,7 +2756,7 @@ class CalendarFeedTest(TestCase):
 
 
 class ActivityListPaginationTest(TestCase):
-    """活动列表分页：按顶级活动分页、子活动跟随父活动同页、非法页码回退（2026-09-13）"""
+    """活动列表分页（2026-11-13 平铺）：每条活动含子任务各占一个名额、非法页码回退"""
 
     def setUp(self):
         self.user = User.objects.create_user('testuser', password='test')
@@ -2770,17 +2774,17 @@ class ActivityListPaginationTest(TestCase):
             for i in range(1, n + 1)
         ]
 
-    def _top_level_count(self, response):
-        """响应上下文中当前页顶级活动数（depth==0），子活动不计入"""
-        return sum(1 for a in response.context['activities'] if not a.depth)
+    def _row_count(self, response):
+        """响应上下文中当前页活动行数（平铺：子任务也各占一行，全部计入）"""
+        return len(response.context['activities'])
 
     def test_first_and_second_page_slice_top_level(self):
-        """首页 20 个顶级活动，第 2 页余下 5 个；页码信息正确"""
+        """首页 20 条活动，第 2 页余下 5 条；页码信息正确"""
         self._create_tops(25)
         r1 = self.client.get('/activities/')
         self.assertEqual(r1.status_code, 200)
         self.assertEqual(r1.context['page_obj'].number, 1)
-        self.assertEqual(self._top_level_count(r1), 20)
+        self.assertEqual(self._row_count(r1), 20)
         c1 = r1.content.decode()
         self.assertIn('活动01', c1)
         self.assertIn('活动20', c1)
@@ -2788,27 +2792,29 @@ class ActivityListPaginationTest(TestCase):
 
         r2 = self.client.get('/activities/?page=2')
         self.assertEqual(r2.context['page_obj'].number, 2)
-        self.assertEqual(self._top_level_count(r2), 5)
+        self.assertEqual(self._row_count(r2), 5)
         c2 = r2.content.decode()
         self.assertIn('活动21', c2)
         self.assertIn('活动25', c2)
         self.assertNotIn('活动20', c2)
         self.assertIn('共 25 条 · 第 2/2 页', c2)
 
-    def test_children_follow_parent_and_not_counted(self):
-        """子活动跟随父活动出现在同一页，不跨页断裂、不计入每页条数"""
+    def test_children_are_counted_as_independent_rows(self):
+        """平铺：子任务各占一个分页名额，不再跟随父活动、不再被排除在计数外"""
         tops = self._create_tops(25)
-        child = Activity.objects.create(user=self.user, name='边界活动安排',
-                                        parent=tops[-1])
+        Activity.objects.create(user=self.user, name='边界活动安排',
+                                parent=tops[-1])  # 无 start_date → 默认排序落到末尾
         r1 = self.client.get('/activities/')
-        self.assertEqual(self._top_level_count(r1), 20)
-        self.assertNotIn('边界活动安排', r1.content.decode())  # 子活动留在父活动所在页
+        self.assertEqual(self._row_count(r1), 20)
+        self.assertNotIn('边界活动安排', r1.content.decode())  # 空日期排最后，落在第 2 页
 
         r2 = self.client.get('/activities/?page=2')
-        self.assertEqual(self._top_level_count(r2), 5)  # 子活动不计入
+        self.assertEqual(self._row_count(r2), 6)  # 25 顶级 + 1 子任务 = 26，第 2 页 6 条
         c2 = r2.content.decode()
         self.assertIn('活动25', c2)
-        self.assertIn('边界活动安排', c2)  # 与父活动同页
+        self.assertIn('边界活动安排', c2)      # 子任务独立成行
+        self.assertIn('└ 活动25', c2)          # 行上标注父任务
+        self.assertIn('共 26 条 · 第 2/2 页', c2)
 
     def test_invalid_or_out_of_range_page_falls_back_to_first(self):
         """page=abc / 越界 / 负数 / 小数均静默回退第 1 页"""
@@ -3062,7 +3068,7 @@ class ActivityPinTest(TestCase):
     与主列表分开，无视筛选/分页。
 
     端点 POST /activities/<id>/pin/ 为 toggle（JSON，原生 fetch 专用）；
-    列表视图把置顶组（顶级连同后代树 / 置顶子活动独立提取）放进
+    列表视图把置顶行（平铺：顶级或子任务都一样，各为独立行）放进
     pinned_activities 上下文，主列表剔除避免重复出现。
     """
 
@@ -3107,18 +3113,18 @@ class ActivityPinTest(TestCase):
         self.assertEqual([a.name for a in pinned], ['理发'])
         self.assertIn('已置顶', resp.content.decode())
 
-    def test_pinned_sub_extracted_from_parent_tree(self):
-        """置顶的子活动独立进上方区域（depth 归 0），父树里不再出现"""
+    def test_pinned_sub_is_independent_row_parent_stays_in_list(self):
+        """平铺：置顶的子任务独立进上方区域，父任务仍作为普通行留在主列表（不再整树挖取）"""
         parent = Activity.objects.create(user=self.user, name='杭州之行')
         child = Activity.objects.create(user=self.user, name='订酒店', parent=parent)
         self.client.post(reverse('activities:activity_pin_toggle', args=[child.id]))
         resp = self.client.get(reverse('activities:activity_list'))
         rows = list(resp.context['activities'])
-        self.assertEqual([a.name for a in rows], ['杭州之行'])
-        self.assertFalse(rows[0].has_children)
+        self.assertEqual([a.name for a in rows], ['杭州之行'])  # 父任务留在主列表
         pinned = list(resp.context['pinned_activities'])
         self.assertEqual([a.name for a in pinned], ['订酒店'])
-        self.assertEqual(pinned[0].depth, 0)
+        # 置顶的子任务行上仍标注父任务名
+        self.assertIn('└ 杭州之行', resp.content.decode())
 
     def test_pinned_order_latest_first(self):
         a = Activity.objects.create(user=self.user, name='甲')
@@ -3283,8 +3289,8 @@ class ListRowClutterRemovedTest(SimpleTestCase):
     """活动列表行内收敛（2026-10-12 用户走查决定，防复活静态锁）：
 
     ① 行内编辑按钮整体下线（移动卡 + 桌面表格）：使用习惯是点进详情页再编辑；
-    ② 移动端卡片去掉 #ID 与 ¥费用，右侧收敛成「折叠槽(44px)｜日期(固定宽)｜状态 icon」
-       三条恒定宽度列 —— 这正是此前「歪歪扭扭」的根因（可变宽度尾部元素互相推挤）；
+    ② 移动端卡片去掉 #ID 与 ¥费用，右侧收敛成「日期(固定宽)｜状态 icon」两条恒定宽度列
+       （2026-11-13 去树形后折叠槽 44px 也一并下线）—— 可变宽度尾部元素互相推挤是「歪歪扭扭」的根因；
     ③ 桌面表格的费用列保留（列宽天然对齐，且承担 cost 排序入口），不得顺手删除。
     """
 
@@ -3313,9 +3319,9 @@ class ListRowClutterRemovedTest(SimpleTestCase):
         self.assertNotIn('show_cost', block)
 
     def test_mobile_card_right_side_uses_fixed_width_slots(self):
-        """对齐的唯一实现：折叠钮槽位与日期列恒定宽，无子活动的行也占位"""
+        """对齐的唯一实现：日期列恒定宽；折叠钮槽位已随树形下线（不再有 w-11 占位）"""
         block = self._mobile_block()
-        self.assertIn('shrink-0 w-11 flex items-center justify-center', block)
+        self.assertNotIn('w-11', block, '折叠钮槽位应随树形一起去掉，不该再占 44px')
         self.assertIn('shrink-0 w-10 text-right', block)
 
     def test_desktop_cost_column_survives(self):
@@ -3326,6 +3332,66 @@ class ListRowClutterRemovedTest(SimpleTestCase):
         table = table[table.index('id="activity-list"'):table.index('id="mobile-activity-list"')]
         self.assertIn('<span class="tf-cur">¥</span>{{ activity.show_cost', table)
         self.assertIn("sort={% if sort == 'cost' %}-cost{% else %}cost{% endif %}", table)
+
+
+class ActivityListFlatTest(TestCase):
+    """活动列表平铺（2026-11-13 用户决定去树形）：
+
+    所有活动含子任务各占一行，子任务名字边用灰阶 └ 标注上一级父任务；
+    不再有折叠/展开、缩进、tree-toggle；费用按自身合计（父行不累加子行，避免同一笔钱重复计）。
+    """
+
+    LIST = Path(settings.BASE_DIR) / 'templates' / 'activities' / 'activity_list.html'
+
+    def setUp(self):
+        self.user = User.objects.create_user('flatuser', password='test')
+        self.client = Client()
+        self.client.login(username='flatuser', password='test')
+
+    def test_subtask_is_independent_row_with_parent_marker(self):
+        parent = Activity.objects.create(user=self.user, name='日本旅行',
+                                         start_date=timezone.localdate())
+        Activity.objects.create(user=self.user, name='订机票', parent=parent,
+                                start_date=timezone.localdate())
+        resp = self.client.get(reverse('activities:activity_list'))
+        names = [a.name for a in resp.context['activities']]
+        self.assertIn('日本旅行', names)   # 父任务独立成行
+        self.assertIn('订机票', names)     # 子任务也独立成行（不再折叠在父下）
+        self.assertIn('└ 日本旅行', resp.content.decode())  # 子任务行标注父任务名
+
+    def test_top_level_row_has_no_parent_marker(self):
+        Activity.objects.create(user=self.user, name='独立活动',
+                                start_date=timezone.localdate())
+        resp = self.client.get(reverse('activities:activity_list'))
+        # 无父任务的活动行不出现 └ 归属标记；剔掉 HTML 注释（说明文字里也提到 └）再断
+        html = re.sub(r'<!--.*?-->', '', resp.content.decode(), flags=re.S)
+        self.assertNotIn('└', html)
+
+    def test_cost_is_own_not_cumulative(self):
+        parent = Activity.objects.create(user=self.user, name='父活动',
+                                         start_date=timezone.localdate())
+        child = Activity.objects.create(user=self.user, name='子活动', parent=parent,
+                                        start_date=timezone.localdate())
+        Expense.objects.create(activity=parent, user=self.user, amount=Decimal('100.00'),
+                               paid_at=timezone.localdate(), note='父自身')
+        Expense.objects.create(activity=child, user=self.user, amount=Decimal('30.00'),
+                               paid_at=timezone.localdate(), note='子自身')
+        resp = self.client.get(reverse('activities:activity_list'))
+        by_name = {a.name: a for a in resp.context['activities']}
+        # 平铺后父行只算自己的 100，不再累加子行的 30（否则同一笔钱在父子各出现一次）
+        self.assertEqual(by_name['父活动'].show_cost, 100.0)
+        self.assertEqual(by_name['子活动'].show_cost, 30.0)
+
+    def test_no_tree_machinery_left_in_template(self):
+        """防复活静态锁：折叠/树形机械整体下线，父任务标记接线在（剔注释后扫）"""
+        from core.layout_asserts import code_only
+        src = code_only(self.LIST.read_text(encoding='utf-8'))
+        for token in ('tree-toggle', 'tree-row', 'tree_mode', 'expand_all',
+                      'data-depth', 'data-parent', 'has_children',
+                      'descendantsOf', 'childrenOf'):
+            self.assertNotIn(token, src, f'树形机械 {token!r} 应已随平铺改造下线')
+        # 父任务归属标记仍接线（灰阶 └ + 父名）
+        self.assertIn('└ {{ activity.parent.name }}', src)
 
 
 class TodayHomeTest(TestCase):

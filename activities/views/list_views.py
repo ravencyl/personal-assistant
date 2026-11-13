@@ -1,4 +1,4 @@
-"""活动列表页（树形 + 筛选 + 排序 + 分页 + 置顶）"""
+"""活动列表页（平铺 + 筛选 + 排序 + 分页 + 置顶）"""
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -19,7 +19,7 @@ from ._common import _user_tag_names
 from ..utils import (filter_activities, get_filter_params, exclude_daily_bucket,
                      expense_totals_map)
 
-# 活动列表每页顶级活动数（子活动跟随父活动，不计入）
+# 活动列表每页条数（平铺：子任务与顶级活动一样各占一条，2026-11-13 去树形）
 ACTIVITY_LIST_PAGE_SIZE = 20
 
 
@@ -29,7 +29,7 @@ from core.utils import page_window
 @login_required
 @ensure_csrf_cookie
 def activity_list(request):
-    """活动列表（默认树形结构可折叠，筛选/排序时为平铺列表）"""
+    """活动列表（平铺：所有活动含子任务各占一行；子任务名字边标记父任务名）"""
     # 到期活动自动转进行中（与 cron 同一份判定，见 services.start_due_activities）
     start_due_activities(request.user)
 
@@ -54,9 +54,9 @@ def activity_list(request):
     # 「日常开支」归属桶为系统常驻活动，不展示在活动列表中（费用统计仍包含）
     all_activities = list(exclude_daily_bucket(
         visible_qs(Activity, request.user)
-    ).prefetch_related('tags'))
+    ).select_related('parent').prefetch_related('tags'))
 
-    # 筛选条件用于计算命中集合（树形结构始终保留，命中节点及其祖先链可见）
+    # 筛选条件用于计算命中集合（平铺：只留命中行，不补祖先链）
     matched = exclude_daily_bucket(filter_activities(request.user, filters))
 
     has_filter = bool(status_filter or tag_filter or date_from or date_to
@@ -77,127 +77,44 @@ def activity_list(request):
         sort_field = 'start_date'
         desc = True
 
-    # 深度优先遍历构建活动树，为每行附加 depth 层级
-    children_map = {}
-    for a in all_activities:
-        children_map.setdefault(a.parent_id, []).append(a)
-
-    # 用内存中的 children_map 递归计算累计费用（自身 Expense + 所有后代 Expense）
-    # 先批量查每个活动的直接费用合计
+    # 每行费用 = 自身 Expense 合计。平铺后子任务独立成行，父行不再累加后代，
+    # 否则同一笔钱在父行与子行各出现一次（重复计）。
     expense_totals = expense_totals_map(a.id for a in all_activities)
-
-    cost_cache = {}
-
-    def compute_cost(a):
-        if a.id not in cost_cache:
-            cost_cache[a.id] = float(expense_totals.get(a.id, 0) or 0) + sum(
-                compute_cost(c) for c in children_map.get(a.id, [])
-            )
-        return cost_cache[a.id]
-
     for a in all_activities:
-        a.show_cost = compute_cost(a)
-
-    # 同级排序：空日期始终排最后，费用按累计值排序
-    for siblings in children_map.values():
-        if sort_field == 'start_date':
-            with_val = [a for a in siblings if a.start_date is not None]
-            nulls = [a for a in siblings if a.start_date is None]
-            with_val.sort(key=lambda a: a.start_date, reverse=desc)
-            siblings[:] = with_val + nulls
-        elif sort_field == 'cost':
-            siblings.sort(key=lambda a: a.show_cost or 0, reverse=desc)
-        else:
-            siblings.sort(key=lambda a: getattr(a, sort_field) or '', reverse=desc)
-
-    rows = []
-
-    def walk(parent_id, depth):
-        for a in children_map.get(parent_id, []):
-            a.depth = depth
-            a.has_children = bool(children_map.get(a.id))
-            rows.append(a)
-            walk(a.id, depth + 1)
-
-    walk(None, 0)
+        a.show_cost = float(expense_totals.get(a.id, 0) or 0)
 
     # ── 置顶组：pinned 活动无视筛选/排序/分页，固定展示在列表最前（2026-09-23）──
-    # 顶级置顶活动连同其后代树整体上移（后代跟父不留在树区）；置顶的子活动
-    # 独立提取到顶部（depth 归 0），不再出现在其父的树里。
-    pinned_rows = []
-
-    def walk_group(root, depth):
-        """置顶组整棵子树都标 is_pinned（渲染同一行模板，整组高亮）"""
-        root.depth = depth
-        root.has_children = bool(children_map.get(root.id))
-        root.is_pinned = True
-        pinned_rows.append(root)
-        for child in children_map.get(root.id, []):
-            walk_group(child, depth + 1)
-
-    # 顶级置顶（连同后代树），最新的置顶排最前
-    pinned_tops = sorted(
-        (a for a in children_map.get(None, []) if a.pinned),
+    # 平铺后置顶就是「若干独立行」（顶级或子任务都一样），最新置顶排最前。
+    pinned_rows = sorted(
+        (a for a in all_activities if a.pinned),
         key=lambda a: a.pinned_at or a.created_at, reverse=True)
-    for top in pinned_tops:
-        walk_group(top, 0)
-
-    # 置顶的子活动：从父树里挖出来单独置顶（最新置顶在前）
-    pinned_subs = []
-    for parent_id, siblings in list(children_map.items()):
-        if parent_id is None:
-            continue
-        extracted = [a for a in siblings if a.pinned]
-        if extracted:
-            children_map[parent_id] = [a for a in siblings if not a.pinned]
-            pinned_subs.extend(sorted(
-                extracted, key=lambda a: a.pinned_at or a.created_at, reverse=True))
-    for sub in pinned_subs:
-        walk_group(sub, 0)
-
+    for a in pinned_rows:
+        a.is_pinned = True
     pinned_ids = {a.id for a in pinned_rows}
 
-    # 树区：剔除置顶组（整组上移了，不能两处重复出现）
-    def strip_pinned(parent_id, depth):
-        kept = []
-        for a in children_map.get(parent_id, []):
-            if a.id in pinned_ids:
-                continue
-            a.depth = depth
-            a.has_children = bool(children_map.get(a.id))
-            a.is_pinned = False
-            kept.append(a)
-            kept.extend(strip_pinned(a.id, depth + 1))
-        return kept
-
-    rows = strip_pinned(None, 0)
-    if has_filter:
-        matched_ids = set(matched.values_list('id', flat=True))
-        by_id = {a.id: a for a in all_activities}
-        keep = set(matched_ids)
-        for a_id in matched_ids:
-            parent_id = by_id[a_id].parent_id
-            while parent_id and parent_id not in keep:
-                keep.add(parent_id)
-                parent_id = by_id[parent_id].parent_id
-        rows = [a for a in rows if a.id in keep]
-        # 折叠箭头只在实际可见子节点存在时显示
-        present_parents = {a.parent_id for a in rows if a.parent_id}
-        for a in rows:
-            a.has_children = a.id in present_parents
-        expand_all = True
-    else:
-        expand_all = False
-
-    # ── 分页：按「顶级活动」分页，子活动跟随父活动同页、不计入每页条数（2026-09-13）──
-    # 置顶组不参与分页，每页都固定显示在最前
-    top_groups = []
+    # 主列表：筛选时只留命中行（平铺不再补祖先链，子任务命中就单独显示并标父名）；
+    # 无筛选时全量（含子任务）。置顶行已上移，主列表剔除避免重复。
+    matched_ids = set(matched.values_list('id', flat=True)) if has_filter else None
+    rows = [a for a in all_activities
+            if a.id not in pinned_ids
+            and (matched_ids is None or a.id in matched_ids)]
     for a in rows:
-        if not a.depth:
-            top_groups.append([a])
-        else:
-            top_groups[-1].append(a)
-    paginator = Paginator(top_groups, ACTIVITY_LIST_PAGE_SIZE)
+        a.is_pinned = False
+
+    # 平铺排序：空日期始终排最后，费用按自身合计排序
+    if sort_field == 'start_date':
+        with_val = [a for a in rows if a.start_date is not None]
+        nulls = [a for a in rows if a.start_date is None]
+        with_val.sort(key=lambda a: a.start_date, reverse=desc)
+        rows = with_val + nulls
+    elif sort_field == 'cost':
+        rows.sort(key=lambda a: a.show_cost or 0, reverse=desc)
+    else:
+        rows.sort(key=lambda a: getattr(a, sort_field) or '', reverse=desc)
+
+    # ── 分页：平铺后每条活动（含子任务）各占一个名额（2026-11-13 去树形）──
+    # 置顶组不参与分页，每页都固定显示在最前
+    paginator = Paginator(rows, ACTIVITY_LIST_PAGE_SIZE)
     try:
         page_num = int(request.GET.get('page', ''))
     except (TypeError, ValueError):
@@ -205,8 +122,7 @@ def activity_list(request):
     if page_num < 1 or page_num > paginator.num_pages:
         page_num = 1  # 非法/越界页码静默回退第 1 页
     page_obj = paginator.page(page_num)
-    page_rows = [a for group in page_obj.object_list for a in group]
-    # 置顶组不进主列表，单独传给模板上方的「已置顶」区域（2026-09-23）
+    page_rows = list(page_obj.object_list)
 
     # 翻页链接基准：保留全部查询参数（含 sort），仅去掉 page
     page_params = request.GET.copy()
@@ -342,14 +258,12 @@ def activity_list(request):
         'status_choices': Activity.STATUS_CHOICES,
         'tag_filter': tag_filter,
         'keyword_filter': keyword_filter,
-        'match_count': matched.count() if has_filter else 0,
+        'match_count': len(matched_ids) if has_filter else 0,
         'search_clear_qs': search_clear_qs,
         'tag_link_qs': tag_link_qs,
         'filters_active': filters_active,
         'active_filter_count': active_filter_count,
         'active_filters': active_filters,
-        'tree_mode': True,
-        'expand_all': expand_all,
         'date_from': date_from,
         'date_to': date_to,
         'quick': quick,
