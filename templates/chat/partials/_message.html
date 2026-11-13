@@ -9,7 +9,7 @@
 {% endcomment %}
 <div class="chat-message {% if msg.role == 'user' %}user{% elif msg.role == 'system' %}system{% else %}assistant{% endif %}" data-message-id="{{ msg.id }}">
     {# chat-bubble 不是 Tailwind 类，是 custom.css 消息流段的选择器钩子；#}
-    {# Typeframe（mockup VIEW 3）：无气泡无底色无边框，发送者标签 + 正文分层 #}
+    {# 气泡底色由【对话气泡】段统一上（用户黑底白字 / AI 白底描边），模板只挂钩子不带配色类 #}
     <div class="chat-bubble group">
         <div class="chat-meta flex items-center gap-2 mb-1.5">
             <span class="chat-who">{% if msg.role == 'user' %}你{% elif msg.role == 'system' %}系统{% else %}AI 助手{% endif %}</span>
@@ -30,7 +30,9 @@
         {# 加粗放大当区块标题看，不参与 Markdown（2026-10-08 用户要求显眼一点） #}
         <div class="text-sm font-semibold text-[var(--text)]">{{ msg.content }}</div>
         {% else %}
-        <div class="markdown-content chat-txt text-[var(--text-secondary)] whitespace-pre-wrap">{{ msg.content }}</div>
+        {# 用户气泡黑底白字（custom.css .chat-message.user .chat-bubble），正文不再自带灰色，#}
+        {# 白字从气泡级联下来；保持字面纯文本（输入什么显示什么），不走 Markdown #}
+        <div class="markdown-content chat-txt whitespace-pre-wrap">{{ msg.content }}</div>
         {% endif %}
         {% if msg.payload %}{% include "chat/cards/_card.html" %}{% endif %}
         {# 可点追问与卡片不互斥（一条回复可以既有活动卡又有下一步），所以不进 _card.html 的分发 #}

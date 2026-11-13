@@ -33,7 +33,8 @@
         </div>
     </header>
     <div data-side-agent-history-panel hidden class="side-agent-list"></div>
-    <div data-side-agent-messages class="flex-1 overflow-y-auto px-4 py-3">
+    {# space-y-4：消息间距（2026-11-13 降密度，与详情页 #messages / 分栏页 #split-messages 同口径） #}
+    <div data-side-agent-messages class="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         <p class="text-center text-xs text-[var(--text-muted)] py-6">展开即接续你最近的对话</p>
     </div>
     <div data-side-agent-status class="flex-none px-4">

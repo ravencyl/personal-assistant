@@ -1,5 +1,5 @@
 {% comment %}费用专项统计卡片：时间范围 + 总额 + 按类别横条 + 按活动 Top 5，纯 CSS 无图表库（风格对齐 stats_card）{% endcomment %}
-<div class="mt-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-card)] p-3 text-left">
+<div class="mt-2 chat-card p-3 text-left">
     <div class="flex items-baseline justify-between gap-2">
         <span class="text-sm font-medium text-[var(--text)]">费用统计 · {{ card.range_label }}</span>
         <span class="text-xs text-[var(--text-muted)]">{{ card.count }} 笔</span>
@@ -12,7 +12,7 @@
         {% for c in card.categories %}
         <div class="flex items-center gap-2">
             <span class="w-12 shrink-0 text-xs text-[var(--text-muted)]">{{ c.label }}</span>
-            <div class="h-2 flex-1 rounded-full bg-[var(--accent-light)] overflow-hidden">
+            <div class="h-2 flex-1 rounded-full bg-[var(--bg-card)] overflow-hidden">
                 <div class="h-full rounded-full bg-[var(--accent)] {% if not c.pct %}opacity-10{% endif %}"
                      style="width: {% if c.pct %}{{ c.pct }}{% else %}4{% endif %}%"></div>
             </div>

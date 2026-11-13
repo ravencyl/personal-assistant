@@ -1,12 +1,12 @@
 {% comment %}统计卡片：状态分布分段条 + 近 6 月柱状 + 热门标签 + 费用汇总，纯 CSS 无图表库{% endcomment %}
-<div class="mt-2 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-card)] p-3 text-left">
+<div class="mt-2 chat-card p-3 text-left">
     <div class="flex items-baseline justify-between gap-2">
         <span class="text-sm font-medium text-[var(--text)]">活动概况</span>
         <span class="text-xs text-[var(--text-muted)]">共 {{ card.total }} 个 · 费用合计 &#165;{{ card.cost_total|floatformat:"-2" }}</span>
     </div>
 
     <!-- 状态分布分段条 -->
-    <div class="mt-2.5 flex h-2 rounded-full overflow-hidden bg-[var(--accent-light)]">
+    <div class="mt-2.5 flex h-2 rounded-full overflow-hidden bg-[var(--bg-card)]">
         {% for s in card.status_dist %}
         {% if s.count %}
         <div class="status-bg--{{ s.status }}"
@@ -41,7 +41,7 @@
     {% if card.tags_top %}
     <div class="mt-2.5 pt-2 border-t border-[var(--border)] flex flex-wrap gap-1.5">
         {% for t in card.tags_top %}
-        <span class="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ t.name }} · {{ t.count }}</span>
+        <span class="rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-xs text-[var(--text-secondary)]"># {{ t.name }} · {{ t.count }}</span>
         {% endfor %}
     </div>
     {% endif %}

@@ -2236,12 +2236,12 @@ class ConversationRenameDeleteTest(TestCase):
 
 
 class ChatMobileBubbleLayoutTest(SimpleTestCase):
-    """消息流布局的 CSS 锁（2026-10-27 Typeframe 改版：气泡 → 发送者标签 + 正文）
+    """消息流布局的 CSS 锁（2026-11-13 灰阶气泡回归：用户黑底白字 / AI 白底描边阴影）
 
     为什么必须专门锁：消息流的宽度上限与左右分离在 CSS 侧没有渲染断言覆盖，
     「上限漏进移动端」与「左右分离被删了却忘了角色还在靠它区分」都只在真实屏幕上
-    看得出来。改版后角色区分全靠 .chat-who 标签（用户=L4 灰、AI=L3 灰），
-    标签规则丢了 = 移动端回到无法区分谁在说话。
+    看得出来。角色区分主编码是气泡底色（用户=黑、AI=白），辅以 .chat-who 标签
+    （用户=L4 灰、AI=L3 灰）；底色或标签规则丢了 = 回到无法区分谁在说话。
 
     断言一律走 core.layout_asserts.css_rules（按选择器串匹配 + 回溯所在 @media），
     不用 css.index('.chat-message') 取首次出现、也不用 index('.chat-bubble') 的跨度切片：
@@ -2250,7 +2250,7 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
 
     DESKTOP = '(min-width: 768px)'
     MOBILE = '(max-width: 767px)'
-    # 消息钩子元素的 class 属性串（Typeframe 后气泡 chrome 全删，钩子就是裸 class="chat-bubble …"）
+    # 消息钩子元素的 class 属性串（气泡 chrome 全在 CSS 侧，模板钩子就是裸 class="chat-bubble …"）
     BUBBLE_CLASS = re.compile(r'class="([^"]*\bchat-bubble\b[^"]*)"')
 
     @classmethod
@@ -2298,9 +2298,9 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
             self.assertEqual(hits, [], '移动端出现消息夹宽/右对齐声明：%s' % hits)
 
     def test_sender_label_rules_exist_with_distinct_greys(self):
-        """角色区分全靠 .chat-who 标签：基础规则给 AI（L3 灰），user 覆写 L4 灰
+        """角色区分辅以 .chat-who 标签：基础规则给 AI（L3 灰），user 覆写 L4 灰
 
-        两档灰度不同是「谁在说话」的唯一编码 —— 同色等于回到无法区分。
+        两档灰度不同是「谁在说话」的次级编码（主编码是气泡底色）—— 同色等于少一层区分。
         """
         base = self._bodies('.chat-who', '')
         self.assertIn('letter-spacing', base, '.chat-who 基础规则没了，发送者标签退化成普通文字')
@@ -2309,12 +2309,75 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
         self.assertIn('var(--tf-fg4)', user, '用户标签没有覆写 L4 灰，与 AI 标签同色分不出谁在说话')
 
     def test_body_typography_rules_exist(self):
-        """正文 14px / 1.8 行高（mockup .txt）与用户消息灰一档必须成对存在"""
+        """正文 14px / 1.8 行高（mockup .txt）必须存在；用户气泡黑底白字（不再灰一档）"""
         body = self._bodies('.chat-message .chat-bubble .md-body', '') + \
                ' ' + self._bodies('.chat-message .chat-bubble .chat-txt', '')
         self.assertIn('line-height: 1.8', body, '正文行高规则被删，长回答会挤成一团')
         user_body = self._bodies('.chat-message.user .chat-bubble', '')
-        self.assertIn('var(--text-secondary)', user_body, '用户正文不再灰一档（L2），与 AI 纯黑无层级')
+        self.assertIn('background: var(--text)', user_body, '用户气泡不再黑底，与 AI 白底分不出')
+        self.assertIn('color: #fff', user_body, '用户气泡正文不再白字，黑底上读不了')
+
+    def test_bubble_chrome_separates_speakers_in_greyscale(self):
+        """气泡 chrome：用户黑底白字 / AI 白底描边阴影 / 系统透明（2026-11-13 用户反馈）。
+        内距 + 圆角是「满屏密字」的解法，丢了就回到文字贴文字。仍守整站去色只用黑白灰。"""
+        base = self._bodies('.chat-message .chat-bubble', '')
+        self.assertIn('padding', base, '气泡内距丢了，密字问题回归')
+        self.assertIn('border-radius', base, '气泡圆角丢了')
+        ai = self._bodies('.chat-message.assistant .chat-bubble', '')
+        self.assertIn('background: var(--bg-card)', ai, 'AI 气泡不再白底')
+        self.assertIn('border:', ai, 'AI 气泡描边丢了')
+        self.assertIn('box-shadow', ai, 'AI 气泡阴影丢了')
+        system = self._bodies('.chat-message.system .chat-bubble', '')
+        self.assertIn('background: none', system,
+                      '系统消息（本地卡片标题）不该有气泡底色，灰卡片要在白面板上对比')
+
+    def test_chat_card_is_the_single_grey_shadow_surface(self):
+        """对话内卡片统一 .chat-card（灰底+阴影，2026-11-13 用户要求）：
+        10 个卡片根模板一个不能漏，配色只许在 CSS 一份（模板不得自拼卡片面）"""
+        from core.layout_asserts import code_only
+        base = ' '.join(b['body'] for b in self._blocks('.chat-card') if b['media'] == '')
+        self.assertIn('var(--bg)', base, '.chat-card 不再是灰底')
+        self.assertIn('box-shadow', base, '.chat-card 阴影丢了')
+        cards_dir = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'cards'
+        expected = {'activity_card.html', 'activity_list_card.html', 'candidates_card.html',
+                    'confirm_card.html', 'daily_brief_card.html', 'expense_stats_card.html',
+                    'report_card.html', 'stats_card.html', 'today_brief_card.html',
+                    'weekly_review_card.html'}
+        wired = {p.name for p in cards_dir.glob('*.html')
+                 if 'chat-card' in code_only(p.read_text(encoding='utf-8'))}
+        self.assertEqual(wired, expected, '卡片根模板漏挂/多挂 .chat-card')
+
+    def test_follow_up_chips_are_black_vertical_bars(self):
+        """下一步推荐：黑底白字、一行一个（2026-11-13 用户要求）；
+        「还有 N 条建议…」展开钮是次要控件（白底），不与推荐抢视觉。
+        选择器匹配走 _bodies 子串口径（css_rules 会把前导注释粘进 selectors 串，
+        精确相等会切出空串假失败）；各断言的属性只可能来自目标规则本身。"""
+        group = self._bodies('.follow-ups', '')
+        self.assertIn('flex-direction: column', group, '推荐 chips 不再竖排一行一个')
+        chip = self._bodies('.follow-up', '')
+        self.assertIn('background: var(--text)', chip, '推荐 chip 不再黑底')
+        self.assertIn('color: #fff', chip, '推荐 chip 不再白字')
+        self.assertIn('width: 100%', chip, '推荐 chip 不再撑满一行')
+        more = self._bodies('.follow-up[data-followups-more]', '')
+        self.assertIn('var(--bg-card)', more, '展开钮不该与黑底推荐 chip 同色')
+
+    def test_every_message_host_has_vertical_spacing(self):
+        """五个消息流宿主都要 space-y-4（2026-11-13 降密度）：漏一个就回到消息贴消息"""
+        from core.layout_asserts import code_only
+        root = Path(__file__).resolve().parent.parent / 'templates'
+        hosts = [
+            ('chat/partials/_sidebar_agent.html', 'data-side-agent-messages'),
+            ('chat/partials/_mobile_agent.html', 'data-mobile-agent-messages'),
+            ('activities/activity_detail.html', 'id="ask-drawer-messages"'),
+            ('chat/conversation_detail.html', 'id="messages"'),
+            ('chat/conversation_list.html', 'id="split-messages"'),
+        ]
+        for rel, hook in hosts:
+            src = code_only((root / rel).read_text(encoding='utf-8'))
+            at = src.find(hook)
+            self.assertGreater(at, -1, f'{rel} 缺消息流宿主 {hook}')
+            tag = src[at:src.find('>', at)]
+            self.assertIn('space-y-4', tag, f'{rel} 消息流没有间距，密字问题回归')
 
     def test_bubble_shell_style_lives_in_two_templates_behind_one_hook(self):
         """chat-bubble 钩子只允许这两份抄本，且两份都真的挂在元素 class 上

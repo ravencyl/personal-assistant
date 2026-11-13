@@ -573,8 +573,10 @@ a.bg-\[var\(--accent\)\]:active {
 
 /* ===== 原有样式保留 ===== */
 
-/* Chat styles：Typeframe「发送者标签 + 正文」（mockup VIEW 3），无气泡无底色无边框。
-   桌面端（md+）左右分离：用户右对齐 + 正文灰一档，AI 左对齐纯黑。
+/* Chat styles：灰阶气泡区分说话人（2026-11-13 用户反馈，反转 2026-10-27 Typeframe
+   「无气泡无底色」口径）。用户 = 黑底白字、AI = 白底描边阴影（见下方【对话气泡】段），
+   仍守整站去色：只用黑/白/灰，不引入任何色相。
+   桌面端（md+）左右分离 + 气泡 hug 内容：用户右、AI 左。
    移动端（<768px）不左右分离 —— 窄屏全宽阅读（见文件末尾【聊天消息流移动端】段）。 */
 @media (min-width: 768px) {
     .chat-message {
@@ -589,6 +591,14 @@ a.bg-\[var\(--accent\)\]:active {
     .chat-message.assistant {
         margin-right: auto;
     }
+    /* 气泡 hug 内容：短消息小气泡、长消息封顶消息宽（36rem）；用户靠右、AI 靠左。
+       移动端不加这些（满宽阅读，见文件末尾段），避免触发消息夹宽/右对齐回归锁。 */
+    .chat-message .chat-bubble {
+        width: fit-content;
+        max-width: 100%;
+    }
+    .chat-message.user .chat-bubble { margin-left: auto; }
+    .chat-message.assistant .chat-bubble { margin-right: auto; }
 }
 
 /* 发送者标签（你 / AI 助手 / 系统）：mockup .who —— 10px 大写 + 1.5px 字距，
@@ -796,7 +806,7 @@ a.bg-\[var\(--accent\)\]:active {
 .md-body > *:first-child { margin-top: 0; }
 .md-body > *:last-child { margin-bottom: 0; }
 
-/* 消息正文：14px / 1.8 行高（mockup .txt）；用户消息灰一档（L2），AI 纯黑。
+/* 消息正文：14px / 1.8 行高（mockup .txt）；说话人区分由下方【对话气泡】段的底色承担。
    故意放在 .md-body 基础规则之后：AiMarkdownRenderTest 用 css.index('.md-body')
    取首次出现锚定 overflow-wrap，聊天段里再出现 .md-body 会把锚点劫走（已踩过） */
 .chat-message .chat-bubble .md-body,
@@ -804,7 +814,41 @@ a.bg-\[var\(--accent\)\]:active {
     font-size: 0.875rem;
     line-height: 1.8;
 }
-.chat-message.user .chat-bubble { color: var(--text-secondary); }
+/* ===== 对话气泡（2026-11-13 用户反馈：用户/AI 不明显、满屏密字）=====
+   灰阶气泡区分说话人：用户黑底白字、AI 白底描边阴影。内距 + 圆角 + 消息间距
+   解决「密密麻麻」。系统消息（本地卡片标题）保持透明区块标题，不加气泡 chrome。
+   仍守整站去色：只用黑(--text)/白(--bg-card)/灰，不引入任何色相。 */
+.chat-message .chat-bubble {
+    border-radius: var(--radius-ctl);
+    padding: 0.75rem 1rem;
+}
+.chat-message.assistant .chat-bubble {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    color: var(--text);
+}
+.chat-message.user .chat-bubble {
+    background: var(--text);
+    color: #fff;
+    box-shadow: var(--shadow-sm);
+}
+.chat-message.system .chat-bubble {
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+
+/* 对话内卡片：灰底 + 阴影（2026-11-13 用户要求「灰色背景+阴影增加对比」）。
+   单一实现，10 个卡片模板根 div 共用 .chat-card；在白色 AI 气泡 / 白色面板内
+   形成灰底对比。卡内控件/药丸改白底（--bg-card）以免灰底灰钮融合。 */
+.chat-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-ctl);
+    box-shadow: var(--shadow-sm);
+}
 
 .md-p { margin: 0 0 0.6rem; }
 
@@ -985,14 +1029,15 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 
 .pin-empty { padding: 0.4rem 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
 
-/* ===== 可点追问（AI 回复末尾的「下一步」） =====
-   chips 本体复用 .chat-chip（Typeframe 下划线文字链），这里只管排版 */
+/* ===== 可点追问（AI 回复末尾的「下一步」）=====
+   2026-11-13 用户要求：黑底白字标签、一行一个（竖排）。覆盖 .chat-chip 的
+   下划线文字链样式（同特异度靠源码顺序取胜，本段在 .chat-chip 之后）。 */
 .follow-ups {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem 1.25rem;
-    margin-top: 0.65rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
 }
 
 .follow-ups-label { font-size: 0.75rem; color: var(--text-muted); }
@@ -1002,13 +1047,38 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
    不会被发送委托误发）。无 JS 时全部可见，渐进增强 */
 .follow-ups-folded { display: none; }
 
-/* 追问 chip 是 AI 生成的长句：.chat-chip 的 nowrap 会让整句撑出圆角按钮外
-   （线上实测「把这套…存进知识库，标题《…》」溢出）。单类同特异度靠源码顺序取胜，
-   必须写在 .chat-chip 之后；quick_chips 的短标签不受影响，仍享受 nowrap。 */
+/* 推荐 chip：黑底白字整行 bar，一行一个。长句允许换行（overflow-wrap）不撑破气泡；
+   竖排 + align-items:stretch 让每条撑满气泡一行。 */
 .follow-up {
-    white-space: normal;
+    display: block;
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    background: var(--text);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-ctl);
+    font-size: 0.8125rem;
+    line-height: 1.5;
     text-align: left;
+    text-decoration: none;
+    white-space: normal;
     overflow-wrap: anywhere;
+    transition: background 0.15s ease;
+}
+.follow-up:hover, .follow-up:active { background: var(--accent-hover); color: #fff; }
+
+/* 「还有 N 条建议…」展开钮（paTidyFollowUps 注入，带 data-followups-more）：
+   次要控件，白底描边居中，不与黑底推荐 chip 抢视觉。 */
+.follow-up[data-followups-more] {
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
+    text-align: center;
+}
+.follow-up[data-followups-more]:hover,
+.follow-up[data-followups-more]:active {
+    background: var(--accent-light);
+    color: var(--text);
 }
 
 /* ===== Chat 分栏布局（桌面端左右分栏 / 移动端 IM 式单栏） ===== */
@@ -1105,9 +1175,9 @@ h3.md-h, h4.md-h, h5.md-h, h6.md-h { font-size: 0.95rem; }
 }
 
 /* ===== 聊天消息流移动端（<768px）：全宽阅读 =====
-   Typeframe 起无气泡无竖条（2026-10-27）：角色区分只剩 .chat-who 标签与
-   用户正文灰一档（桌面同款），移动端不再需要覆盖任何卡片样式。
-   本段只保留满宽断行兜底。
+   2026-11-13 气泡回归（用户黑底白字 / AI 白底描边，见【对话气泡】段）：
+   移动端保持满宽 —— fit-content / margin-auto 只在桌面段（md+），这里不加，
+   角色区分靠气泡底色 + .chat-who 标签。本段只保留满宽断行兜底。
 
    写在文件末尾而不是紧贴上面的桌面段：有几个回归锁是按「某个类名在 CSS 里首次出现的位置
    + 往后 N 个字」取锚点的，而本段注释不可避免地要解释正文断行与表格的横向滚动行为，

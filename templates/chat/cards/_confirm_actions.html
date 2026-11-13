@@ -22,7 +22,7 @@
             <form hx-post="{% url 'chat:confirm_action' msg.id %}" hx-target="#confirm-card-{{ msg.id }}" hx-swap="outerHTML">
                 {% csrf_token %}
                 <input type="hidden" name="decision" value="cancel">
-                <button type="submit" class="tap-target rounded-full bg-[var(--bg)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] px-4 py-2 text-xs font-medium transition-colors">取消</button>
+                <button type="submit" class="tap-target rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--accent-light)] px-4 py-2 text-xs font-medium transition-colors">取消</button>
             </form>
         </div>
     {% endif %}
