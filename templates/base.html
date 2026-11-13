@@ -202,13 +202,13 @@
     {% if user.is_authenticated %}
     <!-- 移动端底部导航（Typeframe 2026-10-27）：纯文字行——白底、无胶囊无玻璃，
          激活黑粗、未激活灰（mockup .mob-nav 同款）。条目清单仍由 PrimaryNavTest 锁定：
-         今日/活动/对话/我的（快记 dock 2026-10-28 随快记功能整体下线移除）；
+         今日/活动/我的（快记 dock 2026-10-28 随快记功能整体下线移除；
+         「对话」2026-11-13 撤出底栏——移动端 AI 改由浮窗弹窗承担，见 _mobile_agent.html）；
          「记忆」入口在桌面顶栏（2026-10-28 备忘已下线）。 -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-card)] border-t border-[var(--border)] pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)]">
         <div class="mx-auto max-w-md flex items-center justify-around px-2">
             <a href="/" aria-label="今日" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.url_name == 'home' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">今日</a>
             <a href="{% url 'activities:activity_list' %}" aria-label="活动" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.app_name == 'activities' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">活动</a>
-            <a href="{% url 'chat:conversation_list' %}" aria-label="对话" class="tap-target px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.app_name == 'chat' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">对话</a>
             <a href="{% url 'dashboard' %}" aria-label="我的" class="tap-target relative px-3 py-1 text-xs tracking-wide transition-colors {% if request.resolver_match.url_name == 'dashboard' %}text-[var(--text)] font-bold{% else %}text-[var(--text-muted)]{% endif %}">我的<span id="nav-mine-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold leading-4 text-center"></span></a>
         </div>
     </nav>

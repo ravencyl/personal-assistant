@@ -372,7 +372,7 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 - **删掉的实体**：`activities/parsing.py`（规则解析器）、`activities/views/quick_input_views.py`、`static/js/quick-parse.js`、三个端点（`parse-quick-input/`、`quick-create/`、`<id>/quick-sub/`）、`_week_anchor_text`、`_participant_skip_text`、`.quick-panel-surface` CSS、base.html 的 FAB/面板/脚本整块、chat-turn.js 的 `data-quick-open` 委托分支、activity-form.js 的 `fillForm`/快速填表/草稿读取、sw.js 预缓存条目
 - **保留的共享原语**（勿当死代码删）：`activities.utils.normalize_input`（agent_tools 与 subactivity_manual_create 在用）、`create_activity_from_parsed` / `record_parsed_cost`（services，agent_tools / add_subactivity / template_use 在用）、`extract_json_dict`（core/ai.py，agent_registry 在用）、`resolve_existing_tags` 显式 #词 语义仍由 agent 工具路径承担
 - 历史简报卡片（daily/today_brief）的「＋ 新建活动」从 `data-quick-open` 按钮改为直跳创建页链接；存量消息 payload 里残留的 `data-quick-open` 属性前端已无委托，点击是 no-op
-- 底部导航栏恢复四项纯链接（今日/活动/对话/我的），`PrimaryNavTest` 口径不变
+- 底部导航栏纯链接（快记下线时四项；2026-11-13「对话」撤出底栏后三项：今日/活动/我的，移动端 AI 改由浮窗弹窗承担），`PrimaryNavTest` 口径同步
 - 回归锁：`activities/tests.py::QuickParseRemovedTest`（渲染页面无接线 + 端点 404）、`ManualSubactivityParticipantTest.test_quick_endpoints_gone`、脚本/解析器/SW 清单的文件级墓碑在 `core/tests.py::TombstoneRegistryTest`（数据驱动注册表，各功能下线的防复活锁统一收口于此）、`chat/tests.py` 聊天页快记入口断言反转、`DailyCardActionRowTest`/`WorkbenchCardTest`/`WorkbenchCardWiringTest` 卡片链接口径
 
 ## 详情页「问 AI」抽屉（2026-09-21，PaChatTurn 第三个挂载点）
@@ -430,7 +430,7 @@ AI（对话 `activities.create` / `activities.update`）推断的标签一律走
 
 - **HTMX 局部渲染**：搜索面板（`base.html`）、聊天消息（`conversation_detail.html`）、确认动作（`_confirm_actions.html`）通过 `hx-post` + `hx-target` + `hx-swap` 实现无刷新交互
 - **模板结构**：`templates/` 下按 app 分目录（`templates/activities/`、`templates/chat/` 等），继承 `base.html`
-- **主导航只放一级模块，附属设施不进导航**：顶栏四项（今日、活动记录、AI 对话、记忆；「知识库」2026-10-28 数据层并入记忆，文章=type='document' 的记忆条目，记忆页与文章页头部互切分区；「备忘」同日整体下线），移动底部 Tab 四项（不占「记忆」位）。活动模块的附属页面（日历、下一步行动）入口在 `activity_list.html` 头部按钮组，**不得往 `base.html` 导航里加路由**。判定新页面该不该上导航的依据：它是不是一个独立内容域。`app_name='activities'` 的页面靠导航里「活动记录」的 `app_name` 判定自动点亮，归属关系不会丢。删/加条目必须同步改底部栏的 `grid-cols-N`（`core/tests.py::PrimaryNavTest` 断言列数 == 条目数，不一致时移动端底栏会留空格或换行）
+- **主导航只放一级模块，附属设施不进导航**：顶栏四项（今日、活动记录、AI 对话、记忆；「知识库」2026-10-28 数据层并入记忆，文章=type='document' 的记忆条目，记忆页与文章页头部互切分区；「备忘」同日整体下线），移动底部 Tab 三项（今日/活动/我的，不占「记忆」位；「对话」2026-11-13 撤出，移动端 AI 由浮窗弹窗承担）。活动模块的附属页面（日历、下一步行动）入口在 `activity_list.html` 头部按钮组，**不得往 `base.html` 导航里加路由**。判定新页面该不该上导航的依据：它是不是一个独立内容域。`app_name='activities'` 的页面靠导航里「活动记录」的 `app_name` 判定自动点亮，归属关系不会丢。删/加条目必须同步改底部栏的 `grid-cols-N`（`core/tests.py::PrimaryNavTest` 断言列数 == 条目数，不一致时移动端底栏会留空格或换行）
 - **上下文键不得占用框架保留名**：视图 context 里禁用 `messages`（`django.contrib.messages` 的 flash 变量，`base.html` 顶部提示条在读它）、`user`、`perms`、`request`。曾把 Message queryset 放进 `messages`，基模板就按 `Message.__str__`（「[role] 正文前 50 字」）把整段对话历史渲染到页面顶部，看着像调试信息泄漏，同时 flash 提示静默失效；现在用 `chat_messages`，`chat/tests.py::ConversationDetailContextTest` 会扫模板兼断言
 - **样式**：Tailwind CSS v4 + CSS 变量（`--text`、`--bg`、`--border` 等），响应式布局（移动端堆叠 + 桌面端横排）
 - **`button:active { transform: scale(.97) }` 是「整体替换」不是叠加（2026-11-09 事故）**：全局按下效果会把元素原有 transform 换成裸 `scale(0.97)`。任何**靠 transform 定位的按钮**（如侧栏把手的 `translateY(-50%)` 垂直居中）在按下的瞬间会位移逃出指针正下方——mouseup 落到别处、click 目标变成祖先元素，监听器永远收不到点击（线上实锤「侧边栏打不开」，所有页面必现）。给这类元素写交互必须显式 compose：`.x:active { transform: <原位移> scale(0.97) }`（侧栏把手即此写法）。**合成 click 不触发 `:active` 伪类**，这类 bug 用 evaluate/h.click() 测不出来，只能真机或 CDP 可信点击复现（已两次因此漏测）。锁：`chat/tests.py::SidebarWiringTest::test_handle_active_rule_composes_centering_transform`
