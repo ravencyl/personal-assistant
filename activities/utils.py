@@ -105,6 +105,85 @@ def resolve_participants(user, names, create_missing=False):
     return participants, skipped, created
 
 
+def _norm_participant_name(raw):
+    """参与者姓名归一化：去首尾空白、去 @ 前缀、转小写、内部空白压成单空格。
+
+    与 resolve_participants 的匹配键同源（strip + lower + 去 @），额外折叠内部
+    空白，使「KeYing  Li」与「keying li」归一，供精确/分词/子串三级匹配共用。
+    """
+    text = str(raw or '').strip().lstrip('@').strip().lower()
+    return ' '.join(text.split())
+
+
+# 模糊匹配三级证据强度（强→弱）：精确相等 > 整词命中 > 双向子串。
+# 只取「有命中的最强一级」判唯一/歧义，避免弱证据把强匹配稀释成歧义。
+_FUZZY_TIERS = ('exact', 'token', 'substring')
+# 子串级最短长度：单字（中文单姓、英文单字母）太易误伤，不参与子串匹配
+_FUZZY_MIN_SUBSTR = 2
+
+
+def fuzzy_resolve_participants(user, names):
+    """只读模糊解析：把口语名字匹配到已有联系人，分三类返回，绝不写库/新建。
+
+    与 resolve_participants 的分工：那个是「精确匹配 + 唯一写入口」，这个是
+    「AI 路径的识别增强」——用户说「keying」而联系人里是「KeYing Li」时，
+    精确匹配落空，这里按三级证据把它认出来，交给调用方决定如何向用户复述/确认。
+
+    三级证据（强→弱，只取有命中的最强一级）：
+    - exact：归一化后整名相等（「keying li」==「KeYing Li」）
+    - token：口语名是联系人某个整词，或联系人是口语名某个整词（「keying」→「KeYing Li」）
+    - substring：双向子串包含，双方长度均 ≥2（中文「可盈」→「李可盈」）
+
+    刻意不用 char_overlap_ratio：字符重合度会把「Joey」误判到「Joe Yan」
+    （AGENTS.md 明令二者是不同的人）。整词/子串是结构证据，不是相似度赌注。
+
+    返回 dict：
+      matched   [(spoken, Participant, kind)]  唯一命中（kind ∈ exact/token/substring）
+      ambiguous [(spoken, [Participant, ...])]  最强一级命中多个，需用户澄清
+      missing   [spoken, ...]                   三级全落空，确认不存在后才可议新建
+    spoken 保留用户原始写法（去 @/首尾空白），供回复复述；同一联系人被多个口语名
+    命中时不去重（由调用方按 participant.id 收敛）。
+    """
+    wanted, seen = [], set()
+    for raw in names or []:
+        spoken = str(raw).strip().lstrip('@').strip()
+        norm = _norm_participant_name(spoken)
+        if norm and norm not in seen:
+            seen.add(norm)
+            wanted.append((spoken, norm))
+    result = {'matched': [], 'ambiguous': [], 'missing': []}
+    if not wanted:
+        return result
+
+    contacts = [(p, _norm_participant_name(p.name))
+                for p in Participant.objects.filter(user=user)]
+    for spoken, norm in wanted:
+        tiers = {'exact': [], 'token': [], 'substring': []}
+        spoken_tokens = set(norm.split())
+        for p, cnorm in contacts:
+            if not cnorm:
+                continue
+            if norm == cnorm:
+                tiers['exact'].append(p)
+            elif norm in cnorm.split() or cnorm in spoken_tokens:
+                tiers['token'].append(p)
+            elif (len(norm) >= _FUZZY_MIN_SUBSTR and len(cnorm) >= _FUZZY_MIN_SUBSTR
+                  and (norm in cnorm or cnorm in norm)):
+                tiers['substring'].append(p)
+        for kind in _FUZZY_TIERS:
+            hits = tiers[kind]
+            if not hits:
+                continue
+            if len(hits) == 1:
+                result['matched'].append((spoken, hits[0], kind))
+            else:
+                result['ambiguous'].append((spoken, hits))
+            break
+        else:
+            result['missing'].append(spoken)
+    return result
+
+
 def log_activity(user, activity, action, summary=''):
     """写入活动操作日志（失败仅告警，不影响主流程）"""
     try:

@@ -21,15 +21,15 @@ Activity (user FK)
 
 ## 参与者写入（`activities/utils.py`）
 
-`resolve_participants(user, names, create_missing)` 是**唯一**参与者写入入口，禁止 `Participant.objects.get_or_create`：
+`resolve_participants(user, names, create_missing)` 是**唯一**参与者写库入口，禁止 `Participant.objects.get_or_create`：
 
 | 路径 | `create_missing` | 行为 |
 |------|:-:|------|
-| AI 自动识别（对话 create/update、快速输入、一句话子任务） | `False` | 只匹配已有，匹配不到跳过并在 reply 中告知 |
+| AI 自动识别（对话 create/update） | `False`（默认） | 先过模糊识别匹配已有，匹配不到跳过并在 reply 中告知；仅 `create_participants=True`（用户确认新建）时才新建 |
 | 用户显式填写（内联手动表单、编辑页） | `True` | 先大小写不敏感复用已有写法，确实没有才新建 |
 
 - 匹配键：`name.strip().lower()`，同时忽略 `@` 前缀 → 手输 `yyx` 归到已有 `YYX`
-- AI 路径**绝不自动新建联系人**；`skipped` 非空时必须在回复中告知
+- **AI 路径写库前先过只读模糊识别** `fuzzy_resolve_participants`（三档 exact>token>substring，`keying`→`KeYing Li`），create/update 共用 `_resolve_participant_categories` 归一；新建联系人是写操作，必须用户多轮对话确认后传 `create_participants=True`，绝不静默新建（详见根 `AGENTS.md`「模糊识别 + 确认新建」）
 - `activities.update` 全未命中时保持原参与者不变（「未找到」≠「清空」）
 
 ## 费用标签建议（`core/tags.py`）

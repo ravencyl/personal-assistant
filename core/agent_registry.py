@@ -224,6 +224,17 @@ PROTOCOL_SEARCH_REMINDER = (
     '话题跨多轮时可以直接写 "$RECENT_CONTEXT"，系统会展开成最近对话的关键词摘要。\n\n'
 )
 
+# 参与者模糊识别 + 确认新建的每轮补发（协议规则 16 同款存量陷阱：首帧只对新建对话
+# 生效，存量 session 看不到）。用户诉求：「keying」要能模糊匹配到「KeYing Li」；
+# 匹配不到时先多轮澄清，确认确实是新人后才经用户同意新建联系人，绝不静默新建。
+PROTOCOL_PARTICIPANT_REMINDER = (
+    '[参与者规则] activities.create / activities.update 的 participants 直接写用户口语原名'
+    '（如「keying」），系统会模糊匹配已有联系人（→「KeYing Li」），不要自己猜规范名。'
+    '系统回复里的参与者提示要原样转达并据此多轮澄清：「匹配到多个」问用户是哪一个；'
+    '「未添加…要我帮你新建联系人吗」表示没匹配到，先确认确实是新人，'
+    '**只有用户明确同意新建后**下一轮才传 "create_participants": true，绝不静默新建联系人。\n\n'
+)
+
 _WEEKDAY_CN = ('周一', '周二', '周三', '周四', '周五', '周六', '周日')
 
 
@@ -436,6 +447,13 @@ def build_protocol_prompt(today=None):
         'start_time、按活动性质估合理时长补 end_time（吃饭/开会约 2 小时）。'
         '这是规则 3「不要编造数据」的明示例外：按时段填 start/end_time 不算编造，'
         '**只填日期不填时间才是漏信息**。\n'
+        '16. 参与者按口语原名传：activities.create / activities.update 的 participants '
+        '直接写用户说的名字（如「keying」），系统会模糊匹配已有联系人（→「KeYing Li」），'
+        '不要自己猜规范名或新建。系统回复里若带参与者提示要原样转达并据此多轮澄清：'
+        '「识别为」表示已匹配到已有联系人；「匹配到多个」要问用户具体是哪一个；'
+        '「未添加…要我帮你新建联系人吗」表示没匹配到，先和用户确认确实是新人，'
+        '**只有用户明确同意新建后**才在下一轮传 "create_participants": true，'
+        '绝不在用户没确认时静默新建联系人。\n'
     )
 
 

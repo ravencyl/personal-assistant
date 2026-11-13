@@ -24,6 +24,7 @@ from agents.models import AgentConfig, EnvironmentConfig
 from agents.services import get_service
 from core.agent_registry import (MEMORY_META_REMINDER, PROTOCOL_REF_REMINDER,
                                  PROTOCOL_SEARCH_REMINDER,
+                                 PROTOCOL_PARTICIPANT_REMINDER,
                                  PROTOCOL_TRUNCATED_NOTE,
                                  REF_REMINDER_MIN_CHARS, TOOL_FAILURE_REPLY,
                                  CandidateToolError, ToolError,
@@ -882,6 +883,10 @@ def _build_ai_content(request, conversation, content):
     # 「今天是 X」定格在建对话那天——存量会话拿它换算「周三」必然算错，
     # 每轮带当日锚点。确定性输出：同一天重试重发的是同一份文本
     ai_content = build_time_anchor_reminder() + ai_content
+    # 参与者模糊识别 + 确认新建的每轮补发（协议规则 16，2026-11-13）：同款存量陷阱，
+    # 首帧只对新建对话生效。恒定注入：模型每轮都要知道「口语原名照传、系统模糊匹配、
+    # 新建联系人须用户明确同意」，多轮澄清才接得上
+    ai_content = PROTOCOL_PARTICIPANT_REMINDER + ai_content
     # 知识注入的检索 query 做上下文扩展：用户问「之前那个怎么办来着」时，
     # 单看本轮一个词都不够——把最近几条用户消息并进检索文本，
     # 本地检索层（knowledge.retrieval）有自己的分词，长文本照样拆得出关键词

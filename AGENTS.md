@@ -400,7 +400,7 @@ knowledge app 只剩一个 **Document 代理**（`knowledge/models.py`，proxy +
 
 ## 参与者写入规则
 
-参与者一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)` 写入，禁止 `Participant.objects.get_or_create`：
+参与者**写库**一律通过 `activities/utils.py` 的 `resolve_participants(user, names, create_missing=False)`，禁止 `Participant.objects.get_or_create`：
 
 ```python
 # AI 自动识别路径（对话 create/update）：只匹配已有，匹配不到就跳过
@@ -411,10 +411,21 @@ participants, _skipped, created = resolve_participants(user, names, create_missi
 ```
 
 - 匹配键为 `name.strip().lower()`（同时忽略 `@` 前缀），因此手输 `yyx` 会归到已存在的 `YYX`，不再产生大小写变体重复联系人
-- **AI 路径绝不自动新建联系人**；`skipped` 非空时必须在 `reply` / JSON `note` 中告知用户「哪个名字没加」，不得静默丢弃
 - `activities.update` 全未命中时保持原参与者不变（「未找到」不等于「清空」），预览卡片与实际写库口径必须一致
 - 历史遗留重复用 `python manage.py merge_participants`（默认 dry-run，加 `--apply` 才合并删除，保留 `created_at` 最早的一条）；写法不同的同人（如 `Joe` → `Joe Yan`）用 `--map "别名:保留名"` 显式合并，保留名不存在直接报错，绝不静默新建
 - **名字相似不构成合并依据**：只有用户明确确认“是同一个人”才能写 `--map`。已确认的反例：线上 `id=28「Joey」` 与 `id=9「Joe Yan」` 是两个不同的人，不得处理
+
+### 模糊识别 + 确认新建（2026-11-13，用户诉求：keying→KeYing Li）
+
+用户说「和 keying 吃晚饭」，旧版精确匹配命中不到「KeYing Li」就回「不在列表里，未添加」。现在 AI 路径在写库前先过一层**只读模糊识别**，匹配不到时多轮澄清、经用户同意才代建联系人：
+
+- **`fuzzy_resolve_participants(user, names)`**（`activities/utils.py`，只读、绝不写库）：三档证据 `exact > token > substring`，每个口语名只取最强非空档——唯一命中→`matched`（带规范名与档位），多个→`ambiguous`，零→`missing`。token 档按空格分词互为成员（`keying` ∈ `keying li`），substring 档双向包含且**两侧长度都 ≥2**（单个汉字/单字母不做子串匹配，避免噪声）。**故意不用 `char_overlap_ratio`**：那会把 `Joey` 误配到 `Joe Yan`（字符重合度高但不是同一人），模糊匹配只认结构性证据（分词/包含），与上方「名字相似不构成合并依据」同源
+- **`_resolve_participant_categories(owner, spoken_names, create_participants=False)`**（`activities/agent_tools.py`，create/update 共用的单一口径）：把模糊结果归一成 `canonical`（规范名列表）+ 四类附注 `participant_fuzzy/ambiguous/skipped/to_create`。`matched` 落规范名（非 exact 档记 fuzzy 复述）；`missing` 仅在 `create_participants=True` 时进 `to_create`，否则进 `skipped`。预览与 apply 都调它，确定性重放
+- **新建联系人是写操作，必须用户明确同意**：`create_participants` 布尔参数默认不传=不新建。create 流在 cid 路径遇到 `ambiguous`/`skipped` 时**落草稿硬澄清**（与缺日期同款门，不出确认卡），force 只豁免日期门、**不豁免新建同意**；update 流无草稿机制，靠附注追问 + 全未命中保留原参与者。模型只有在用户多轮对话中确认「确实是新人、要新建」后下一轮才传 `create_participants: true`
+- **附注文案**（`_participant_notes`）：fuzzy「ℹ️ 参与者「keying」识别为「KeYing Li」」、ambiguous「⚠️ …匹配到多个联系人（…），未添加；请告诉我具体是哪一个」、skipped「⚠️ …未添加；要我帮你新建联系人吗？确认的话回复「新建」…」（保留「未添加」字样兼容存量测试）、新建结果「✅ 已新建联系人」/预览「➕ 将新建联系人」
+- **协议规则 16 + 每轮补发**（`core/agent_registry.py::PROTOCOL_PARTICIPANT_REMINDER`，经 `chat/views.py::_build_ai_content` 恒定注入）：首帧只对新建对话生效（存量陷阱，与规则 10/12/13/14/15 同款），所以两层都写——口语原名照传（系统模糊匹配，不要自己猜规范名）、转达附注多轮澄清、新建须用户明确同意
+
+回归锁：`activities/tests.py::ResolveParticipantsFuzzyTest`（15 条：三档优先级/单字不子串/Joey≠Joe Yan/只读不写/他人不可见）、`ParticipantFuzzyCreateFlowTest`（9 条：模糊命中用规范名/缺失落草稿/同意后才建/歧义澄清/多轮合并/force 不等于同意/无 cid 旁路/draft_reminder）、`ParticipantFuzzyUpdateFlowTest`（4 条：模糊替换/缺失保留原+给新建出口/同意建/歧义保留原）、`chat/tests.py::ParticipantReminderTest`（4 条：首帧规则 16/存量每轮补发/新对话也带/同意门文案）。
 
 ## 标签写入规则（AI 路径，2026-09-21）
 

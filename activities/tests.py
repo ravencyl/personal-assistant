@@ -31,7 +31,8 @@ from activities.services import (InputError, add_expense,
                                  start_due_activities)
 from activities.utils import (get_daily_bucket, DAILY_BUCKET_NAME,
                               DAILY_BUCKET_MARKER, daily_bucket_q, is_daily_bucket,
-                              exclude_daily_bucket, resolve_participants)
+                              exclude_daily_bucket, resolve_participants,
+                              fuzzy_resolve_participants)
 from unittest.mock import patch, MagicMock
 from django.db import IntegrityError, transaction
 from core.models import Notification
@@ -366,6 +367,113 @@ class ResolveParticipantsTest(TestCase):
         self.assertEqual(skipped, ['YYX'])
 
 
+class ResolveParticipantsFuzzyTest(TestCase):
+    """模糊识别（只读）：口语名 → 已有联系人，三级证据，分 matched/ambiguous/missing。
+
+    用户诉求：联系人里是「KeYing Li」，说「keying」要能认出来；确认不存在后
+    才可与用户确认新建。本套件锁识别口径，绝不写库（新建在工具层确认后才发生）。
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('testuser', password='test')
+        self.other = User.objects.create_user('other', password='test')
+        self.keying = Participant.objects.create(user=self.user, name='KeYing Li')
+        self.joey = Participant.objects.create(user=self.user, name='Joey')
+        self.joeyan = Participant.objects.create(user=self.user, name='Joe Yan')
+        self.likeying = Participant.objects.create(user=self.user, name='李可盈')
+
+    def test_token_match_keying_to_keying_li(self):
+        r = fuzzy_resolve_participants(self.user, ['keying'])
+        self.assertEqual(r['matched'], [('keying', self.keying, 'token')])
+        self.assertEqual(r['ambiguous'], [])
+        self.assertEqual(r['missing'], [])
+
+    def test_exact_full_name_preferred(self):
+        r = fuzzy_resolve_participants(self.user, ['KeYing  Li'])
+        self.assertEqual(r['matched'], [('KeYing  Li', self.keying, 'exact')])
+
+    def test_exact_beats_token_when_both_exist(self):
+        bare_li = Participant.objects.create(user=self.user, name='Li')
+        r = fuzzy_resolve_participants(self.user, ['li'])
+        # 「li」精确等于联系人「Li」，尽管它也是「KeYing Li」的整词——精确级优先
+        self.assertEqual(r['matched'], [('li', bare_li, 'exact')])
+        self.assertEqual(r['ambiguous'], [])
+
+    def test_ambiguous_when_token_hits_multiple(self):
+        alice = Participant.objects.create(user=self.user, name='Alice Li')
+        r = fuzzy_resolve_participants(self.user, ['li'])
+        self.assertEqual(r['matched'], [])
+        self.assertEqual(r['missing'], [])
+        self.assertEqual(len(r['ambiguous']), 1)
+        spoken, candidates = r['ambiguous'][0]
+        self.assertEqual(spoken, 'li')
+        self.assertEqual({p.name for p in candidates}, {'KeYing Li', 'Alice Li'})
+
+    def test_joey_and_joe_yan_stay_distinct(self):
+        # AGENTS.md 明令 Joey ≠ Joe Yan：整词/子串是结构证据，不是字符重合度
+        r = fuzzy_resolve_participants(self.user, ['joey'])
+        self.assertEqual(r['matched'], [('joey', self.joey, 'exact')])
+        r2 = fuzzy_resolve_participants(self.user, ['joe yan'])
+        self.assertEqual(r2['matched'], [('joe yan', self.joeyan, 'exact')])
+
+    def test_token_beats_substring(self):
+        # 「joe」是「Joe Yan」的整词（token），又恰是「Joey」的前缀（substring）；
+        # 取最强一级 token → 唯一命中 Joe Yan，不被弱证据稀释成歧义
+        r = fuzzy_resolve_participants(self.user, ['joe'])
+        self.assertEqual(r['matched'], [('joe', self.joeyan, 'token')])
+        self.assertEqual(r['ambiguous'], [])
+
+    def test_chinese_substring_match(self):
+        r = fuzzy_resolve_participants(self.user, ['可盈'])
+        self.assertEqual(r['matched'], [('可盈', self.likeying, 'substring')])
+
+    def test_single_char_not_substring_matched(self):
+        # 单字「李」长度 <2，不参与子串匹配（太易误伤），落 missing
+        r = fuzzy_resolve_participants(self.user, ['李'])
+        self.assertEqual(r['matched'], [])
+        self.assertEqual(r['missing'], ['李'])
+
+    def test_case_whitespace_and_at_prefix(self):
+        r = fuzzy_resolve_participants(self.user, ['  @KEYING  '])
+        self.assertEqual(r['matched'], [('KEYING', self.keying, 'token')])
+
+    def test_missing_when_no_evidence(self):
+        r = fuzzy_resolve_participants(self.user, ['路人甲'])
+        self.assertEqual(r['matched'], [])
+        self.assertEqual(r['ambiguous'], [])
+        self.assertEqual(r['missing'], ['路人甲'])
+
+    def test_mixed_categories_in_one_call(self):
+        alice = Participant.objects.create(user=self.user, name='Alice Li')
+        r = fuzzy_resolve_participants(self.user, ['keying', 'li', '路人甲'])
+        self.assertEqual(r['matched'], [('keying', self.keying, 'token')])
+        self.assertEqual({p.name for p in r['ambiguous'][0][1]}, {'KeYing Li', 'Alice Li'})
+        self.assertEqual(r['missing'], ['路人甲'])
+
+    def test_blank_input(self):
+        empty = {'matched': [], 'ambiguous': [], 'missing': []}
+        self.assertEqual(fuzzy_resolve_participants(self.user, []), empty)
+        self.assertEqual(fuzzy_resolve_participants(self.user, None), empty)
+        self.assertEqual(fuzzy_resolve_participants(self.user, ['  ', '']), empty)
+
+    def test_other_users_contacts_are_invisible(self):
+        r = fuzzy_resolve_participants(self.other, ['keying'])
+        self.assertEqual(r['matched'], [])
+        self.assertEqual(r['missing'], ['keying'])
+
+    def test_read_only_never_writes(self):
+        before = Participant.objects.count()
+        fuzzy_resolve_participants(self.user, ['keying', 'li', '路人甲', '可盈'])
+        self.assertEqual(Participant.objects.count(), before)
+
+    def test_resolve_participants_still_exact_only(self):
+        # 模糊识别不得改变唯一写入口的精确口径：「keying」精确匹配仍落空
+        matched, skipped, created = resolve_participants(self.user, ['keying'])
+        self.assertEqual(matched, [])
+        self.assertEqual(skipped, ['keying'])
+        self.assertEqual(created, [])
+
+
 class ParticipantAgentToolTest(TestCase):
     """AI 对话创建/修改活动：只填已有参与者，不自动新建联系人"""
 
@@ -587,6 +695,210 @@ class ActivityCreateDraftFlowTest(TestCase):
         self.assertIn('去杭州团建', hint)
         self.assertIn('还缺日期', hint)
         self.assertIn('activities.create', hint)
+
+
+class ParticipantFuzzyCreateFlowTest(TestCase):
+    """创建活动接入模糊识别 + 确认新建（用户诉求：keying→KeYing Li；确认不存在后才代建联系人）
+
+    口径：唯一命中（含模糊）直接用规范名；歧义/缺失在对话路径落草稿引导多轮澄清；
+    新建联系人是写操作，必须 create_participants=True（用户确认后模型才传）；
+    无 conversation_id 的旁路保持旧确认卡行为（缺失只跳过不新建）。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        from chat.models import Conversation
+        self.tool = get_tool('activities.create')
+        self.user = User.objects.create_user('testuser', password='test')
+        self.keying = Participant.objects.create(user=self.user, name='KeYing Li')
+        self.conversation = Conversation.objects.create(
+            user=self.user, session_id='sess-fuzzy-test')
+        self.cid = self.conversation.id
+
+    def _draft(self):
+        return ActivityDraft.objects.get(conversation_id=self.cid)
+
+    def _fields(self, result):
+        return {f['label']: f['value'] for f in result['card_data']['fields']}
+
+    def test_fuzzy_unique_match_uses_canonical_name(self):
+        params = {'name': '和 keying 吃晚饭', 'start_date': '2026-11-20',
+                  'participants': ['keying'], '_conversation_id': self.cid}
+        preview = self.tool['fn'](self.user, params)
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertEqual(self._fields(preview)['参与者'], 'KeYing Li')
+        self.assertIn('识别为', preview['reply'])
+        self.assertIn('KeYing Li', preview['reply'])
+        applied = self.tool['apply'](self.user, preview['action']['params'])
+        activity = Activity.objects.get(id=applied['activity_ids'][0])
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['KeYing Li'])
+        self.assertEqual(Participant.objects.filter(user=self.user).count(), 1, '模糊命中不新建')
+
+    def test_exact_match_not_announced_as_fuzzy(self):
+        preview = self.tool['fn'](self.user, {
+            'name': '晚饭', 'start_date': '2026-11-20',
+            'participants': ['KeYing Li'], '_conversation_id': self.cid})
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertNotIn('识别为', preview['reply'], '精确命中无需复述模糊映射')
+
+    def test_missing_participant_holds_for_confirmation(self):
+        preview = self.tool['fn'](self.user, {
+            'name': '和路人甲吃饭', 'start_date': '2026-11-20',
+            'participants': ['路人甲'], '_conversation_id': self.cid})
+        self.assertNotIn('card', preview, '缺失参与者不出确认卡，先澄清')
+        self.assertIn('草稿', preview['reply'])
+        self.assertIn('新建', preview['reply'])
+        self.assertIn('路人甲', preview['reply'])
+        self.assertEqual(self._draft().params['participants'], ['路人甲'])
+        self.assertFalse(Activity.objects.exists())
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+
+    def test_create_participants_flag_creates_contact_after_confirm(self):
+        params = {'name': '和路人甲吃饭', 'start_date': '2026-11-20',
+                  'participants': ['路人甲'], 'create_participants': True,
+                  '_conversation_id': self.cid}
+        preview = self.tool['fn'](self.user, params)
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertIn('路人甲（新建联系人）', self._fields(preview)['参与者'])
+        self.assertIn('将新建联系人', preview['reply'])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists(), '预览阶段不建联系人')
+        applied = self.tool['apply'](self.user, preview['action']['params'])
+        activity = Activity.objects.get(id=applied['activity_ids'][0])
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['路人甲'])
+        self.assertTrue(Participant.objects.filter(name='路人甲').exists())
+        self.assertIn('已新建联系人', applied['reply'])
+
+    def test_ambiguous_participant_holds_for_clarification(self):
+        Participant.objects.create(user=self.user, name='Alice Li')
+        preview = self.tool['fn'](self.user, {
+            'name': '和 li 吃饭', 'start_date': '2026-11-20',
+            'participants': ['li'], '_conversation_id': self.cid})
+        self.assertNotIn('card', preview)
+        self.assertIn('匹配到多个', preview['reply'])
+        self.assertIn('KeYing Li', preview['reply'])
+        self.assertIn('Alice Li', preview['reply'])
+        self.assertFalse(Activity.objects.exists())
+
+    def test_multi_round_missing_then_consent_merges_draft(self):
+        # 第一轮：有日期但参与者缺失 → 落草稿澄清（不是缺日期）
+        r1 = self.tool['fn'](self.user, {
+            'name': '和路人甲吃饭', 'start_date': '2026-11-20',
+            'participants': ['路人甲'], '_conversation_id': self.cid})
+        self.assertNotIn('card', r1)
+        self.assertNotIn('还缺日期', r1['reply'], '日期已给，缺口只在参与者')
+        # 第二轮：用户确认新建 → 模型带 create_participants，草稿合并出确认卡
+        r2 = self.tool['fn'](self.user, {
+            'name': '和路人甲吃饭', 'create_participants': True,
+            '_conversation_id': self.cid})
+        self.assertEqual(r2['card'], 'confirm')
+        self.assertEqual(self._fields(r2)['日期'], '2026-11-20', '日期从草稿带回')
+        self.assertIn('路人甲（新建联系人）', self._fields(r2)['参与者'])
+        self.assertFalse(ActivityDraft.objects.filter(conversation_id=self.cid).exists())
+        applied = self.tool['apply'](self.user, r2['action']['params'])
+        activity = Activity.objects.get(id=applied['activity_ids'][0])
+        self.assertEqual(activity.start_date.isoformat(), '2026-11-20')
+        self.assertTrue(Participant.objects.filter(name='路人甲').exists())
+
+    def test_no_cid_bypass_keeps_confirm_card_and_skips_missing(self):
+        preview = self.tool['fn'](self.user, {
+            'name': '晚饭', 'start_date': '2026-11-20',
+            'participants': ['keying', '路人甲']})
+        self.assertEqual(preview['card'], 'confirm', '无对话归位点保持旧确认卡行为')
+        self.assertIn('路人甲', preview['reply'])
+        self.assertIn('未添加', preview['reply'])
+        applied = self.tool['apply'](self.user, preview['action']['params'])
+        activity = Activity.objects.get(id=applied['activity_ids'][0])
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['KeYing Li'])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+
+    def test_force_bypasses_hold_but_never_creates_without_consent(self):
+        preview = self.tool['fn'](self.user, {
+            'name': '和路人甲吃饭', 'start_date': '2026-11-20',
+            'participants': ['路人甲'], 'force': True, '_conversation_id': self.cid})
+        self.assertEqual(preview['card'], 'confirm', 'force 豁免澄清门')
+        self.assertIn('未添加', preview['reply'])
+        self.assertFalse(ActivityDraft.objects.exists())
+        applied = self.tool['apply'](self.user, preview['action']['params'])
+        activity = Activity.objects.get(id=applied['activity_ids'][0])
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), [])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists(),
+                         'force 不等于新建联系人的同意')
+
+    def test_draft_reminder_mentions_participant_gap(self):
+        from activities.agent_tools import draft_reminder
+        self.tool['fn'](self.user, {
+            'name': '和路人甲吃饭', 'start_date': '2026-11-20',
+            'participants': ['路人甲'], '_conversation_id': self.cid})
+        hint = draft_reminder(self.conversation)
+        self.assertIn('和路人甲吃饭', hint)
+        self.assertIn('参与者', hint)
+        self.assertIn('create_participants', hint)
+
+
+class ParticipantFuzzyUpdateFlowTest(TestCase):
+    """修改活动接入模糊识别 + 确认新建（与 create 同口径，但 update 无草稿机制）
+
+    口径：唯一命中（含模糊）用规范名替换；歧义/缺失保留原参与者不变（「未找到」≠「清空」）
+    并在回复里追问/给新建出口；新建联系人是写操作，必须 create_participants=True 才落库。
+    """
+
+    def setUp(self):
+        from core.agent_registry import get_tool
+        self.tool = get_tool('activities.update')
+        self.user = User.objects.create_user('testuser', password='test')
+        self.keying = Participant.objects.create(user=self.user, name='KeYing Li')
+        self.li = Participant.objects.create(user=self.user, name='小李')
+
+    def test_fuzzy_match_replaces_with_canonical_name(self):
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        activity.participants.set([self.li])
+        preview = self.tool['fn'](self.user, {'target': '周末游', 'participants': ['keying']})
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertIn('识别为', preview['reply'])
+        self.assertIn('KeYing Li', preview['reply'])
+        applied = self.tool['apply'](self.user, preview['action']['params'])
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['KeYing Li'])
+        self.assertEqual(Participant.objects.filter(user=self.user).count(), 2, '模糊命中不新建')
+
+    def test_missing_keeps_original_and_offers_create(self):
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        activity.participants.set([self.keying])
+        preview = self.tool['fn'](self.user, {'target': '周末游', 'participants': ['路人甲']})
+        self.assertIn('未添加', preview['reply'])
+        self.assertIn('新建', preview['reply'])
+        applied = self.tool['apply'](self.user, {'target_id': activity.id, 'participants': ['路人甲']})
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['KeYing Li'],
+                         '全部未命中保留原参与者，不清空')
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists())
+        self.assertIn('未添加', applied['reply'])
+
+    def test_consent_creates_contact_after_confirm(self):
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        preview = self.tool['fn'](self.user, {
+            'target': '周末游', 'participants': ['路人甲'], 'create_participants': True})
+        self.assertEqual(preview['card'], 'confirm')
+        self.assertIn('将新建联系人', preview['reply'])
+        self.assertFalse(Participant.objects.filter(name='路人甲').exists(), '预览阶段不建联系人')
+        applied = self.tool['apply'](self.user, preview['action']['params'])
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['路人甲'])
+        self.assertTrue(Participant.objects.filter(name='路人甲').exists())
+        self.assertIn('已新建联系人', applied['reply'])
+
+    def test_ambiguous_keeps_original_and_asks(self):
+        Participant.objects.create(user=self.user, name='Alice Li')
+        activity = Activity.objects.create(user=self.user, name='周末游')
+        activity.participants.set([self.keying])
+        preview = self.tool['fn'](self.user, {'target': '周末游', 'participants': ['li']})
+        self.assertIn('匹配到多个', preview['reply'])
+        self.assertIn('KeYing Li', preview['reply'])
+        self.assertIn('Alice Li', preview['reply'])
+        applied = self.tool['apply'](self.user, {'target_id': activity.id, 'participants': ['li']})
+        activity.refresh_from_db()
+        self.assertEqual(list(activity.participants.values_list('name', flat=True)), ['KeYing Li'],
+                         '歧义未澄清前保留原参与者')
 
 
 class ExpenseConfirmFlowTest(TestCase):

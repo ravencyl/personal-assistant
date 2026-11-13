@@ -24,9 +24,9 @@ from .models import Activity, Expense
 from .services import (InputError, add_expense, change_activity_status,
                        clean_amount, create_activity_from_parsed)
 from .utils import (edit_summary, exclude_daily_bucket, filter_activities,
-                    fmt_field, get_daily_bucket, log_activity,
-                    normalize_input, resolve_participants, snapshot_activity,
-                    expense_totals_map, FILTER_PARAM_KEYS)
+                    fmt_field, fuzzy_resolve_participants, get_daily_bucket,
+                    log_activity, normalize_input, resolve_participants,
+                    snapshot_activity, expense_totals_map, FILTER_PARAM_KEYS)
 
 STATUS_LABELS = dict(Activity.STATUS_CHOICES)
 
@@ -262,11 +262,52 @@ def tool_pin(user, params):
     }
 
 
+def _resolve_participant_categories(owner, spoken_names, create_participants=False):
+    """参与者分类（create/update 共用，只读不写库）：精确 + 模糊识别 → 四类。
+
+    返回 (canonical_names, info)：
+    - canonical_names：唯一命中的规范名 + 已获同意新建的口语名（去重保序，大小写不敏感）
+    - info：participant_fuzzy（非精确唯一命中，供复述）/ participant_ambiguous（多候选）/
+      participant_skipped（缺失且未获新建同意）/ participant_to_create（缺失但已获同意）
+    新建联系人是写操作，只在 create_participants=True 时进 to_create，由 apply 阶段落库。
+    """
+    info = {'participant_fuzzy': [], 'participant_ambiguous': [],
+            'participant_skipped': [], 'participant_to_create': []}
+    fuzzy = fuzzy_resolve_participants(owner, spoken_names)
+    canonical, seen_ids = [], set()
+    for spoken, p, kind in fuzzy['matched']:
+        if p.id not in seen_ids:
+            seen_ids.add(p.id)
+            canonical.append(p.name)
+        if kind != 'exact':
+            info['participant_fuzzy'].append((spoken, p.name, kind))
+    for spoken, candidates in fuzzy['ambiguous']:
+        info['participant_ambiguous'].append((spoken, [c.name for c in candidates]))
+    for spoken in fuzzy['missing']:
+        if create_participants:
+            canonical.append(spoken)
+            info['participant_to_create'].append(spoken)
+        else:
+            info['participant_skipped'].append(spoken)
+    deduped, seen_names = [], set()
+    for n in canonical:
+        key = n.strip().lower()
+        if key not in seen_names:
+            seen_names.add(key)
+            deduped.append(n)
+    return deduped, info
+
+
 def _create_plan(user, params):
     """创建预览与确认执行**共用**的解析与守门（不写库；与 update 的 _update_data 同思路）
 
-    参与者/标签只匹配已有（同守门口径），命中结果回写进 data；apply 阶段
-    create_activity_from_parsed 再解析一遍是确定性重放，两边算出的结果一致。
+    参与者先精确再模糊识别（_resolve_participant_categories），分四类回写：
+    - 唯一命中（含模糊）→ 规范名进 data['participants']，非精确命中记 participant_fuzzy 供复述
+    - 歧义（多个候选）→ 不进 data，记 participant_ambiguous，需用户澄清
+    - 缺失 + 已获新建同意（create_participants=True）→ 口语名进 data，记 participant_to_create，
+      apply 阶段 create_activity_from_parsed(create_missing=True) 才真正建
+    - 缺失 + 未获同意 → 不进 data，记 participant_skipped（绝不静默新建联系人）
+    标签只匹配已有（同守门口径）。apply 再解析一遍是确定性重放，两边结果一致。
     """
     data = normalize_input(params, timezone.localdate())
     if not data.get('name'):
@@ -290,23 +331,27 @@ def _create_plan(user, params):
         matched_tags, tag_skipped = resolve_existing_tags(data['tags'], 'activity', user)
         data['tags'] = [t.name for t in matched_tags]
 
-    # 参与者预解析：只匹配已有（大小写不敏感），匹配不到不新建；
-    # 未命中的名字不进 data，预览与回复都要明说（不静默丢弃）
-    participant_skipped = []
+    # 参与者：精确 + 模糊识别。新建联系人是写操作，必须 create_participants=True
+    # （模型在多轮对话确认「确实是新人」且用户同意后才传），否则缺失只跳过不新建
+    owner = parent.user if parent else user
+    create_participants = bool(params.get('create_participants'))
+    pinfo = {'participant_fuzzy': [], 'participant_ambiguous': [],
+             'participant_skipped': [], 'participant_to_create': []}
     if data.get('participants'):
-        matched, participant_skipped, _created = resolve_participants(
-            parent.user if parent else user, data['participants'])
-        data['participants'] = [p.name for p in matched]
+        data['participants'], pinfo = _resolve_participant_categories(
+            owner, data['participants'], create_participants)
 
-    return {'data': data, 'parent': parent,
-            'tag_skipped': tag_skipped, 'participant_skipped': participant_skipped}
+    return {'data': data, 'parent': parent, 'tag_skipped': tag_skipped, **pinfo}
 
 
 def apply_create(user, params):
     """确认后执行：建对象 → 记费用 → 打标签 → 解析参与者 → 写日志（与视图快速入口同一份实现）"""
     plan = _create_plan(user, params)
+    # 新建联系人只在用户确认（create_participants=True）后发生；与预览同口径重放
+    create_missing = bool(params.get('create_participants'))
     result = create_activity_from_parsed(user, plan['data'], parent=plan['parent'],
-                                         source='AI 对话')
+                                         source='AI 对话',
+                                         create_missing_participants=create_missing)
     activity = result['activity']
 
     suffix = f'，归属于「{plan["parent"].name}」' if plan['parent'] else ''
@@ -314,7 +359,7 @@ def apply_create(user, params):
                 if tag_names(activity) else '')
     return {
         'reply': f'已创建活动「{activity.name}」（{activity.date_range}）{suffix}{tag_note}'
-                 + _participant_skip_note(result['skipped'])
+                 + _participant_notes(plan, created_names=result['created'])
                  + _tag_skip_note(plan['tag_skipped']),
         'card': 'activity',
         'activity_ids': [activity.id],
@@ -356,7 +401,10 @@ def _create_fields(user, plan):
     if data.get('tags'):
         fields.append({'label': '标签', 'value': '、'.join(data['tags'])})
     if data.get('participants'):
-        fields.append({'label': '参与者', 'value': '、'.join(data['participants'])})
+        to_create = set(plan.get('participant_to_create', []))
+        shown = [f'{n}（新建联系人）' if n in to_create else n
+                 for n in data['participants']]
+        fields.append({'label': '参与者', 'value': '、'.join(shown)})
     return fields
 
 
@@ -421,20 +469,30 @@ def _draft_field_lines(plan):
 
 
 def _draft_reply(plan):
-    notes = []
-    if plan['participant_skipped']:
-        notes.append(_participant_skip_note(plan['participant_skipped']))
-    if plan['tag_skipped']:
-        notes.append(_tag_skip_note(plan['tag_skipped']))
+    """信息不全时的草稿引导回复：缺日期 / 参与者歧义 / 参与者缺失待确认新建。
+
+    与确认卡互斥——确认卡是「即将执行」的承诺，带着明显缺口（缺日期、参与者还没
+    定）让它确认等于邀请用户点一个会后悔的按钮。这里把每一处缺口说清楚，引导多轮补齐。
+    """
+    data = plan['data']
     lines = _draft_field_lines(plan)
     collected = ('（' + '；'.join(lines) + '）') if lines else ''
-    return {
-        'reply': f'先记下这个活动的草稿{collected}。\n'
-                 '还缺日期——告诉我哪天开始（例如「11月5日下午2点」），'
-                 '我就给你出确认卡；确实不需要日期的话，说「不用日期直接建」。'
-                 + ''.join(notes),
-        'changed': False,
-    }
+    parts = [f'先记下这个活动的草稿{collected}。']
+    if not data.get('start_date') and not data.get('end_date'):
+        parts.append('还缺日期——告诉我哪天开始（例如「11月5日下午2点」），'
+                     '我就给你出确认卡；确实不需要日期的话，说「不用日期直接建」。')
+    if plan.get('participant_fuzzy'):
+        pairs = '、'.join(f'「{s}」识别为「{c}」' for s, c, _k in plan['participant_fuzzy'])
+        parts.append(f'参与者 {pairs}。')
+    for spoken, names in plan.get('participant_ambiguous', []):
+        parts.append(f'参与者「{spoken}」匹配到多个联系人（{"、".join(names)}），你指的是哪一个？')
+    if plan.get('participant_skipped'):
+        names = '、'.join(plan['participant_skipped'])
+        parts.append(f'参与者「{names}」不在你的联系人里——确认是新人、要新建的话回复「新建」，'
+                     '我会在创建活动时一并建好；如果指的是已有联系人，请告诉我准确名字。')
+    if plan.get('tag_skipped'):
+        parts.append(_tag_skip_note(plan['tag_skipped']).strip())
+    return {'reply': '\n'.join(parts), 'changed': False}
 
 
 def draft_reminder(conversation):
@@ -444,13 +502,24 @@ def draft_reminder(conversation):
     from .models import ActivityDraft
     try:
         draft = ActivityDraft.objects.filter(conversation=conversation).first()
+        if not draft or draft.is_expired:
+            return ''
+        params = draft.params or {}
+        gaps = []
+        if not params.get('start_date') and not params.get('end_date'):
+            gaps.append('还缺日期')
+        # 参与者澄清缺口（歧义 / 缺失且未确认新建）：重算一次模糊识别，与工具同口径
+        if params.get('participants') and not params.get('create_participants'):
+            fuzzy = fuzzy_resolve_participants(conversation.user, params['participants'])
+            if fuzzy['ambiguous'] or fuzzy['missing']:
+                gaps.append('有参与者需要澄清或确认是否新建')
+        gap_text = '，'.join(gaps) if gaps else '信息还没补齐'
+        return (f'[创建草稿进行中] 用户正在创建活动「{draft.name or "未命名"}」，{gap_text}。'
+                '用户本轮补充的信息（时间/费用/参与者/标签等）请通过 activities.create 完整发出，'
+                '系统会自动与草稿合并；用户明确说不需要日期时传 "force": true；'
+                '用户确认要新建联系人时传 "create_participants": true。\n')
     except Exception:
         return ''
-    if not draft or draft.is_expired:
-        return ''
-    return (f'[创建草稿进行中] 用户正在创建活动「{draft.name or "未命名"}」，还缺日期。'
-            '用户本轮补充的信息（时间/费用/参与者/标签等）请通过 activities.create 完整发出，'
-            '系统会自动与草稿合并；用户明确说不需要日期时传 "force": true。\n')
 
 
 @agent_tool('activities.create', '创建一个新活动（先出预览确认卡，用户点确认后才会真正创建；不要连发多条）。'
@@ -460,7 +529,11 @@ def draft_reminder(conversation):
             '= 当天 start_time 18:00、end_time 20:00 左右）、'
             'description（活动备注/结论等长文本，可选）、cost（数字，元，将创建为费用条目）、'
             'status、tags（字符串数组，可选；只写用户明确提到的标签，没有就整个省略，'
-            '不要自行推断或编造标签名）、participants（字符串数组）、parent（父活动名称，可选）、'
+            '不要自行推断或编造标签名）、participants（字符串数组；写用户口语原名即可，'
+            '系统会模糊匹配已有联系人，如「keying」→「KeYing Li」；不要自己猜规范名）、'
+            'parent（父活动名称，可选）、'
+            'create_participants（true：仅当多轮对话中用户明确确认「确实是新人、要新建联系人」后才传，'
+            '系统才会新建；默认不传=匹配不到就不加并追问，绝不静默新建）、'
             'force（true：用户明确说不需要日期/直接建时，跳过草稿直接出确认卡）',
             apply_fn=apply_create)
 def tool_create(user, params):
@@ -478,23 +551,22 @@ def tool_create(user, params):
     plan = _create_plan(user, source)
     data = plan['data']
 
-    if not force and not data.get('start_date') and not data.get('end_date'):
-        # 信息不全：落草稿 + 引导补充。不出确认卡——确认卡是「即将执行」的承诺，
-        # 带着明显缺口让它确认等于邀请用户点一个会后悔的按钮。
+    no_date = not data.get('start_date') and not data.get('end_date')
+    # 参与者澄清门：歧义（要选哪个）或缺失且未获新建同意（先确认不存在再问是否新建）。
+    # 与缺日期一样落草稿引导多轮补齐，绝不带着未定的参与者出确认卡（一点就落库）。
+    # force 只豁免日期门，不豁免「新建联系人需用户同意」——那是写操作，须显式 create_participants
+    needs_participant_clarification = (
+        bool(plan['participant_ambiguous']) or bool(plan['participant_skipped']))
+    if conversation_id and not force and (no_date or needs_participant_clarification):
         # 草稿按对话归位，没有 conversation_id（旁路调用/旧测试路径）没有归位点，
         # 保持旧的确认卡行为，绝不落一条永远捡不回来的孤儿草稿
-        if conversation_id:
-            _save_draft(user, conversation_id, source)
-            return _draft_reply(plan)
+        _save_draft(user, conversation_id, source)
+        return _draft_reply(plan)
 
     if draft:
         draft.delete()  # 信息已齐，草稿完成使命（确认卡自带 merged 参数，重放自洽）
 
-    notes = []
-    if plan['participant_skipped']:
-        notes.append(_participant_skip_note(plan['participant_skipped']))
-    if plan['tag_skipped']:
-        notes.append(_tag_skip_note(plan['tag_skipped']))
+    notes = [_participant_notes(plan), _tag_skip_note(plan['tag_skipped'])]
     parent_name = str(source.get('parent') or '').strip()
     if parent_name and not plan['parent']:
         notes.append(f'\n\n⚠️ 没找到叫「{parent_name}」的活动，将创建为独立活动。')
@@ -594,11 +666,37 @@ def _update_data(user, activity, params):
 
 
 def _participant_skip_note(skipped):
-    """自动识别未命中的参与者提示（不阻断流程，仅附在回复末尾）"""
+    """缺失参与者提示（不阻断流程，仅附在回复末尾）：未添加 + 引导确认新建。
+
+    保留「未添加」字样（存量测试与用户认知口径），但不再只说「去活动页手动加」——
+    用户要的是 AI 能在对话里确认后代建，所以这里给出「新建」出口。
+    """
     if not skipped:
         return ''
-    return (f"\n\n⚠️ 参与者「{'、'.join(skipped)}」不在你的参与者列表里，未添加；"
-            '需要的话可在活动页手动添加。')
+    return (f"\n\n⚠️ 参与者「{'、'.join(skipped)}」不在你的联系人里，未添加；"
+            '要我帮你新建联系人吗？确认的话回复「新建」，或告诉我准确的已有联系人名字。')
+
+
+def _participant_notes(plan, created_names=None):
+    """确认卡/执行回复里的参与者附注：模糊识别复述 + 歧义 + 缺失 + 新建结果。
+
+    created_names 非空（apply 阶段）报「已新建」；为空但 plan 有 to_create（预览阶段）
+    报「将新建」。歧义/缺失在 cid 路径已被草稿门拦下，这里主要服务 force 与 no-cid 旁路。
+    """
+    notes = []
+    if plan.get('participant_fuzzy'):
+        pairs = '、'.join(f'「{s}」识别为「{c}」' for s, c, _k in plan['participant_fuzzy'])
+        notes.append(f'\n\nℹ️ 参与者 {pairs}。')
+    for spoken, names in plan.get('participant_ambiguous', []):
+        notes.append(f'\n\n⚠️ 参与者「{spoken}」匹配到多个联系人（{"、".join(names)}），'
+                     '未添加；请告诉我具体是哪一个。')
+    if plan.get('participant_skipped'):
+        notes.append(_participant_skip_note(plan['participant_skipped']))
+    if created_names:
+        notes.append(f'\n\n✅ 已新建联系人：{"、".join(created_names)}。')
+    elif plan.get('participant_to_create'):
+        notes.append(f'\n\n➕ 将新建联系人：{"、".join(plan["participant_to_create"])}。')
+    return ''.join(notes)
 
 
 def _tag_skip_note(skipped):
@@ -641,8 +739,10 @@ def _update_preview(user, params):
         changes.append({'field': field, 'label': label,
                         'old': fmt_field(field, old_v), 'new': fmt_field(field, data[field])})
 
-    participant_skipped = []
+    participant_info = {'participant_fuzzy': [], 'participant_ambiguous': [],
+                        'participant_skipped': [], 'participant_to_create': []}
     tag_skipped = []
+    create_participants = bool(params.get('create_participants'))
     for key, label in (('tags', '标签'), ('participants', '参与者')):
         if key in data:
             old_set = set(tag_names(activity)) if key == 'tags' else \
@@ -653,10 +753,11 @@ def _update_preview(user, params):
                 matched_tags, tag_skipped = resolve_existing_tags(data[key], 'activity', user)
                 data[key] = [t.name for t in matched_tags] if matched_tags else list(old_set)
             if key == 'participants':
-                # 预览就要反映真实结果：未命中的名字不会出现，全部未命中时保持原参与者不变
-                matched, participant_skipped, _created = resolve_participants(user, data[key])
-                data[key] = [p.name for p in matched] if (matched or not data[key]) \
-                    else list(old_set)
+                # 精确 + 模糊识别（与 create 同口径）。全部未命中（无唯一命中、无同意新建）
+                # 时保持原参与者不变（「未找到」不等于「清空」），显式传空数组才是清空
+                canonical, participant_info = _resolve_participant_categories(
+                    user, data[key], create_participants)
+                data[key] = canonical if (canonical or not data[key]) else list(old_set)
             new_set = set(data[key])
             if old_set != new_set:
                 added = sorted(new_set - old_set)
@@ -670,7 +771,7 @@ def _update_preview(user, params):
                 changes.append({'field': key, 'label': label,
                                 'old': '、'.join(sorted(old_set)) or '空',
                                 'new': new_desc + f"（{' '.join(detail)}）"})
-    return activity, data, changes, participant_skipped, tag_skipped
+    return activity, data, changes, participant_info, tag_skipped
 
 
 def apply_update(user, params):
@@ -691,11 +792,20 @@ def apply_update(user, params):
         matched_tags, tag_skipped = resolve_existing_tags(data['tags'], 'activity', user)
         if matched_tags:
             apply_tags(activity, [t.name for t in matched_tags])
-    skipped_participants = []
+    participant_info = {'participant_fuzzy': [], 'participant_ambiguous': [],
+                        'participant_skipped': [], 'participant_to_create': []}
+    created_participants = []
     if 'participants' in data:
-        participants, skipped_participants, _created = resolve_participants(user, data['participants'])
-        # 全部未命中时不动现有参与者（避免把「未找到」误做成「清空」）
-        if participants or not data['participants']:
+        # 与预览同口径：精确 + 模糊识别，新建联系人只在 create_participants=True 时落库
+        create_missing = bool(params.get('create_participants'))
+        spoken = data['participants']
+        canonical, participant_info = _resolve_participant_categories(
+            user, spoken, create_missing)
+        # 全部未命中（canonical 空且 spoken 非空）时不动现有参与者（「未找到」≠「清空」）；
+        # 有命中或显式清空才 set。canonical 含规范名 + 已同意新建的口语名
+        if canonical or not spoken:
+            participants, _skipped, created_participants = resolve_participants(
+                user, canonical, create_missing=create_missing)
             activity.participants.set(participants)
 
     summary = edit_summary(old, activity)
@@ -703,7 +813,7 @@ def apply_update(user, params):
     log_activity(user, activity, 'edited', f'{summary}（通过 AI 对话）')
     return {
         'reply': f'已更新「{activity.name}」：{summary}'
-                 + _participant_skip_note(skipped_participants)
+                 + _participant_notes(participant_info, created_names=created_participants)
                  + _tag_skip_note(tag_skipped),
         'card': 'activity',
         'activity_ids': [activity.id],
@@ -715,23 +825,26 @@ def apply_update(user, params):
 @agent_tool('activities.update',
             '修改指定活动的全部可编辑字段（名称/描述/日期/状态/标签/参与者/父活动）',
             'target（目标活动名称关键词）+ 要修改的字段（同 create 参数）；'
+            'participants（写用户口语原名，系统模糊匹配已有联系人如「keying」→「KeYing Li」；'
+            '匹配不到时保留原参与者不变并追问，绝不静默清空或新建）；'
+            'create_participants（true：仅当用户明确确认要新建联系人后才传，同 create）；'
             'parent（父活动名称关键词，传空串或 none 表示移出父活动）；'
             'description 描述：把一段结论/备注写进活动时传它，**默认追加到原描述末尾**，'
             '整段替换需再传 description_mode="replace"）；先出预览，用户确认后生效',
             apply_fn=apply_update)
 def tool_update(user, params):
-    activity, data, changes, skipped, tag_skipped = _update_preview(user, params)
+    activity, data, changes, participant_info, tag_skipped = _update_preview(user, params)
     if not changes:
         return {
             'reply': f'没有识别到「{activity.name}」需要修改的内容，请告诉我要改哪些字段'
-                     + _participant_skip_note(skipped) + _tag_skip_note(tag_skipped),
+                     + _participant_notes(participant_info) + _tag_skip_note(tag_skipped),
             'card': 'activity',
             'activity_ids': [activity.id],
             'card_data': _activity_card_data(activity),
         }
     return {
         'reply': f'我准备对「{activity.name}」做以下修改，请确认：'
-                 + _participant_skip_note(skipped) + _tag_skip_note(tag_skipped),
+                 + _participant_notes(participant_info) + _tag_skip_note(tag_skipped),
         'card': 'confirm',
         'activity_ids': [activity.id],
         'card_data': {'kind': 'update', 'name': activity.name,

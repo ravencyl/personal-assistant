@@ -31,6 +31,7 @@ from chat.models import (Conversation, Message, TURN_IDLE_GRACE_SECONDS,
                          TURN_TTL_SECONDS)
 from core.agent_registry import (INTENT_TOOL_MAP, PROTOCOL_REF_REMINDER,
                                  PROTOCOL_SEARCH_REMINDER,
+                                 PROTOCOL_PARTICIPANT_REMINDER,
                                  PROTOCOL_TRUNCATED_NOTE, REF_REMINDER_MIN_CHARS,
                                  build_protocol_prompt, build_time_anchor_reminder,
                                  extract_intent,
@@ -981,8 +982,9 @@ class AutoRetryTurnTest(TestCase):
         _, data = self._poll(service)
         self.assertEqual(data['phase'], 'sent')
         self.assertEqual(service.sent,
-                         [build_time_anchor_reminder() + PROTOCOL_SEARCH_REMINDER + '新问题'],
-                         '重发的是同一份 turn_prompt（含恒定检索/时间补发基线），且只发一份')
+                         [PROTOCOL_PARTICIPANT_REMINDER + build_time_anchor_reminder()
+                          + PROTOCOL_SEARCH_REMINDER + '新问题'],
+                         '重发的是同一份 turn_prompt（含恒定参与者/检索/时间补发基线），且只发一份')
 
     def test_delivery_failure_after_retries_exhausted_errors(self):
         """首发 + 自动重发都失败：中断气泡（不再无限重试）"""
@@ -2662,15 +2664,17 @@ class StaleSessionReferenceReminderTest(TestCase):
         self.assertTrue(sent.endswith('把这份方案存进知识库'), '用户原文必须还在最后')
 
     def test_short_previous_reply_gets_no_reminder(self):
-        """反向锁：没东西可抄时不递引用规则；恒定的检索关键词/时间锚点补发不受此判据管
+        """反向锁：没东西可抄时不递引用规则；恒定的参与者/检索关键词/时间锚点补发不受此判据管
         （它们没有条件，每轮都在——这里只锁「除基线外不多一行」）"""
         self._reply('好的，已记录。')
         self.assertEqual(self._build(),
-                         build_time_anchor_reminder() + PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
+                         PROTOCOL_PARTICIPANT_REMINDER + build_time_anchor_reminder()
+                         + PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
 
     def test_no_previous_reply_still_sends_nothing(self):
         self.assertEqual(self._build(),
-                         build_time_anchor_reminder() + PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
+                         PROTOCOL_PARTICIPANT_REMINDER + build_time_anchor_reminder()
+                         + PROTOCOL_SEARCH_REMINDER + '把这份方案存进知识库')
 
     def test_reminder_never_pollutes_the_stored_message(self):
         """提醒只能上线路，不能写回消息历史
@@ -2745,6 +2749,48 @@ class TimeAnchorReminderTest(TestCase):
                 continue  # 兜底表认、提示词不教（写法罕见，教了反而稀释重点）
             self.assertIn(f'{word} {start}–{end}', reminder, f'每轮补发缺 {word} 区间')
             self.assertIn(f'{word} {start}–{end}', prompt, f'首帧规则 15 缺 {word} 区间')
+
+
+class ParticipantReminderTest(TestCase):
+    """参与者模糊识别 + 确认新建的每轮补发（协议规则 16，2026-11-13）
+
+    起因：用户说「和 keying 吃晚饭」，agent 回「keying 不在列表里，未添加」，
+    但联系人里其实有「KeYing Li」。与规则 10/12/13/14/15 同款存量陷阱：首帧只对
+    新建对话生效，存量会话看不到后来新增的规则，所以首帧加规则 16 + 每轮通道补发。
+    口径：口语原名照传（系统模糊匹配）、新建联系人必须用户明确同意（create_participants）。
+    """
+
+    def setUp(self):
+        from django.test.client import RequestFactory
+        self.req = RequestFactory().post('/', {})
+        self.user = User.objects.create_user('participant', password='x')
+        self.conv = Conversation.objects.create(user=self.user, session_id='sess_participant',
+                                                protocol_sent=True)
+
+    def test_first_frame_carries_rule_16(self):
+        prompt = build_protocol_prompt()
+        self.assertIn('16. ', prompt)
+        rule_16 = prompt.split('16. ', 1)[1]
+        self.assertIn('participants', rule_16)
+        self.assertIn('create_participants', rule_16)
+        self.assertIn('模糊匹配', rule_16)
+
+    def test_stale_session_gets_the_reminder_every_turn(self):
+        sent = chat_views._build_ai_content(self.req, self.conv, '和 keying 吃晚饭')
+        self.assertIn(PROTOCOL_PARTICIPANT_REMINDER, sent)
+        self.assertTrue(sent.endswith('和 keying 吃晚饭'))
+
+    def test_new_conversation_also_gets_the_reminder(self):
+        conv = Conversation.objects.create(user=self.user, session_id='sess_participant_new',
+                                           protocol_sent=False)
+        sent = chat_views._build_ai_content(self.req, conv, '和 keying 吃晚饭')
+        self.assertIn(PROTOCOL_PARTICIPANT_REMINDER, sent, '每轮通道与首帧无关，新对话也带')
+
+    def test_reminder_states_the_consent_gate(self):
+        """补发必须写明「新建联系人须用户明确同意」——这是写操作门，不能只说模糊匹配"""
+        self.assertIn('create_participants', PROTOCOL_PARTICIPANT_REMINDER)
+        self.assertIn('同意', PROTOCOL_PARTICIPANT_REMINDER)
+        self.assertIn('模糊匹配', PROTOCOL_PARTICIPANT_REMINDER)
 
 
 class RetryAfterFailureReferenceTest(TestCase):
