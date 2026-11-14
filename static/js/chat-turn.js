@@ -669,15 +669,22 @@
         return { paint: paint, close: close };
     };
 
-    /* 非 AI 快捷卡片的统一委托（分栏页 / 详情页共用这一份，document 级）。
-       [data-local-card] → POST /chat/<id>/local-card/ 直出卡片（零 token、不碰 turn 锁），
-         chatId 从 location.pathname 解析：分栏页切对话会 replaceState 成 /chat/<id>/，
-         详情页是 /chat/<id>/detail/，两个形态都被同一条正则覆盖。 */
-    function currentChatId() {
-        var m = /\/chat\/(\d+)/.exec(location.pathname);
-        if (m) return m[1];
-        // 全站侧栏（sidebar-agent.js）持有自己的会话：非 /chat 页面上 pathname
-        // 命不中，快捷卡片（每日简报等）以侧栏装载的会话为准；未装载时保持 null
+    /* 非 AI 快捷卡片的统一委托（侧栏 / 浮窗 / 问 AI 抽屉共用这一份，document 级）。
+       [data-local-card] → POST /chat/<id>/local-card/ 直出卡片（零 token、不碰 turn 锁）。
+       独立对话页 2026-11-13 下线后没有 #split-messages / #messages 页面容器，pathname
+       也不再含 /chat/<id>：chatId 与插入槽都从按钮所在的面板容器解析——各壳装载时把
+       当前会话 id 写进容器的 data-chat-id（sidebar/mobile 的 rememberConv、抽屉 mount），
+       回退 window._paSidebarChatId（侧栏/浮窗装载钩子）。 */
+    function localCardPanel(btn) {
+        return btn.closest('[data-side-agent-messages], [data-mobile-agent-messages], #ask-drawer-messages');
+    }
+
+    function currentChatId(box) {
+        if (box) {
+            var id = box.getAttribute('data-chat-id');
+            if (id) return id;
+        }
+        // 回退：侧栏/浮窗装载的会话钩子；未装载时保持 null
         return window._paSidebarChatId ? String(window._paSidebarChatId) : null;
     }
 
@@ -689,10 +696,9 @@
         setTimeout(function () { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 2500);
     }
 
-    function insertLocalHtml(html) {
-        // 活动详情页的问 AI 抽屉也挂了消息容器（在 #messages 之前判：详情页没有 #messages，
-        // 但抽屉页不能落到不存在的槽里静默丢弃）
-        var box = document.getElementById('split-messages') || document.getElementById('ask-drawer-messages') || document.getElementById('messages');
+    function insertLocalHtml(html, box) {
+        // box 由点击委托从按钮所在面板容器解析（侧栏 / 浮窗 / 问 AI 抽屉），
+        // 不再靠页面级 id 兜底——独立对话页下线后 #split-messages / #messages 已不存在
         if (!box) return;
         var prevCount = box.childElementCount;
         box.insertAdjacentHTML('beforeend', html);
@@ -704,7 +710,8 @@
     document.addEventListener('click', function (e) {
         var btn = e.target.closest && e.target.closest('[data-local-card]');
         if (!btn) return;
-        var chatId = currentChatId();
+        var box = localCardPanel(btn);
+        var chatId = currentChatId(box);
         if (!chatId) { flashLocalError(btn, '先选择一个对话'); return; }
         var meta = document.querySelector('meta[name="csrf-token"]');
         // 端点读 request.POST（表单体），发 urlencoded 而不是 JSON
@@ -717,7 +724,7 @@
             return r.json();
         }).then(function (d) {
             if (!d || !d.html) throw new Error('empty');
-            insertLocalHtml(d.html);
+            insertLocalHtml(d.html, box);
         }).catch(function () {
             flashLocalError(btn, '插入失败，请重试');
         });

@@ -38,7 +38,7 @@
                 {% endif %}
                 {# 溯源（ROA Phase C 降级版 D.2）：「它凭什么这么记」一屏自证 #}
                 {% if memory.source_message %}
-                <a href="{% url 'chat:conversation_detail' memory.source_message.conversation_id %}"
+                <a href="/?chat={{ memory.source_message.conversation_id }}"
                    class="text-[var(--accent)] hover:underline">来源对话</a>
                 {% endif %}
             </div>

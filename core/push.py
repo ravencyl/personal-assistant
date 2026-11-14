@@ -254,7 +254,7 @@ def build_weekly_review_payload(user):
     return {
         'title': f'{settings.SITE_NAME} · 每周回顾',
         'body': body,
-        'url': '/chat/?ask=weekly_review',
+        'url': '/chat/weekly-review/',
     }
 
 

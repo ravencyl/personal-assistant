@@ -3,7 +3,7 @@
 只渲染条目，不做任何交互接线——条目是纯 button（data-sb-conv-id + data 属性，
 不带 hx-*，前端委托点击在 sidebar-agent.js），标题等用户数据靠模板自动转义。
 选中态由前端在 innerHTML 后给当前会话补 .active（服务端不知道侧栏此刻挂的是哪条）。
-样式在 custom.css 的 .side-hist-*（Typeframe 排版列表，与主对话页 chat-conv-item 同语言）。
+样式在 custom.css 的 .side-hist-*（Typeframe 排版列表：无底色无边线、默认 L3 灰、当前会话纯黑加粗）。
 {% endcomment %}
 {% if conversations %}
     {% for conv in conversations %}

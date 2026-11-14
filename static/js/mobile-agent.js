@@ -1,8 +1,9 @@
 /* 全站移动端浮窗 AI 助手（2026-11-13）：手机专属弹窗式对话壳。
  *
  * 为什么单独一份文件：这里是「壳」（FAB 开关 / 装载 / 历史 / 新话题 / 页面标题），
- * chat-turn.js 是「收发流」。浮窗是 PaChatTurn 的第五个挂载点（分栏页 / 详情页 /
- * 问 AI 抽屉 / 桌面侧栏之后），与桌面侧栏（sidebar-agent.js）功能一致、只是 UI 不同：
+ * chat-turn.js 是「收发流」。浮窗是 PaChatTurn 的挂载点之一（与问 AI 抽屉 / 桌面侧栏
+ * 并列；独立对话页 2026-11-13 下线后不再有分栏页 / 详情页），与桌面侧栏
+ * （sidebar-agent.js）功能一致、只是 UI 不同：
  * 侧栏是左缘滑入栏，浮窗是右下角 FAB + 底部上滑弹窗。
  *
  * 与桌面侧栏互斥：两个壳都常驻 base.html，但同一视口只允许一个在跑——
@@ -67,9 +68,12 @@
 
     function rememberConv(id) {
         currentConvId = id;
-        // 非 /chat 页面上快捷卡片（每日简报等）的 chatId 以浮窗装载的会话为准
-        //（chat-turn.js::currentChatId 在 pathname 命不中时读这个钩子；移动视口侧栏早退不写它）
+        // 快捷卡片（每日简报等）的 chatId 以浮窗装载的会话为准
+        //（chat-turn.js::currentChatId 读面板容器 data-chat-id / _paSidebarChatId 钩子；
+        // 移动视口侧栏早退不写它）
         window._paSidebarChatId = id;
+        var msgs = messagesEl();
+        if (msgs) msgs.setAttribute('data-chat-id', String(id));
         markActive();
     }
 
@@ -199,10 +203,11 @@
     /* 非活动页 / 历史点选 / 新话题：页面感知单会话（filter(user) 个人上下文口径）。
      * convId 为空 = 服务端取最新非归档；带 id = 重挂指定会话（别人的/已归档 → JSON 404，
      * 静默回落「最新非归档」重试一次）。 */
-    function mountSidebar(convId) {
+    function mountSidebar(convId, historyAll) {
         mounting = true;
         setMsgsLoading();
         var url = '/chat/sidebar/' + (convId ? '?conversation_id=' + encodeURIComponent(convId) : '');
+        if (historyAll) url += (convId ? '&' : '?') + 'history=all';
         window.paJsonFetch(url, { cache: 'no-store' })
             .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
             .then(function (res) {
@@ -285,4 +290,17 @@
     // 顶部标题随页面定（不随会话切换变——它表达的是「AI 此刻在哪个页面」）
     var t = titleEl();
     if (t) t.textContent = pageTitle();
+
+    // ?chat= 深链（独立对话页下线后的落点，2026-11-13）：base.html 内联脚本已设好
+    // window._paOpenChat 信号，这里展开浮窗并挂到指定会话（history=all 展开全量）。
+    // 深链显式指定会话，绕过活动页自动钉选（与历史点选/新话题同口径走 mountSidebar）。
+    // 不自动 focus 输入框：深链是导航进来的，立刻弹键盘太突兀（用户点 FAB 才 focus）。
+    if (window._paOpenChat && window._paOpenChat.id) {
+        document.body.classList.add('mobile-agent-open');
+        var f0 = fab(); if (f0) f0.setAttribute('aria-expanded', 'true');
+        var p0 = panel(); if (p0) p0.setAttribute('aria-hidden', 'false');
+        var bd0 = backdrop(); if (bd0) bd0.setAttribute('aria-hidden', 'false');
+        mountSidebar(window._paOpenChat.id, window._paOpenChat.history === 'all');
+        fit();
+    }
 })();

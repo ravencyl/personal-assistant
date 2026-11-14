@@ -4,11 +4,16 @@ from . import views
 app_name = 'chat'
 
 urlpatterns = [
-    path('', views.conversation_list, name='conversation_list'),
-    # 分栏布局：列表页带当前选中对话（桌面端右栏 / 移动端聊天视图）
-    path('<int:conversation_id>/', views.conversation_list, name='conversation_list_with_active'),
-    # 独立详情页：无 JS 降级 + 浮窗「在新页面打开」目标
-    path('<int:conversation_id>/detail/', views.conversation_detail, name='conversation_detail'),
+    # 独立对话页 2026-11-13 下线（用户：「又有 AI 对话又有侧边栏 AI，不用单独的
+    # AI 对话页面了」）。对话能力全部由全站侧栏（桌面）/ 浮窗弹窗（移动）/ 活动详情
+    # 「问 AI」抽屉承担，后端端点（send/turn/sidebar/for-activity/…）全部保留。
+    # 三条页面路由保留为重定向墓碑：name 不变让旧书签 / 模板 {% url %} / 推送深链
+    # 不破，落点改首页 + ?chat=<id> 唤起侧栏并挂到该对话（无 JS 时落首页）。
+    path('', views.chat_page_redirect, name='conversation_list'),
+    path('<int:conversation_id>/', views.chat_page_redirect, name='conversation_list_with_active'),
+    path('<int:conversation_id>/detail/', views.chat_page_redirect, name='conversation_detail'),
+    # 周回顾深链（推送 / 周报入口，原 /chat/?ask=weekly_review）：建回顾对话后唤起侧栏
+    path('weekly-review/', views.weekly_review_chat, name='weekly_review_chat'),
     path('<int:conversation_id>/widget-messages/', views.widget_messages, name='widget_messages'),
     path('create/', views.create_conversation, name='create_conversation'),
     # 活动专属对话 create-or-get：详情页「问 AI」抽屉入口（JSON，原生 fetch，禁 hx-*）

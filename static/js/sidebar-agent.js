@@ -1,10 +1,10 @@
 /* 全站侧边 AI 助手（docs/sidebar-agent-plan.md D2/D3，P1）
  *
  * 为什么单独一份文件而不是塞进 chat-turn.js：这里是「壳」（开关/装载/新话题），
- * chat-turn.js 是「收发流」。侧栏是 PaChatTurn 的第四个挂载点（分栏页 / 详情页 /
- * 问 AI 抽屉之后），与页面内其它实例同开一个会话时 window._paActiveChatTurn
- * 会被后建实例顶掉——可接受：visibilitychange 只需要唤醒「用户看得见的那个」，
- * 双写冲突由服务端 claim_turn / 409 兜住。
+ * chat-turn.js 是「收发流」。侧栏是 PaChatTurn 的挂载点之一（与问 AI 抽屉 / 移动浮窗
+ * 并列；独立对话页 2026-11-13 下线后不再有分栏页 / 详情页），与页面内其它实例同开一个
+ * 会话时 window._paActiveChatTurn 会被后建实例顶掉——可接受：visibilitychange 只需要
+ * 唤醒「用户看得见的那个」，双写冲突由服务端 claim_turn / 409 兜住。
  *
  * 装载策略：懒装载——首次展开或开局恢复（localStorage）时才 GET /chat/sidebar/。
  * 每次整页导航都是新的侧栏，实例不需要跨页 halt。「新话题」走既有 POST
@@ -37,14 +37,21 @@
     function inputEl() { return document.querySelector('[data-side-agent-input]'); }
     function historyEl() { return document.querySelector('[data-side-agent-history-panel]'); }
 
-    function mountUrl(convId) {
-        // 指定会话重挂（历史列表点选 / 跨页恢复）；不带参数 = 服务端取最新非归档
-        return convId ? '/chat/sidebar/?conversation_id=' + encodeURIComponent(convId) : '/chat/sidebar/';
+    function mountUrl(convId, historyAll) {
+        // 指定会话重挂（历史列表点选 / 跨页恢复 / ?chat= 深链）；不带参数 = 服务端取最新非归档
+        var url = convId ? '/chat/sidebar/?conversation_id=' + encodeURIComponent(convId) : '/chat/sidebar/';
+        if (historyAll) url += (convId ? '&' : '?') + 'history=all';
+        return url;
     }
 
     function rememberConv(id) {
         currentConvId = id;
         window._paSidebarChatId = id;
+        // 面板容器记下当前会话 id：chat-turn.js 的快捷卡片插入 / chatId 解析靠
+        // btn.closest('[data-side-agent-messages]') 读它（独立对话页下线后没有
+        // #split-messages / #messages 页面容器，pathname 也不再含 /chat/<id>）
+        var msgs = messagesEl();
+        if (msgs) msgs.setAttribute('data-chat-id', String(id));
         try { localStorage.setItem(CONV_KEY, String(id)); } catch (err) { /* 同 OPEN_KEY，静默降级 */ }
         markActive();
     }
@@ -111,12 +118,12 @@
         if (ta && window.paFitTextarea) window.paFitTextarea(ta);
     }
 
-    function mount(convId) {
+    function mount(convId, historyAll) {
         if (chatTurn || mounting) return;
         mounting = true;
         var msgs = messagesEl();
         if (msgs) msgs.innerHTML = '<p class="text-center text-xs text-[var(--text-muted)] py-6">正在接续对话…</p>';
-        window.paJsonFetch(mountUrl(convId), { cache: 'no-store' })
+        window.paJsonFetch(mountUrl(convId, historyAll), { cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 mounting = false;
@@ -200,10 +207,15 @@
 
     // 开局恢复（D3 常驻）：上次展开过就直接还原并装载。base.html 里更早的内联脚本
     // 已先把 body.side-agent-open 加上（防面板滑入闪动），这里只补 aria 与装载。
-    // 会话选择也一并恢复（P2）：侧栏跨页保持用户挑的那条对话；它若已被归档/删除，
+    // ?chat= 深链优先（独立对话页下线后的落点）：base.html 内联脚本已设好
+    // window._paOpenChat 信号 + 持久化键，这里挂到指定会话（history=all 展开全量）。
+    // 否则回落会话选择恢复（P2）：侧栏跨页保持用户挑的那条对话；它若已被归档/删除，
     // mount 的 404 分支自动回落「最新非归档」
     try {
-        if (localStorage.getItem(OPEN_KEY) === '1') {
+        if (window._paOpenChat && window._paOpenChat.id) {
+            if (h) h.setAttribute('aria-expanded', 'true');
+            mount(window._paOpenChat.id, window._paOpenChat.history === 'all');
+        } else if (localStorage.getItem(OPEN_KEY) === '1') {
             if (h) h.setAttribute('aria-expanded', 'true');
             var stored = localStorage.getItem(CONV_KEY);
             mount(stored && /^\d+$/.test(stored) ? stored : null);

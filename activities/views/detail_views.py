@@ -2,7 +2,6 @@
 import json
 import re
 from datetime import date
-from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -79,15 +78,6 @@ def activity_detail(request, activity_id):
     from core.cross_link import get_related_content
     related = get_related_content(request.user, Activity, activity, limit=5)
 
-    # 「问 AI」深链：跳聊天页并预填针对当前活动的提问（chat 页 ?ask= 处理）。
-    # 只填不发（与 chips 同一约定），用户可改两个字再发
-    chat_ask_url = (
-        reverse('chat:conversation_list') + '?' +
-        urlencode({'ask': f'帮我看看「{activity.name}」这个活动，'
-                          f'有什么要注意或建议的吗？',
-                   'pin': activity.id})
-    )
-
     return render(request, 'activities/activity_detail.html', {
         'activity': activity,
         'max_upload_mb': MAX_UPLOAD_SIZE_MB,
@@ -108,7 +98,6 @@ def activity_detail(request, activity_id):
         'expense_tag_suggestions': tag_suggestions('expense', request.user),
         'participant_suggestions': list(Participant.objects.filter(
             user=activity.user).values_list('name', flat=True).order_by('name')),
-        'chat_ask_url': chat_ask_url,
     })
 
 

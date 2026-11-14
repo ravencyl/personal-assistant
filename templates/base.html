@@ -112,7 +112,9 @@
                         </div>
                         {% if user.is_authenticated %}
                         {% comment %}
-                        主导航只放五个一级模块（「知识库」2026-10-28 并入「记忆」）。
+                        主导航只放三个一级模块（今日/活动记录/记忆）。「AI 对话」2026-11-13
+                        撤出顶栏——独立对话页下线，桌面 AI 由全站侧栏承担（_sidebar_agent.html），
+                        移动由浮窗弹窗承担（_mobile_agent.html）；「知识库」2026-10-28 并入「记忆」。
                         模板管理与循环活动不在这里：
                         它们是「活动记录」的附属设施（模板=活动骨架，循环=活动生成器），
                         入口在活动记录页头部的按钮组（模板/循环/日历/下一步行动/新建），
@@ -128,10 +130,6 @@
                             <a href="{% url 'activities:activity_list' %}"
                                class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'activities' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
                                 活动记录
-                            </a>
-                            <a href="{% url 'chat:conversation_list' %}"
-                               class="inline-flex items-center px-3 py-2 {% if request.resolver_match.app_name == 'chat' %}nav-link nav-link-active{% else %}nav-link{% endif %}">
-                                AI 对话
                             </a>
                             {# 「知识库」2026-10-28 数据层并入记忆，只留一个「记忆」入口（模板行注释不能跨行） #}
                             <a href="{% url 'memory:memory_list' %}"
@@ -286,7 +284,27 @@
     {# 全站侧边 AI 助手（docs/sidebar-agent-plan.md D2）：壳常驻 base.html，全站页面共用 #}
     {# 恢复类要先于壳渲染执行，否则展开态刷新会看见面板从收起滑入的闪动（Django 注释不能跨行） #}
     <script>
-    try { if (localStorage.getItem('pa-side-agent-open') === '1') document.body.classList.add('side-agent-open'); } catch (err) {}
+    // ?chat=<id>（独立对话页下线后的深链落点，2026-11-13）：旧 /chat/<id>/ 重定向到
+    // 首页带此参数，这里转成「展开侧栏并挂到该对话」的启动信号 window._paOpenChat，
+    // sidebar-agent.js / mobile-agent.js 启动时读它挂载指定会话（&history=all 展开全量）。
+    // 同时写侧栏持久化键（跨页保持），并把参数从地址栏抹掉（replaceState 不留历史）。
+    // 无 ?chat= 时回落原恢复逻辑：上次展开过就恢复展开态。
+    try {
+        var _paParams = new URLSearchParams(location.search);
+        var _paChatId = _paParams.get('chat');
+        if (_paChatId && /^\d+$/.test(_paChatId)) {
+            window._paOpenChat = { id: _paChatId, history: _paParams.get('history') === 'all' ? 'all' : '' };
+            localStorage.setItem('pa-side-agent-conv', _paChatId);
+            localStorage.setItem('pa-side-agent-open', '1');
+            document.body.classList.add('side-agent-open');
+            _paParams.delete('chat');
+            _paParams.delete('history');
+            var _paQs = _paParams.toString();
+            history.replaceState(null, '', location.pathname + (_paQs ? '?' + _paQs : '') + location.hash);
+        } else if (localStorage.getItem('pa-side-agent-open') === '1') {
+            document.body.classList.add('side-agent-open');
+        }
+    } catch (err) {}
     </script>
     {% include "chat/partials/_sidebar_agent.html" %}
     {# 全站移动端浮窗 AI 助手（2026-11-13）：手机专属弹窗壳，与桌面侧栏 matchMedia 互斥 #}

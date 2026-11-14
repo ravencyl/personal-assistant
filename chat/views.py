@@ -8,7 +8,7 @@ from datetime import timedelta
 import httpx
 
 from django.shortcuts import render, redirect
-from django.http import HttpResponse, JsonResponse, Http404
+from django.http import HttpResponse, JsonResponse
 from django.urls import resolve, reverse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST, require_GET
@@ -32,7 +32,7 @@ from core.agent_registry import (MEMORY_META_REMINDER, PROTOCOL_REF_REMINDER,
                                  build_time_anchor_reminder,
                                  looks_like_protocol, get_tool,
                                  make_action_token, orchestrator)
-from core.utils import (visible_qs, get_visible, visible_child_qs, get_visible_child,
+from core.utils import (visible_qs, get_visible, get_visible_child,
                         json_login_required)
 from .local_cards import get_local_card
 
@@ -270,118 +270,33 @@ def _create_conversation_for_user(user, title='新对话', agent_id=None):
 
 
 @login_required
-def conversation_list(request, conversation_id=None):
-    """对话列表 + 可选的当前对话详情（桌面端分栏 / 移动端聊天视图共用）
+def chat_page_redirect(request, conversation_id=None):
+    """独立对话页下线后的重定向墓碑（2026-11-13，用户：「不用单独的 AI 对话页面了」）
 
-    conversation_id 由 URL 传入（/chat/<id>/），表示当前选中的对话。
-    桌面端两栏同屏；移动端靠 JS 在列表视图与聊天视图之间切换。
+    旧 /chat/、/chat/<id>/、/chat/<id>/detail/ 一律落首页；带 id 的用 ?chat=<id>
+    唤起全站侧栏（桌面）/ 浮窗弹窗（移动）并挂到该对话（base.html 的内联 handler
+    读 ?chat= → window._paOpenChat → sidebar-agent.js / mobile-agent.js 启动时挂载）。
+    路由 name 保留（conversation_list / conversation_list_with_active /
+    conversation_detail）让旧书签、模板 {% url %}、推送深链不破。无 JS 时 ?chat=
+    被忽略，用户落在首页——对话能力仍在侧栏壳里，不丢功能。
     """
-    conversations = visible_qs(Conversation, request.user)
-    agents = AgentConfig.objects.filter(is_active=True)
-
-    # 归档对话默认不在列表（超 3 天没聊天的会被 archive_stale_conversations
-    # cron 自动归档）；?archived=1 切到归档区，搜索跟随当前分区。
-    show_archived = request.GET.get('archived') == '1'
-    conversations = conversations.exclude(status='archived') if not show_archived \
-        else conversations.filter(status='archived')
-
-    # 搜索对话历史
-    query = request.GET.get('q', '').strip()
-    if query:
-        # 搜消息内容：按会话可见范围过滤（超管能搜到他人会话里的消息），
-        # 不再手写 is_superuser 分支判断
-        message_qs = visible_child_qs(Message, request.user, 'conversation').filter(
-            content__icontains=query)
-        matching_conv_ids = message_qs.values_list('conversation_id', flat=True).distinct()
-        # 同时搜索对话标题
-        conversations = conversations.filter(
-            models.Q(id__in=matching_conv_ids) | models.Q(title__icontains=query)
-        )
-
-    # 预取每个对话的最后一条消息，避免模板中 N+1 查询
-    conversations = conversations.prefetch_related(
-        models.Prefetch(
-            'messages',
-            queryset=Message.objects.order_by('-created_at')[:1],
-            to_attr='last_message_list',
-        )
-    )
-
-    # 过滤多余的空对话：深链 ?ask= 会自动创建空对话，用户没发消息就离开会留下垃圾。
-    # 策略：非空对话全部保留，空对话最多保留一个（最新的），多余的在渲染前剔除。
-    filtered = []
-    seen_empty = False
-    for conv in conversations:
-        has_msg = bool(conv.last_message_list)
-        if not has_msg:
-            if seen_empty:
-                continue  # 跳过多余的空对话
-            seen_empty = True
-        filtered.append(conv)
-    conversations = filtered
-
-    # 2026-10-11 用户要求：打开 /chat/ 自动进入最近一次对话，不再让用户从列表里选。
-    # 只重定向「纯入口」：?ask= 深链（自带对话创建/预填）、?archived=1 归档区、?q= 搜索
-    # 都留在列表页；没有对话时同样留在列表页（空态 + 新建入口）。目标页里列表整列仍
-    # 渲染（移动端 ☰/返回键可回列表），重定向不丢入口。
-    if (conversation_id is None and not show_archived and not query
-            and not request.GET.get('ask') and conversations):
-        return redirect('chat:conversation_list_with_active', conversations[0].id)
-
-    # 如果指定了 conversation_id，额外加载该对话的消息（右栏用）。
-    # 展示层只取最近 3 天（_history_window），?history=all 展开全量。
-    active_conversation = None
-    chat_messages = []
-    older_count = 0
-    history_all_url = ''
     if conversation_id:
-        try:
-            active_conversation = get_visible(Conversation, request.user, id=conversation_id)
-            chat_messages, older_count = _history_window(
-                active_conversation, show_all=request.GET.get('history') == 'all')
-            history_all_url = f"/chat/{active_conversation.id}/?history=all"
-        except Http404:
-            pass  # 无权或不存在 → 右栏显示空状态
-
-    # ── 周回顾深链：?ask=weekly_review 自动创建回顾对话并注入引导 ──
-    weekly_review_conv = None
-    if request.GET.get('ask') == 'weekly_review':
-        weekly_review_conv = _create_weekly_review_conversation(request.user)
-
-    return render(request, 'chat/conversation_list.html', {
-        'conversations': conversations,
-        'agents': agents,
-        'query': query,
-        'active_conversation': active_conversation,
-        'chat_messages': chat_messages,
-        'older_count': older_count,
-        'history_all_url': history_all_url,
-        'show_archived': show_archived,
-        'turn_ttl': TURN_TTL_SECONDS,
-        # 周回顾对话（非空时模板自动跳转）
-        'weekly_review_conv': weekly_review_conv,
-    })
+        return redirect(f'/?chat={conversation_id}')
+    return redirect('home')
 
 
 @login_required
-def conversation_detail(request, conversation_id):
-    """对话详情
+def weekly_review_chat(request):
+    """周回顾深链（推送 / 周报入口，原 /chat/?ask=weekly_review 的承载页已下线）
 
-    上下文键必须用 chat_messages：`messages` 是 django.contrib.messages 注入的
-    flash 变量，base.html 的提示条循环读它。视图用同名键塞 Message queryset 会把
-    它顶掉，基模板就按 Message.__str__（「[user] 正文前 50 字」）把整段历史渲染到
-    页面顶部，看起来像调试信息泄漏到线上（2026-08-31 用户截图反馈）。
+    建回顾对话（汇总本周数据 + 注入引导首条消息）后用 ?chat=<id> 唤起侧栏挂到它。
+    建失败（缺 Agent/Environment 或平台异常，_create_weekly_review_conversation
+    返回 None）落首页，不阻断——与旧口径「失败仍可用手动回顾入口」一致。
     """
-    conversation = get_visible(Conversation, request.user, id=conversation_id)
-    chat_messages, older_count = _history_window(
-        conversation, show_all=request.GET.get('history') == 'all')
-    return render(request, 'chat/conversation_detail.html', {
-        'conversation': conversation,
-        'chat_messages': chat_messages,
-        'older_count': older_count,
-        'history_all_url': f"/chat/{conversation.id}/detail/?history=all",
-        'turn_ttl': TURN_TTL_SECONDS,
-    })
+    conv = _create_weekly_review_conversation(request.user)
+    if conv:
+        return redirect(f'/?chat={conv.id}')
+    return redirect('home')
 
 
 @login_required
@@ -397,7 +312,7 @@ def widget_messages(request, conversation_id):
     return render(request, 'chat/partials/widget_messages.html', {
         'widget_messages': widget_msgs,
         'older_count': older_count,
-        'history_all_url': f"/chat/{conversation.id}/?history=all",
+        'history_all_url': f'/?chat={conversation.id}&history=all',
         'conversation': conversation,
         'turn_ttl': TURN_TTL_SECONDS,
         # ?chrome=drawer（活动详情页「问 AI」抽屉）：抽屉上下文本身就钉着这个活动、
@@ -506,7 +421,8 @@ def sidebar_session(request):
             return JsonResponse({'error': '创建对话失败，请稍后重试'}, status=500)
         created = True
 
-    widget_msgs, older_count = _history_window(conversation)
+    widget_msgs, older_count = _history_window(
+        conversation, show_all=request.GET.get('history') == 'all')
     base = f'/chat/{conversation.id}'
     return JsonResponse({
         'conversation_id': conversation.id,
@@ -515,7 +431,7 @@ def sidebar_session(request):
         'messages_html': render(request, 'chat/partials/widget_messages.html', {
             'widget_messages': widget_msgs,
             'older_count': older_count,
-            'history_all_url': f'{base}/?history=all',
+            'history_all_url': f'/?chat={conversation.id}&history=all',
             'conversation': conversation,
             'turn_ttl': TURN_TTL_SECONDS,
             # 侧栏不挂 PaChatPin（输 @ 没有候选），「输入 @ 可钉住」只会误导（同抽屉 item 10）
@@ -560,7 +476,7 @@ def sidebar_conversations(request):
 @json_login_required
 @require_POST
 def create_conversation(request):
-    """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求重定向到详情页）
+    """创建新对话（HTMX/fetch/Accept JSON 请求返回 JSON，普通表单请求回首页 ?chat= 唤起侧栏）
 
     创建链路统一走 _create_conversation_for_user。
     """
@@ -579,7 +495,7 @@ def create_conversation(request):
             'conversation_id': conversation.id,
             'title': conversation.title,
         })
-    return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
+    return redirect(f'/?chat={conversation.id}')
 
 
 @json_login_required
@@ -711,9 +627,9 @@ def send_message(request, conversation_id):
 
 
 def _turn_response(request, conversation, payload, status=200):
-    """fetch（Accept: application/json）要 JSON；无 JS 的普通表单提交带回对话页
+    """fetch（Accept: application/json）要 JSON；无 JS 的普通表单提交回首页唤起侧栏
 
-    带回页面不是降级：本轮已经在后台发起并落库，详情页重渲染时进度条会自己接上去，
+    回首页不是降级：本轮已经在后台发起并落库，?chat=<id> 唤起侧栏挂到该对话后进度条会自己接上去，
     比把一串 JSON 丢给用户看诚实得多。判据用 Accept 而不是 htmx：这个端点现在
     只由原生 fetch 消费（AGENTS.md 双协议约定：JSON 端点禁挂 hx-*，也不装 HX-Request）。
 
@@ -722,7 +638,7 @@ def _turn_response(request, conversation, payload, status=200):
     """
     if 'application/json' in request.headers.get('Accept', ''):
         return JsonResponse(payload, status=status)
-    return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
+    return redirect(f'/?chat={conversation.id}')
 
 
 def _referenceable_reply(conversation):
@@ -781,7 +697,6 @@ PAGE_HINT_LABELS = {
     ('activities', 'expense_report'): '费用报告页',
     ('activities', 'next_actions'): '下一步行动页',
     ('activities', 'archive_list'): '活动归档页',
-    ('chat', 'conversation_list'): 'AI 对话页',
     ('memory', 'memory_list'): '记忆页',
 }
 
@@ -1370,8 +1285,8 @@ def _poll_json(payload):
 def _turn_error_json(request, conversation, note):
     """中断响应：除了状态字段，额外带上服务端渲染的气泡 HTML
 
-    气泡只有一份模板（turn_error.html）：页面在轮询中碰到中断时由前端 append，
-    刷新后则由模板自己渲染（见 conversation_detail / widget_messages 里的 turn_error include），
+    气泡只有一份模板（turn_error.html）：面板在轮询中碰到中断时由前端 append，
+    重新装载历史时则由模板自己渲染（见 widget_messages 里的 turn_error include），
     两条路径共用模板、但不会同时出现（刷新后 resume 只对活跃状态生效）。
     """
     payload = {
@@ -1653,7 +1568,7 @@ def archive_conversation(request, conversation_id):
     except Exception:
         pass
 
-    return redirect('chat:conversation_list')
+    return redirect('home')
 
 
 @login_required
@@ -1665,8 +1580,8 @@ def conversation_rename(request, conversation_id):
     if title:
         conversation.title = title[:255]
         conversation.save(update_fields=['title', 'updated_at'])
-    # 无论改没改都回到列表页（分栏布局下自动选中当前对话）
-    return redirect('chat:conversation_list_with_active', conversation_id=conversation.id)
+    # 无论改没改都回首页并用 ?chat= 唤起侧栏挂到当前对话
+    return redirect(f'/?chat={conversation.id}')
 
 
 @login_required
@@ -1690,4 +1605,4 @@ def conversation_delete(request, conversation_id):
         pass
 
     conversation.delete()
-    return redirect('chat:conversation_list')
+    return redirect('home')

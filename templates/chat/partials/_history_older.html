@@ -1,5 +1,5 @@
-{% comment %}「显示更早消息」入口：三个渲染口（分栏初始 / widget-messages 片段 / 详情页）
-共用。history_all_url 由各视图拼好传入，older_count>0 才渲染。
+{% comment %}「显示更早消息」入口：widget-messages 历史片段（侧栏 / 移动浮窗 / 问 AI 抽屉共用）
+渲染。history_all_url 由视图拼好传入（/?chat=<id>&history=all），older_count>0 才渲染。
 展示窗口口径见 chat.views.CHAT_HISTORY_DAYS / _history_window。{% endcomment %}
 {% if older_count %}
 <div class="text-center py-2">

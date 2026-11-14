@@ -566,11 +566,12 @@ class PrimaryNavTest(TestCase):
 
     TEMPLATES = Path(settings.BASE_DIR) / 'templates'
 
-    # 桌面顶栏：四个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
+    # 桌面顶栏：三个一级模块，顺序即视觉顺序（「今日」2026-10-16 复活为首页；
     # 模板管理/循环活动收在活动记录页头部按钮组，不进导航。
     # 「知识库」2026-10-28 数据层并入记忆，导航合并为一个「记忆」入口；
-    # 「备忘」2026-10-28 整体下线）
-    DESKTOP = ['今日', '活动记录', 'AI 对话', '记忆']
+    # 「备忘」2026-10-28 整体下线；「AI 对话」2026-11-13 随独立对话页下线撤出，
+    # 桌面 AI 由全站侧栏承担）
+    DESKTOP = ['今日', '活动记录', '记忆']
     # 移动底栏：「记忆」不占位（用户定的口径 —— 手机上不读记忆）。
     # 快记 dock 已于 2026-10-28 随快记功能整体下线移除。
     # 「对话」2026-11-13 撤出底栏（用户决定）：移动端 AI 由浮窗弹窗承担
@@ -738,6 +739,9 @@ class TombstoneRegistryTest(SimpleTestCase):
             'templates/activities/today.html': ['按标签看', 'tag_rows'],
             'activities/views/daily_views.py': ['tag_rows'],
         }),
+        ('快记 FAB（2026-10-28）+ 聊天浮窗 FAB（2026-09）下线：base.html 不得残留挂载根（原 ConversationListDesktopLayoutTest 守，独立对话页 2026-11-13 下线后收口于此）', {
+            'templates/base.html': ['quick-fab-root', 'chat-fab-root'],
+        }),
     ]
 
     # ② 文件必须不存在
@@ -750,6 +754,8 @@ class TombstoneRegistryTest(SimpleTestCase):
         'knowledge/qmind.py',                # QMind 云端知识库 2026-11-09 下线
         'knowledge/qmind_sync.py',           # 同上（信号镜像同步层）
         'knowledge/management/commands/sync_knowledge_to_qmind.py',  # 同上（批量同步命令）
+        'templates/chat/conversation_list.html',    # 独立 AI 对话页 2026-11-13 下线（桌面侧栏 / 移动浮窗 / 问 AI 抽屉取代）
+        'templates/chat/conversation_detail.html',  # 同上（详情页整页对话壳）
     ]
 
     # ③ 路由必须不存在：(url name, args)
@@ -1171,8 +1177,6 @@ class DesktopLayoutCoverageTest(TestCase):
         'activities/today.html': 'Bento 网格自成分栏节奏，压进 320px 左列放不下',
         'activities/activity_form.html': '纯表单编辑页，输入宽度就是舒适宽度',
         'knowledge/article_form.html': '纯表单编辑页',
-        'chat/conversation_detail.html': '消息流是单一线性时间轴，右列无天然内容',
-        'chat/conversation_list.html': '分栏布局用 .chat-layout 而非通用 .page-cols',
         'registration/login.html': '居中构图 + 全站唯一品牌位，没有辅助信息可提',
     }
 
@@ -1798,10 +1802,11 @@ class ConfirmCardGlobalTest(SimpleTestCase):
                     self.assertIn('data-confirm-tone="danger"', line)
                     self.assertIn('data-confirm-label="确认删除"', line)
                 total += 1
-        # 8 个模板内删除表单 + conversation_list.html JS 拼装删除表单
-        # + 日历订阅设置页 2 个（重新生成/吊销，2026-09-11）
-        # （原 12 个：备忘列表删除表单随 notes app 下线一并移除，2026-10-28）
-        self.assertEqual(total, 11)
+        # 7 个模板内 data-confirm 表单：activity_detail 4（活动/费用/子任务/附件删除）
+        # + article_detail 1（文章删除）+ calendar_feed_settings 2（重新生成 default / 吊销 danger）
+        # （原 11 个：conversation_list.html 3 + conversation_detail.html 1 随独立对话页
+        #  2026-11-13 整体下线移除；更早 12 个：备忘列表删除表单随 notes app 下线移除 2026-10-28）
+        self.assertEqual(total, 7)
 
     def test_confirm_card_js_exists_and_wired(self):
         """全局组件文件存在（含表单拦截与 paConfirmCard API），且 base.html 已引入"""
@@ -1811,28 +1816,6 @@ class ConfirmCardGlobalTest(SimpleTestCase):
         self.assertIn('window.paConfirmCard', js)
         base = (Path(settings.BASE_DIR) / 'templates' / 'base.html').read_text(encoding='utf-8')
         self.assertIn("staticv 'js/confirm-card.js'", base)
-
-
-class ChatLayoutFlexHeightTest(SimpleTestCase):
-    """chat 分栏布局的 flex 高度链锁：缺 min-height:0 会被长内容撑爆固定高度容器，
-    移动端发送框被底部 Tab 栏遮住（390×844 实测过）"""
-
-    @staticmethod
-    def _rule_blocks(css, selector):
-        """提取 custom.css 中指定选择器的规则块文本（含多个同名块时逐个检查）"""
-        return re.findall(re.escape(selector) + r'\s*\{([^}]*)\}', css)
-
-    def test_flex_children_have_min_height_zero(self):
-        css = (Path(settings.BASE_DIR) / 'static' / 'css' / 'custom.css'
-               ).read_text(encoding='utf-8')
-        for selector in ('.chat-main', '.chat-sidebar'):
-            blocks = self._rule_blocks(css, selector)
-            self.assertTrue(blocks, f'{selector} 规则块不存在')
-            # 复合选择器块（如 [data-view] .chat-main）不含高度属性是正常的，
-            # 只要主定义块里锁住 min-height: 0 即可
-            self.assertTrue(
-                any('min-height: 0' in b for b in blocks),
-                f'{selector} 缺 min-height: 0，长内容会撑爆 .chat-layout')
 
 
 class PickIndexParseTest(SimpleTestCase):

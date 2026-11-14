@@ -187,8 +187,8 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
     起因：输入框原本是单行 input，对话页还显式绑了 Enter → requestSubmit()，
     打字打字就误发一条（AI 一轮要等几十秒，误发代价高）。改成 textarea 后
     Enter 天然换行、也不会隐式提交表单。这里锁住结构，防止以后又改回 input
-    或重新加回 Enter 监听。两个入口：详情页 #message-input、分栏页 #split-input
-    （右下角聊天浮窗及其 #chat-input 已于 2026-09 整体下线）。
+    或重新加回 Enter 监听。三个挂载点（2026-11-13 独立对话页下线后）：侧栏
+    [data-side-agent-input]、移动浮窗 [data-mobile-agent-input]、问 AI 抽屉 #ask-drawer-input。
     """
 
     ENTER_SUBMIT = re.compile(r"(?:key|keyCode|which)\s*(?:===|==)\s*['\"]?(?:Enter|13)")
@@ -198,26 +198,33 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
             encoding='utf-8')
 
     def test_both_chat_inputs_are_multiline_textareas(self):
-        """两个输入框都必须是 textarea：单行 input 物理上换不了行"""
-        page = self._tpl('chat', 'conversation_detail.html')
-        split = self._tpl('chat', 'conversation_list.html')
-        self.assertIn('id="message-input"', page)
-        self.assertIn('id="split-input"', split)
-        self.assertIn('<textarea name="content" id="message-input"', page)
-        self.assertIn('<textarea name="content" id="split-input"', split)
-        for html in (page, split):
+        """三个挂载点的输入框都必须是 textarea：单行 input 物理上换不了行"""
+        surfaces = (
+            ('chat', 'partials', '_sidebar_agent.html'),
+            ('chat', 'partials', '_mobile_agent.html'),
+            ('activities', 'activity_detail.html'),
+        )
+        for parts in surfaces:
+            html = self._tpl(*parts)
+            self.assertIn('<textarea', html, f'{parts} 没有 textarea 输入框')
+            self.assertIn('data-auto-grow', html, f'{parts} 输入框缺 data-auto-grow')
             self.assertNotIn('<input type="text" name="content"', html)
+        self.assertIn('data-side-agent-input', self._tpl('chat', 'partials', '_sidebar_agent.html'))
+        self.assertIn('data-mobile-agent-input', self._tpl('chat', 'partials', '_mobile_agent.html'))
+        self.assertIn('id="ask-drawer-input"', self._tpl('activities', 'activity_detail.html'))
 
     def test_no_enter_key_submit_handler_anywhere_in_chat_inputs(self):
-        for parts in (('chat', 'conversation_detail.html'), ('chat', 'conversation_list.html')):
+        for parts in (('chat', 'partials', '_sidebar_agent.html'),
+                      ('chat', 'partials', '_mobile_agent.html'),
+                      ('activities', 'activity_detail.html')):
             html = self._tpl(*parts)
             self.assertEqual(self.ENTER_SUBMIT.findall(html), [],
                              f'{parts} 里又出现了 Enter 提交逻辑')
 
     def test_placeholder_tells_user_enter_is_newline(self):
         """行为变了要写进提示，否则用户会以为发送键坏了"""
-        page = self._tpl('chat', 'conversation_detail.html')
-        self.assertIn('Enter 换行', page)
+        drawer = self._tpl('activities', 'activity_detail.html')
+        self.assertIn('Enter 换行', drawer)
 
     def test_multiline_input_css_caps_height_and_disables_drag_resize(self):
         """高度由 paFitTextarea 接管：必须关掉手动拖拽并限高，否则会撑坏浮窗布局"""
@@ -251,7 +258,7 @@ class ChatInputEnterBehaviorTest(SimpleTestCase):
 
 
 class ConversationDetailContextTest(TestCase):
-    """对话详情不得占用模板上下文里的 messages
+    """对话历史渲染不得占用模板上下文里的 messages
 
     线上真实反馈（2026-08-31 用户截图）：/chat/<id>/ 顶部出现一整排「[user] …」
     「[assistant] …」卡片，看着像调试信息泄漏。根因不是有人写了调试模板，而是视图
@@ -259,6 +266,8 @@ class ConversationDetailContextTest(TestCase):
     注入的 flash 变量，base.html 的提示条 {% for message in messages %}{{ message }}
     于是按 Message.__str__（「[role] 正文前 50 字」）把整段历史渲染了出来；
     代价还包括这个页面的 flash 提示全部失效。
+    2026-11-13 独立对话页下线后，历史渲染的唯一入口是 widget_messages 片段
+    （侧栏 / 移动浮窗 / 问 AI 抽屉共用），锁跟着搬到这里。
     """
 
     def setUp(self):
@@ -271,10 +280,10 @@ class ConversationDetailContextTest(TestCase):
         Message.objects.create(conversation=self.conv, role='assistant',
                                content='这个问题的核心其实不是话术')
         self.client.login(username='chatuser', password='pw')
-        self.url = f'/chat/{self.conv.id}/'
+        self.url = f'/chat/{self.conv.id}/widget-messages/'
 
     def test_history_is_not_dumped_with_role_brackets(self):
-        """页面不得出现 Message.__str__ 形式的「[user] / [assistant]」文本"""
+        """片段不得出现 Message.__str__ 形式的「[user] / [assistant]」文本"""
         html = self.client.get(self.url).content.decode()
         self.assertNotIn('[user]', html)
         self.assertNotIn('[assistant]', html)
@@ -289,9 +298,9 @@ class ConversationDetailContextTest(TestCase):
     def test_messages_key_is_left_to_the_flash_framework(self):
         """上下文里的 messages 必须是 flash 存储而不是 Message queryset"""
         resp = self.client.get(self.url)
-        self.assertNotIsInstance(resp.context['messages'], QuerySet,
+        self.assertNotIsInstance(resp.context.get('messages'), QuerySet,
                                  'messages 被视图占用了，base.html 的 flash 块会渲染历史消息')
-        self.assertIsInstance(resp.context['chat_messages'], QuerySet)
+        self.assertIsInstance(resp.context['widget_messages'], QuerySet)
 
     def test_no_chat_template_iterates_bare_messages(self):
         """模板层兜底：只允许 base.html 的 flash 块读裸 messages"""
@@ -300,66 +309,6 @@ class ConversationDetailContextTest(TestCase):
                      if re.search(r'{%\s*for\s+\w+\s+in\s+messages\s*%}', t.read_text(encoding='utf-8'))
                      and t.name != 'base.html']
         self.assertEqual(offenders, [], f'这些模板又占了裸 messages：{offenders}')
-
-
-class ConversationListDesktopLayoutTest(TestCase):
-    """对话列表页分栏布局回归锁（左栏 = 对话列表，右栏 = 聊天窗口）
-
-    新布局用 .chat-layout / .chat-sidebar / .chat-main 代替旧的 .page-cols。
-    桌面端两栏同屏；移动端靠 data-view 切换视图。
-    """
-    TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'conversation_list.html'
-
-    def setUp(self):
-        self.user = User.objects.create_user('raven', password='test')
-        self.client.login(username='raven', password='test')
-        Conversation.objects.create(user=self.user, session_id='sess_lay',
-                                    title='新西兰之旅怎么安排')
-        # 2026-10-11：/chat/ 纯入口自动重定向到最近对话，布局断言跟随重定向后的页面
-        self.html = self.client.get('/chat/', follow=True).content.decode()
-        self.src = self.TEMPLATE.read_text(encoding='utf-8')
-
-    def test_split_layout_structure(self):
-        """分栏容器 + 左栏 + 右栏都存在"""
-        self.assertIn('class="chat-layout"', self.src)
-        self.assertIn('class="chat-sidebar', self.src)
-        self.assertIn('class="chat-main"', self.src)
-
-    def test_sidebar_contains_search_and_list(self):
-        """左栏包含搜索框和对话列表"""
-        self.assertIn('搜索对话...', self.html)
-        self.assertIn('新西兰之旅怎么安排', self.html)
-
-    def test_empty_state_when_no_conversations_at_all(self):
-        """没有任何对话时 /chat/ 不重定向，右栏显示空状态引导
-
-        2026-10-11 起有对话时纯入口会自动进入最近对话，空态只剩「零对话」这一条路，
-        它同时也是新建入口，必须留在列表页。
-        """
-        Conversation.objects.all().delete()
-        html = self.client.get('/chat/').content.decode()
-        self.assertIn('选择一个对话开始', html)
-
-    def test_ai_not_configured_banner_in_sidebar(self):
-        """AI 未配置提示在左栏头部"""
-        self.assertIn('AI 服务未配置', self.src)
-
-    def test_mobile_composer_not_covered(self):
-        """聊天页输入框不被 Tab 栏遮挡（线上实测回归锁）
-
-        .chat-layout 移动端高度必须扣除 顶栏+main 顶距(68px)、Tab 栏实高+空隙(72px)
-        与 iOS 安全区 —— 改小会让发送框被 Tab 栏压住。
-        （快记 FAB 及其隐藏链路已于 2026-10-28 随快记功能整体下线删除）
-        """
-        base = (Path(__file__).resolve().parent.parent / 'templates' / 'base.html').read_text(encoding='utf-8')
-        css = (Path(__file__).resolve().parent.parent / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
-        self.assertIn(
-            'calc(100dvh - 8.75rem - env(safe-area-inset-bottom, 0px))', css,
-            '移动端 .chat-layout 高度算术被改，发送框会被底部 Tab 栏遮住')
-        self.assertNotIn('quick-fab-root', base,
-                         '快记 FAB 已整体下线，base.html 不应再有残留引用')
-        self.assertNotIn('chat-fab-root', base,
-                         '聊天浮窗 FAB 已下线，base.html 不应再有残留引用')
 
 
 # ==================== 异步 turn 收发（Phase A）====================
@@ -588,11 +537,12 @@ class ChatSendAsyncTest(TestCase):
         self.assertEqual(self.conv.turn_retries, 1)
 
     def test_plain_form_post_redirects_back_instead_of_dumping_json(self):
-        """无 JS 的表单提交（不带 Accept: application/json）要带回对话页，不能把 JSON 甩给用户"""
+        """无 JS 的表单提交（不带 Accept: application/json）要落首页 ?chat= 唤起侧栏，
+        不能把 JSON 甩给用户（独立对话页下线后重定向墓碑改道 /?chat=<id>）"""
         with patch('chat.views.get_service', return_value=FakeQoderService()):
             resp = self.client.post(self.url, {'content': '你好'})
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp['Location'], f'/chat/{self.conv.id}/')
+        self.assertEqual(resp['Location'], f'/?chat={self.conv.id}')
 
 
 class ChatTurnPollTest(TestCase):
@@ -1076,27 +1026,33 @@ class ChatTurnTemplateWiringTest(SimpleTestCase):
     def test_detail_form_has_no_htmx_attributes(self):
         """JSON 端点必须原生 fetch 消费（AGENTS.md 双协议约定），hx-* 会把 JSON 当文本插入
 
-        切片必须切到「这个标签自己的 >」：上一版切到第一个 {% csrf_token %}，而它属于顶部
-        「归档对话」表单（位置在发送表单之前）→ 切片为空 → assertNotIn 恒真，
-        一条看起来严谨、实际空跑的锁（拿 hx-post 变异反证才发现）。
+        独立对话页下线后发送表单只剩三个存活壳（侧栏 / 移动浮窗 / 问 AI 抽屉），
+        三份都不得挂 hx-*。切片必须切到「这个标签自己的 >」：切空会让 assertNotIn
+        恒真，一条看起来严谨、实际空跑的锁（拿 hx-post 变异反证才发现）。
         """
-        detail = self._tpl('chat', 'conversation_detail.html')
-        start = detail.index('<form id="message-form"')
-        form = detail[start:detail.index('>', start)]
-        self.assertIn('action=', form, '表单要保留 action 供 JS 取 URL（也兼容无 JS 提交）')
-        self.assertNotIn('hx-', form, '对话表单还挂着 hx-*')
-        self.assertNotIn('hx-', detail[detail.index('<textarea'):detail.index('</form>', start)],
-                         '输入框侧也不能再带 hx-*')
-        self.assertIn('chat-turn.js', detail)
-        self.assertIn('PaChatTurn', detail)
+        for parts, anchor in (
+            (('chat', 'partials', '_sidebar_agent.html'), '<form data-side-agent-form'),
+            (('chat', 'partials', '_mobile_agent.html'), '<form data-mobile-agent-form'),
+            (('activities', 'activity_detail.html'), '<form id="ask-drawer-form"'),
+        ):
+            tpl = self._tpl(*parts)
+            start = tpl.index(anchor)
+            form = tpl[start:tpl.index('>', start)]
+            self.assertTrue(form.strip(), f'{anchor} 切片为空（空跑的锁）')
+            self.assertNotIn('hx-', form, f'{anchor} 表单还挂着 hx-*')
+            # 表单整段（含输入框）也不能带 hx-*：从表单起标签切到它自己的 </form>
+            self.assertNotIn('hx-', tpl[start:tpl.index('</form>', start)],
+                             f'{anchor} 输入框侧也不能再带 hx-*')
+        # 收发流由 base.html 统一引入，抽屉内联脚本实例化 PaChatTurn
+        self.assertIn('chat-turn.js', self._tpl('base.html'))
+        self.assertIn('PaChatTurn', self._tpl('activities', 'activity_detail.html'))
 
     def test_one_message_renderer_for_page_and_panel(self):
-        """详情页、分栏页加载的历史片段、轮询新片段共用 _message.html：两份实现必然漂移成两种长相"""
+        """历史片段（widget_messages）与消息对（message_pair）共用 _message.html：
+        两份实现必然漂移成两种长相。独立对话页下线后渲染口只剩这两份片段。"""
         for rel in (('chat', 'partials', 'message_pair.html'),
                    ('chat', 'partials', 'widget_messages.html')):
             self.assertIn('chat/partials/_message.html', self._tpl(*rel), str(rel))
-        detail = self._tpl('chat', 'conversation_detail.html')
-        self.assertIn('{% include "chat/partials/_message.html" %}', detail)
 
     def test_status_bar_avoids_hidden_flex_display_conflict(self):
         """进度条不能同时用 hidden 与 flex/items-center 这类 display 工具类：
@@ -1110,10 +1066,13 @@ class ChatTurnTemplateWiringTest(SimpleTestCase):
         self.assertIn('data-turn-text', bar)
 
     def test_error_bubble_is_rendered_once_per_view(self):
-        """error 时服务端渲染气泡，active 时只渲染隐藏的 resume 数据 —— 两个都渲染会出现双气泡"""
-        detail = self._tpl('chat', 'conversation_detail.html')
-        self.assertIn("{% if conversation.turn_state == 'error' %}", detail)
-        self.assertIn('{% include "chat/partials/turn_resume.html" %}', detail)
+        """error 时服务端渲染气泡，active 时只渲染隐藏的 resume 数据 —— 两个都渲染会出现双气泡
+
+        独立对话页下线后这套口径住在 widget_messages.html（三个壳共用的历史片段）。
+        """
+        widget = self._tpl('chat', 'partials', 'widget_messages.html')
+        self.assertIn("{% if conversation.turn_state == 'error' %}", widget)
+        self.assertIn('{% include "chat/partials/turn_resume.html" %}', widget)
         resume = self._tpl('chat', 'partials', 'turn_resume.html')
         self.assertIn('{% if conversation.turn_active %}', resume)
         self.assertIn('data-retry-text', self._tpl('chat', 'partials', 'turn_error.html'))
@@ -1142,9 +1101,12 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         cls.flow = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.flow_code = cls._strip_js_comments(cls.flow)
         cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
-        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
-        cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
+        # 独立对话页（分栏页 / 详情页）2026-11-13 下线，三个存活壳接管对话
+        cls.sidebar = (root / 'templates' / 'chat' / 'partials' / '_sidebar_agent.html').read_text(encoding='utf-8')
+        cls.mobile = (root / 'templates' / 'chat' / 'partials' / '_mobile_agent.html').read_text(encoding='utf-8')
         cls.drawer = (root / 'templates' / 'activities' / 'activity_detail.html').read_text(encoding='utf-8')
+        cls.sidebar_js = (root / 'static' / 'js' / 'sidebar-agent.js').read_text(encoding='utf-8')
+        cls.mobile_js = (root / 'static' / 'js' / 'mobile-agent.js').read_text(encoding='utf-8')
 
     @staticmethod
     def _strip_js_comments(src):
@@ -1198,27 +1160,36 @@ class ChatTurnFlowJsTest(SimpleTestCase):
         """旧的 #loading / #chat-loading 元素已删除：残留引用不会报错，只会在点击时抛 undefined
 
         同样只扫剔了注释的代码（JS 注释、模板注释里的说明文字不算引用）。
+        独立对话页下线后扫三个存活壳（侧栏 / 移动浮窗 / 问 AI 抽屉）。
         """
         from core.layout_asserts import code_only
         for src, name in ((self.flow_code, 'chat-turn.js'),
                           (code_only(self.base), 'base.html'),
-                          (code_only(self.detail), '详情页')):
+                          (code_only(self.sidebar), '侧栏壳'),
+                          (code_only(self.mobile), '移动浮窗壳'),
+                          (code_only(self.drawer), '问 AI 抽屉')):
             self.assertNotIn("getElementById('loading')", src, name)
             self.assertNotIn('chat-loading', src, name)
 
     def test_each_host_has_exactly_one_status_bar(self):
-        """两处各一个进度条（include 同一模板）；多一个就会有两个「停止」按钮互相抢事件"""
-        self.assertEqual(self.split.count('chat/partials/turn_status.html'), 1)
-        self.assertEqual(self.detail.count('chat/partials/turn_status.html'), 1)
+        """三个存活壳各一个进度条（include 同一模板）；多一个就会有两个「停止」按钮互相抢事件"""
+        self.assertEqual(self.sidebar.count('chat/partials/turn_status.html'), 1)
+        self.assertEqual(self.mobile.count('chat/partials/turn_status.html'), 1)
+        self.assertEqual(self.drawer.count('chat/partials/turn_status.html'), 1)
 
     def test_panel_halts_flow_before_loading_another_conversation(self):
-        """切对话必须先 halt()：否则上一个对话的轮询会往新对话的消息流里 append 回复"""
-        split = self.split
-        opener = split[split.index('function selectConversation'):split.index('// ── 初始化 PaChatTurn')]
-        self.assertIn('.halt()', opener)
-        self.assertIn('data-turn-resume', opener, '历史加载完要接上进行中的轮次')
-        self.assertIn("fetch(base + 'widget-messages/'", opener,
-                      '切换对话时必须拉取历史片段')
+        """切对话必须先 halt()：否则上一个对话的轮询会往新对话的消息流里 append 回复
+
+        独立对话页下线后「切对话」住在侧栏 / 浮窗壳的 switchTo / newTopic：
+        两处都先 halt() 再重挂，且历史片段自带 turn_resume 接上进行中的轮次。
+        """
+        for src, name in ((self.sidebar_js, 'sidebar-agent.js'),
+                          (self.mobile_js, 'mobile-agent.js')):
+            for fn in ('switchTo', 'newTopic'):
+                start = src.index('function ' + fn)
+                body = src[start:src.index('\n    }', start)]
+                self.assertIn('.halt()', body, f'{name} {fn} 切对话前必须 halt()')
+            self.assertIn('data-turn-resume', src, f'{name} 历史加载完要接上进行中的轮次')
 
     def test_cancel_does_not_broadcast_a_data_change(self):
         """取消没写过任何数据：无条件广播会让点「停止」后弹出「活动数据已更新」（实测踩到）"""
@@ -1247,12 +1218,12 @@ class ChatTurnFlowJsTest(SimpleTestCase):
                       '切回前台必须立刻补一拍，后台期间只走了低频轮询')
 
     def test_all_three_hosts_hand_the_wait_url(self):
-        """三个宿主（分栏页、详情页、活动抽屉）都要把 turn-wait 递给 PaChatTurn
+        """三个宿主（侧栏、移动浮窗、活动抽屉）都要把 turn-wait 递给 PaChatTurn
 
         递不到就是该入口静默回到旧节奏（不算坏，但 Phase 1.2 的收益漏了一个门）；
-        抽屉走服务端 urls dict，另两个模板自己拼路径。
+        抽屉走服务端 urls dict，侧栏 / 浮窗壳自己拼路径。
         """
-        for src, name in ((self.split, '分栏页'), (self.detail, '详情页')):
+        for src, name in ((self.sidebar_js, '侧栏'), (self.mobile_js, '移动浮窗')):
             self.assertIn("wait: base + 'turn-wait/'", src, name)
         self.assertIn('wait: d.urls.wait', self.drawer, '抽屉的 wait 来自 activity_conversation')
 
@@ -1462,10 +1433,10 @@ class ChatPinTest(TestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_pin_without_json_accept_redirects_back(self):
-        """无 JS 提交（表单/裸 POST）不能把一串 JSON 丢给用户"""
+        """无 JS 提交（表单/裸 POST）不能把一串 JSON 丢给用户（落首页 ?chat= 唤起侧栏）"""
         resp = self.client.post(self.pin_url, {'activity_id': self.activity.id})
         self.assertEqual(resp.status_code, 302)
-        self.assertIn(f'/chat/{self.conv.id}/', resp['Location'])
+        self.assertEqual(resp['Location'], f'/?chat={self.conv.id}')
 
     def test_candidates_search_scopes_to_visible_and_caps(self):
         from activities.models import Activity
@@ -1502,18 +1473,18 @@ class ChatPinTest(TestCase):
         self.assertNotIn('已经办完的事', names, '空 @ 时给「还在办的」，不是全部历史')
 
     def test_chat_page_renders_without_template_syntax_leaks(self):
-        """对话页的模板语法泄漏锁
+        """历史片段的模板语法泄漏锁
 
-        输入区现在挂了两个 include（pin_host / local_cards），而浮窗在
-        base.html 里 → 漏写一个跨行的 {# #} 就会泄到**每一页**，但现有的泄漏锁
-        只盖住活动详情与 Daily（本轮实测就是它先抱住的）。
+        独立对话页下线后渲染口是 widget-messages 片段（侧栏 / 浮窗 / 抽屉共用），
+        它挂了 pin_bar / _message / turn_resume 等多个 include → 漏写一个跨行的
+        {# #} 就会泄到每个壳。
         """
         self.conv.pin_activity = self.activity
         self.conv.save(update_fields=['pin_activity', 'updated_at'])
-        html = self.client.get(f'/chat/{self.conv.id}/').content.decode()
+        html = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
         for token in ('{%', '{{', '{#'):
             self.assertNotIn(token, html, f'渲染结果里出现 {token}，模板语法泄漏')
-        # 顺带确认真的渲染进了页面而不是断言一个空范围（空跑锁本项目踩过）
+        # 顺带确认真的渲染进了片段而不是断言一个空范围（空跑锁本项目踩过）
         self.assertIn('data-pin-clear', html)
         self.assertIn('新西兰旅游', html)
 
@@ -1694,10 +1665,12 @@ class ProtocolRideAlongTest(TestCase):
 
 
 class ChatPinWiringTest(SimpleTestCase):
-    """钉选的前端接线：两个宿主各一份、状态随历史片段带出、不拼 HTML 字符串
+    """钉选的前端接线：状态随历史片段带出、候选列表不拼 HTML、写操作走共用 JSON 出口
 
-    两个宿主：详情页（message-pin）与分栏页（split-pin）。
-    （右下角浮窗宿主 chat-panel-pin 已随浮窗整体下线。）
+    交互宿主（分栏页 split-pin / 详情页 message-pin）2026-11-13 随独立对话页下线，
+    @ 钉选 UI 等侧栏 P2 接入（docs/sidebar-agent-plan.md）。PaChatPin / pin 端点 /
+    pin_bar 片段全保留——服务端状态注入与「问 AI」抽屉 create-or-get 自动钉选仍在跑，
+    这里锁住将来接线时必须复用的那几个口径。
     """
 
     @classmethod
@@ -1706,31 +1679,15 @@ class ChatPinWiringTest(SimpleTestCase):
         root = Path(__file__).resolve().parent.parent
         js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
-        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
-        cls.detail = (root / 'templates' / 'chat' / 'conversation_detail.html')\
-            .read_text(encoding='utf-8')
         cls.widget = (root / 'templates' / 'chat' / 'partials' / 'widget_messages.html')\
             .read_text(encoding='utf-8')
         cls.css = (root / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
 
-    def test_both_surfaces_mount_a_host_with_distinct_ids(self):
-        self.assertIn('pin_host.html', self.detail)
-        self.assertIn('pin_host.html', self.split)
-        ids = re.findall(r'host_id="([^"]+)"', self.detail + self.split)
-        self.assertEqual(len(ids), 2, '两个宿主各挂一份，多了就是写了第三处')
-        self.assertEqual(len(set(ids)), 2, 'id 撞了 getElementById 只会拿到第一个')
-        for src, name in ((self.detail, '详情页'), (self.split, '分栏页')):
-            self.assertIn('window.PaChatPin({', src, '%s 没有初始化钉选交互' % name)
-
     def test_pin_state_travels_with_the_history_fragment(self):
-        """切对话时钉选状态必须跟着换：没钉也要带出隐藏位，否则槽里留着上一个对话的 chip
-
-        搬运发生在分栏页（selectConversation 的 fetch 回调），不在 chat-turn.js 里：
-        PaChatPin 只供一个 paint()，所以断言要分别看两个文件。"""
+        """钉选状态随历史片段带出（mount=True 隐藏位）：没钉也要带，切对话才不会
+        留着上一个对话的 chip——P2 侧栏接入时前端直接从片段搬运，不必另开状态口子"""
         self.assertIn('pin_bar.html', self.widget)
         self.assertIn('mount=True', self.widget)
-        self.assertIn('[data-pin-mount]', self.split)
-        self.assertIn('pinCtrl.paint(', self.split)
 
     def test_candidate_list_is_built_with_text_content_not_html_strings(self):
         """活动名是用户数据：用 innerHTML 拼字符串等于给自己埋 XSS（与 Markdown
@@ -1745,6 +1702,9 @@ class ChatPinWiringTest(SimpleTestCase):
         self.assertGreater(len(block.strip()), 300, '切片切空了，这条锁就是假的')
         self.assertIn('apiFetch(u.set', block, '钉选写操作必须走共用 JSON 出口')
         self.assertIn('X-CSRFToken', block)
+        # Content-Type 红线：fetch 发 body.toString() 默认 text/plain，Django 不解析
+        # request.POST，activity_id 落空会被 pin 端点当成「取消钉选」（真机踩过）
+        self.assertIn("'Content-Type': 'application/x-www-form-urlencoded'", block)
 
     def test_pin_css_rules_exist(self):
         for cls in ('.pin-host', '.pin-bar', '.pin-chip', '.pin-candidates', '.pin-item'):
@@ -1755,8 +1715,8 @@ class ChatPinWiringTest(SimpleTestCase):
 class AskDrawerWiringTest(SimpleTestCase):
     """活动详情页「问 AI」抽屉的静态接线锁
 
-    抽屉是 PaChatTurn 的第三个挂载点（详情页/分栏页之后），历史上第三个挂载
-    点（浮窗）就是因为边界条件难对齐被整体下线的 —— 这些锁保住「只复用不另写」。
+    抽屉是 PaChatTurn 的挂载点之一，历史上第三个挂载点（浮窗）就是因为边界条件
+    难对齐被整体下线的 —— 这些锁保住「只复用不另写」。
     所有锁都必须拿变异验证真的会响（本项目静态锁空跑踩过不止一次）。
     """
 
@@ -1769,12 +1729,8 @@ class AskDrawerWiringTest(SimpleTestCase):
         # 抽屉脚本自身是内联 JS：剔注释后再扫（注释里写「禁 hx-」自己含那个词）
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(detail)
         cls.detail_raw = detail
-        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html')\
-            .read_text(encoding='utf-8')
         cls.turn_js = ChatTurnFlowJsTest._strip_js_comments(
             (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8'))
-        cls.detail_views = (root / 'activities' / 'views' / 'detail_views.py')\
-            .read_text(encoding='utf-8')
         cls.css = (root / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
 
     def test_drawer_dom_and_turn_mount_exist(self):
@@ -1812,20 +1768,22 @@ class AskDrawerWiringTest(SimpleTestCase):
                          'backdrop 在抽屉之前，兄弟选择器是永不命中的死代码')
 
     def test_history_fragment_slot_is_known_to_chat_turn_js(self):
-        """insertLocalHtml 的回退链必须认得抽屉容器，否则局部卡片静默丢弃"""
-        self.assertIn("getElementById('ask-drawer-messages')", self.turn_js)
+        """localCardPanel 的回退链必须认得抽屉容器，否则局部卡片在抽屉里静默丢弃
+        （独立对话页下线后面板定位走 btn.closest，不再靠页面级 getElementById）"""
+        self.assertIn('#ask-drawer-messages', self.turn_js)
 
-    def test_no_js_fallback_deeplink_carries_pin(self):
-        """href 降级路径：深链必须带 pin 参数，聊天页 ?ask= 块要接住它"""
-        self.assertIn("'pin': activity.id", self.detail_views)
-        self.assertIn('pinActivityId', self.split)
-        self.assertIn("'/pin/'", self.split, '?ask= 块要调 pin 端点自动钉选')
-        # form body 必须显式给 Content-Type：fetch 默认 text/plain，Django 不解析，
-        # activity_id 落空会被 pin 端点当成「取消钉选」（真机踩过）
-        pin_block = self.split[self.split.index('pinActivityId'):
-                               self.split.index('window.paSplitChat')]
-        self.assertGreater(len(pin_block.strip()), 300, '切片切空了，这条锁就是假的')
-        self.assertIn("'Content-Type': 'application/x-www-form-urlencoded'", pin_block)
+    def test_no_js_fallback_deeplink_is_retired_with_the_page(self):
+        """href 深链降级随独立对话页一起下线：按钮无 href，钉选由服务端在
+        create-or-get 时直接赋 pin_activity（不走 pin 端点二次调用）"""
+        self.assertIn("'{% url \"chat:activity_conversation\" activity.id %}'", self.js_code,
+                      '抽屉必须挂 create-or-get 端点')
+        self.assertNotIn('pinActivityId', self.js_code)
+        # 只切问 AI 按钮自己的开标签：±窗口会扫进相邻「编辑」链接的 href，假失败
+        btn_at = self.detail_raw.index('id="ask-ai-btn"')
+        tag_start = self.detail_raw.rindex('<button', 0, btn_at)
+        tag = self.detail_raw[tag_start:self.detail_raw.index('>', btn_at)]
+        self.assertTrue(tag.startswith('<button type="button"'), tag)
+        self.assertNotIn('href=', tag, '问 AI 是纯 <button>，不再有深链降级（无 JS 时无动作）')
 
     def test_drawer_endpoints_go_through_the_create_or_get_outlet(self):
         self.assertIn('activity_conversation', self.detail_raw,
@@ -2011,7 +1969,6 @@ class ChatAuthExpiryWiringTest(SimpleTestCase):
         js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.js_code = ChatTurnFlowJsTest._strip_js_comments(js)
         cls.base = (root / 'templates' / 'base.html').read_text(encoding='utf-8')
-        cls.split = (root / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
 
     def test_only_the_shared_outlet_uses_raw_fetch(self):
         """只允许 apiFetch 内部那一处裸 fetch；第二处就是同时丢了 Accept 与 401 处理
@@ -2043,20 +2000,20 @@ class ChatAuthExpiryWiringTest(SimpleTestCase):
         self.assertEqual(block.count('return new Promise(function () {});'), 2,
                          '两个 401 分支都要抹掉后续链路（JSON 成功分支与解析失败分支）')
 
-    def test_split_page_uses_the_same_outlet_for_create(self):
+    def test_new_topic_uses_the_same_outlet_in_both_shells(self):
         """base.html 浮窗的「+ 新对话」以前靠假的 HX-Request 头骗视图返 JSON（浮窗已下线）；
 
-        分栏页的「新对话」按钮必须继续走共用出口：否则未登录时装饰器会按 HTML 请求
-        返 302，401 分支永远走不到（所以不只是一个雅观问题）。
+        侧栏/移动浮窗的「新话题」必须继续走共用出口：否则未登录时装饰器会按 HTML
+        请求返 302，401 分支永远走不到（所以不只是一个雅观问题）。
         """
-        from core.layout_asserts import code_only
-        # 两道都得剔：code_only 只剔 HTML/{% comment %} 注释，而这段说明写在内联
-        # JS 的 // 注释里 —— 不剔就会把「旧的骗法不得回来」的说明当成违规（本项目老坑）
-        code = ChatTurnFlowJsTest._strip_js_comments(code_only(self.split))
-        self.assertIn("paJsonFetch('{% url \"chat:create_conversation\" %}'", code)
-        self.assertNotIn("'HX-Request': 'true'", code, '旧的骗法不得回来')
+        root = Path(__file__).resolve().parent.parent
+        for shell in ('static/js/sidebar-agent.js', 'static/js/mobile-agent.js'):
+            src = (root / shell).read_text(encoding='utf-8')
+            code = ChatTurnFlowJsTest._strip_js_comments(src)
+            self.assertIn("window.paJsonFetch('/chat/create/'", code, shell)
+            self.assertNotIn("'HX-Request': 'true'", code, '旧的骗法不得回来')
         self.assertIn("{% staticv 'js/chat-turn.js' %}", self.base,
-                      'chat-turn.js 由 base.html 统一引入，否则分栏页里 paJsonFetch 是 undefined')
+                      'chat-turn.js 由 base.html 统一引入，否则壳里 paJsonFetch 是 undefined')
 
     def test_no_chat_endpoint_is_public(self):
         """遍历路由：每个聊天端点未登录时要么 302 要么 401，绝不真进视图
@@ -2149,14 +2106,15 @@ class ConversationRenameDeleteTest(TestCase):
         Message.objects.create(conversation=self.conv, role='user', content='hi')
 
     # --- rename ---
-    def test_rename_updates_title_and_redirects_to_detail(self):
+    def test_rename_updates_title_and_redirects_to_conversation(self):
         self.client.force_login(self.alice)
         resp = self.client.post(
             reverse('chat:conversation_rename', args=[self.conv.id]),
             {'title': '新标题'},
         )
         self.assertEqual(resp.status_code, 302)
-        self.assertIn(f'/chat/{self.conv.id}/', resp.url)
+        # 独立对话页下线后重定向墓碑改道 /?chat=<id>（唤起侧栏挂到该对话）
+        self.assertEqual(resp.url, f'/?chat={self.conv.id}')
         self.conv.refresh_from_db()
         self.assertEqual(self.conv.title, '新标题')
 
@@ -2199,7 +2157,8 @@ class ConversationRenameDeleteTest(TestCase):
         self.assertGreater(msg_count, 0)
         resp = self.client.post(reverse('chat:conversation_delete', args=[conv_id]))
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, reverse('chat:conversation_list'))
+        # 删除后回首页（独立对话页下线：旧列表路由只是重定向墓碑）
+        self.assertEqual(resp.url, '/')
         self.assertFalse(Conversation.objects.filter(id=conv_id).exists())
         self.assertEqual(Message.objects.filter(conversation_id=conv_id).count(), 0)
 
@@ -2362,15 +2321,14 @@ class ChatMobileBubbleLayoutTest(SimpleTestCase):
         self.assertIn('var(--bg-card)', more, '展开钮不该与黑底推荐 chip 同色')
 
     def test_every_message_host_has_vertical_spacing(self):
-        """五个消息流宿主都要 space-y-4（2026-11-13 降密度）：漏一个就回到消息贴消息"""
+        """三个消息流宿主都要 space-y-4（2026-11-13 降密度）：漏一个就回到消息贴消息
+        （原五个含分栏页/详情页，2026-11-13 随独立对话页下线）"""
         from core.layout_asserts import code_only
         root = Path(__file__).resolve().parent.parent / 'templates'
         hosts = [
             ('chat/partials/_sidebar_agent.html', 'data-side-agent-messages'),
             ('chat/partials/_mobile_agent.html', 'data-mobile-agent-messages'),
             ('activities/activity_detail.html', 'id="ask-drawer-messages"'),
-            ('chat/conversation_detail.html', 'id="messages"'),
-            ('chat/conversation_list.html', 'id="split-messages"'),
         ]
         for rel, hook in hosts:
             src = code_only((root / rel).read_text(encoding='utf-8'))
@@ -3364,31 +3322,42 @@ class PickCandidateTest(TestCase):
         self.assertIn('详情', resp.content.decode()) if False else None
 
 
-class AskDeepLinkTest(TestCase):
-    """「问 AI」深链（?ask=）：预填输入框供用户改两个字再发
+class AskDeepLinkTest(SimpleTestCase):
+    """`?chat=<id>` 深链（独立对话页下线后的深链落点，取代旧 ?ask=）
 
-    动态开场 chips 已于 2026-09-19 按用户要求下线（core.chips 已删）；
-    深链机制与 chips 无关，是活动详情页「问 AI」入口的承载，保留。"""
+    旧 /chat/<id>/ 页面变成 302 → /?chat=<id>；base.html 的内联 handler 把参数转成
+    window._paOpenChat 启动信号（展开侧栏/浮窗并挂到该对话），随后 replaceState
+    抹掉参数——刷新/分享不会重复触发。dashboard 最近对话、全局搜索、记忆溯源、
+    推送深链都靠这条链跳到具体对话。"""
 
-    TEMPLATE = Path(__file__).resolve().parent.parent / 'templates' / 'chat' / 'conversation_list.html'
+    BASE = Path(__file__).resolve().parent.parent / 'templates' / 'base.html'
 
     def setUp(self):
-        self.src = self.TEMPLATE.read_text(encoding='utf-8')
+        self.base = self.BASE.read_text(encoding='utf-8')
 
-    def test_ask_deep_link_script_wiring(self):
-        """?ask= 深链处理必须存在：预填输入框、无激活对话时自动新建"""
-        self.assertIn("location.search.match(/[?&]ask=([^&]+)/)", self.src)
-        self.assertIn('paFitTextarea(input)', self.src)
-        # 无激活对话时触发新建流程（与「+ 新建」共用 submit 处理器）
-        self.assertIn("newBtn.form.dispatchEvent(new Event('submit'", self.src)
+    def _shell(self, name):
+        path = (Path(__file__).resolve().parent.parent / 'static' / 'js' / name)
+        return ChatTurnFlowJsTest._strip_js_comments(path.read_text(encoding='utf-8'))
 
-    def test_ask_param_stripped_from_url(self):
-        """深链跳入后 replaceState 掉 ?ask=，刷新/分享不会重复触发预填"""
-        self.assertIn("history.replaceState(null, '', '/chat/');", self.src)
+    def test_base_handler_converts_chat_param_into_open_signal(self):
+        self.assertIn("_paParams.get('chat')", self.base)
+        self.assertIn('window._paOpenChat = { id: _paChatId', self.base)
+        self.assertIn("localStorage.setItem('pa-side-agent-conv', _paChatId)", self.base)
+        self.assertIn("document.body.classList.add('side-agent-open')", self.base)
+        # 参数只消费一次：replaceState 抹掉 ?chat= 与 ?history=
+        self.assertIn("history.replaceState(null, '', location.pathname", self.base)
+        self.assertIn("_paParams.delete('chat')", self.base)
+
+    def test_both_shells_consume_the_signal_on_startup(self):
+        """桌面侧栏与移动浮窗都要在启动时挂到指定对话（history=all 展开全量）"""
+        for name in ('sidebar-agent.js', 'mobile-agent.js'):
+            code = self._shell(name)
+            self.assertIn('window._paOpenChat && window._paOpenChat.id', code, name)
+            self.assertIn("window._paOpenChat.history === 'all'", code, name)
 
 
 class ActivityDetailAskAiTest(TestCase):
-    """活动详情页「问 AI」入口：场景化提问深链"""
+    """活动详情页「问 AI」入口：内嵌抽屉 + 活动专属会话 create-or-get"""
 
     def setUp(self):
         self.user = User.objects.create_user('ask_user', password='test')
@@ -3397,21 +3366,22 @@ class ActivityDetailAskAiTest(TestCase):
             user=self.user, name='桐庐周末游', status='planned',
             start_date=timezone.localdate() + timedelta(days=7))
 
-    def test_detail_page_has_ask_ai_link(self):
+    def test_detail_page_has_ask_ai_button(self):
         resp = self.client.get(f'/activities/{self.activity.id}/')
         self.assertEqual(resp.status_code, 200)
         html = resp.content.decode()
         self.assertIn('问 AI', html)
-        # 深链带场景化提问文本（urlencode 后含活动名）
-        self.assertIn('ask=', html)
-        self.assertIn('%E6%A1%90%E5%BA%90%E5%91%A8%E6%9C%AB%E6%B8%B8', html)  # 桐庐周末游
+        # 「问 AI」是 <button>（2026-11-13 独立对话页下线：AI 对话整体依赖 JS，
+        # 无 JS 时按钮无动作，不再有 href 深链降级），点开详情页内嵌抽屉
+        self.assertIn('<button type="button" id="ask-ai-btn"', html)
+        self.assertNotIn('href="/chat/', html)
 
-    def test_ask_url_targets_chat_list(self):
+    def test_ask_drawer_mounts_activity_conversation(self):
+        """抽屉装载走 create-or-get 端点（活动专属会话，服务端自动钉选），不再是 ?ask= 深链"""
         resp = self.client.get(f'/activities/{self.activity.id}/')
         html = resp.content.decode()
-        self.assertIn('href="/chat/?ask=', html)
-        # ask= 后面必须紧跟编码后的提问文本（而非重复的 key），防止双 ?ask=ask= 回归
-        self.assertIn('href="/chat/?ask=%E5%B8%AE%E6%88%91', html)  # 帮我…
+        self.assertIn(f'/chat/for-activity/{self.activity.id}/', html)
+        self.assertNotIn('/chat/?ask=', html)
 
 
 class ChatRagInjectionTest(TestCase):
@@ -3528,35 +3498,10 @@ class ChatHomeTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/accounts/login/', resp['Location'])
 
-    def test_local_card_entry_available_in_every_conversation(self):
-        """daily/工作台入口在所有对话可用。daily 简报 2026-10-08 起从头部 ⋯ 菜单
-        振到输入框上方小按钮（用户要求常用操作放明面）；工作台卡仍在菜单里"""
-        conv = Conversation.objects.create(
-            user=self.user, session_id='sess_d', agent_id='ag_d',
-            title='普通对话')
-        html = self.client.get(f'/chat/{conv.id}/').content.decode()
-        self.assertIn('data-local-card="daily_brief"', html)
-        self.assertIn('data-local-card="today_brief"', html)
-        # daily 简报在输入框上方（split-form 内），不在 ⋯ 菜单里
-        form_zone = html.split('id="split-form"', 1)[1]
-        self.assertIn('data-local-card="daily_brief"', form_zone)
-        menu_zone = html.split('class="conv-menu', 1)[1].split('</details>', 1)[0]
-        self.assertNotIn('daily_brief', menu_zone, '⋯ 菜单里不应再有 daily 简报入口')
-        # 独立按钮行已删净：容器与撤 hidden 的旧机制都不应残留
-        self.assertNotIn('id="local-cards"', html)
-        self.assertNotIn('data-daily-id', html, '旧的按会话 id 显隐机制应已删净')
-        # 详情页在头部操作行带同款入口
-        detail = self.client.get(f'/chat/{conv.id}/detail/').content.decode()
-        self.assertIn('data-local-card="daily_brief"', detail)
-        self.assertNotIn('id="local-cards"', detail)
-
     def test_nav_daily_page_retired(self):
-        """/daily/ 页下线：导航不再有「今日」入口，
-        /daily/ 路由保留但重定向回首页（= 对话列表）"""
-        conv = Conversation.objects.create(
-            user=self.user, session_id='sess_d', agent_id='ag_d',
-            title='普通对话')
-        html = self.client.get(f'/chat/{conv.id}/').content.decode()
+        """/daily/ 页下线：首页导航不再有「今日」入口，
+        /daily/ 路由保留但重定向回首页"""
+        html = self.client.get('/').content.decode()
         self.assertNotIn('href="/daily/"', html)
         resp = self.client.get('/daily/')
         self.assertEqual(resp.status_code, 302)
@@ -3712,12 +3657,17 @@ class DailyCardActionRowTest(SimpleTestCase):
         self.assertNotIn("url 'daily'", self.card)
 
     def test_local_card_chain_wired(self):
-        """local-card 委托链还在：chat-turn.js 委托调 /chat/<id>/local-card/"""
+        """local-card 委托链还在：chat-turn.js 委托调 /chat/<id>/local-card/
+        （入口按钮随独立对话页下线，机制与端点保留——AGENTS.md「保留的全部后端端点」）"""
         self.assertIn("'[data-local-card]'", self.js)
         # 端点读 request.POST：委托必须发表单体而不是 JSON（发 JSON 会静默拿不到 card）
         self.assertIn('application/x-www-form-urlencoded', self.js)
-        # chatId 从 location.pathname 解析（分栏 replaceState 与详情页 /detail/ 都覆盖）
-        self.assertIn('/\\/chat\\/(\\d+)/', self.js)
+        # chatId 不再从 location.pathname 解析（独立对话页下线后 pathname 不含 /chat/<id>）：
+        # 改从按钮所在面板容器的 data-chat-id 读，回退 window._paSidebarChatId
+        self.assertIn("getAttribute('data-chat-id')", self.js)
+        self.assertIn('localCardPanel(btn)', self.js)
+        self.assertNotIn('/\\/chat\\/(\\d+)/', self.js,
+                         'pathname 解析随独立对话页下线，残留会把非 /chat 页面的卡片发错会话')
         # 按钮行下线后 onReady 不应再引用 local-cards（残留则静默空跑；
         # 不能顺带扫 classList.remove('hidden')：状态条等 legitimate 用途含该子串）
         self.assertNotIn("getElementById('local-cards')", self.js)
@@ -3781,28 +3731,18 @@ class WorkbenchCardTest(TestCase):
 
 
 class WorkbenchCardWiringTest(SimpleTestCase):
-    """工作台卡的静态接线锁：入口按钮（分栏页菜单 + 详情页操作行）/
-    _card 分发 / 卡模板操作行与页链接 退场。
+    """工作台卡的静态接线锁：_card 分发 / 卡模板操作行与页链接。
 
-    2026-09-21：partials/local_cards.html 已删（入口挪进头部），
-    锁改扫两个页面模板。"""
+    2026-09-21：partials/local_cards.html 已删；2026-11-13 独立对话页下线后
+    data-local-card 入口按钮没有宿主（机制与 local-card 端点保留，见
+    DailyCardActionRowTest::test_local_card_chain_wired），锁收口到分发与卡内操作行。"""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         base = Path(__file__).resolve().parent.parent
-        cls.split = (base / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
-        cls.detail = (base / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
         cls.dispatch = (base / 'templates' / 'chat' / 'cards' / '_card.html').read_text(encoding='utf-8')
         cls.card = (base / 'templates' / 'chat' / 'cards' / 'today_brief_card.html').read_text(encoding='utf-8')
-
-    def test_partial_has_both_buttons(self):
-        for tpl in (self.split, self.detail):
-            self.assertIn('data-local-card="daily_brief"', tpl)
-            self.assertIn('data-local-card="today_brief"', tpl)
-        # 旧 partial 已删，不能再有页面 include 它
-        self.assertNotIn('partials/local_cards.html', self.split)
-        self.assertNotIn('partials/local_cards.html', self.detail)
 
     def test_dispatch_includes_today_brief_card(self):
         self.assertIn("msg.payload.card == 'today_brief'", self.dispatch)
@@ -3818,48 +3758,33 @@ class WorkbenchCardWiringTest(SimpleTestCase):
         self.assertNotIn('core/today.html', self.card)
 
 
-class ChatWideLayoutTest(SimpleTestCase):
-    """对话区加宽：base.html 的 main_class 钩子 + 聊天页覆盖 + 侧栏折叠"""
+class ChatAuroraRetiredTest(SimpleTestCase):
+    """Aurora 沉浸式深色主题已随 Typeframe 全站改版退役（2026-10-27）。
+
+    独立对话页 2026-11-13 下线后，原 ChatWideLayoutTest 的分栏加宽 / 侧栏折叠断言
+    随页面一并删除；这里只保留两条仍然成立的 invariant：① Aurora 不得复活（CSS 令牌
+    翻转 body.chat-aurora + 组件皮肤 .aurora）② 对话输入框走全站唯一下划线口径
+    tf-underline —— 后者改锁三个 surviving 挂载点（桌面侧栏 / 移动浮窗 / 问 AI 抽屉）。
+    """
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         base = Path(__file__).resolve().parent.parent
-        cls.base_html = (base / 'templates' / 'base.html').read_text(encoding='utf-8')
-        cls.list_html = (base / 'templates' / 'chat' / 'conversation_list.html').read_text(encoding='utf-8')
-        cls.detail_html = (base / 'templates' / 'chat' / 'conversation_detail.html').read_text(encoding='utf-8')
         cls.css = (base / 'static' / 'css' / 'custom.css').read_text(encoding='utf-8')
+        cls.shells = [
+            (base / 'templates' / 'chat' / 'partials' / '_sidebar_agent.html').read_text(encoding='utf-8'),
+            (base / 'templates' / 'chat' / 'partials' / '_mobile_agent.html').read_text(encoding='utf-8'),
+            (base / 'templates' / 'activities' / 'activity_detail.html').read_text(encoding='utf-8'),
+        ]
 
-    def test_main_class_hook_exists(self):
-        self.assertIn('{% block main_class %}', self.base_html)
-
-    def test_chat_page_widens_container(self):
-        self.assertIn('{% block main_class %}mx-auto max-w-[1700px]', self.list_html)
-
-    def test_sidebar_collapse_wiring(self):
-        self.assertIn('id="sidebar-toggle"', self.list_html)
-        self.assertIn("localStorage.getItem('pa-chat-sidebar')", self.list_html)
-        self.assertIn('.chat-layout.sidebar-collapsed .chat-sidebar', self.css)
-
-    def test_chat_pages_retired_aurora_for_typeframe(self):
-        """Aurora 沉浸式深色主题已随 Typeframe 全站改版退役（2026-10-27）。
-
-        历史背景：2026-10-21 上线 demo1 深色沉浸式（body.chat-aurora + .aurora 壳），
-        2026-10-27 用户定稿 typeframe mockup（纯白黑字，VIEW 3 = 发送者标签 + 正文），
-        聊天页回到全站同一套白底令牌。锁「不留残骸」：壳类、body class、
-        meta theme-color 深色值、CSS 里的令牌翻转都不允许再回来 —— 半套 aurora
-        挂在白站上会出现浅色导航 + 深色令牌的混搭（就是 2026-10-22 修过的「套用错了」）。"""
-        self.assertIn('{% block body_class %}', self.base_html,
-                      'base.html 的 body_class 钩子是通用能力，保留；聊天页只是不再使用它')
-        for html, name in ((self.list_html, 'conversation_list'), (self.detail_html, 'conversation_detail')):
-            self.assertNotIn('chat-aurora', html, f'{name} 还挂着 Aurora body class')
-            self.assertNotIn('aurora', html, f'{name} 还有 aurora 壳类残留')
-            self.assertNotIn('#0b0d1a', html, f'{name} 的深色 theme-color 还在')
+    def test_aurora_skin_never_returns(self):
         self.assertNotIn('body.chat-aurora', self.css, 'CSS 里 Aurora 令牌翻转还在')
         self.assertNotIn('.aurora', self.css, 'CSS 里 Aurora 组件皮肤还在')
-        # Typeframe 对话流的最低接线：输入框走全站唯一的下划线口径
-        self.assertIn('tf-underline', self.list_html)
-        self.assertIn('tf-underline', self.detail_html)
+
+    def test_chat_inputs_use_tf_underline(self):
+        for shell in self.shells:
+            self.assertIn('tf-underline', shell, '对话输入框必须走全站唯一 tf-underline 下划线口径')
 
 
 class FollowUpCollapseTest(SimpleTestCase):
@@ -3903,9 +3828,10 @@ class FollowUpCollapseTest(SimpleTestCase):
 class ChatHistoryWindowTest(TestCase):
     """对话视图只渲染最近 CHAT_HISTORY_DAYS 天的消息，?history=all 展开全量
 
-    只是展示层窗口：AI 上下文与归档摘要仍读全量历史。三个渲染口
-    （分栏初始 / widget-messages 片段 / 详情页）都必须带「显示更早」入口，
-    且窗口内一条都没有时不得落成「发送消息开始对话」（对话不是空的）。
+    只是展示层窗口：AI 上下文与归档摘要仍读全量历史。独立对话页 2026-11-13
+    下线后唯一的渲染口是 widget-messages 片段（侧栏 / 移动浮窗 / 问 AI 抽屉共用），
+    必须带「显示更早」入口，且窗口内一条都没有时不得落成「发送消息开始对话」
+    （对话不是空的）。
     """
 
     def setUp(self):
@@ -3920,20 +3846,6 @@ class ChatHistoryWindowTest(TestCase):
         cutoff = timezone.now() - timedelta(days=chat_views.CHAT_HISTORY_DAYS + 2)
         Message.objects.filter(pk=self.old.pk).update(created_at=cutoff)
 
-    def test_list_shows_only_recent_with_older_entry(self):
-        resp = self.client.get(f'/chat/{self.conv.id}/')
-        html = resp.content.decode()
-        self.assertNotIn('五天前的老消息', html)
-        self.assertIn('今天的新消息', html)
-        self.assertIn('显示更早的 1 条消息', html)
-        self.assertIn('history=all', html)
-
-    def test_list_history_all_expands_full_history(self):
-        html = self.client.get(f'/chat/{self.conv.id}/?history=all').content.decode()
-        self.assertIn('五天前的老消息', html)
-        self.assertIn('今天的新消息', html)
-        self.assertNotIn('显示更早的', html)
-
     def test_widget_fragment_windows_and_expands(self):
         html = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
         self.assertNotIn('五天前的老消息', html)
@@ -3941,11 +3853,7 @@ class ChatHistoryWindowTest(TestCase):
         html = self.client.get(
             f'/chat/{self.conv.id}/widget-messages/?history=all').content.decode()
         self.assertIn('五天前的老消息', html)
-
-    def test_detail_page_windows(self):
-        html = self.client.get(f'/chat/{self.conv.id}/detail/').content.decode()
-        self.assertNotIn('五天前的老消息', html)
-        self.assertIn('显示更早的 1 条消息', html)
+        self.assertNotIn('显示更早的', html)
 
     def test_all_old_conversation_does_not_show_empty_guide(self):
         """整个对话都超过窗口期：不能显示「发送消息开始对话」（消息并没有丢）"""
@@ -3959,7 +3867,7 @@ class ChatHistoryWindowTest(TestCase):
     def test_recent_conversation_has_no_older_entry(self):
         conv = Conversation.objects.create(
             user=self.user, session_id='sess_hw2', agent_id='ag_hw2', title='新对话')
-        html = self.client.get(f'/chat/{conv.id}/').content.decode()
+        html = self.client.get(f'/chat/{conv.id}/widget-messages/').content.decode()
         self.assertIn('发送消息开始对话', html)
         self.assertNotIn('显示更早的', html)
 
@@ -4014,18 +3922,20 @@ class AutoArchiveStaleConversationTest(TestCase):
         self.assertEqual(self.stale.status, 'idle')
 
     def test_archived_conversations_hidden_from_default_list(self):
-        """归档后默认列表不再出现（否则自动归档等于没做），?archived=1 可查看"""
+        """归档后默认列表不再出现（否则自动归档等于没做）
+
+        独立对话页下线后唯一的「默认列表」是侧栏历史（GET /chat/sidebar/conversations/，
+        只列非归档）；旧的 /chat/?archived=1 归档视图随页面一并删除。"""
         self.stale.status = 'archived'
         self.stale.save(update_fields=['status'])
         self.fresh.status = 'idle'
         self.fresh.save(update_fields=['status'])
-        # 2026-10-11：有活跃对话时 /chat/ 自动重定向进最近对话，列表断言跟随重定向页
-        html = self.client.get('/chat/', follow=True).content.decode()
-        self.assertIn('活跃', html)
-        self.assertNotIn('>超期<', html)
-        html = self.client.get('/chat/?archived=1').content.decode()
-        self.assertIn('超期', html)
-        self.assertNotIn('>活跃<', html)
+        resp = self.client.get('/chat/sidebar/conversations/',
+                               HTTP_ACCEPT='application/json')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.json().get('list_html', '')
+        self.assertIn(f'data-sb-conv-id="{self.fresh.id}"', html, '活跃对话必须在侧栏历史里')
+        self.assertNotIn(f'data-sb-conv-id="{self.stale.id}"', html, '归档对话不得出现在侧栏历史里')
 
     def test_resets_active_turn_when_archiving(self):
         self.stale.turn_state = Conversation.TURN_AWAITING
@@ -4060,6 +3970,7 @@ class ChatUiAuditFixesTest(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         root = Path(__file__).resolve().parent.parent
+        cls.root = root
         cls.tpl_root = root / 'templates' / 'chat'
         cls.turn_js = (root / 'static' / 'js' / 'chat-turn.js').read_text(encoding='utf-8')
         cls.turn_js_code = ChatTurnFlowJsTest._strip_js_comments(cls.turn_js)
@@ -4088,13 +3999,13 @@ class ChatUiAuditFixesTest(TestCase):
         self.assertIn('{% firstof note "上一轮没有完成，可以再问一次。" %}', tpl)
 
     def test_default_note_single_source(self):
-        """模板兜底句与 views 的 TURN_INTERRUPTED_NOTE 必须同句；conversation_list 不许再硬编码传 note"""
+        """模板兜底句与 views 的 TURN_INTERRUPTED_NOTE 必须同句；随片段消费的宿主不许再硬编码传 note"""
         tpl = (self.tpl_root / 'partials' / 'turn_error.html').read_text(encoding='utf-8')
         self.assertIn(chat_views.TURN_INTERRUPTED_NOTE, tpl)
-        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
-        start = split.index('{% include "chat/partials/turn_error.html"')
-        self.assertNotIn('note=', split[start:split.index('%}', start)],
-                         'conversation_list 又硬编码了第二份兜底文案')
+        widget = (self.tpl_root / 'partials' / 'widget_messages.html').read_text(encoding='utf-8')
+        start = widget.index('{% include "chat/partials/turn_error.html"')
+        self.assertNotIn('note=', widget[start:widget.index('%}', start)],
+                         '片段宿主又硬编码了第二份兜底文案')
 
     # ── item 2：weekly_review 卡不再被静默丢弃 ──
 
@@ -4118,38 +4029,35 @@ class ChatUiAuditFixesTest(TestCase):
         dispatch = (self.tpl_root / 'cards' / '_card.html').read_text(encoding='utf-8')
         self.assertIn("msg.payload.card == 'weekly_review'", dispatch)
 
-    # ── item 3/4/8：分栏页脚本的静默丢失 / 注入 / alert ──
+    # ── item 3/4/8：壳脚本的静默丢失 / 注入 / alert（原分栏页脚本 2026-11-13 下线）──
 
-    def test_split_script_has_no_native_dialogs(self):
-        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
-        js = ChatTurnFlowJsTest._strip_js_comments(split)
-        self.assertNotIn('alert(', js)
-        self.assertIn('flashSplitHint(', js, '行内自消提示是 alert 的替代品，不能整体删掉')
+    def test_shell_scripts_have_no_native_dialogs(self):
+        """alert 不回来：侧栏/浮窗的失败反馈一律走内联提示段落（用户锁定的口径）"""
+        for name in ('sidebar-agent.js', 'mobile-agent.js'):
+            js = ChatTurnFlowJsTest._strip_js_comments(
+                (self.root / 'static' / 'js' / name).read_text(encoding='utf-8'))
+            self.assertNotIn('alert(', js)
+            self.assertIn('装载失败，请重试', js,
+                          f'{name} 行内自消/内联提示是 alert 的替代品，不能整体删掉')
 
-    def test_conv_item_builds_title_with_dom_api(self):
-        """标题是用户数据：只许 textContent 进 DOM，不许拼进 innerHTML 字符串"""
-        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
-        js = ChatTurnFlowJsTest._strip_js_comments(split)
-        self.assertIn('h3.textContent = title', js)
-        # ⋯ 菜单的 innerHTML 只可以是纯常量模板：拼接用户数据的旧路径不许复活
-        start = js.index('function convMenuEl')
-        body = js[start:js.index('function convItemEl')]
-        assign = body.split('box.innerHTML =')[1].split('var details')[0]
-        self.assertIn('<details class="conv-menu', assign, '切片没捕到菜单模板本体，这条锁是空的')
-        self.assertNotIn('+ title', assign, '菜单模板拼进了标题：innerHTML 注入面回来了')
-        self.assertNotIn('+ data', assign)
+    def test_history_titles_travel_as_server_fragments(self):
+        """对话标题是用户数据：壳只整份插入服务端渲染的片段（模板转义兜底），
+        JS 不得把标题拼进 innerHTML 字符串（与候选列表 textContent 同一纪律）"""
+        for name in ('sidebar-agent.js', 'mobile-agent.js'):
+            code = ChatTurnFlowJsTest._strip_js_comments(
+                (self.root / 'static' / 'js' / name).read_text(encoding='utf-8'))
+            self.assertIn('d.list_html', code, f'{name} 历史列表必须吃服务端片段')
+            self.assertNotIn('+ title', code)
+            self.assertNotIn('+ convTitle', code)
 
-    def test_split_send_without_conversation_is_intercepted(self):
-        """未选对话点发送：拦原生 POST（整页重绘丢输入），给可见提示"""
-        split = (self.tpl_root / 'conversation_list.html').read_text(encoding='utf-8')
-        js = ChatTurnFlowJsTest._strip_js_comments(split)
-        # 用 rindex：新建表单的处理器先出现且共享同一子串，最后一条才是未选对话的拦截
-        start = js.rindex("form.addEventListener('submit'")
-        body = js[start:start + 400]
-        self.assertIn('if (currentId) return;', body,
-                      '已选中时必须给 PaChatTurn 让路，不能双处理器')
-        self.assertIn('e.preventDefault();', body)
-        self.assertIn('flashSplitHint', body)
+    def test_send_without_conversation_is_intercepted(self):
+        """没有可用对话时点发送/钉选：不得静默发往未知端点，给可见提示
+        （原分栏页未选对话的表单拦截随页面下线，壳永远 create-or-get 挂着会话，
+        这里锁 chat-turn.js 内的两道同款守卫）"""
+        js = self.turn_js_code
+        self.assertIn("if (!u.send) {", js)
+        self.assertIn("showStatus('先选一个对话');", js)
+        self.assertIn("if (!u.set) { flash('先选一个对话'); return; }", js)
 
     # ── item 5：活动卡状态按钮 fetch 化 ──
 
@@ -4179,7 +4087,8 @@ class ChatUiAuditFixesTest(TestCase):
         })
         msg.payload['action']['token'] = make_action_token(self.user, msg.id, 'confirm')
         msg.save(update_fields=['payload'])
-        pending = self.client.get(f'/chat/{self.conv.id}/detail/').content.decode()
+        # 独立对话页下线后唯一渲染口是 widget-messages 片段（原 /detail/ 页 2026-11-13 删）
+        pending = self.client.get(f'/chat/{self.conv.id}/widget-messages/').content.decode()
         self.assertIn('点确认后才会创建', pending)
         self.assertIn(f'id="confirm-card-{msg.id}"', pending, '整卡必须带可替换的锚点 id')
         resp = self.client.post(reverse('chat:confirm_action', args=[msg.id]),
@@ -4198,8 +4107,10 @@ class ChatUiAuditFixesTest(TestCase):
 
     def test_centering_classes_have_flex_host(self):
         """items-center/justify-center 必须挂在 flex/inline-flex 宿主上（否则整行塌陷）"""
-        for rel in ('conversation_list.html', 'partials/pin_bar.html',
-                    'cards/activity_card.html', 'cards/confirm_card.html'):
+        hosts = ('partials/_sidebar_agent.html', 'partials/_mobile_agent.html',
+                 'partials/pin_bar.html', 'partials/widget_messages.html',
+                 'cards/activity_card.html', 'cards/confirm_card.html')
+        for rel in hosts:
             src = code_only((self.tpl_root / rel).read_text(encoding='utf-8'))
             # JS 字符串里的 class 赋值同样是 DOM，一起扫
             for m in re.finditer(r'class(?:Name)?\s*=\s*[\'"]([^\'"]*)[\'"]', src):
@@ -4235,53 +4146,75 @@ class ChatUiAuditFixesTest(TestCase):
         self.assertIn('钉住的活動', drawer_pinned, '抽屉上下文里 chip（已钉状态）要照常显示')
 
 
-class ChatAutoEnterLatestTest(TestCase):
-    """打开 /chat/ 自动进入最近一次对话（2026-10-11 用户要求，不再让用户从列表里选）"""
+class ChatPageRedirectTombstoneTest(TestCase):
+    """独立对话页 2026-11-13 下线后的重定向墓碑（用户：「不用单独的 AI 对话页面了」）
+
+    旧 /chat/、/chat/<id>/、/chat/<id>/detail/ 一律 302 落首页；带 id 的附
+    ?chat=<id> 唤起全站侧栏（桌面）/ 浮窗（移动）并挂到该对话。路由 name 保留
+    （conversation_list / conversation_list_with_active / conversation_detail），
+    旧书签、模板 {% url %}、推送深链不破。?ask= / ?archived=1 / ?q= 这组旧列表页
+    查询串随页面消失，不再有「不被重定向」的特殊语义——整条路径就是墓碑。
+    """
 
     def setUp(self):
         self.user = User.objects.create_user('raven', password='test')
         self.client.login(username='raven', password='test')
 
-    def _make(self, sid, title, minutes_ago):
+    def _make(self, sid, title, minutes_ago=5):
         conv = Conversation.objects.create(user=self.user, session_id=sid, title=title)
         Conversation.objects.filter(pk=conv.pk).update(
             updated_at=timezone.now() - timedelta(minutes=minutes_ago))
         return conv
 
-    def test_root_redirects_to_most_recent_conversation(self):
-        self._make('sess_old', '旧对话', 60)
-        latest = self._make('sess_new', '最近对话', 5)
+    def test_route_names_still_resolve(self):
+        """旧 name 是给存量模板/推送深链用的：谁还 reverse 这些名字，不能静默 500"""
+        self.assertEqual(reverse('chat:conversation_list'), '/chat/')
+        self.assertEqual(reverse('chat:conversation_list_with_active', args=[7]), '/chat/7/')
+        self.assertEqual(reverse('chat:conversation_detail', args=[7]), '/chat/7/detail/')
+
+    def test_root_redirects_home(self):
         resp = self.client.get('/chat/')
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, f'/chat/{latest.id}/')
+        self.assertEqual(resp.url, '/')
 
-    def test_redirect_target_lands_in_chat_view(self):
-        """重定向后的页面必须直接带活跃对话（data-active-id），移动端 JS 才会进聊天视图"""
-        latest = self._make('sess_x', '直接可聊', 1)
-        html = self.client.get('/chat/', follow=True).content.decode()
-        self.assertIn(f'data-active-id="{latest.id}"', html)
-        self.assertIn('直接可聊', html, '左栏列表仍要完整渲染，☰ 可回列表')
+    def test_conversation_redirect_deep_links_to_sidebar(self):
+        latest = self._make('sess_new', '最近对话')
+        for path in (f'/chat/{latest.id}/', f'/chat/{latest.id}/detail/'):
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 302, path)
+            self.assertEqual(resp.url, f'/?chat={latest.id}', path)
 
-    def test_ask_deeplink_is_not_redirected(self):
-        """?ask= 深链自带对话创建/预填逻辑，不能被重定向劫走"""
-        self._make('sess_y', '占位', 1)
-        resp = self.client.get('/chat/?ask=帮我记一笔')
-        self.assertEqual(resp.status_code, 200)
+    def test_dead_list_params_redirect_too(self):
+        """?ask= 深链、归档视图、搜索视图都随独立页面一起下线，无豁免语义"""
+        self._make('sess_y', '占位')
+        for path in ('/chat/?ask=帮我记一笔', '/chat/?archived=1', '/chat/?q=占位'):
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 302, path)
+            self.assertEqual(resp.url, '/', path)
 
-    def test_archived_view_is_not_redirected(self):
-        self._make('sess_z', '占位', 1)
-        resp = self.client.get('/chat/?archived=1')
-        self.assertEqual(resp.status_code, 200)
+    def test_weekly_review_deeplink_creates_conversation_and_redirects(self):
+        """周回顾深链（推送 / 周报入口）：建回顾对话后 ?chat=<id> 唤起侧栏"""
+        from agents.models import AgentConfig, EnvironmentConfig
+        AgentConfig.objects.create(
+            agent_id='agent_wr', name='对话', purpose='knowledge', is_active=True)
+        EnvironmentConfig.objects.create(env_id='env_wr', name='默认', is_default=True)
+        with patch('chat.views.get_service', return_value=_CreateSessionFakeService()):
+            resp = self.client.get('/chat/weekly-review/')
+        self.assertEqual(resp.status_code, 302)
+        conv_id = int(resp.url.split('=')[-1])
+        conv = Conversation.objects.get(id=conv_id)
+        self.assertEqual(conv.user, self.user)
+        self.assertTrue(conv.title.startswith('周回顾'), conv.title)
+        first = conv.messages.order_by('created_at').first()
+        self.assertIsNotNone(first)
+        self.assertEqual(first.role, 'assistant', '回顾引导首条消息要注入')
 
-    def test_search_is_not_redirected(self):
-        self._make('sess_s', '占位', 1)
-        resp = self.client.get('/chat/?q=占位')
-        self.assertEqual(resp.status_code, 200)
-
-    def test_no_conversations_stays_on_list_page(self):
-        """零对话时没有可进入的目标，留在列表页（空态 + 新建入口）"""
-        resp = self.client.get('/chat/')
-        self.assertEqual(resp.status_code, 200)
+    def test_weekly_review_falls_back_home_when_creation_fails(self):
+        """缺 Agent/Environment 或平台异常时落首页不阻断（失败仍可用手动回顾入口）"""
+        self._make('sess_f', '占位')
+        resp = self.client.get('/chat/weekly-review/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, '/')
 
 
 class MemoryPerTurnInjectionTest(TestCase):
@@ -4836,8 +4769,8 @@ class SidebarWiringTest(SimpleTestCase):
         self.assertNotIn('hx-post', self.shell, '侧栏是 JSON 端点，严禁挂 hx-*')
 
     def test_agent_js_mounts_via_paJsonFetch_and_resumes(self):
-        # mount 经 mountUrl() 组 URL（无参 = 最新非归档，带参 = ?conversation_id=）
-        self.assertIn('paJsonFetch(mountUrl(convId)', self.agent_js)
+        # mount 经 mountUrl() 组 URL（无参 = 最新非归档，带参 = ?conversation_id= + history=all）
+        self.assertIn('paJsonFetch(mountUrl(convId, historyAll)', self.agent_js)
         self.assertIn("'/chat/sidebar/'", self.agent_js)
         self.assertIn('window.PaChatTurn', self.agent_js)
         self.assertIn('data-turn-resume', self.agent_js)
